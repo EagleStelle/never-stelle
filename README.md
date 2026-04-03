@@ -14,7 +14,7 @@ Never Stelle is a self-hosted web downloader with a browser UI for YouTube, Face
 
 ## Download backends
 
-- `yt-dlp` for general downloads and supported Instagram flows
+- `yt-dlp` for general downloads
 - `Instaloader` for supported Instagram flows
 - `iwaradl` for Iwara downloads
 - `Flask` for the web application
@@ -131,7 +131,8 @@ never-stelle/
 │  ├─ templates/
 │  └─ static/
 ├─ data/
-└─ library/
+├─ library/
+└─ tools/
 ```
 
 ### Windows 11
@@ -144,6 +145,8 @@ Install these first:
 - FFmpeg
 
 From the project root:
+
+#### PowerShell
 
 ```powershell
 py -m venv .venv
@@ -179,10 +182,10 @@ Test it:
 Run Never Stelle:
 
 ```powershell
-$env:APP_DATA_DIR="../data"
-$env:ACCESSIBLE_VOLUMES_ROOTS="../library"
-$env:IWARADL_BIN="../tools/iwaradl/iwaradl.exe"
-cd app
+cd .\app
+$env:APP_DATA_DIR="..\data"
+$env:ACCESSIBLE_VOLUMES_ROOTS="..\library"
+$env:IWARADL_BIN="..\tools\iwaradl\iwaradl.exe"
 python app.py
 ```
 
@@ -192,11 +195,62 @@ If `ffmpeg.exe` is not on your `PATH`, also set:
 $env:YTDLP_FFMPEG_LOCATION="C:\full\path\to\ffmpeg.exe"
 ```
 
+#### Command Prompt
+
+```cmd
+py -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Create local folders:
+
+```cmd
+mkdir data
+mkdir library
+mkdir tools
+```
+
+Build `iwaradl`:
+
+```cmd
+git clone https://github.com/Izumiko/iwaradl.git .\tools\iwaradl-src
+cd .\tools\iwaradl-src
+set "CGO_ENABLED=0"
+go build -o ..\iwaradl\iwaradl.exe .
+cd ..\..
+```
+
+Test it:
+
+```cmd
+.\tools\iwaradl\iwaradl.exe --help
+```
+
+Run Never Stelle:
+
+```cmd
+cd app
+set "APP_DATA_DIR=..\data"
+set "ACCESSIBLE_VOLUMES_ROOTS=..\library"
+set "IWARADL_BIN=..\tools\iwaradl\iwaradl.exe"
+python app.py
+```
+
+If `ffmpeg.exe` is not on your `PATH`, also set:
+
+```cmd
+set "YTDLP_FFMPEG_LOCATION=C:\full\path\to\ffmpeg.exe"
+```
+
 Open:
 
 ```text
 http://localhost:8088
 ```
+
+> Do not copy the terminal prompt itself. Only run the command text.
 
 ### Linux
 
@@ -249,10 +303,10 @@ Test it:
 Run Never Stelle:
 
 ```bash
+cd app
 export APP_DATA_DIR=../data
 export ACCESSIBLE_VOLUMES_ROOTS=../library
 export IWARADL_BIN=../tools/iwaradl/iwaradl
-cd app
 python app.py
 ```
 
@@ -266,14 +320,6 @@ Open:
 
 ```text
 http://localhost:8088
-```
-
-## Requirements
-
-Install Python packages with:
-
-```bash
-pip install -r requirements.txt
 ```
 
 ## Troubleshooting
@@ -324,8 +370,15 @@ or set `YTDLP_FFMPEG_LOCATION` to the full path of the binary.
 
 Never Stelle uses and builds on top of these projects:
 
-- `Flask` for the web application
-- `yt-dlp` for supported site downloads
-- `Instaloader` for Instagram support
-- `iwaradl` for Iwara support
-- `FFmpeg` for media handling where needed
+- [Flask](https://flask.palletsprojects.com/) for the web application
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) for supported site downloads
+- [Instaloader](https://github.com/instaloader/instaloader) for Instagram support
+- [iwaradl](https://github.com/Izumiko/iwaradl) for Iwara support
+- [FFmpeg](https://ffmpeg.org/) for media handling where needed
+
+Useful upstream license and project pages:
+
+- [yt-dlp license](https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE)
+- [Instaloader license](https://github.com/instaloader/instaloader/blob/master/LICENSE)
+- [iwaradl license](https://github.com/Izumiko/iwaradl/blob/master/LICENSE)
+- [FFmpeg legal and licensing](https://ffmpeg.org/legal.html)
