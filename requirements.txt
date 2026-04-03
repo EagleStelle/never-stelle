@@ -1,0 +1,8 @@
+# Python packages only.
+# External tools such as ffmpeg and iwaradl must be installed separately.
+
+flask
+requests
+PyYAML
+yt-dlp
+instaloader

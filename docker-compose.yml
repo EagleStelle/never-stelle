@@ -1,0 +1,12 @@
+services:
+  never-stelle:
+    image: eaglestelle/never-stelle
+    container_name: never-stelle
+    restart: unless-stopped
+    environment:
+      ACCESSIBLE_VOLUMES_ROOTS: "/library|/media"
+    volumes:
+      - ./data:/app/data
+      - ./library:/library
+    ports:
+      - "8088:8088"

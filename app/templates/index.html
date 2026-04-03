@@ -1,0 +1,2014 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Never Stelle</title>
+    <link
+      rel="icon"
+      type="image/png"
+      href="{{ url_for('static', filename='assets/logo.png') }}"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+    <style>
+      /* ── Palette ───────────────────────────────────────────────────────── */
+      :root {
+        --iw-bg: #210535;
+        --iw-panel: #420d4a;
+        --iw-panel2: #2d0a3d;
+
+        --iw-text: #f4d5e0;
+        --iw-muted: #c99db8;
+
+        --iw-accent: #c774b2;
+        --iw-accent2: #7b347e;
+
+        --iw-warning: #c774b2;
+        --iw-success: #f4d5e0;
+        --iw-danger: #7b347e;
+
+        --iw-strong-text: #210535;
+        --iw-input-placeholder: #8a567e;
+        --iw-overlay: rgba(10, 4, 20, 0.72);
+        --iw-border: #7b347e;
+        --iw-border-strong: #c774b2;
+        --iw-soft-fill: color-mix(in srgb, var(--iw-panel) 82%, var(--iw-bg));
+      }
+
+      body.light-mode {
+        --iw-bg: #f4d5e0;
+        --iw-panel: #ffffff;
+        --iw-panel2: #eddae5;
+
+        --iw-text: #210535;
+        --iw-muted: #7b347e;
+
+        --iw-accent: #c774b2;
+        --iw-accent2: #420d4a;
+
+        --iw-warning: #c774b2;
+        --iw-success: #420d4a;
+        --iw-danger: #7b347e;
+
+        --iw-strong-text: #210535;
+        --iw-input-placeholder: #9e6f95;
+        --iw-overlay: rgba(33, 5, 53, 0.3);
+        --iw-border: #c774b2;
+        --iw-border-strong: #7b347e;
+        --iw-soft-fill: color-mix(in srgb, var(--iw-panel2) 78%, var(--iw-bg));
+      }
+
+      :root {
+        --iw-cta-bg: #c774b2;
+        --iw-cta-bg-hover: #f4d5e0;
+        --iw-cta-text: #210535;
+
+        --iw-action-bg: #c774b2;
+        --iw-action-border: #f4d5e0;
+        --iw-action-text: #210535;
+        --iw-action-hover-bg: #f4d5e0;
+        --iw-action-hover-border: #c774b2;
+        --iw-action-hover-text: #210535;
+
+        --iw-danger-bg: #7b347e;
+        --iw-danger-border: #c774b2;
+        --iw-danger-text: #f4d5e0;
+        --iw-danger-hover-bg: #c774b2;
+        --iw-danger-hover-border: #f4d5e0;
+        --iw-danger-hover-text: #210535;
+      }
+
+      body.light-mode {
+        --iw-cta-bg: #420d4a;
+        --iw-cta-bg-hover: #7b347e;
+        --iw-cta-text: #f4d5e0;
+
+        --iw-action-bg: #420d4a;
+        --iw-action-border: #7b347e;
+        --iw-action-text: #f4d5e0;
+        --iw-action-hover-bg: #7b347e;
+        --iw-action-hover-border: #420d4a;
+        --iw-action-hover-text: #f4d5e0;
+
+        --iw-danger-bg: #7b347e;
+        --iw-danger-border: #420d4a;
+        --iw-danger-text: #f4d5e0;
+        --iw-danger-hover-bg: #420d4a;
+        --iw-danger-hover-border: #7b347e;
+        --iw-danger-hover-text: #f4d5e0;
+      }
+
+      /* Minimal CSS kept only where Tailwind cannot cover it cleanly */
+      .settings-scroll {
+        scrollbar-width: thin;
+        scrollbar-color: var(--iw-border-strong)
+          color-mix(in srgb, var(--iw-panel2) 88%, transparent);
+      }
+
+      .settings-scroll::-webkit-scrollbar {
+        width: 10px;
+      }
+
+      .settings-scroll::-webkit-scrollbar-track {
+        background: color-mix(in srgb, var(--iw-panel2) 88%, transparent);
+        border-radius: 9999px;
+      }
+
+      .settings-scroll::-webkit-scrollbar-thumb {
+        background: linear-gradient(
+          180deg,
+          var(--iw-accent),
+          var(--iw-border-strong)
+        );
+        border: 2px solid color-mix(in srgb, var(--iw-panel2) 88%, transparent);
+        border-radius: 9999px;
+      }
+
+      .settings-scroll::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(
+          180deg,
+          var(--iw-border-strong),
+          var(--iw-accent)
+        );
+      }
+
+      body.light-mode .settings-nav-btn[aria-pressed="true"] {
+        background: color-mix(in srgb, var(--iw-accent) 14%, var(--iw-panel));
+        color: var(--iw-text);
+      }
+
+      body.light-mode #settingsModal,
+      body.light-mode #settingsModal input,
+      body.light-mode #settingsModal textarea,
+      body.light-mode #settingsModal select {
+        color: #210535 !important;
+        -webkit-text-fill-color: #210535;
+        caret-color: #210535;
+      }
+
+      body.light-mode #settingsModal option,
+      body.light-mode #settingsModal optgroup {
+        color: #210535;
+        background: #eddae5;
+      }
+
+      #settingsModal input:-webkit-autofill,
+      #settingsModal input:-webkit-autofill:hover,
+      #settingsModal input:-webkit-autofill:focus,
+      #settingsModal textarea:-webkit-autofill,
+      #settingsModal select:-webkit-autofill {
+        -webkit-text-fill-color: var(--iw-text);
+        -webkit-box-shadow: 0 0 0 1000px var(--iw-panel2) inset;
+        box-shadow: 0 0 0 1000px var(--iw-panel2) inset;
+        caret-color: var(--iw-text);
+        transition: background-color 5000s ease-in-out 0s;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-[var(--iw-bg)] text-[var(--iw-text)] font-sans">
+    <a
+      class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-xl focus:bg-white focus:px-4 focus:py-2 focus:font-bold focus:text-slate-900"
+      href="#mainContent"
+    >
+      Skip to content
+    </a>
+
+    <main
+      id="mainContent"
+      class="mx-auto max-w-[1180px] px-4 pt-2 pb-4 md:pt-3 md:pb-6"
+      tabindex="-1"
+    >
+      <section class="mb-4 flex flex-wrap items-start justify-between gap-5">
+        <div class="flex min-w-0 flex-1 flex-col gap-4">
+          <div class="flex items-center justify-between gap-3">
+            <a
+              href="/"
+              class="inline-flex min-w-0 items-center gap-[0.55rem] sm:gap-[0.7rem]"
+              aria-label="Never Stelle Home"
+            >
+              <img
+                src="{{ url_for('static', filename='assets/logo.png') }}"
+                alt=""
+                class="h-[2.8rem] w-auto flex-none sm:h-[3.05rem]"
+              />
+              <span
+                class="translate-y-[2px] whitespace-nowrap font-['League_Spartan',ui-sans-serif,system-ui,sans-serif] text-[clamp(1.55rem,2.65vw,2.3rem)] font-extrabold uppercase tracking-[0.03em] text-[var(--iw-cta-bg)] [text-shadow:0_1px_0_rgba(33,5,53,0.06)]"
+              >
+                Never Stelle
+              </span>
+            </a>
+            <div class="flex items-center gap-2">
+              <button
+                id="themeToggleButton"
+                type="button"
+                class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] text-[var(--iw-text)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)]"
+                aria-label="Toggle light and dark mode"
+                aria-pressed="false"
+                title="Toggle light and dark mode"
+              >
+                <svg
+                  id="themeToggleIcon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  class="h-5 w-5"
+                >
+                  <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+                </svg>
+              </button>
+              <button
+                id="settingsButton"
+                type="button"
+                class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] text-[var(--iw-text)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)]"
+                aria-label="Open settings"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  class="h-5 w-5"
+                >
+                  <path
+                    d="M12 3l1.8 2.7 3.1.5.5 3.1L20 11l-2.6 1.7-.5 3.1-3.1.5L12 19l-1.8-2.7-3.1-.5-.5-3.1L4 11l2.6-1.7.5-3.1 3.1-.5L12 3z"
+                  />
+                  <circle cx="12" cy="11" r="3.2" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="mt-4 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-4 shadow-soft"
+      >
+        <form id="downloadForm" class="space-y-3">
+          <div
+            class="grid grid-cols-1 gap-2.5 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center"
+          >
+            <div
+              class="overflow-hidden rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] focus-within:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus-within:ring-2 focus-within:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+            >
+              <div class="flex h-[46px] items-center gap-2 pr-2">
+                <input
+                  id="urlInput"
+                  name="url"
+                  type="url"
+                  autocomplete="off"
+                  placeholder="Paste a supported URL"
+                  required
+                  class="h-full w-full bg-transparent px-4 text-base text-[var(--iw-text)] outline-none placeholder:text-[color:var(--iw-input-placeholder)]"
+                />
+              </div>
+            </div>
+
+            <div
+              class="flex h-[46px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft lg:w-auto lg:min-w-[290px]"
+              aria-label="Save mode"
+            >
+              <button
+                type="button"
+                class="save-mode-btn flex-1 rounded-xl px-4 text-sm font-semibold transition bg-[var(--iw-accent)] text-[color:var(--iw-strong-text)]"
+                data-save-mode="nas"
+                aria-pressed="true"
+              >
+                Save to NAS
+              </button>
+              <button
+                type="button"
+                class="save-mode-btn flex-1 rounded-xl px-4 text-sm font-semibold transition text-[var(--iw-muted)]"
+                data-save-mode="device"
+                aria-pressed="false"
+              >
+                Save to device
+              </button>
+            </div>
+
+            <button
+              id="submitButton"
+              type="submit"
+              class="flex h-[46px] w-full shrink-0 items-center justify-center rounded-2xl border border-transparent bg-[var(--iw-cta-bg)] font-bold text-[var(--iw-cta-text)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:bg-[var(--iw-cta-bg-hover)] lg:w-[46px]"
+              aria-label="Download"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                class="h-5 w-5"
+              >
+                <path d="M12 5v10"></path>
+                <path d="M7 10l5 5 5-5"></path>
+                <path d="M5 19h14"></path>
+              </svg>
+            </button>
+          </div>
+        </form>
+      </section>
+      <section class="my-5 flex flex-col gap-3 xl:flex-row xl:items-center">
+        <div
+          class="min-w-0 flex-1 overflow-hidden rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] shadow-soft"
+        >
+          <div class="grid grid-cols-2 md:grid-cols-4">
+            <div
+              class="flex items-center justify-between gap-3 border-b border-r border-[var(--iw-border)] px-4 py-3 md:border-b-0"
+            >
+              <span class="text-sm text-[var(--iw-muted)]">Queued</span>
+              <strong id="queuedCount" class="text-2xl font-bold leading-none"
+                >0</strong
+              >
+            </div>
+            <div
+              class="flex items-center justify-between gap-3 border-b border-[var(--iw-border)] px-4 py-3 md:border-b-0 md:border-r"
+            >
+              <span class="text-sm text-[var(--iw-muted)]">Active</span>
+              <strong id="runningCount" class="text-2xl font-bold leading-none"
+                >0</strong
+              >
+            </div>
+            <div
+              class="flex items-center justify-between gap-3 border-r border-[var(--iw-border)] px-4 py-3 md:border-r"
+            >
+              <span class="text-sm text-[var(--iw-muted)]">Done</span>
+              <strong
+                id="completedCount"
+                class="text-2xl font-bold leading-none"
+                >0</strong
+              >
+            </div>
+            <div class="flex items-center justify-between gap-3 px-4 py-3">
+              <span class="text-sm text-[var(--iw-muted)]">Failed</span>
+              <strong id="failedCount" class="text-2xl font-bold leading-none"
+                >0</strong
+              >
+            </div>
+          </div>
+        </div>
+
+        <div class="flex w-full gap-2 xl:w-auto xl:shrink-0">
+          <button
+            id="clearCompletedButton"
+            type="button"
+            class="inline-flex h-10 flex-1 items-center justify-center rounded-2xl border-[1.5px] border-[var(--iw-danger-border)] bg-[var(--iw-danger-bg)] px-4 text-sm font-semibold text-[var(--iw-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-danger-hover-border)] hover:bg-[var(--iw-danger-hover-bg)] hover:text-[var(--iw-danger-hover-text)] xl:min-w-[124px] xl:flex-none"
+          >
+            Clear done
+          </button>
+          <button
+            id="clearPendingButton"
+            type="button"
+            class="inline-flex h-10 flex-1 items-center justify-center rounded-2xl border-[1.5px] border-[var(--iw-danger-border)] bg-[var(--iw-danger-bg)] px-4 text-sm font-semibold text-[var(--iw-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-danger-hover-border)] hover:bg-[var(--iw-danger-hover-bg)] hover:text-[var(--iw-danger-hover-text)] xl:min-w-[128px] xl:flex-none"
+          >
+            Clear queue
+          </button>
+        </div>
+      </section>
+
+      <section aria-labelledby="downloadsHeading">
+        <div class="mb-3 flex flex-col gap-3">
+          <h2
+            id="downloadsHeading"
+            class="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--iw-muted)]"
+          >
+            Downloads
+          </h2>
+
+          <div
+            class="rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-2 shadow-soft"
+          >
+            <div
+              class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between"
+            >
+              <div class="max-w-full overflow-x-auto">
+                <nav
+                  class="inline-flex w-max flex-nowrap items-center gap-0.5 whitespace-nowrap rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft"
+                  aria-label="Task sources"
+                >
+                  <button
+                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    type="button"
+                    data-menu="all"
+                  >
+                    All
+                  </button>
+                  <button
+                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    type="button"
+                    data-menu="youtube"
+                  >
+                    YouTube
+                  </button>
+                  <button
+                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    type="button"
+                    data-menu="facebook"
+                  >
+                    Facebook
+                  </button>
+                  <button
+                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    type="button"
+                    data-menu="instagram"
+                  >
+                    Instagram
+                  </button>
+                  <button
+                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    type="button"
+                    data-menu="tiktok"
+                  >
+                    TikTok
+                  </button>
+                  <button
+                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    type="button"
+                    data-menu="iwara"
+                  >
+                    Iwara
+                  </button>
+                  <button
+                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    type="button"
+                    data-menu="others"
+                  >
+                    Others
+                  </button>
+                </nav>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <div
+                  class="flex items-center gap-0.5 rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft"
+                >
+                  <button
+                    id="gridViewButton"
+                    class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--iw-muted)] transition hover:text-[var(--iw-text)]"
+                    type="button"
+                    aria-label="Grid view"
+                    aria-pressed="true"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      class="h-4 w-4"
+                    >
+                      <rect x="4" y="4" width="6" height="6" rx="1.2"></rect>
+                      <rect x="14" y="4" width="6" height="6" rx="1.2"></rect>
+                      <rect x="4" y="14" width="6" height="6" rx="1.2"></rect>
+                      <rect x="14" y="14" width="6" height="6" rx="1.2"></rect>
+                    </svg>
+                  </button>
+                  <button
+                    id="tableViewButton"
+                    class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--iw-muted)] transition hover:text-[var(--iw-text)]"
+                    type="button"
+                    aria-label="Table view"
+                    aria-pressed="false"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      class="h-4 w-4"
+                    >
+                      <path d="M5 7h14"></path>
+                      <path d="M5 12h14"></path>
+                      <path d="M5 17h14"></path>
+                    </svg>
+                  </button>
+                </div>
+
+                <div
+                  class="flex items-center gap-0.5 rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft"
+                >
+                  <button
+                    class="filter-btn h-8 rounded-lg px-4 text-sm font-semibold transition"
+                    type="button"
+                    data-filter="all"
+                  >
+                    All
+                  </button>
+                  <button
+                    class="filter-btn h-8 rounded-lg px-4 text-sm font-semibold transition"
+                    type="button"
+                    data-filter="active"
+                  >
+                    Active
+                  </button>
+                  <button
+                    class="filter-btn h-8 rounded-lg px-4 text-sm font-semibold transition"
+                    type="button"
+                    data-filter="done"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <section
+          id="tasks"
+          class="grid w-full grid-cols-1 gap-4 md:grid-cols-2"
+          aria-live="polite"
+        ></section>
+      </section>
+    </main>
+
+    <div
+      id="settingsModal"
+      class="fixed inset-0 z-50 hidden overflow-hidden overscroll-contain bg-[color:var(--iw-overlay)] p-0 text-[var(--iw-text)] sm:items-center sm:justify-center sm:p-4"
+      aria-hidden="true"
+    >
+      <div
+        class="flex h-[100dvh] w-full flex-col overflow-hidden rounded-t-[1.75rem] border border-[var(--iw-border)] bg-[var(--iw-panel)] text-[var(--iw-text)] shadow-soft sm:h-[min(88dvh,760px)] sm:max-h-[min(88dvh,760px)] sm:max-w-[940px] sm:rounded-2xl"
+      >
+        <div
+          class="flex items-center justify-between gap-4 border-b border-[var(--iw-border)] px-4 py-3 sm:px-6 sm:py-4"
+        >
+          <div class="min-w-0 flex min-h-[44px] items-center">
+            <h2
+              id="settingsTitle"
+              class="text-2xl font-bold leading-none text-[var(--iw-text)]"
+            >
+              Settings
+            </h2>
+          </div>
+          <button
+            id="closeSettingsButton"
+            type="button"
+            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] text-[var(--iw-muted)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)]"
+            aria-label="Close settings"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              class="h-5 w-5"
+            >
+              <path d="M6 6l12 12M18 6L6 18"></path>
+            </svg>
+          </button>
+        </div>
+
+        <datalist id="downloadLocationSuggestions"></datalist>
+
+        <div
+          class="min-h-0 flex-1 overflow-hidden px-4 pb-4 pt-3 sm:px-6 sm:pb-5 sm:pt-4"
+        >
+          <div
+            class="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4 md:grid-cols-[220px_minmax(0,1fr)] md:grid-rows-1"
+          >
+            <nav
+              class="settings-scroll -mx-1 flex min-h-0 shrink-0 gap-2 overflow-x-auto overscroll-contain touch-pan-x px-1 pb-1 text-[var(--iw-text)] md:mx-0 md:flex-col md:overflow-x-hidden md:overflow-y-auto md:touch-pan-y md:px-0 md:pb-0"
+              aria-label="Settings sections"
+            >
+              <button
+                type="button"
+                data-settings-section="downloads"
+                class="settings-nav-btn flex min-h-[48px] min-w-[148px] items-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 text-left text-sm font-semibold text-[var(--iw-muted)] transition hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)] aria-pressed:bg-[color-mix(in_srgb,var(--iw-accent)_26%,var(--iw-panel2))] aria-pressed:border-[var(--iw-border-strong)] aria-pressed:text-[var(--iw-text)] aria-pressed:[box-shadow:inset_0_0_0_1px_color-mix(in_srgb,var(--iw-accent)_22%,transparent)] md:min-w-0"
+              >
+                Downloads
+              </button>
+              <button
+                type="button"
+                data-settings-section="instagram"
+                class="settings-nav-btn flex min-h-[48px] min-w-[148px] items-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 text-left text-sm font-semibold text-[var(--iw-muted)] transition hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)] aria-pressed:bg-[color-mix(in_srgb,var(--iw-accent)_26%,var(--iw-panel2))] aria-pressed:border-[var(--iw-border-strong)] aria-pressed:text-[var(--iw-text)] aria-pressed:[box-shadow:inset_0_0_0_1px_color-mix(in_srgb,var(--iw-accent)_22%,transparent)] md:min-w-0"
+              >
+                Instagram
+              </button>
+              <button
+                type="button"
+                data-settings-section="advanced"
+                class="settings-nav-btn flex min-h-[48px] min-w-[148px] items-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 text-left text-sm font-semibold text-[var(--iw-muted)] transition hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)] aria-pressed:bg-[color-mix(in_srgb,var(--iw-accent)_26%,var(--iw-panel2))] aria-pressed:border-[var(--iw-border-strong)] aria-pressed:text-[var(--iw-text)] aria-pressed:[box-shadow:inset_0_0_0_1px_color-mix(in_srgb,var(--iw-accent)_22%,transparent)] md:min-w-0"
+              >
+                Advanced
+              </button>
+            </nav>
+
+            <div class="min-h-0 overflow-hidden md:min-w-0">
+              <div
+                class="settings-scroll h-full overflow-y-auto overscroll-contain touch-pan-y pr-1"
+              >
+                <div class="flex min-h-full flex-col">
+                  <section
+                    data-settings-panel="downloads"
+                    class="settings-panel flex-1 rounded-3xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-4 text-[var(--iw-text)] sm:p-5"
+                  >
+                    <div class="grid gap-3 sm:grid-cols-2">
+                      <label
+                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                      >
+                        <span class="mb-2 block text-[var(--iw-text)]"
+                          >YouTube</span
+                        >
+                        <input
+                          id="youtubeLocationInput"
+                          list="downloadLocationSuggestions"
+                          placeholder="Enter a save path"
+                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                        />
+                      </label>
+                      <label
+                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                      >
+                        <span class="mb-2 block text-[var(--iw-text)]"
+                          >Facebook</span
+                        >
+                        <input
+                          id="facebookLocationInput"
+                          list="downloadLocationSuggestions"
+                          placeholder="Enter a save path"
+                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                        />
+                      </label>
+                      <label
+                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                      >
+                        <span class="mb-2 block text-[var(--iw-text)]"
+                          >Instagram</span
+                        >
+                        <input
+                          id="instagramLocationInput"
+                          list="downloadLocationSuggestions"
+                          placeholder="Enter a save path"
+                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                        />
+                      </label>
+                      <label
+                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                      >
+                        <span class="mb-2 block text-[var(--iw-text)]"
+                          >TikTok</span
+                        >
+                        <input
+                          id="tiktokLocationInput"
+                          list="downloadLocationSuggestions"
+                          placeholder="Enter a save path"
+                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                        />
+                      </label>
+                      <label
+                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                      >
+                        <span class="mb-2 block text-[var(--iw-text)]"
+                          >Iwara</span
+                        >
+                        <input
+                          id="iwaraLocationInput"
+                          list="downloadLocationSuggestions"
+                          placeholder="Enter a save path"
+                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                        />
+                      </label>
+                      <label
+                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                      >
+                        <span class="mb-2 block text-[var(--iw-text)]"
+                          >Others</span
+                        >
+                        <input
+                          id="othersLocationInput"
+                          list="downloadLocationSuggestions"
+                          placeholder="Enter a save path"
+                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                        />
+                      </label>
+                    </div>
+                  </section>
+
+                  <section
+                    data-settings-panel="instagram"
+                    class="settings-panel flex-1 rounded-3xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-4 text-[var(--iw-text)] sm:p-5"
+                  >
+                    <div class="grid gap-3 xl:grid-cols-2">
+                      <div
+                        class="flex h-full flex-col rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3"
+                      >
+                        <div
+                          class="mb-3 text-sm font-semibold text-[var(--iw-text)]"
+                        >
+                          Instaloader
+                        </div>
+
+                        <div class="grid gap-3">
+                          <label class="flex flex-col text-sm font-semibold">
+                            <span class="mb-2 block text-[var(--iw-text)]"
+                              >Login type</span
+                            >
+                            <select
+                              id="instagramIdentifierTypeInput"
+                              class="block min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-text)] outline-none transition focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                            >
+                              <option value="username">Username</option>
+                              <option value="email">Email</option>
+                              <option value="phone">Mobile number</option>
+                            </select>
+                          </label>
+
+                          <label class="flex flex-col text-sm font-semibold">
+                            <span
+                              class="mb-2 block text-[var(--iw-text)]"
+                              id="instagramIdentifierLabel"
+                              >Username</span
+                            >
+                            <input
+                              id="instagramIdentifierInput"
+                              autocomplete="username"
+                              placeholder="Enter your Instagram username"
+                              class="block min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                            />
+                          </label>
+
+                          <label class="flex flex-col text-sm font-semibold">
+                            <span class="mb-2 block text-[var(--iw-text)]"
+                              >Password</span
+                            >
+                            <input
+                              id="instagramPasswordInput"
+                              type="password"
+                              autocomplete="current-password"
+                              placeholder="Enter your Instagram password"
+                              class="block min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                            />
+                          </label>
+                        </div>
+
+                        <div
+                          class="mt-3 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-muted)]"
+                        >
+                          <div id="instagramAuthStatus">
+                            No Instagram login saved.
+                          </div>
+                        </div>
+
+                        <div
+                          class="mt-auto pt-3 flex flex-wrap justify-end gap-3"
+                        >
+                          <button
+                            id="removeInstagramAuthButton"
+                            type="button"
+                            class="h-11 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 text-sm font-semibold text-[var(--iw-text)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)] hover:bg-[var(--iw-panel)] opacity-50 cursor-not-allowed"
+                            disabled=""
+                          >
+                            Disconnect
+                          </button>
+                          <button
+                            id="connectInstagramAuthButton"
+                            type="button"
+                            class="h-11 rounded-2xl bg-[var(--iw-accent)] px-4 text-sm font-semibold text-[color:var(--iw-strong-text)] transition hover:-translate-y-px hover:brightness-110"
+                          >
+                            Connect
+                          </button>
+                        </div>
+                      </div>
+
+                      <div
+                        class="flex h-full flex-col rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3"
+                      >
+                        <div
+                          class="mb-3 text-sm font-semibold text-[var(--iw-text)]"
+                        >
+                          YT-DLP
+                        </div>
+
+                        <label class="flex flex-col text-sm font-semibold">
+                          <span class="mb-2 block text-[var(--iw-text)]"
+                            >Cookies</span
+                          >
+                          <input
+                            id="instagramYtdlpCookiesInput"
+                            type="file"
+                            accept=".txt,.cookies,text/plain"
+                            class="block min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-text)] outline-none transition file:mr-3 file:rounded-xl file:border-0 file:bg-[var(--iw-accent)] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[color:var(--iw-strong-text)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                          />
+                        </label>
+
+                        <div
+                          class="mt-3 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-muted)]"
+                        >
+                          <div id="instagramYtdlpCookiesStatus">
+                            No yt-dlp cookies saved.
+                          </div>
+                        </div>
+
+                        <div
+                          class="mt-auto pt-3 flex flex-wrap justify-end gap-3"
+                        >
+                          <button
+                            id="removeInstagramYtdlpCookiesButton"
+                            type="button"
+                            class="h-11 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 text-sm font-semibold text-[var(--iw-text)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)] hover:bg-[var(--iw-panel)] opacity-50 cursor-not-allowed"
+                            disabled=""
+                          >
+                            Disconnect
+                          </button>
+                          <button
+                            id="connectInstagramYtdlpCookiesButton"
+                            type="button"
+                            class="h-11 rounded-2xl bg-[var(--iw-accent)] px-4 text-sm font-semibold text-[color:var(--iw-strong-text)] transition hover:-translate-y-px hover:brightness-110"
+                          >
+                            Connect
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section
+                    data-settings-panel="advanced"
+                    class="settings-panel flex-1 hidden rounded-3xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-4 text-[var(--iw-text)] sm:p-5"
+                  >
+                    <div class="grid gap-3">
+                      <label
+                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                      >
+                        <span class="mb-2 block text-[var(--iw-text)]"
+                          >Folder Template</span
+                        >
+                        <input
+                          id="folderTemplateInput"
+                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 font-mono text-sm text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                        />
+                      </label>
+                      <label
+                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                      >
+                        <span class="mb-2 block text-[var(--iw-text)]"
+                          >Filename Template</span
+                        >
+                        <textarea
+                          id="filenameTemplateInput"
+                          rows="2"
+                          class="min-h-[84px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 font-mono text-sm text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                        ></textarea>
+                      </label>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <footer
+          class="border-t border-[var(--iw-border)] bg-[var(--iw-panel)] px-4 py-4 text-[var(--iw-text)] sm:px-6"
+        >
+          <div
+            class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <button
+              id="cleanNfoButton"
+              type="button"
+              class="h-11 w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-5 text-sm font-semibold text-[var(--iw-muted)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)] sm:w-auto"
+              title="Find and delete all .nfo sidecar files from the downloads folder"
+            >
+              Delete .nfo files
+            </button>
+            <div
+              class="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:justify-end"
+            >
+              <button
+                id="cancelSettingsButton"
+                class="h-11 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-5 text-sm font-semibold text-[var(--iw-muted)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)]"
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                id="saveSettingsButton"
+                class="h-11 rounded-2xl bg-[var(--iw-accent)] px-5 text-sm font-semibold text-[color:var(--iw-strong-text)] transition hover:-translate-y-px hover:brightness-110"
+                type="button"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </footer>
+      </div>
+    </div>
+
+    <div
+      id="toastWrap"
+      class="fixed bottom-4 right-4 z-[60] grid max-w-[360px] gap-3"
+    ></div>
+    <div
+      id="srStatus"
+      class="sr-only"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+
+    <script>
+
+      const SITE_LABELS = {
+        all: "All",
+        youtube: "YouTube",
+        facebook: "Facebook",
+        instagram: "Instagram",
+        tiktok: "TikTok",
+        iwara: "Iwara",
+        others: "Others",
+      };
+
+      const currentTabId = (() => {
+        const key = "neverstelle.tabId";
+        let value = sessionStorage.getItem(key);
+        if (!value) {
+          value = window.crypto && typeof window.crypto.randomUUID === "function"
+            ? window.crypto.randomUUID()
+            : `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          sessionStorage.setItem(key, value);
+        }
+        return value;
+      })();
+
+      const POLL_RUNNING_MS = 2000;
+      const POLL_PENDING_MS = 5000;
+
+      const state = {
+        defaults: {
+          site_locations: {{ site_default_locations|tojson }},
+          save_mode: {{ saved_save_mode|tojson }},
+          template_settings: {
+            filename_template: "",
+            folder_template: "",
+          },
+        },
+        settings: {
+          site_locations: {{ site_default_locations|tojson }},
+          save_mode: {{ saved_save_mode|tojson }},
+          template_settings: {
+            filename_template: "",
+            folder_template: "",
+          },
+          download_locations: [],
+          instagram_auth: { configured: false, identifier_type: "username", identifier: "", session_username: "", username: "", session_saved: false, last_login_at: "", last_error: "" },
+          instagram_ytdlp_cookies: { configured: false, source: "none", filename: "", uploaded_at: "" },
+        },
+        tabId: currentTabId,
+        pollHandle: null,
+        pollIntervalMs: 0,
+        activeFilter: localStorage.getItem("neverstelle.activeFilter") || "all",
+        viewMode: localStorage.getItem("neverstelle.viewMode") || "grid",
+        activeMenu: localStorage.getItem("neverstelle.activeMenu") || "all",
+        deliveredDeviceDownloads: (() => {
+          try {
+            return JSON.parse(sessionStorage.getItem("neverstelle.deviceDelivered") || "{}") || {};
+          } catch (error) {
+            return {};
+          }
+        })(),
+        visibleTasks: [],
+        taskCache: new Map(),
+        lastFocusedTrigger: null,
+        settingsSection: "downloads",
+      };
+
+      function getSavedSettings() {
+        return {
+          site_locations: {
+            youtube: state.settings.site_locations.youtube || state.defaults.site_locations.youtube || "",
+            facebook: state.settings.site_locations.facebook || state.defaults.site_locations.facebook || "",
+            instagram: state.settings.site_locations.instagram || state.defaults.site_locations.instagram || "",
+            tiktok: state.settings.site_locations.tiktok || state.defaults.site_locations.tiktok || "",
+            iwara: state.settings.site_locations.iwara || state.defaults.site_locations.iwara || "",
+            others: state.settings.site_locations.others || state.defaults.site_locations.others || "",
+          },
+          save_mode: state.settings.save_mode === "device" ? "device" : (state.defaults.save_mode || "nas"),
+          template_settings: {
+            filename_template: state.settings.template_settings.filename_template || state.defaults.template_settings.filename_template || "",
+            folder_template: state.settings.template_settings.folder_template || state.defaults.template_settings.folder_template || "",
+          },
+        };
+      }
+
+      function applyServerSettings(data) {
+        if (data.site_default_locations) {
+          state.defaults.site_locations = {
+            ...state.defaults.site_locations,
+            ...data.site_default_locations,
+          };
+          state.settings.site_locations = {
+            ...state.settings.site_locations,
+            ...data.site_default_locations,
+          };
+        }
+        state.settings.save_mode = data.save_mode === "device" ? "device" : "nas";
+        state.defaults.save_mode = state.settings.save_mode;
+        if (data.template_settings) {
+          state.defaults.template_settings = {
+            ...state.defaults.template_settings,
+            ...data.template_settings,
+          };
+          state.settings.template_settings = {
+            ...state.settings.template_settings,
+            ...data.template_settings,
+          };
+        }
+        state.settings.download_locations = Array.isArray(data.download_locations) ? data.download_locations : [];
+        state.settings.instagram_auth = data.instagram_auth || { configured: false, identifier_type: "username", identifier: "", session_username: "", username: "", session_saved: false, last_login_at: "", last_error: "" };
+        state.settings.instagram_ytdlp_cookies = data.instagram_ytdlp_cookies || { configured: false, source: "none", filename: "", uploaded_at: "" };
+        syncInstagramAuthInputs();
+        renderInstagramAuthStatus();
+        renderInstagramYtdlpCookiesStatus();
+      }
+
+      async function persistSettings(settings, successMessage = "") {
+        const response = await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(settings),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not save settings.");
+        applyServerSettings(data);
+        if (successMessage) toast(successMessage);
+        return data;
+      }
+
+      function persistDeliveredDeviceDownloads() {
+        sessionStorage.setItem("neverstelle.deviceDelivered", JSON.stringify(state.deliveredDeviceDownloads || {}));
+      }
+
+      function announce(message) {
+        document.getElementById("srStatus").textContent = message;
+      }
+
+      function toast(message, type = "success") {
+        const wrap = document.getElementById("toastWrap");
+        const el = document.createElement("div");
+        el.className = [
+          "rounded-2xl border px-4 py-3 text-sm font-medium shadow-soft transition",
+          type === "error"
+            ? "border-[color-mix(in_srgb,var(--iw-danger)_30%,transparent)] bg-[var(--iw-panel)] text-[var(--iw-text)]"
+            : "border-[color-mix(in_srgb,var(--iw-success)_30%,transparent)] bg-[var(--iw-panel)] text-[var(--iw-text)]",
+        ].join(" ");
+        el.textContent = message;
+        wrap.appendChild(el);
+        announce(message);
+        setTimeout(() => {
+          el.style.opacity = "0";
+          el.style.transform = "translateY(6px)";
+          setTimeout(() => el.remove(), 220);
+        }, 3200);
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function getFocusableInModal() {
+        return Array.from(document.querySelectorAll("#settingsModal button, #settingsModal select, #settingsModal input, #settingsModal textarea"));
+      }
+
+      function buildLocationOptionsMarkup(locations) {
+        const items = Array.isArray(locations) ? locations : [];
+        if (!items.length) {
+          return "";
+        }
+        return items
+          .map((location) => `<option value="${escapeHtml(location)}"></option>`)
+          .join("");
+      }
+
+      function renderLocationOptions(locations) {
+        const list = document.getElementById("downloadLocationSuggestions");
+        if (list) {
+          list.innerHTML = buildLocationOptionsMarkup(locations);
+        }
+      }
+
+      function formatTimestamp(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "";
+        return date.toLocaleString();
+      }
+
+      function syncInstagramAuthInputs() {
+        const info = state.settings.instagram_auth || {};
+        const typeInput = document.getElementById("instagramIdentifierTypeInput");
+        const identifierInput = document.getElementById("instagramIdentifierInput");
+        if (typeInput) typeInput.value = info.identifier_type || "username";
+        if (identifierInput) identifierInput.value = info.identifier || "";
+        updateInstagramIdentifierField();
+      }
+
+      function updateInstagramIdentifierField() {
+        const typeInput = document.getElementById("instagramIdentifierTypeInput");
+        const label = document.getElementById("instagramIdentifierLabel");
+        const identifierInput = document.getElementById("instagramIdentifierInput");
+        const type = typeInput ? typeInput.value : "username";
+        const presets = {
+          username: {
+            label: "Username",
+            placeholder: "Enter your Instagram username",
+            autocomplete: "username",
+          },
+          email: {
+            label: "Email",
+            placeholder: "Enter your Instagram email",
+            autocomplete: "email",
+          },
+          phone: {
+            label: "Mobile number",
+            placeholder: "Enter your Instagram mobile number",
+            autocomplete: "tel",
+          },
+        };
+        const preset = presets[type] || presets.username;
+        if (label) label.textContent = preset.label;
+        if (identifierInput) {
+          identifierInput.placeholder = preset.placeholder;
+          identifierInput.autocomplete = preset.autocomplete;
+        }
+      }
+
+      function renderInstagramAuthStatus() {
+        const info = state.settings.instagram_auth || {};
+        const status = document.getElementById("instagramAuthStatus");
+        const removeButton = document.getElementById("removeInstagramAuthButton");
+        if (!status || !removeButton) return;
+
+        removeButton.classList.remove("opacity-50", "cursor-not-allowed");
+
+        if (info.session_saved) {
+          const parts = [];
+          if (info.session_username) {
+            parts.push(`Connected as @${info.session_username}`);
+          } else if (info.identifier) {
+            parts.push(`Connected with ${info.identifier}`);
+          } else {
+            parts.push("Connected to Instagram");
+          }
+          const when = formatTimestamp(info.last_login_at);
+          if (when) parts.push(when);
+          if (info.last_error) parts.push(`Last error: ${info.last_error}`);
+          status.textContent = parts.join(" · ");
+          removeButton.disabled = false;
+          return;
+        }
+
+        if (info.identifier) {
+          const parts = [`Saved ${info.identifier_type || "username"}: ${info.identifier}`];
+          if (info.last_error) parts.push(`Last error: ${info.last_error}`);
+          status.textContent = parts.join(" · ");
+          removeButton.disabled = false;
+          return;
+        }
+
+        if (info.last_error) {
+          status.textContent = info.last_error;
+          removeButton.disabled = false;
+          return;
+        }
+
+        status.textContent = "No Instagram login saved.";
+        removeButton.disabled = true;
+        removeButton.classList.add("opacity-50", "cursor-not-allowed");
+      }
+
+      async function configureInstagramAuth(identifierType, identifier, password) {
+        const response = await fetch("/api/settings/instagram-auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier_type: identifierType, identifier, password }),
+        });
+        const data = await response.json();
+        if (data && typeof data === "object" && (data.instagram_auth || data.download_locations || data.site_default_locations || data.save_mode)) {
+          applyServerSettings(data);
+        }
+        if (!response.ok) throw new Error(data.error || "Could not connect Instagram login.");
+        return data;
+      }
+
+      async function removeInstagramAuth() {
+        const response = await fetch("/api/settings/instagram-auth", {
+          method: "DELETE",
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not remove Instagram login.");
+        applyServerSettings(data);
+        const identifierInput = document.getElementById("instagramIdentifierInput");
+        const passwordInput = document.getElementById("instagramPasswordInput");
+        if (identifierInput) identifierInput.value = "";
+        if (passwordInput) passwordInput.value = "";
+        syncInstagramAuthInputs();
+        return data;
+      }
+
+      function renderInstagramYtdlpCookiesStatus() {
+        const info = state.settings.instagram_ytdlp_cookies || {};
+        const status = document.getElementById("instagramYtdlpCookiesStatus");
+        const removeButton = document.getElementById("removeInstagramYtdlpCookiesButton");
+        if (!status || !removeButton) return;
+
+        removeButton.classList.remove("opacity-50", "cursor-not-allowed");
+
+        if (info.configured) {
+          const parts = [];
+          if (info.filename) {
+            parts.push(`Connected with ${info.filename}`);
+          } else {
+            parts.push("Connected to yt-dlp cookies");
+          }
+          const when = formatTimestamp(info.uploaded_at);
+          if (when) parts.push(when);
+          status.textContent = parts.join(" · ");
+          removeButton.disabled = false;
+          return;
+        }
+
+        status.textContent = "No yt-dlp cookies saved.";
+        removeButton.disabled = true;
+        removeButton.classList.add("opacity-50", "cursor-not-allowed");
+      }
+
+      async function configureInstagramYtdlpCookies(file) {
+        const formData = new FormData();
+        formData.append("file", file);
+        const response = await fetch("/api/settings/instagram-ytdlp-cookies", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await response.json();
+        if (data && typeof data === "object" && (data.instagram_ytdlp_cookies || data.instagram_auth || data.download_locations || data.site_default_locations || data.save_mode)) {
+          applyServerSettings(data);
+        }
+        if (!response.ok) throw new Error(data.error || "Could not connect yt-dlp cookies.");
+        return data;
+      }
+
+      async function removeInstagramYtdlpCookies() {
+        const response = await fetch("/api/settings/instagram-ytdlp-cookies", {
+          method: "DELETE",
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not remove yt-dlp cookies.");
+        applyServerSettings(data);
+        const input = document.getElementById("instagramYtdlpCookiesInput");
+        if (input) input.value = "";
+        return data;
+      }
+
+      function updateMenuButtons() {
+        document.querySelectorAll(".menu-btn").forEach((button) => {
+          const active = button.dataset.menu === state.activeMenu;
+          button.setAttribute("aria-pressed", active ? "true" : "false");
+          button.classList.toggle("bg-[var(--iw-accent)]", active);
+          button.classList.toggle("text-[color:var(--iw-strong-text)]", active);
+          button.classList.toggle("text-[var(--iw-muted)]", !active);
+          button.classList.toggle("hover:text-[var(--iw-text)]", !active);
+        });
+      }
+
+      function updateSaveModeButtons() {
+        const settings = getSavedSettings();
+        const saveMode = settings.save_mode === "device" ? "device" : "nas";
+        document.querySelectorAll(".save-mode-btn").forEach((button) => {
+          const active = button.dataset.saveMode === saveMode;
+          button.setAttribute("aria-pressed", active ? "true" : "false");
+          button.classList.toggle("bg-[var(--iw-accent)]", active);
+          button.classList.toggle("text-[color:var(--iw-strong-text)]", active);
+          button.classList.toggle("text-[var(--iw-muted)]", !active);
+        });
+      }
+
+      function applyButtonState(button, active) {
+        button.setAttribute("aria-pressed", String(active));
+        button.classList.toggle("bg-[var(--iw-accent)]", active);
+        button.classList.toggle("text-[color:var(--iw-strong-text)]", active);
+        button.classList.toggle("text-[var(--iw-muted)]", !active);
+        button.classList.toggle("hover:text-[var(--iw-text)]", !active);
+      }
+
+      function updateViewButtons() {
+        const isGrid = state.viewMode === "grid";
+        applyButtonState(document.getElementById("gridViewButton"), isGrid);
+        applyButtonState(document.getElementById("tableViewButton"), !isGrid);
+      }
+
+      function updateFilterButtons() {
+        document.querySelectorAll(".filter-btn").forEach((button) => {
+          applyButtonState(button, button.dataset.filter === state.activeFilter);
+        });
+      }
+
+      function setViewMode(mode) {
+        state.viewMode = mode === "table" ? "table" : "grid";
+        localStorage.setItem("neverstelle.viewMode", state.viewMode);
+        updateViewButtons();
+        renderTasks(state.visibleTasks || []);
+      }
+
+      function updateSettingsSectionButtons() {
+        document.querySelectorAll(".settings-nav-btn").forEach((button) => {
+          const active = button.dataset.settingsSection === state.settingsSection;
+          button.setAttribute("aria-pressed", active ? "true" : "false");
+          button.classList.toggle("text-[var(--iw-muted)]", !active);
+          button.classList.toggle("hover:text-[var(--iw-text)]", !active);
+        });
+      }
+
+      function updateSettingsPanels() {
+        document.querySelectorAll(".settings-panel").forEach((panel) => {
+          panel.classList.toggle("hidden", panel.dataset.settingsPanel !== state.settingsSection);
+        });
+      }
+
+      function setSettingsSection(section, shouldFocus = false) {
+        state.settingsSection = ["downloads", "instagram", "advanced"].includes(section) ? section : "downloads";
+        updateSettingsSectionButtons();
+        updateSettingsPanels();
+        if (!shouldFocus) return;
+        const focusTargets = {
+          downloads: "youtubeLocationInput",
+          instagram: "instagramIdentifierInput",
+          advanced: "folderTemplateInput",
+        };
+        const target = document.getElementById(focusTargets[state.settingsSection]);
+        if (target) requestAnimationFrame(() => target.focus());
+      }
+
+      function setActiveMenu(menu) {
+        state.activeMenu = SITE_LABELS[menu] ? menu : "all";
+        localStorage.setItem("neverstelle.activeMenu", state.activeMenu);
+        updateMenuButtons();
+        renderTasks(state.visibleTasks || []);
+        updateCountsForMenu(state.visibleTasks || []);
+      }
+
+      function openSettings(trigger = document.activeElement, section = "downloads") {
+        state.lastFocusedTrigger = trigger;
+        const settings = getSavedSettings();
+        renderLocationOptions(state.settings.download_locations || []);
+        document.getElementById("youtubeLocationInput").value = settings.site_locations.youtube;
+        document.getElementById("facebookLocationInput").value = settings.site_locations.facebook;
+        document.getElementById("instagramLocationInput").value = settings.site_locations.instagram;
+        document.getElementById("tiktokLocationInput").value = settings.site_locations.tiktok;
+        document.getElementById("iwaraLocationInput").value = settings.site_locations.iwara;
+        document.getElementById("othersLocationInput").value = settings.site_locations.others;
+        document.getElementById("folderTemplateInput").value = settings.template_settings.folder_template;
+        document.getElementById("filenameTemplateInput").value = settings.template_settings.filename_template;
+        syncInstagramAuthInputs();
+        document.getElementById("instagramPasswordInput").value = "";
+        renderInstagramAuthStatus();
+        const modal = document.getElementById("settingsModal");
+        modal.classList.remove("hidden");
+        modal.classList.add("flex");
+        modal.setAttribute("aria-hidden", "false");
+        document.body.classList.add("overflow-hidden");
+        setSettingsSection(section, true);
+      }
+
+      function closeSettings() {
+        const modal = document.getElementById("settingsModal");
+        modal.classList.add("hidden");
+        modal.classList.remove("flex");
+        modal.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("overflow-hidden");
+        if (state.lastFocusedTrigger && typeof state.lastFocusedTrigger.focus === "function") {
+          state.lastFocusedTrigger.focus();
+        }
+      }
+
+      async function fetchUIConfig() {
+        try {
+          const response = await fetch("/api/ui-config");
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Could not load UI config.");
+          applyServerSettings(data);
+          renderLocationOptions(state.settings.download_locations || []);
+          updateSaveModeButtons();
+        } catch (error) {
+          console.error(error);
+        }
+      }
+
+      function mergeTaskData(tasks) {
+        return tasks.map((task) => {
+          const cached = state.taskCache.get(task.vid) || {};
+          const merged = {
+            ...task,
+            resolved_folder: task.resolved_folder || cached.resolved_folder || "",
+            resolved_filename: task.resolved_filename || cached.resolved_filename || "",
+            resolved_full_path: task.resolved_full_path || cached.resolved_full_path || "",
+            site_category: task.site_category || cached.site_category || "others",
+            site_label: task.site_label || SITE_LABELS[task.site_category] || "Others",
+          };
+          state.taskCache.set(task.vid, {
+            resolved_folder: merged.resolved_folder,
+            resolved_filename: merged.resolved_filename,
+            resolved_full_path: merged.resolved_full_path,
+            site_category: merged.site_category,
+          });
+          return merged;
+        });
+      }
+
+      function getMenuTasks(tasks) {
+        const merged = mergeTaskData(tasks);
+        if (state.activeMenu === "all") return merged;
+        return merged.filter((task) => (task.site_category || "others") === state.activeMenu);
+      }
+
+      function filterTasks(tasks) {
+        let filtered = getMenuTasks(tasks);
+        if (state.activeFilter === "active") filtered = filtered.filter((task) => ["pending", "running"].includes(task.status));
+        if (state.activeFilter === "done") filtered = filtered.filter((task) => ["completed", "failed"].includes(task.status));
+        return filtered;
+      }
+
+      function countTasks(tasks) {
+        return {
+          queued: tasks.filter((task) => task.status === "pending").length,
+          running: tasks.filter((task) => task.status === "running").length,
+          completed: tasks.filter((task) => task.status === "completed").length,
+          failed: tasks.filter((task) => task.status === "failed").length,
+        };
+      }
+
+      function updateCounts(counts) {
+        document.getElementById("queuedCount").textContent = counts.queued ?? 0;
+        document.getElementById("runningCount").textContent = counts.running ?? 0;
+        document.getElementById("completedCount").textContent = counts.completed ?? 0;
+        document.getElementById("failedCount").textContent = counts.failed ?? 0;
+      }
+
+      function updateCountsForMenu(tasks) {
+        updateCounts(countTasks(getMenuTasks(tasks)));
+      }
+
+      function getStatusBadgeClass(status) {
+        if (status === "pending") return "bg-[color-mix(in_srgb,var(--iw-warning)_10%,transparent)] text-[var(--iw-text)] border border-[color-mix(in_srgb,var(--iw-warning)_20%,transparent)]";
+        if (status === "running") return "bg-[var(--iw-accent)]/10 text-[var(--iw-text)] border border-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]";
+        if (status === "completed") return "bg-[color-mix(in_srgb,var(--iw-accent2)_10%,var(--iw-panel))] text-[color-mix(in_srgb,var(--iw-text)_88%,var(--iw-accent2))] border border-[color-mix(in_srgb,var(--iw-accent2)_18%,transparent)] dark:bg-[color-mix(in_srgb,var(--iw-accent2)_14%,var(--iw-panel2))] dark:text-[var(--iw-text)] dark:border-[color-mix(in_srgb,var(--iw-accent2)_24%,transparent)]";        return "bg-[var(--iw-soft-fill)] text-[var(--iw-text)] border border-[var(--iw-border)]";
+      }
+
+      function getSiteBadgeClass(siteCategory) {
+        if (siteCategory === "youtube") return "border border-[#ff3d3d]/30 bg-[#ff3d3d]/10 text-[var(--iw-text)]";
+        if (siteCategory === "facebook") return "border border-[#6ea8ff]/30 bg-[#6ea8ff]/10 text-[var(--iw-text)]";
+        if (siteCategory === "instagram") return "border border-[#ff8ad4]/30 bg-[#ff8ad4]/10 text-[var(--iw-text)]";
+        if (siteCategory === "tiktok") return "border border-[#7ce7ff]/30 bg-[#7ce7ff]/10 text-[var(--iw-text)]";
+        if (siteCategory === "iwara") return "border border-[var(--iw-accent2)]/30 bg-[color-mix(in_srgb,var(--iw-accent2)_12%,transparent)] text-[var(--iw-text)]";
+        return "border border-[var(--iw-border)] bg-[var(--iw-soft-fill)] text-[var(--iw-muted)]";
+      }
+
+      function renderTasks(tasks) {
+        const root = document.getElementById("tasks");
+        const visibleTasks = filterTasks(tasks);
+        root.className = state.viewMode === "table"
+          ? "w-full overflow-x-auto"
+          : "grid w-full grid-cols-1 gap-4 md:grid-cols-2";
+
+        if (!visibleTasks.length) {
+          root.innerHTML = `<div class="rounded-2xl border border-dashed border-[var(--iw-border)] bg-[var(--iw-panel)] px-5 py-10 text-center text-[var(--iw-muted)]">No ${escapeHtml(SITE_LABELS[state.activeMenu] || "matching")} tasks right now.</div>`;
+          return;
+        }
+
+        if (state.viewMode === "table") {
+          root.innerHTML = `
+            <table class="min-w-full overflow-hidden rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] text-left shadow-soft">
+              <thead>
+                <tr class="border-b border-[var(--iw-border)] text-xs uppercase tracking-[0.08em] text-[var(--iw-muted)]">
+                  <th class="px-4 py-3">Site</th>
+                  <th class="px-4 py-3">Source</th>
+                  <th class="px-4 py-3">Folder</th>
+                  <th class="px-4 py-3">Filename</th>
+                  <th class="px-4 py-3">Status</th>
+                  <th class="px-4 py-3">Progress</th>
+                  <th class="px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${visibleTasks.map((task) => {
+                  const dismissButton = task.can_hide
+                    ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-border)] bg-[var(--iw-soft-fill)] text-[var(--iw-muted)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-accent)]/30 hover:bg-[var(--iw-panel-strong)] hover:text-[var(--iw-text)]" type="button" onclick="hideTask('${task.vid}')" aria-label="Hide task from the view" title="Hide task from the view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" class="h-4 w-4">
+                          <path d="M3 3l18 18"></path>
+                          <path d="M10.58 10.58a2 2 0 0 0 2.84 2.84"></path>
+                          <path d="M9.36 5.37A10.94 10.94 0 0 1 12 5c5 0 9.27 3.11 11 7-1.02 2.29-2.8 4.24-5.09 5.49"></path>
+                          <path d="M6.23 6.23C4.17 7.41 2.57 9.05 1 12c1.27 2.86 3.43 5.08 6 6.32"></path>
+                        </svg>
+                      </button>`
+                    : "";
+                  const deviceButton = task.can_download && task.status !== "failed"
+                    ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-action-border)] bg-[var(--iw-action-bg)] text-[var(--iw-action-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-action-hover-border)] hover:bg-[var(--iw-action-hover-bg)] hover:text-[var(--iw-action-hover-text)]" type="button" onclick="downloadTaskFile('${task.vid}')" aria-label="Download file" title="Download file">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4">
+                          <path d="M12 5v10" />
+                          <path d="M7 10l5 5 5-5" />
+                          <path d="M5 19h14" />
+                        </svg>
+                      </button>`
+                    : "";
+                  const removeButton = task.can_remove && task.status !== "running"
+                    ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-danger-border)] bg-[var(--iw-danger-bg)] text-[var(--iw-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-danger-hover-border)] hover:bg-[var(--iw-danger-hover-bg)] hover:text-[var(--iw-danger-hover-text)]" type="button" onclick="removeTask('${task.vid}')" aria-label="Remove task from the list" title="Remove task from the list">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4">
+                          <path d="M6 6l12 12"></path>
+                          <path d="M18 6L6 18"></path>
+                        </svg>
+                      </button>`
+                    : "";
+                  return `
+                    <tr class="border-b border-[var(--iw-border)] last:border-b-0">
+                      <td class="px-4 py-3 align-top"><span class="inline-flex rounded-xl px-3 py-1 text-xs font-bold ${getSiteBadgeClass(task.site_category)}">${escapeHtml(task.site_label)}</span></td>
+                      <td class="px-4 py-3 align-top"><div class="break-all text-sm text-[var(--iw-muted)]">${escapeHtml(task.source_url || task.vid)}</div></td>
+                      <td class="px-4 py-3 align-top text-sm font-semibold">${task.resolved_folder ? escapeHtml(task.resolved_folder) : ""}</td>
+                      <td class="px-4 py-3 align-top text-sm">${task.resolved_filename ? escapeHtml(task.resolved_filename) : ""}</td>
+                      <td class="px-4 py-3 align-top"><span class="inline-flex rounded-xl px-3 py-1 text-xs font-bold ${getStatusBadgeClass(task.status)}">${escapeHtml(task.status_label)}</span></td>
+                      <td class="px-4 py-3 align-top text-sm text-[var(--iw-muted)]">${Math.max(0, Math.min(100, Number(task.progress_pct) || 0))}%</td>
+                      <td class="px-4 py-3 align-top text-right"><div class="inline-flex gap-2">${dismissButton}${deviceButton}${removeButton}</div></td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          `;
+          return;
+        }
+
+        root.innerHTML = visibleTasks.map((task) => {
+          const progressPct = Math.max(0, Math.min(100, Number(task.progress_pct) || 0));
+          const dismissButton = task.can_hide
+            ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-border)] bg-[var(--iw-soft-fill)] text-[var(--iw-muted)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-accent)]/30 hover:bg-[var(--iw-panel-strong)] hover:text-[var(--iw-text)]" type="button" onclick="hideTask('${task.vid}')" aria-label="Hide task from the view" title="Hide task from the view">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" class="h-4 w-4">
+                  <path d="M3 3l18 18"></path>
+                  <path d="M10.58 10.58a2 2 0 0 0 2.84 2.84"></path>
+                  <path d="M9.36 5.37A10.94 10.94 0 0 1 12 5c5 0 9.27 3.11 11 7-1.02 2.29-2.8 4.24-5.09 5.49"></path>
+                  <path d="M6.23 6.23C4.17 7.41 2.57 9.05 1 12c1.27 2.86 3.43 5.08 6 6.32"></path>
+                </svg>
+              </button>`
+            : "";
+          const deviceButton = task.can_download && task.status !== "failed"
+            ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-action-border)] bg-[var(--iw-action-bg)] text-[var(--iw-action-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-action-hover-border)] hover:bg-[var(--iw-action-hover-bg)] hover:text-[var(--iw-action-hover-text)]" type="button" onclick="downloadTaskFile('${task.vid}')" aria-label="Download file" title="Download file">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4">
+                  <path d="M12 5v10" />
+                  <path d="M7 10l5 5 5-5" />
+                  <path d="M5 19h14" />
+                </svg>
+              </button>`
+            : "";
+          const removeButton = task.can_remove && task.status !== "running"
+            ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-danger-border)] bg-[var(--iw-danger-bg)] text-[var(--iw-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-danger-hover-border)] hover:bg-[var(--iw-danger-hover-bg)] hover:text-[var(--iw-danger-hover-text)]" type="button" onclick="removeTask('${task.vid}')" aria-label="Remove task from the list" title="Remove task from the list">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4">
+                  <path d="M6 6l12 12"></path>
+                  <path d="M18 6L6 18"></path>
+                </svg>
+              </button>`
+            : "";
+          const errorLine = task.status === "failed" && task.error
+            ? `<div class="text-xs text-[var(--iw-text)]">${escapeHtml(task.error)}</div>`
+            : "";
+
+          return `
+            <article class="w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-4 shadow-soft">
+              <div class="grid grid-cols-1 gap-3">
+                <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+                  <div class="min-w-0">
+                    <span class="inline-flex max-w-full rounded-xl px-3 py-1 text-xs font-bold ${getSiteBadgeClass(task.site_category)}">${escapeHtml(task.site_label)}</span>
+                  </div>
+                  <div class="flex shrink-0 flex-wrap items-start justify-end gap-2">
+                    <span class="inline-flex rounded-xl px-3 py-1 text-xs font-bold ${getStatusBadgeClass(task.status)}">${escapeHtml(task.status_label)}</span>
+                    ${dismissButton}${deviceButton}${removeButton}
+                  </div>
+                </div>
+                <div class="min-w-0 break-all text-sm text-[var(--iw-muted)]">${escapeHtml(task.source_url || task.vid)}</div>
+                <div class="grid gap-2">
+                  ${task.resolved_folder ? `<div class="break-all text-sm font-semibold">${escapeHtml(task.resolved_folder)}</div>` : ""}
+                  ${task.resolved_filename ? `<div class="break-all text-sm">${escapeHtml(task.resolved_filename)}</div>` : ""}
+                  ${errorLine}
+                </div>
+              </div>
+              <div class="mt-4">
+                <div class="h-2.5 overflow-hidden rounded-full bg-[var(--iw-soft-fill)]">
+                  <div class="h-full rounded-full bg-[var(--iw-accent)] transition-all" style="width:${progressPct}%"></div>
+                </div>
+                <div class="mt-2 flex justify-end text-xs text-[var(--iw-muted)]">${progressPct}%</div>
+              </div>
+            </article>
+          `;
+        }).join("");
+      }
+
+      function syncPoll(counts) {
+        const running = (counts.running ?? 0) > 0;
+        const pending = (counts.queued ?? 0) > 0;
+        const targetMs = running ? POLL_RUNNING_MS : pending ? POLL_PENDING_MS : 0;
+
+        if (targetMs !== state.pollIntervalMs) {
+          if (state.pollHandle) {
+            clearInterval(state.pollHandle);
+            state.pollHandle = null;
+          }
+          state.pollIntervalMs = targetMs;
+        }
+
+        if (targetMs > 0 && !state.pollHandle && !document.hidden) {
+          state.pollHandle = setInterval(() => loadTasks(true), targetMs);
+        }
+      }
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          if (state.pollHandle) {
+            clearInterval(state.pollHandle);
+            state.pollHandle = null;
+          }
+        } else {
+          loadTasks(true);
+        }
+      });
+
+      async function loadTasks(silent = false) {
+        try {
+          const response = await fetch("/api/tasks");
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Could not load tasks.");
+          state.visibleTasks = data.tasks || [];
+          processCompletedDeviceDownloads(state.visibleTasks);
+          renderTasks(state.visibleTasks);
+          updateCountsForMenu(state.visibleTasks);
+          syncPoll(countTasks(state.visibleTasks));
+        } catch (error) {
+          if (!silent) toast(error.message || "Could not load tasks.", "error");
+        }
+      }
+
+      async function triggerTaskFileDownload(vid) {
+        const response = await fetch(`/api/tasks/${encodeURIComponent(vid)}/file`, { credentials: "same-origin" });
+        const contentType = (response.headers.get("content-type") || "").toLowerCase();
+        if (!response.ok) {
+          let message = "Could not download that file.";
+          if (contentType.includes("application/json")) {
+            try {
+              const payload = await response.json();
+              message = payload.error || message;
+            } catch {}
+          } else {
+            try {
+              const text = (await response.text()).trim();
+              if (text) message = text;
+            } catch {}
+          }
+          throw new Error(message);
+        }
+
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const contentDisposition = response.headers.get("content-disposition") || "";
+        const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+        const asciiMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+        const filename = utf8Match ? decodeURIComponent(utf8Match[1]) : (asciiMatch ? asciiMatch[1] : "download");
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.rel = "noopener";
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      }
+
+      function deliveredKey(vid) {
+        return `${vid}:${state.tabId}`;
+      }
+
+      async function downloadTaskFile(vid) {
+        await triggerTaskFileDownload(vid);
+        state.deliveredDeviceDownloads[deliveredKey(vid)] = true;
+        persistDeliveredDeviceDownloads();
+      }
+      window.downloadTaskFile = downloadTaskFile;
+
+      function processCompletedDeviceDownloads(tasks) {
+        (tasks || []).forEach((task) => {
+          if (task.save_mode !== "device" || task.status !== "completed" || !task.resolved_full_path) return;
+          const allowedTabs = Array.isArray(task.device_request_tabs) ? task.device_request_tabs : [];
+          if (!allowedTabs.includes(state.tabId)) return;
+          const key = deliveredKey(task.vid);
+          if (state.deliveredDeviceDownloads[key]) return;
+          triggerTaskFileDownload(task.vid)
+            .then(() => {
+              state.deliveredDeviceDownloads[key] = true;
+              persistDeliveredDeviceDownloads();
+            })
+            .catch((error) => {
+              toast(error.message || "Could not download that file.", "error");
+            });
+        });
+        persistDeliveredDeviceDownloads();
+      }
+
+      async function addTask(event) {
+        event.preventDefault();
+        const urlInput = document.getElementById("urlInput");
+        const url = urlInput.value.trim();
+        if (!url) {
+          toast("Paste a supported URL first.", "error");
+          return;
+        }
+
+        const settings = getSavedSettings();
+        try {
+          const response = await fetch("/api/tasks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url,
+              site_locations: settings.site_locations,
+              save_mode: settings.save_mode,
+              client_tab_id: state.tabId,
+            }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Failed to add task.");
+          urlInput.value = "";
+          const firstTask = Array.isArray(data.created) ? data.created[0] : null;
+          if (firstTask && data.reused && settings.save_mode === "device" && firstTask.status === "completed") {
+            await downloadTaskFile(firstTask.vid);
+            toast("That file was already downloaded.");
+          } else if (data.reused) {
+            const reusedMessage = firstTask && firstTask.status === "completed"
+              ? "That file was already downloaded."
+              : "That download is already in your list.";
+            toast(reusedMessage);
+          } else {
+            toast(settings.save_mode === "device" ? "Device download queued." : "Download added.");
+          }
+          await loadTasks(true);
+        } catch (error) {
+          toast(error.message || "Failed to add task.", "error");
+        }
+      }
+
+      async function removeTask(vid) {
+        try {
+          const response = await fetch(`/api/tasks/${encodeURIComponent(vid)}`, { method: "DELETE" });
+          if (response.status === 204) {
+            toast("Task removed from the list.");
+            await loadTasks(true);
+            return;
+          }
+          const data = await response.json();
+          throw new Error(data.error || "Could not remove task.");
+        } catch (error) {
+          toast(error.message || "Could not remove task.", "error");
+        }
+      }
+      window.removeTask = removeTask;
+
+      async function hideTask(vid) {
+        try {
+          const response = await fetch(`/api/tasks/${encodeURIComponent(vid)}/hide`, { method: "POST" });
+          if (response.status === 204) {
+            toast("Task hidden from the view.");
+            await loadTasks(true);
+            return;
+          }
+          const data = await response.json();
+          throw new Error(data.error || "Could not hide task.");
+        } catch (error) {
+          toast(error.message || "Could not hide task.", "error");
+        }
+      }
+      window.hideTask = hideTask;
+
+      async function clearPending() {
+        try {
+          const response = await fetch("/api/tasks/clear-pending", { method: "POST" });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Could not clear queue.");
+          toast(data.cleared === 0 ? "No queued tasks to clear." : `Cleared ${data.cleared} queued task${data.cleared === 1 ? "" : "s"}.`);
+          await loadTasks(true);
+        } catch (error) {
+          toast(error.message || "Could not clear queue.", "error");
+        }
+      }
+
+      async function clearCompleted() {
+        try {
+          const response = await fetch("/api/tasks/clear-completed", { method: "POST" });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Could not clear done.");
+          toast(data.cleared === 0 ? "No done tasks to clear." : `Cleared ${data.cleared} done task${data.cleared === 1 ? "" : "s"} from the view.`);
+          await loadTasks(true);
+        } catch (error) {
+          toast(error.message || "Could not clear done.", "error");
+        }
+      }
+
+      async function cleanNfo() {
+        const btn = document.getElementById("cleanNfoButton");
+        const originalText = btn.textContent;
+        btn.textContent = "Deleting…";
+        btn.disabled = true;
+        try {
+          const response = await fetch("/api/cleanup-nfo", { method: "POST" });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Could not delete .nfo files.");
+          if (data.errors && data.errors.length) {
+            toast(`Deleted ${data.deleted} .nfo file${data.deleted === 1 ? "" : "s"}, ${data.errors.length} could not be removed.`, "error");
+          } else {
+            toast(data.deleted === 0 ? "No .nfo files found." : `Deleted ${data.deleted} .nfo file${data.deleted === 1 ? "" : "s"}.`);
+          }
+        } catch (error) {
+          toast(error.message || "Could not delete .nfo files.", "error");
+        } finally {
+          btn.textContent = originalText;
+          btn.disabled = false;
+        }
+      }
+
+      function getThemeMode() {
+        return localStorage.getItem("neverstelle.themeMode") === "light" ? "light" : "dark";
+      }
+
+      function updateThemeToggleButton() {
+        const button = document.getElementById("themeToggleButton");
+        const icon = document.getElementById("themeToggleIcon");
+        const isLight = document.body.classList.contains("light-mode");
+        button.setAttribute("aria-pressed", String(isLight));
+        button.setAttribute("title", isLight ? "Switch to dark mode" : "Switch to light mode");
+        button.setAttribute("aria-label", isLight ? "Switch to dark mode" : "Switch to light mode");
+        icon.innerHTML = isLight
+          ? '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2 12h2.2M19.8 12H22M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56"></path>'
+          : '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"></path>';
+      }
+
+      function applyTheme(mode) {
+        const nextMode = mode === "light" ? "light" : "dark";
+        document.body.classList.toggle("light-mode", nextMode === "light");
+        localStorage.setItem("neverstelle.themeMode", nextMode);
+        updateThemeToggleButton();
+      }
+
+      function toggleThemeMode() {
+        applyTheme(document.body.classList.contains("light-mode") ? "dark" : "light");
+      }
+      document.getElementById("downloadForm").addEventListener("submit", addTask);
+      document.querySelectorAll(".menu-btn").forEach((button) => {
+        button.addEventListener("click", () => setActiveMenu(button.dataset.menu));
+      });
+      document.querySelectorAll(".save-mode-btn").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const settings = getSavedSettings();
+          const nextMode = button.dataset.saveMode === "device" ? "device" : "nas";
+          if (settings.save_mode === nextMode) return;
+          settings.save_mode = nextMode;
+          try {
+            await persistSettings(settings, "Save mode updated.");
+            updateSaveModeButtons();
+          } catch (error) {
+            toast(error.message || "Could not save save mode.", "error");
+          }
+        });
+      });
+      document.getElementById("settingsButton").addEventListener("click", (event) => openSettings(event.currentTarget));
+      document.querySelectorAll(".settings-nav-btn").forEach((button) => {
+        button.addEventListener("click", () => setSettingsSection(button.dataset.settingsSection, true));
+      });
+      document.getElementById("instagramIdentifierTypeInput").addEventListener("change", updateInstagramIdentifierField);
+      document.getElementById("cancelSettingsButton").addEventListener("click", closeSettings);
+      document.getElementById("closeSettingsButton").addEventListener("click", closeSettings);
+      document.getElementById("saveSettingsButton").addEventListener("click", async () => {
+        const settings = getSavedSettings();
+        settings.site_locations = {
+          youtube: document.getElementById("youtubeLocationInput").value || state.defaults.site_locations.youtube || "",
+          facebook: document.getElementById("facebookLocationInput").value || state.defaults.site_locations.facebook || "",
+          instagram: document.getElementById("instagramLocationInput").value || state.defaults.site_locations.instagram || "",
+          tiktok: document.getElementById("tiktokLocationInput").value || state.defaults.site_locations.tiktok || "",
+          iwara: document.getElementById("iwaraLocationInput").value || state.defaults.site_locations.iwara || "",
+          others: document.getElementById("othersLocationInput").value || state.defaults.site_locations.others || "",
+        };
+        settings.template_settings = {
+          folder_template: document.getElementById("folderTemplateInput").value || state.defaults.template_settings.folder_template || "",
+          filename_template: document.getElementById("filenameTemplateInput").value || state.defaults.template_settings.filename_template || "",
+        };
+        try {
+          await persistSettings(settings, "");
+          toast("Settings saved.");
+          closeSettings();
+        } catch (error) {
+          toast(error.message || "Could not save settings.", "error");
+        }
+      });
+      document.getElementById("connectInstagramAuthButton").addEventListener("click", async () => {
+        const identifierType = document.getElementById("instagramIdentifierTypeInput").value || "username";
+        const identifier = (document.getElementById("instagramIdentifierInput").value || "").trim();
+        const password = document.getElementById("instagramPasswordInput").value || "";
+        try {
+          const data = await configureInstagramAuth(identifierType, identifier, password);
+          if (state.settings.instagram_auth && state.settings.instagram_auth.session_saved) {
+            document.getElementById("instagramPasswordInput").value = "";
+          }
+          syncInstagramAuthInputs();
+          return data;
+        } catch (error) {
+          renderInstagramAuthStatus();
+          toast("Could not reach the Instagram auth endpoint.", "error");
+        }
+      });
+      document.getElementById("removeInstagramAuthButton").addEventListener("click", async () => {
+        if (document.getElementById("removeInstagramAuthButton").disabled) return;
+        try {
+          await removeInstagramAuth();
+        } catch (error) {
+          toast(error.message || "Could not remove Instagram login.", "error");
+        }
+      });
+      document.getElementById("connectInstagramYtdlpCookiesButton").addEventListener("click", async () => {
+        const input = document.getElementById("instagramYtdlpCookiesInput");
+        const file = input && input.files && input.files[0] ? input.files[0] : null;
+        if (!file) {
+          toast("Choose a cookies file first.", "error");
+          return;
+        }
+        try {
+          await configureInstagramYtdlpCookies(file);
+          if (input) input.value = "";
+        } catch (error) {
+          renderInstagramYtdlpCookiesStatus();
+          toast(error.message || "Could not connect yt-dlp cookies.", "error");
+        }
+      });
+      document.getElementById("removeInstagramYtdlpCookiesButton").addEventListener("click", async () => {
+        if (document.getElementById("removeInstagramYtdlpCookiesButton").disabled) return;
+        try {
+          await removeInstagramYtdlpCookies();
+        } catch (error) {
+          toast(error.message || "Could not remove yt-dlp cookies.", "error");
+        }
+      });
+      document.getElementById("clearPendingButton").addEventListener("click", clearPending);
+      document.getElementById("clearCompletedButton").addEventListener("click", clearCompleted);
+      document.getElementById("cleanNfoButton").addEventListener("click", cleanNfo);
+      document.getElementById("settingsModal").addEventListener("click", (event) => {
+        if (event.target.id === "settingsModal") closeSettings();
+      });
+      document.querySelectorAll(".filter-btn").forEach((button) => {
+        button.addEventListener("click", () => {
+          state.activeFilter = button.dataset.filter;
+          localStorage.setItem("neverstelle.activeFilter", state.activeFilter);
+          updateFilterButtons();
+          renderTasks(state.visibleTasks || []);
+        });
+      });
+      document.getElementById("gridViewButton").addEventListener("click", () => setViewMode("grid"));
+      document.getElementById("tableViewButton").addEventListener("click", () => setViewMode("table"));
+      document.getElementById("themeToggleButton").addEventListener("click", toggleThemeMode);
+
+      document.addEventListener("keydown", (event) => {
+        const modal = document.getElementById("settingsModal");
+        if (event.key === "Escape" && modal.classList.contains("flex")) {
+          closeSettings();
+          return;
+        }
+        if (event.key === "Tab" && modal.classList.contains("flex")) {
+          const focusable = getFocusableInModal();
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (!first || !last) return;
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        }
+      });
+
+      if (!localStorage.getItem("neverstelle.activeMenu")) {
+        localStorage.setItem("neverstelle.activeMenu", "all");
+      }
+      state.activeMenu = localStorage.getItem("neverstelle.activeMenu") || "all";
+      applyTheme(getThemeMode());
+      updateViewButtons();
+      updateFilterButtons();
+      updateMenuButtons();
+      updateSaveModeButtons();
+      fetchUIConfig();
+      loadTasks();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,6 @@
+__pycache__/
+data/
+library/
+settings.json
+.venv/
+*.tar
