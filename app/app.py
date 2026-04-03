@@ -729,32 +729,29 @@ def find_iwaradl_bin() -> str:
 
 def normalize_meta(raw: dict | None) -> dict:
     raw = raw or {}
-    if "tasks" in raw or "hidden_completed" in raw:
+    if isinstance(raw, dict) and "tasks" in raw:
         tasks = raw.get("tasks") or {}
-        hidden_completed = raw.get("hidden_completed") or []
         if not isinstance(tasks, dict):
             tasks = {}
-        if not isinstance(hidden_completed, list):
-            hidden_completed = []
-        return {"tasks": tasks, "hidden_completed": hidden_completed}
+        return {"tasks": tasks}
     if isinstance(raw, dict):
-        return {"tasks": raw, "hidden_completed": []}
-    return {"tasks": {}, "hidden_completed": []}
+        return {"tasks": raw}
+    return {"tasks": {}}
 
 
 def load_meta() -> dict:
     with meta_lock:
         if not META_FILE.exists():
-            return {"tasks": {}, "hidden_completed": []}
+            return {"tasks": {}}
         try:
             return normalize_meta(json.loads(META_FILE.read_text(encoding="utf-8")))
         except Exception:
-            return {"tasks": {}, "hidden_completed": []}
+            return {"tasks": {}}
 
 
 def save_meta(meta: dict) -> None:
     with meta_lock:
-        META_FILE.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        META_FILE.write_text(json.dumps(normalize_meta(meta), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def normalize_download_request_tabs(raw: Any) -> list[str]:
@@ -1802,31 +1799,6 @@ def purge_task_entry(task_id: str, task: dict[str, Any], meta: dict[str, Any]) -
     else:
         remove_iwara_task(task_id)
     meta.setdefault("tasks", {}).pop(task_id, None)
-    meta["hidden_completed"] = [x for x in meta.get("hidden_completed", []) if x != task_id]
-
-
-def purge_hidden_completed_entries() -> None:
-    meta = load_meta()
-    hidden_ids = list(meta.get("hidden_completed", []))
-    if not hidden_ids:
-        return
-    changed = False
-    for task_id in hidden_ids:
-        task = load_task_record(task_id)
-        if not task:
-            meta.setdefault("tasks", {}).pop(task_id, None)
-            meta["hidden_completed"] = [x for x in meta.get("hidden_completed", []) if x != task_id]
-            changed = True
-            continue
-        if can_delete_done_task(task_id, task, meta):
-            purge_task_entry(task_id, task, meta)
-            changed = True
-            continue
-        if task_id in meta.get("hidden_completed", []):
-            meta["hidden_completed"] = [x for x in meta.get("hidden_completed", []) if x != task_id]
-            changed = True
-    if changed:
-        save_meta(meta)
 
 
 def find_existing_general_task(source_url: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
@@ -3674,7 +3646,7 @@ def convert_general_task(task_id: str, task: dict[str, Any], meta: dict[str, Any
         "preview_warning": task.get("preview_warning", "") or local.get("preview_warning", ""),
         "can_remove": status == "pending",
         "can_hide": can_delete_done_task(task_id, task, meta),
-        "hidden": status in {"completed", "failed"} and task_id in meta.get("hidden_completed", []),
+        "hidden": False,
         "task_type": "ytdlp",
         "site_category": site_category,
         "site_label": SITE_LABELS.get(site_category, site_category.title()),
@@ -3705,7 +3677,7 @@ def convert_instaloader_task(task_id: str, task: dict[str, Any], meta: dict[str,
         "preview_warning": task.get("preview_warning", "") or local.get("preview_warning", ""),
         "can_remove": status == "pending",
         "can_hide": can_delete_done_task(task_id, task, meta),
-        "hidden": status in {"completed", "failed"} and task_id in meta.get("hidden_completed", []),
+        "hidden": False,
         "task_type": "instaloader",
         "site_category": site_category,
         "site_label": SITE_LABELS.get(site_category, site_category.title()),
@@ -3717,7 +3689,6 @@ def convert_instaloader_task(task_id: str, task: dict[str, Any], meta: dict[str,
 
 
 def fetch_tasks(include_hidden: bool = False) -> list[dict]:
-    purge_hidden_completed_entries()
     iwara_tasks = fetch_iwara_tasks()
     ytdlp_data = load_general_tasks()
     ytdlp_tasks = ytdlp_data.get("tasks", {})
@@ -3742,7 +3713,6 @@ def fetch_tasks(include_hidden: bool = False) -> list[dict]:
 def cleanup_meta(meta: dict, active_ids: set[str]) -> dict:
     meta = normalize_meta(meta)
     meta["tasks"] = {vid: data for vid, data in meta["tasks"].items() if vid in active_ids}
-    meta["hidden_completed"] = [vid for vid in meta["hidden_completed"] if vid in active_ids]
     return meta
 
 
@@ -3778,7 +3748,7 @@ def merge_iwara_task(task: dict, meta: dict) -> dict:
         "preview_warning": task.get("preview_warning", "") or local.get("preview_warning", ""),
         "can_remove": status == "pending",
         "can_hide": can_delete_done_task(vid, task, meta),
-        "hidden": status in {"completed", "failed"} and vid in meta["hidden_completed"],
+        "hidden": False,
         "task_type": "iwara",
         "site_category": "iwara",
         "site_label": SITE_LABELS["iwara"],
@@ -4565,8 +4535,6 @@ def add_task():
                     existing_iwara_meta["tasks"][vid]["save_mode"] = save_mode
                     if save_mode == "device":
                         add_download_request_tab(existing_iwara_meta, vid, client_tab_id)
-                if vid in existing_iwara_meta.get("hidden_completed", []):
-                    existing_iwara_meta["hidden_completed"] = [x for x in existing_iwara_meta["hidden_completed"] if x != vid]
                 save_meta(existing_iwara_meta)
                 if not load_task_record(vid):
                     history_entry, _ = find_history_entry_by_task_id(vid)
@@ -4611,8 +4579,6 @@ def add_task():
             "save_mode": save_mode,
             "device_request_tabs": [client_tab_id] if save_mode == "device" and client_tab_id else [],
         }
-        if task_id in meta["hidden_completed"]:
-            meta["hidden_completed"] = [x for x in meta["hidden_completed"] if x != task_id]
         save_meta(meta)
         iwara_worker_wakeup.set()
         return jsonify({"created": [merge_iwara_task({"vid": task_id, **task}, meta)]})
@@ -4635,8 +4601,6 @@ def add_task():
             meta["tasks"][existing_task_id]["save_mode"] = save_mode
             if save_mode == "device":
                 add_download_request_tab(meta, existing_task_id, client_tab_id)
-        if existing_task_id in meta.get("hidden_completed", []):
-            meta["hidden_completed"] = [x for x in meta["hidden_completed"] if x != existing_task_id]
         save_meta(meta)
         active_existing_task = load_task_record(existing_task_id)
         if not active_existing_task:
@@ -4699,8 +4663,6 @@ def add_task():
         "save_mode": save_mode,
         "device_request_tabs": [client_tab_id] if save_mode == "device" and client_tab_id else [],
     }
-    if task_id in meta["hidden_completed"]:
-        meta["hidden_completed"] = [x for x in meta["hidden_completed"] if x != task_id]
     save_meta(meta)
     if queue_name == "instaloader":
         instaloader_worker_wakeup.set()
@@ -4762,7 +4724,6 @@ def remove_task(vid: str):
         remove_non_iwara_task(vid)
         meta = load_meta()
         meta["tasks"].pop(vid, None)
-        meta["hidden_completed"] = [x for x in meta["hidden_completed"] if x != vid]
         save_meta(meta)
         return ("", 204)
 
@@ -4775,7 +4736,6 @@ def remove_task(vid: str):
     remove_iwara_task(vid)
     meta = load_meta()
     meta["tasks"].pop(vid, None)
-    meta["hidden_completed"] = [x for x in meta["hidden_completed"] if x != vid]
     save_meta(meta)
     return ("", 204)
 
@@ -4798,7 +4758,6 @@ def clear_pending():
             meta = load_meta()
             for vid in pending_ids:
                 meta["tasks"].pop(vid, None)
-                meta["hidden_completed"] = [x for x in meta["hidden_completed"] if x != vid]
             save_meta(meta)
         return jsonify({"cleared": cleared, "failed": failed})
     except Exception as exc:
