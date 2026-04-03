@@ -1,6 +1,6 @@
 # Never Stelle
 
-Never Stelle is a self-hosted web downloader with a browser UI for YouTube, Facebook, Instagram, TikTok, Iwara, and other supported sites.
+Never Stelle is a self-hosted media downloader with a browser UI for YouTube, Facebook, Instagram, TikTok, Iwara, and other supported sites.
 
 ## Features
 
@@ -15,7 +15,7 @@ Never Stelle is a self-hosted web downloader with a browser UI for YouTube, Face
 ## Download backends
 
 - `yt-dlp` for general downloads
-- `Instaloader` for supported Instagram flows
+- `Instaloader` for Instagram downloads
 - `iwaradl` for Iwara downloads
 - `Flask` for the web application
 
