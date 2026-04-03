@@ -58,6 +58,7 @@ LEGACY_YTDLP_TASKS_FILE = DATA_DIR / "general_tasks.json"
 YTDLP_TASKS_FILE = DATA_DIR / "ytdlp_tasks.json"
 INSTALOADER_TASKS_FILE = DATA_DIR / "instaloader_tasks.json"
 IWARA_TASKS_FILE = DATA_DIR / "iwara_tasks.json"
+DOWNLOAD_HISTORY_FILE = DATA_DIR / "download_history.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 INSTAGRAM_UPLOADED_COOKIES_FILE = DATA_DIR / "instagram-cookies.upload.txt"
 INSTAGRAM_YTDLP_COOKIES_FILE = INSTAGRAM_UPLOADED_COOKIES_FILE
@@ -71,6 +72,7 @@ meta_lock = threading.Lock()
 general_lock = threading.Lock()
 instaloader_lock = threading.Lock()
 iwara_lock = threading.Lock()
+history_lock = threading.Lock()
 settings_lock = threading.Lock()
 general_worker_lock = threading.Lock()
 instaloader_worker_lock = threading.Lock()
@@ -778,6 +780,40 @@ def add_download_request_tab(meta: dict, task_id: str, client_tab_id: str) -> No
     if client_tab_id not in tabs:
         tabs.append(client_tab_id)
     task_meta["device_request_tabs"] = tabs
+
+
+def mark_download_delivered(meta: dict, task_id: str, client_tab_id: str) -> None:
+    client_tab_id = str(client_tab_id or "").strip()
+    if not client_tab_id:
+        return
+    task_meta = meta.setdefault("tasks", {}).setdefault(task_id, {})
+    delivered_tabs = normalize_download_request_tabs(task_meta.get("delivered_device_tabs"))
+    if client_tab_id not in delivered_tabs:
+        delivered_tabs.append(client_tab_id)
+    task_meta["delivered_device_tabs"] = delivered_tabs
+
+
+def get_meta_task(meta: dict, task_id: str) -> dict[str, Any]:
+    return meta.setdefault("tasks", {}).setdefault(task_id, {})
+
+
+def can_delete_done_task(task_id: str, task: dict[str, Any] | None, meta: dict | None = None) -> bool:
+    task = task or {}
+    status = str(task.get("status") or "")
+    if status == "failed":
+        return True
+    if status != "completed":
+        return False
+    meta = normalize_meta(meta or load_meta())
+    local = get_meta_task(meta, task_id)
+    save_mode = str(task.get("save_mode") or local.get("save_mode") or "nas")
+    if save_mode != "device":
+        return True
+    requested_tabs = normalize_download_request_tabs(local.get("device_request_tabs"))
+    if not requested_tabs:
+        return True
+    delivered_tabs = set(normalize_download_request_tabs(local.get("delivered_device_tabs")))
+    return all(tab in delivered_tabs for tab in requested_tabs)
 
 
 def parse_env_locations(raw: str) -> list[str]:
@@ -1514,6 +1550,285 @@ def recover_instaloader_task_paths(task_id: str, task: dict[str, Any] | None) ->
     return "", str(task.get("resolved_folder") or "").strip(), str(task.get("resolved_filename") or "").strip()
 
 
+def normalize_history(raw: dict | None) -> dict[str, Any]:
+    if isinstance(raw, dict) and isinstance(raw.get("entries"), dict):
+        return {"entries": raw.get("entries") or {}}
+    return {"entries": {}}
+
+
+def load_download_history() -> dict[str, Any]:
+    with history_lock:
+        if not DOWNLOAD_HISTORY_FILE.exists():
+            return {"entries": {}}
+        try:
+            return normalize_history(json.loads(DOWNLOAD_HISTORY_FILE.read_text(encoding="utf-8")))
+        except Exception:
+            return {"entries": {}}
+
+
+def save_download_history(data: dict[str, Any]) -> None:
+    with history_lock:
+        DOWNLOAD_HISTORY_FILE.write_text(json.dumps(normalize_history(data), ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def get_task_type_for_id(task_id: str) -> str:
+    if is_instaloader_task_id(task_id):
+        return "instaloader"
+    if is_ytdlp_task_id(task_id):
+        return "ytdlp"
+    return "iwara"
+
+
+def resolve_task_record(task_id: str, task: dict[str, Any]) -> tuple[str, str, str, list[str]]:
+    task_type = get_task_type_for_id(task_id)
+    if task_type == "iwara":
+        resolved_path, resolved_folder, resolved_filename = recover_iwara_task_paths(task_id, task)
+    elif task_type == "instaloader":
+        resolved_path, resolved_folder, resolved_filename = recover_instaloader_task_paths(task_id, task)
+    else:
+        resolved_path, resolved_folder, resolved_filename = recover_general_task_paths(task_id, task)
+
+    downloaded_files = [
+        str(Path(item))
+        for item in (task.get("downloaded_files") or [])
+        if str(item).strip() and Path(item).exists() and Path(item).is_file()
+    ]
+    if not resolved_path and downloaded_files:
+        best = choose_best_media_file([Path(item) for item in downloaded_files], preferred_id=str(resolved_filename or task.get("resolved_filename") or ""))
+        if best:
+            resolved_path = str(best)
+            resolved_folder = str(best.parent)
+            resolved_filename = best.name
+    return resolved_path, resolved_folder, resolved_filename, downloaded_files
+
+
+def record_task_history(task_id: str, task: dict[str, Any] | None) -> None:
+    task = task or {}
+    if str(task.get("status") or "") != "completed":
+        return
+    source_url = canonicalize_source_url(task.get("source_url") or "")
+    if not source_url:
+        return
+    resolved_path, resolved_folder, resolved_filename, downloaded_files = resolve_task_record(task_id, task)
+    if not resolved_path and not downloaded_files:
+        return
+
+    history = load_download_history()
+    entries = history.setdefault("entries", {})
+    task_type = get_task_type_for_id(task_id)
+    for existing_id, existing_entry in list(entries.items()):
+        if existing_id == task_id:
+            continue
+        if str(existing_entry.get("task_type") or "") != task_type:
+            continue
+        if canonicalize_source_url(existing_entry.get("source_url") or existing_entry.get("canonical_source_url") or "") != source_url:
+            continue
+        entries.pop(existing_id, None)
+
+    entry = {
+        "task_id": task_id,
+        "task_type": task_type,
+        "status": "completed",
+        "source_url": str(task.get("source_url") or "").strip(),
+        "canonical_source_url": source_url,
+        "resolved_folder": resolved_folder or str(task.get("resolved_folder") or "").strip(),
+        "resolved_filename": resolved_filename or str(task.get("resolved_filename") or "").strip(),
+        "resolved_full_path": resolved_path or str(task.get("resolved_full_path") or "").strip(),
+        "resolved_archive_name": str(task.get("resolved_archive_name") or "").strip(),
+        "downloaded_files": downloaded_files,
+        "preview_warning": str(task.get("preview_warning") or "").strip(),
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "file_missing_at": "",
+    }
+    entries[task_id] = entry
+    save_download_history(history)
+
+
+def repair_history_entry(task_id: str, entry: dict[str, Any]) -> tuple[dict[str, Any] | None, bool]:
+    entry = dict(entry or {})
+    changed = False
+    downloaded_files = [
+        str(Path(item))
+        for item in (entry.get("downloaded_files") or [])
+        if str(item).strip() and Path(item).exists() and Path(item).is_file()
+    ]
+    if downloaded_files != list(entry.get("downloaded_files") or []):
+        entry["downloaded_files"] = downloaded_files
+        changed = True
+
+    preferred_id = task_id.split("@", 1)[0] if "@" in task_id else task_id
+    repaired_path, repaired_name = resolve_existing_media_path(
+        resolved_path=str(entry.get("resolved_full_path") or "").strip(),
+        resolved_folder=str(entry.get("resolved_folder") or "").strip(),
+        resolved_filename=str(entry.get("resolved_filename") or "").strip(),
+        preferred_id=preferred_id,
+    )
+    if repaired_path:
+        repaired_folder = str(Path(repaired_path).parent)
+        if repaired_path != str(entry.get("resolved_full_path") or ""):
+            entry["resolved_full_path"] = repaired_path
+            changed = True
+        if repaired_folder != str(entry.get("resolved_folder") or ""):
+            entry["resolved_folder"] = repaired_folder
+            changed = True
+        if repaired_name != str(entry.get("resolved_filename") or ""):
+            entry["resolved_filename"] = repaired_name
+            changed = True
+        if entry.get("file_missing_at"):
+            entry["file_missing_at"] = ""
+            changed = True
+        return entry, changed
+
+    if downloaded_files:
+        best = choose_best_media_file([Path(item) for item in downloaded_files], preferred_id=str(entry.get("resolved_filename") or ""))
+        if best:
+            if str(best) != str(entry.get("resolved_full_path") or ""):
+                entry["resolved_full_path"] = str(best)
+                changed = True
+            if str(best.parent) != str(entry.get("resolved_folder") or ""):
+                entry["resolved_folder"] = str(best.parent)
+                changed = True
+            if best.name != str(entry.get("resolved_filename") or ""):
+                entry["resolved_filename"] = best.name
+                changed = True
+            if entry.get("file_missing_at"):
+                entry["file_missing_at"] = ""
+                changed = True
+            return entry, changed
+
+    if not entry.get("file_missing_at"):
+        entry["file_missing_at"] = datetime.now(timezone.utc).isoformat()
+        changed = True
+    return None, changed
+
+
+def find_history_entry_by_task_id(task_id: str) -> tuple[dict[str, Any] | None, bool]:
+    history = load_download_history()
+    entries = history.setdefault("entries", {})
+    entry = entries.get(task_id)
+    if not isinstance(entry, dict):
+        return None, False
+    repaired_entry, changed = repair_history_entry(task_id, entry)
+    if repaired_entry is None:
+        if changed:
+            entries[task_id] = {**entry, "file_missing_at": datetime.now(timezone.utc).isoformat()}
+            save_download_history(history)
+        return None, False
+    if changed:
+        entries[task_id] = repaired_entry
+        save_download_history(history)
+    return repaired_entry, True
+
+
+def find_history_entry_by_source_url(source_url: str, task_type: str | None = None) -> tuple[str | None, dict[str, Any] | None]:
+    canonical_source_url = canonicalize_source_url(source_url)
+    if not canonical_source_url:
+        return None, None
+    history = load_download_history()
+    entries = history.setdefault("entries", {})
+    changed = False
+    best_match: tuple[str, dict[str, Any]] | None = None
+    for task_id, entry in list(entries.items()):
+        if not isinstance(entry, dict):
+            continue
+        if task_type and str(entry.get("task_type") or "") != task_type:
+            continue
+        if canonicalize_source_url(entry.get("source_url") or entry.get("canonical_source_url") or "") != canonical_source_url:
+            continue
+        repaired_entry, entry_changed = repair_history_entry(task_id, entry)
+        if entry_changed:
+            changed = True
+            if repaired_entry is None:
+                entries[task_id] = {**entry, "file_missing_at": datetime.now(timezone.utc).isoformat()}
+            else:
+                entries[task_id] = repaired_entry
+        if repaired_entry is None:
+            continue
+        if best_match is None:
+            best_match = (task_id, repaired_entry)
+            continue
+        if str(repaired_entry.get("completed_at") or "") >= str(best_match[1].get("completed_at") or ""):
+            best_match = (task_id, repaired_entry)
+    if changed:
+        save_download_history(history)
+    if best_match:
+        return best_match
+    return None, None
+
+
+def build_history_api_task(task_id: str, entry: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
+    local = meta.get("tasks", {}).get(task_id, {})
+    task_type = str(entry.get("task_type") or get_task_type_for_id(task_id))
+    source_url = str(entry.get("source_url") or local.get("source_url") or "")
+    site_category = detect_site_category(source_url) or ("instagram" if task_type == "instaloader" else ("iwara" if task_type == "iwara" else "others"))
+    resolved_path = str(entry.get("resolved_full_path") or local.get("resolved_full_path") or "")
+    resolved_folder = str(entry.get("resolved_folder") or local.get("resolved_folder") or "")
+    resolved_filename = str(entry.get("resolved_filename") or local.get("resolved_filename") or "")
+    can_download = bool(resolved_path or (entry.get("downloaded_files") if isinstance(entry.get("downloaded_files"), list) else []))
+    return {
+        "vid": task_id,
+        "status": "completed",
+        "status_label": STATUS_LABELS.get("completed", "Completed"),
+        "progress": 1,
+        "progress_pct": 100,
+        "source_url": source_url,
+        "resolved_folder": resolved_folder,
+        "resolved_filename": resolved_filename,
+        "resolved_full_path": resolved_path,
+        "preview_warning": str(entry.get("preview_warning") or local.get("preview_warning") or ""),
+        "can_remove": False,
+        "can_hide": can_delete_done_task(task_id, {"status": "completed", "save_mode": str(local.get("save_mode") or "nas")}, meta),
+        "hidden": False,
+        "task_type": task_type,
+        "site_category": site_category,
+        "site_label": SITE_LABELS.get(site_category, site_category.title()),
+        "error": "",
+        "save_mode": str(local.get("save_mode") or "nas"),
+        "can_download": can_download,
+        "device_request_tabs": normalize_download_request_tabs(local.get("device_request_tabs")),
+    }
+
+
+def load_task_record(task_id: str) -> dict[str, Any]:
+    if task_id.startswith(("ytdlp:", "instaloader:")):
+        return load_non_iwara_task(task_id)
+    return load_iwara_tasks().get("tasks", {}).get(task_id, {})
+
+
+def purge_task_entry(task_id: str, task: dict[str, Any], meta: dict[str, Any]) -> None:
+    record_task_history(task_id, task)
+    if task_id.startswith(("ytdlp:", "instaloader:")):
+        remove_non_iwara_task(task_id)
+    else:
+        remove_iwara_task(task_id)
+    meta.setdefault("tasks", {}).pop(task_id, None)
+    meta["hidden_completed"] = [x for x in meta.get("hidden_completed", []) if x != task_id]
+
+
+def purge_hidden_completed_entries() -> None:
+    meta = load_meta()
+    hidden_ids = list(meta.get("hidden_completed", []))
+    if not hidden_ids:
+        return
+    changed = False
+    for task_id in hidden_ids:
+        task = load_task_record(task_id)
+        if not task:
+            meta.setdefault("tasks", {}).pop(task_id, None)
+            meta["hidden_completed"] = [x for x in meta.get("hidden_completed", []) if x != task_id]
+            changed = True
+            continue
+        if can_delete_done_task(task_id, task, meta):
+            purge_task_entry(task_id, task, meta)
+            changed = True
+            continue
+        if task_id in meta.get("hidden_completed", []):
+            meta["hidden_completed"] = [x for x in meta.get("hidden_completed", []) if x != task_id]
+            changed = True
+    if changed:
+        save_meta(meta)
+
+
 def find_existing_general_task(source_url: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
     source_url = canonicalize_source_url(source_url)
     if not source_url:
@@ -1533,6 +1848,18 @@ def find_existing_general_task(source_url: str) -> tuple[str, dict[str, Any]] | 
     for task_id, task in tasks.items():
         if canonicalize_source_url(task.get("source_url") or "") == source_url and str(task.get("status") or "") in {"pending", "running"}:
             return task_id, task
+    history_task_id, history_entry = find_history_entry_by_source_url(source_url, task_type="ytdlp")
+    if history_task_id and history_entry:
+        return history_task_id, {
+            "status": "completed",
+            "source_url": history_entry.get("source_url") or source_url,
+            "resolved_folder": history_entry.get("resolved_folder") or "",
+            "resolved_filename": history_entry.get("resolved_filename") or "",
+            "resolved_full_path": history_entry.get("resolved_full_path") or "",
+            "resolved_archive_name": history_entry.get("resolved_archive_name") or "",
+            "downloaded_files": history_entry.get("downloaded_files") or [],
+            "preview_warning": history_entry.get("preview_warning") or "",
+        }
     return None, None
 
 
@@ -1682,11 +2009,17 @@ def find_existing_non_iwara_task(source_url: str) -> tuple[str, dict[str, Any]] 
                 continue
             status = str(task.get("status") or "")
             resolved, folder, filename = recover_fn(task_id, task)
-            if status == "completed" and resolved:
+            downloaded_files = [
+                str(Path(item))
+                for item in (task.get("downloaded_files") or [])
+                if str(item).strip() and Path(item).exists() and Path(item).is_file()
+            ]
+            if status == "completed" and (resolved or downloaded_files):
                 item = dict(task)
                 item["resolved_full_path"] = resolved
                 item["resolved_folder"] = folder
                 item["resolved_filename"] = filename
+                item["downloaded_files"] = downloaded_files
                 return task_id, item
         for task_id, task in tasks.items():
             if canonicalize_source_url(task.get("source_url") or "") == source_url and str(task.get("status") or "") in {"pending", "running"}:
@@ -1696,7 +2029,24 @@ def find_existing_non_iwara_task(source_url: str) -> tuple[str, dict[str, Any]] 
     task_id, task = _search(load_general_tasks().get("tasks", {}), recover_general_task_paths)
     if task_id and task:
         return task_id, task
-    return _search(load_instaloader_tasks().get("tasks", {}), recover_instaloader_task_paths)
+    task_id, task = _search(load_instaloader_tasks().get("tasks", {}), recover_instaloader_task_paths)
+    if task_id and task:
+        return task_id, task
+
+    preferred_history_type = "instaloader" if is_instagram_url(source_url) else "ytdlp"
+    history_task_id, history_entry = find_history_entry_by_source_url(source_url, task_type=preferred_history_type)
+    if history_task_id and history_entry:
+        return history_task_id, {
+            "status": "completed",
+            "source_url": history_entry.get("source_url") or source_url,
+            "resolved_folder": history_entry.get("resolved_folder") or "",
+            "resolved_filename": history_entry.get("resolved_filename") or "",
+            "resolved_full_path": history_entry.get("resolved_full_path") or "",
+            "resolved_archive_name": history_entry.get("resolved_archive_name") or "",
+            "downloaded_files": history_entry.get("downloaded_files") or [],
+            "preview_warning": history_entry.get("preview_warning") or "",
+        }
+    return None, None
 
 
 def normalize_iwara_tasks(raw: dict | None) -> dict[str, Any]:
@@ -1823,15 +2173,18 @@ def build_iwara_cmd(source_url: str, root_dir: str, filename_template: str) -> l
 
 def find_existing_iwara_task(source_url: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     source_url = canonicalize_source_url(source_url)
-    if not source_url:
-        return None, load_meta()
-    iwara_data = load_iwara_tasks()
     meta = load_meta()
+    if not source_url:
+        return None, meta
+    iwara_data = load_iwara_tasks()
     for task_id, task in (iwara_data.get("tasks") or {}).items():
         if canonicalize_source_url(task.get("source_url") or "") != source_url:
             continue
         merged = merge_iwara_task({"vid": task_id, **task}, meta)
         return merged, meta
+    history_task_id, history_entry = find_history_entry_by_source_url(source_url, task_type="iwara")
+    if history_task_id and history_entry:
+        return build_history_api_task(history_task_id, history_entry, meta), meta
     return None, meta
 
 
@@ -3320,7 +3673,7 @@ def convert_general_task(task_id: str, task: dict[str, Any], meta: dict[str, Any
         "resolved_full_path": recovered_path or task.get("resolved_full_path", "") or local.get("resolved_full_path", ""),
         "preview_warning": task.get("preview_warning", "") or local.get("preview_warning", ""),
         "can_remove": status == "pending",
-        "can_hide": status in {"completed", "failed"},
+        "can_hide": can_delete_done_task(task_id, task, meta),
         "hidden": status in {"completed", "failed"} and task_id in meta.get("hidden_completed", []),
         "task_type": "ytdlp",
         "site_category": site_category,
@@ -3351,7 +3704,7 @@ def convert_instaloader_task(task_id: str, task: dict[str, Any], meta: dict[str,
         "resolved_full_path": recovered_path or task.get("resolved_full_path", "") or local.get("resolved_full_path", ""),
         "preview_warning": task.get("preview_warning", "") or local.get("preview_warning", ""),
         "can_remove": status == "pending",
-        "can_hide": status in {"completed", "failed"},
+        "can_hide": can_delete_done_task(task_id, task, meta),
         "hidden": status in {"completed", "failed"} and task_id in meta.get("hidden_completed", []),
         "task_type": "instaloader",
         "site_category": site_category,
@@ -3364,6 +3717,7 @@ def convert_instaloader_task(task_id: str, task: dict[str, Any], meta: dict[str,
 
 
 def fetch_tasks(include_hidden: bool = False) -> list[dict]:
+    purge_hidden_completed_entries()
     iwara_tasks = fetch_iwara_tasks()
     ytdlp_data = load_general_tasks()
     ytdlp_tasks = ytdlp_data.get("tasks", {})
@@ -3423,7 +3777,7 @@ def merge_iwara_task(task: dict, meta: dict) -> dict:
         "resolved_full_path": resolved_path or task.get("resolved_full_path", "") or local.get("resolved_full_path", ""),
         "preview_warning": task.get("preview_warning", "") or local.get("preview_warning", ""),
         "can_remove": status == "pending",
-        "can_hide": status in {"completed", "failed"},
+        "can_hide": can_delete_done_task(vid, task, meta),
         "hidden": status in {"completed", "failed"} and vid in meta["hidden_completed"],
         "task_type": "iwara",
         "site_category": "iwara",
@@ -3910,31 +4264,34 @@ def download_iwara_to_temp(source_url: str) -> tuple[Path, str]:
 def task_file_download(vid: str):
     meta = load_meta()
     temp_dir_to_cleanup = ""
+    history_entry, _ = find_history_entry_by_task_id(vid)
     if vid.startswith(("ytdlp:", "instaloader:")):
         task = load_non_iwara_task(vid)
-        recovered_path, recovered_folder, recovered_filename = (recover_instaloader_task_paths(vid, task) if is_instaloader_task_id(vid) else recover_general_task_paths(vid, task))
-        resolved_path = recovered_path or str(task.get("resolved_full_path") or meta.get("tasks", {}).get(vid, {}).get("resolved_full_path") or "").strip()
-        filename = recovered_filename or str(task.get("resolved_filename") or meta.get("tasks", {}).get(vid, {}).get("resolved_filename") or "download").strip() or "download"
-        status = str(task.get("status") or "")
+        history_fallback = history_entry if history_entry else {}
+        recovered_path, recovered_folder, recovered_filename = (recover_instaloader_task_paths(vid, task) if (task and is_instaloader_task_id(vid)) else (recover_general_task_paths(vid, task) if task else ("", "", "")))
+        resolved_path = recovered_path or str(task.get("resolved_full_path") or history_fallback.get("resolved_full_path") or meta.get("tasks", {}).get(vid, {}).get("resolved_full_path") or "").strip()
+        filename = recovered_filename or str(task.get("resolved_filename") or history_fallback.get("resolved_filename") or meta.get("tasks", {}).get(vid, {}).get("resolved_filename") or "download").strip() or "download"
+        status = str(task.get("status") or ("completed" if history_fallback else ""))
         repaired_path, repaired_name = resolve_existing_media_path(
             resolved_path=resolved_path,
-            resolved_folder=recovered_folder or str(task.get("resolved_folder") or meta.get("tasks", {}).get(vid, {}).get("resolved_folder") or "").strip(),
+            resolved_folder=recovered_folder or str(task.get("resolved_folder") or history_fallback.get("resolved_folder") or meta.get("tasks", {}).get(vid, {}).get("resolved_folder") or "").strip(),
             resolved_filename=filename,
         )
         if repaired_path:
             resolved_path = repaired_path
             filename = repaired_name or filename
 
+        task_downloaded_files = task.get("downloaded_files") if task else history_fallback.get("downloaded_files")
         downloaded_files = [
-            Path(item) for item in (task.get("downloaded_files") or [])
+            Path(item) for item in (task_downloaded_files or [])
             if str(item).strip() and Path(item).exists() and Path(item).is_file()
         ]
         file_path = Path(resolved_path) if resolved_path else None
-        save_mode = str(task.get("save_mode") or meta.get("tasks", {}).get(vid, {}).get("save_mode") or "nas")
-        source_url = str(task.get("source_url") or meta.get("tasks", {}).get(vid, {}).get("source_url") or "").strip()
+        save_mode = str((task.get("save_mode") if task else "") or history_fallback.get("save_mode") or meta.get("tasks", {}).get(vid, {}).get("save_mode") or "nas")
+        source_url = str(task.get("source_url") or history_fallback.get("source_url") or meta.get("tasks", {}).get(vid, {}).get("source_url") or "").strip() if (task or history_fallback) else str(meta.get("tasks", {}).get(vid, {}).get("source_url") or "").strip()
         if status == "completed" and len(downloaded_files) > 1:
             temp_dir_to_cleanup = tempfile.mkdtemp(prefix="neverstelle-general-zip-")
-            archive_name = str(task.get("resolved_archive_name") or meta.get("tasks", {}).get(vid, {}).get("resolved_archive_name") or "download.zip").strip() or "download.zip"
+            archive_name = str((task.get("resolved_archive_name") if task else "") or history_fallback.get("resolved_archive_name") or meta.get("tasks", {}).get(vid, {}).get("resolved_archive_name") or "download.zip").strip() or "download.zip"
             archive_path = create_zip_from_paths(downloaded_files, Path(temp_dir_to_cleanup) / safe_component(archive_name))
             resolved_path = str(archive_path)
             filename = archive_path.name
@@ -3947,17 +4304,19 @@ def task_file_download(vid: str):
                     temp_file, temp_dir_to_cleanup = download_general_to_temp(source_url)
                 resolved_path = str(temp_file)
                 filename = temp_file.name
+                file_path = temp_file
     else:
         local = meta.get("tasks", {}).get(vid, {})
         iwara_task = load_iwara_tasks().get("tasks", {}).get(vid, {})
-        resolved_path = str(iwara_task.get("resolved_full_path") or local.get("resolved_full_path") or "").strip()
-        filename = str(iwara_task.get("resolved_filename") or local.get("resolved_filename") or "download").strip() or "download"
-        status = str(iwara_task.get("status") or "")
+        history_fallback = history_entry if history_entry else {}
+        resolved_path = str(iwara_task.get("resolved_full_path") or history_fallback.get("resolved_full_path") or local.get("resolved_full_path") or "").strip()
+        filename = str(iwara_task.get("resolved_filename") or history_fallback.get("resolved_filename") or local.get("resolved_filename") or "download").strip() or "download"
+        status = str(iwara_task.get("status") or ("completed" if history_fallback else ""))
 
         preferred_id = vid.split("@", 1)[0] if "@" in vid else vid
         repaired_path, repaired_name = resolve_existing_media_path(
             resolved_path=resolved_path,
-            resolved_folder=str(iwara_task.get("resolved_folder") or local.get("resolved_folder") or "").strip(),
+            resolved_folder=str(iwara_task.get("resolved_folder") or history_fallback.get("resolved_folder") or local.get("resolved_folder") or "").strip(),
             resolved_filename=filename,
             preferred_id=preferred_id,
         )
@@ -3968,11 +4327,12 @@ def task_file_download(vid: str):
         file_path = Path(resolved_path) if resolved_path else None
         save_mode = str(iwara_task.get("save_mode") or local.get("save_mode") or "nas")
         if status == "completed" and save_mode == "device" and (not file_path or not file_path.exists() or not file_path.is_file() or not is_media_file_path(file_path)):
-            source_url = str(iwara_task.get("source_url") or local.get("source_url") or "").strip()
+            source_url = str(iwara_task.get("source_url") or history_fallback.get("source_url") or local.get("source_url") or "").strip()
             if source_url:
                 temp_file, temp_dir_to_cleanup = download_iwara_to_temp(source_url)
                 resolved_path = str(temp_file)
                 filename = temp_file.name
+                file_path = temp_file
 
     if status != "completed":
         return jsonify({"error": "File is not ready yet."}), 409
@@ -4208,6 +4568,10 @@ def add_task():
                 if vid in existing_iwara_meta.get("hidden_completed", []):
                     existing_iwara_meta["hidden_completed"] = [x for x in existing_iwara_meta["hidden_completed"] if x != vid]
                 save_meta(existing_iwara_meta)
+                if not load_task_record(vid):
+                    history_entry, _ = find_history_entry_by_task_id(vid)
+                    if history_entry:
+                        return jsonify({"created": [build_history_api_task(vid, history_entry, existing_iwara_meta)], "reused": True})
             return jsonify({"created": [existing_iwara_task], "reused": True})
 
         iwara_location = normalized_site_locations.get("iwara", "")
@@ -4263,6 +4627,7 @@ def add_task():
                 "resolved_filename": str(existing_task.get("resolved_filename") or ""),
                 "resolved_full_path": str(existing_task.get("resolved_full_path") or ""),
                 "preview_warning": str(existing_task.get("preview_warning") or ""),
+                "resolved_archive_name": str(existing_task.get("resolved_archive_name") or ""),
                 "save_mode": save_mode,
                 "device_request_tabs": [client_tab_id] if save_mode == "device" and client_tab_id else [],
             }
@@ -4273,6 +4638,11 @@ def add_task():
         if existing_task_id in meta.get("hidden_completed", []):
             meta["hidden_completed"] = [x for x in meta["hidden_completed"] if x != existing_task_id]
         save_meta(meta)
+        active_existing_task = load_task_record(existing_task_id)
+        if not active_existing_task:
+            history_entry, _ = find_history_entry_by_task_id(existing_task_id)
+            if history_entry:
+                return jsonify({"created": [build_history_api_task(existing_task_id, history_entry, meta)], "reused": True})
         if is_instaloader_task_id(existing_task_id):
             return jsonify({"created": [convert_instaloader_task(existing_task_id, existing_task, meta)], "reused": True})
         return jsonify({"created": [convert_general_task(existing_task_id, existing_task, meta)], "reused": True})
@@ -4343,29 +4713,42 @@ def add_task():
 
 def hide_task(vid: str):
     meta = load_meta()
-
-    if vid.startswith(("ytdlp:", "instaloader:")):
-        task = load_non_iwara_task(vid)
-        if not task:
-            return ("", 204)
-        if task.get("status") not in {"completed", "failed"}:
-            return jsonify({"error": "Only done tasks can be hidden."}), 409
-        hidden = set(meta.get("hidden_completed", []))
-        hidden.add(vid)
-        meta["hidden_completed"] = sorted(hidden)
-        save_meta(meta)
-        return ("", 204)
-
-    task = load_iwara_tasks().get("tasks", {}).get(vid)
+    task = load_task_record(vid)
     if not task:
         return ("", 204)
-    if task.get("status") not in {"completed", "failed"}:
-        return jsonify({"error": "Only done tasks can be hidden."}), 409
-    hidden = set(meta.get("hidden_completed", []))
-    hidden.add(vid)
-    meta["hidden_completed"] = sorted(hidden)
+    if str(task.get("status") or "") not in {"completed", "failed"}:
+        return jsonify({"error": "Only done tasks can be cleared."}), 409
+    if not can_delete_done_task(vid, task, meta):
+        return jsonify({"error": "This device download is still waiting to be delivered before it can be cleared."}), 409
+    purge_task_entry(vid, task, meta)
     save_meta(meta)
     return ("", 204)
+
+
+@app.route("/api/tasks/<vid>/delivered", methods=["POST"])
+def mark_task_delivered_api(vid: str):
+    body = request.get_json(silent=True) or {}
+    client_tab_id = str(body.get("client_tab_id") or "").strip()
+    if not client_tab_id:
+        return jsonify({"error": "Missing client tab id."}), 400
+
+    meta = load_meta()
+    local = meta.setdefault("tasks", {}).setdefault(vid, {})
+    history_entry, _ = find_history_entry_by_task_id(vid)
+    if history_entry:
+        local.setdefault("source_url", str(history_entry.get("source_url") or "").strip())
+        local.setdefault("resolved_folder", str(history_entry.get("resolved_folder") or "").strip())
+        local.setdefault("resolved_filename", str(history_entry.get("resolved_filename") or "").strip())
+        local.setdefault("resolved_full_path", str(history_entry.get("resolved_full_path") or "").strip())
+    add_download_request_tab(meta, vid, client_tab_id)
+    mark_download_delivered(meta, vid, client_tab_id)
+    save_meta(meta)
+
+    task = load_task_record(vid)
+    status = str(task.get("status") or ("completed" if history_entry else ""))
+    save_mode = str(task.get("save_mode") or local.get("save_mode") or "nas")
+    clear_ready = can_delete_done_task(vid, {"status": status, "save_mode": save_mode}, meta)
+    return jsonify({"delivered": True, "clear_ready": clear_ready})
 
 
 @app.route("/api/tasks/<vid>", methods=["DELETE"])
@@ -4426,15 +4809,23 @@ def clear_pending():
 def clear_completed():
     try:
         tasks = fetch_tasks(include_hidden=True)
-        completed_ids = [task["vid"] for task in tasks if task["status"] in {"completed", "failed"}]
-        if not completed_ids:
-            return jsonify({"cleared": 0})
         meta = load_meta()
-        hidden = set(meta["hidden_completed"])
-        hidden.update(completed_ids)
-        meta["hidden_completed"] = sorted(hidden)
+        cleared = 0
+        skipped = 0
+        for item in tasks:
+            if item.get("status") not in {"completed", "failed"}:
+                continue
+            task_id = str(item.get("vid") or "")
+            task = load_task_record(task_id)
+            if not task:
+                continue
+            if not can_delete_done_task(task_id, task, meta):
+                skipped += 1
+                continue
+            purge_task_entry(task_id, task, meta)
+            cleared += 1
         save_meta(meta)
-        return jsonify({"cleared": len(completed_ids)})
+        return jsonify({"cleared": cleared, "skipped": skipped})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 502
 

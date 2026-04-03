@@ -1503,7 +1503,7 @@
               <tbody>
                 ${visibleTasks.map((task) => {
                   const dismissButton = task.can_hide
-                    ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-border)] bg-[var(--iw-soft-fill)] text-[var(--iw-muted)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-accent)]/30 hover:bg-[var(--iw-panel-strong)] hover:text-[var(--iw-text)]" type="button" onclick="hideTask('${task.vid}')" aria-label="Hide task from the view" title="Hide task from the view">
+                    ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-border)] bg-[var(--iw-soft-fill)] text-[var(--iw-muted)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-accent)]/30 hover:bg-[var(--iw-panel-strong)] hover:text-[var(--iw-text)]" type="button" onclick="hideTask('${task.vid}')" aria-label="Clear task" title="Clear task">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" class="h-4 w-4">
                           <path d="M3 3l18 18"></path>
                           <path d="M10.58 10.58a2 2 0 0 0 2.84 2.84"></path>
@@ -1550,7 +1550,7 @@
         root.innerHTML = visibleTasks.map((task) => {
           const progressPct = Math.max(0, Math.min(100, Number(task.progress_pct) || 0));
           const dismissButton = task.can_hide
-            ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-border)] bg-[var(--iw-soft-fill)] text-[var(--iw-muted)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-accent)]/30 hover:bg-[var(--iw-panel-strong)] hover:text-[var(--iw-text)]" type="button" onclick="hideTask('${task.vid}')" aria-label="Hide task from the view" title="Hide task from the view">
+            ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-border)] bg-[var(--iw-soft-fill)] text-[var(--iw-muted)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-accent)]/30 hover:bg-[var(--iw-panel-strong)] hover:text-[var(--iw-text)]" type="button" onclick="hideTask('${task.vid}')" aria-label="Clear task" title="Clear task">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" class="h-4 w-4">
                   <path d="M3 3l18 18"></path>
                   <path d="M10.58 10.58a2 2 0 0 0 2.84 2.84"></path>
@@ -1693,8 +1693,20 @@
         return `${vid}:${state.tabId}`;
       }
 
+      async function acknowledgeDeliveredTask(vid) {
+        try {
+          await fetch(`/api/tasks/${encodeURIComponent(vid)}/delivered`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ client_tab_id: state.tabId }),
+          });
+        } catch (error) {
+        }
+      }
+
       async function downloadTaskFile(vid) {
         await triggerTaskFileDownload(vid);
+        await acknowledgeDeliveredTask(vid);
         state.deliveredDeviceDownloads[deliveredKey(vid)] = true;
         persistDeliveredDeviceDownloads();
       }
@@ -1708,7 +1720,8 @@
           const key = deliveredKey(task.vid);
           if (state.deliveredDeviceDownloads[key]) return;
           triggerTaskFileDownload(task.vid)
-            .then(() => {
+            .then(async () => {
+              await acknowledgeDeliveredTask(task.vid);
               state.deliveredDeviceDownloads[key] = true;
               persistDeliveredDeviceDownloads();
             })
@@ -1781,7 +1794,7 @@
         try {
           const response = await fetch(`/api/tasks/${encodeURIComponent(vid)}/hide`, { method: "POST" });
           if (response.status === 204) {
-            toast("Task hidden from the view.");
+            toast("Task cleared.");
             await loadTasks(true);
             return;
           }
@@ -1810,7 +1823,13 @@
           const response = await fetch("/api/tasks/clear-completed", { method: "POST" });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || "Could not clear done.");
-          toast(data.cleared === 0 ? "No done tasks to clear." : `Cleared ${data.cleared} done task${data.cleared === 1 ? "" : "s"} from the view.`);
+          if ((data.cleared || 0) === 0 && (data.skipped || 0) === 0) {
+            toast("No done tasks to clear.");
+          } else if ((data.skipped || 0) > 0) {
+            toast(`Cleared ${data.cleared || 0} done task${(data.cleared || 0) === 1 ? "" : "s"}. ${data.skipped} device download${data.skipped === 1 ? " is" : "s are"} still waiting to finish delivery.`);
+          } else {
+            toast(`Cleared ${data.cleared} done task${data.cleared === 1 ? "" : "s"}.`);
+          }
           await loadTasks(true);
         } catch (error) {
           toast(error.message || "Could not clear done.", "error");
