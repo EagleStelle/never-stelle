@@ -1362,6 +1362,64 @@ def canonicalize_source_url(source_url: str) -> str:
                 video_id = parts[1].strip()
                 if video_id:
                     return f"https://www.youtube.com/watch?v={video_id}"
+        if host.endswith("instagram.com"):
+            parts = [part for part in parsed.path.split("/") if part]
+            if not parts:
+                return "https://www.instagram.com/"
+            try:
+                target = parse_instagram_target(source_url)
+                mode = target.get("mode")
+                if mode == "post":
+                    shortcode = str(target.get("shortcode") or "").strip()
+                    if shortcode:
+                        return f"https://www.instagram.com/p/{shortcode}/"
+                if mode == "reel":
+                    shortcode = str(target.get("shortcode") or "").strip()
+                    if shortcode:
+                        return f"https://www.instagram.com/reel/{shortcode}/"
+                if mode == "highlight":
+                    highlight_id = str(target.get("highlight_id") or "").strip()
+                    if highlight_id:
+                        return f"https://www.instagram.com/stories/highlights/{highlight_id}/"
+                if mode == "stories":
+                    username = str(target.get("username") or "").strip()
+                    if username:
+                        story_id = str(target.get("story_id") or "").strip()
+                        suffix = f"/{story_id}" if story_id else ""
+                        return f"https://www.instagram.com/stories/{username}{suffix}/"
+                if mode == "profile":
+                    username = str(target.get("username") or "").strip()
+                    if username:
+                        return f"https://www.instagram.com/{username}/"
+                if mode == "tagged":
+                    username = str(target.get("username") or "").strip()
+                    if username:
+                        return f"https://www.instagram.com/{username}/tagged/"
+                if mode == "profile_reels":
+                    username = str(target.get("username") or "").strip()
+                    if username:
+                        return f"https://www.instagram.com/{username}/reels/"
+                if mode == "igtv":
+                    username = str(target.get("username") or "").strip()
+                    if username:
+                        section = parts[1] if len(parts) >= 2 and parts[1] in {"channel", "igtv"} else "channel"
+                        return f"https://www.instagram.com/{username}/{section}/"
+            except Exception:
+                pass
+            normalized_path = "/" + "/".join(parts)
+            if normalized_path != "/":
+                normalized_path += "/"
+            return f"https://www.instagram.com{normalized_path}"
+        if host.endswith("tiktok.com"):
+            parts = [part for part in parsed.path.split("/") if part]
+            normalized_host = host if host in {"vm.tiktok.com", "vt.tiktok.com"} else "www.tiktok.com"
+            normalized_path = "/"
+            if parts:
+                if parts[0].startswith("@") and len(parts) >= 3 and parts[1] in {"video", "photo"}:
+                    normalized_path = f"/{parts[0]}/{parts[1]}/{parts[2]}/"
+                else:
+                    normalized_path = "/" + "/".join(parts) + "/"
+            return f"https://{normalized_host}{normalized_path}"
         if host.endswith("facebook.com") or host.endswith("fb.com") or host.endswith("fb.watch"):
             return resolve_facebook_redirect_url(source_url)
     except Exception:
@@ -1535,6 +1593,7 @@ def record_task_history(task_id: str, task: dict[str, Any] | None) -> None:
         "resolved_archive_name": str(task.get("resolved_archive_name") or "").strip(),
         "downloaded_files": downloaded_files,
         "preview_warning": str(task.get("preview_warning") or "").strip(),
+        "save_mode": "device" if str(task.get("save_mode") or "").strip().lower() == "device" else "nas",
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "file_missing_at": "",
     }
@@ -1662,6 +1721,7 @@ def build_history_api_task(task_id: str, entry: dict[str, Any], meta: dict[str, 
     resolved_path = str(entry.get("resolved_full_path") or local.get("resolved_full_path") or "")
     resolved_folder = str(entry.get("resolved_folder") or local.get("resolved_folder") or "")
     resolved_filename = str(entry.get("resolved_filename") or local.get("resolved_filename") or "")
+    save_mode = "device" if str(local.get("save_mode") or entry.get("save_mode") or "").strip().lower() == "device" else "nas"
     can_download = bool(resolved_path or (entry.get("downloaded_files") if isinstance(entry.get("downloaded_files"), list) else []))
     return {
         "vid": task_id,
@@ -1675,13 +1735,13 @@ def build_history_api_task(task_id: str, entry: dict[str, Any], meta: dict[str, 
         "resolved_full_path": resolved_path,
         "preview_warning": str(entry.get("preview_warning") or local.get("preview_warning") or ""),
         "can_remove": False,
-        "can_hide": can_delete_done_task(task_id, {"status": "completed", "save_mode": str(local.get("save_mode") or "nas")}, meta),
+        "can_hide": can_delete_done_task(task_id, {"status": "completed", "save_mode": save_mode}, meta),
         "hidden": False,
         "task_type": task_type,
         "site_category": site_category,
         "site_label": SITE_LABELS.get(site_category, site_category.title()),
         "error": "",
-        "save_mode": str(local.get("save_mode") or "nas"),
+        "save_mode": save_mode,
         "can_download": can_download,
         "device_request_tabs": normalize_download_request_tabs(local.get("device_request_tabs")),
     }
@@ -1848,6 +1908,18 @@ def remove_non_iwara_task(task_id: str) -> None:
         remove_general_task(task_id)
 
 
+def get_non_iwara_task_type_preferences(source_url: str) -> list[str]:
+    source_url = canonicalize_source_url(source_url)
+    if not source_url:
+        return ["ytdlp", "instaloader"]
+    if is_instagram_url(source_url):
+        target = parse_instagram_target(source_url)
+        preferred = "ytdlp" if target.get("mode") in {"reel", "stories", "highlight", "profile_reels"} else "instaloader"
+        fallback = "instaloader" if preferred == "ytdlp" else "ytdlp"
+        return [preferred, fallback]
+    return ["ytdlp", "instaloader"]
+
+
 def find_existing_non_iwara_task(source_url: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
     source_url = canonicalize_source_url(source_url)
     if not source_url:
@@ -1876,26 +1948,30 @@ def find_existing_non_iwara_task(source_url: str) -> tuple[str, dict[str, Any]] 
                 return task_id, task
         return None, None
 
-    task_id, task = _search(load_general_tasks().get("tasks", {}), recover_general_task_paths)
-    if task_id and task:
-        return task_id, task
-    task_id, task = _search(load_instaloader_tasks().get("tasks", {}), recover_instaloader_task_paths)
-    if task_id and task:
-        return task_id, task
+    task_sources = {
+        "ytdlp": (load_general_tasks().get("tasks", {}), recover_general_task_paths),
+        "instaloader": (load_instaloader_tasks().get("tasks", {}), recover_instaloader_task_paths),
+    }
+    for task_type in get_non_iwara_task_type_preferences(source_url):
+        tasks, recover_fn = task_sources[task_type]
+        task_id, task = _search(tasks, recover_fn)
+        if task_id and task:
+            return task_id, task
 
-    preferred_history_type = "instaloader" if is_instagram_url(source_url) else "ytdlp"
-    history_task_id, history_entry = find_history_entry_by_source_url(source_url, task_type=preferred_history_type)
-    if history_task_id and history_entry:
-        return history_task_id, {
-            "status": "completed",
-            "source_url": history_entry.get("source_url") or source_url,
-            "resolved_folder": history_entry.get("resolved_folder") or "",
-            "resolved_filename": history_entry.get("resolved_filename") or "",
-            "resolved_full_path": history_entry.get("resolved_full_path") or "",
-            "resolved_archive_name": history_entry.get("resolved_archive_name") or "",
-            "downloaded_files": history_entry.get("downloaded_files") or [],
-            "preview_warning": history_entry.get("preview_warning") or "",
-        }
+    for task_type in get_non_iwara_task_type_preferences(source_url):
+        history_task_id, history_entry = find_history_entry_by_source_url(source_url, task_type=task_type)
+        if history_task_id and history_entry:
+            return history_task_id, {
+                "status": "completed",
+                "source_url": history_entry.get("source_url") or source_url,
+                "resolved_folder": history_entry.get("resolved_folder") or "",
+                "resolved_filename": history_entry.get("resolved_filename") or "",
+                "resolved_full_path": history_entry.get("resolved_full_path") or "",
+                "resolved_archive_name": history_entry.get("resolved_archive_name") or "",
+                "downloaded_files": history_entry.get("downloaded_files") or [],
+                "preview_warning": history_entry.get("preview_warning") or "",
+                "save_mode": history_entry.get("save_mode") or "nas",
+            }
     return None, None
 
 
@@ -3492,7 +3568,7 @@ def convert_general_task(task_id: str, task: dict[str, Any], meta: dict[str, Any
         "resolved_filename": recovered_filename or task.get("resolved_filename", "") or local.get("resolved_filename", ""),
         "resolved_full_path": recovered_path or task.get("resolved_full_path", "") or local.get("resolved_full_path", ""),
         "preview_warning": task.get("preview_warning", "") or local.get("preview_warning", ""),
-        "can_remove": status == "pending",
+        "can_remove": status in {"pending", "failed"},
         "can_hide": can_delete_done_task(task_id, task, meta),
         "hidden": False,
         "task_type": "ytdlp",
@@ -3523,7 +3599,7 @@ def convert_instaloader_task(task_id: str, task: dict[str, Any], meta: dict[str,
         "resolved_filename": recovered_filename or task.get("resolved_filename", "") or local.get("resolved_filename", ""),
         "resolved_full_path": recovered_path or task.get("resolved_full_path", "") or local.get("resolved_full_path", ""),
         "preview_warning": task.get("preview_warning", "") or local.get("preview_warning", ""),
-        "can_remove": status == "pending",
+        "can_remove": status in {"pending", "failed"},
         "can_hide": can_delete_done_task(task_id, task, meta),
         "hidden": False,
         "task_type": "instaloader",
@@ -3609,7 +3685,7 @@ def merge_iwara_task(task: dict, meta: dict) -> dict:
         "resolved_filename": resolved_filename or task.get("resolved_filename", "") or local.get("resolved_filename", ""),
         "resolved_full_path": resolved_path or task.get("resolved_full_path", "") or local.get("resolved_full_path", ""),
         "preview_warning": task.get("preview_warning", "") or local.get("preview_warning", ""),
-        "can_remove": status == "pending",
+        "can_remove": status in {"pending", "failed"},
         "can_hide": can_delete_done_task(vid, task, meta),
         "hidden": False,
         "task_type": "iwara",
