@@ -1704,11 +1704,15 @@
         }
       }
 
-      async function downloadTaskFile(vid) {
+      async function downloadTaskFile(vid, options = {}) {
+        const skipReload = options && options.skipReload === true;
         await triggerTaskFileDownload(vid);
         await acknowledgeDeliveredTask(vid);
         state.deliveredDeviceDownloads[deliveredKey(vid)] = true;
         persistDeliveredDeviceDownloads();
+        if (!skipReload) {
+          await loadTasks(true);
+        }
       }
       window.downloadTaskFile = downloadTaskFile;
 
@@ -1719,12 +1723,7 @@
           if (!allowedTabs.includes(state.tabId)) return;
           const key = deliveredKey(task.vid);
           if (state.deliveredDeviceDownloads[key]) return;
-          triggerTaskFileDownload(task.vid)
-            .then(async () => {
-              await acknowledgeDeliveredTask(task.vid);
-              state.deliveredDeviceDownloads[key] = true;
-              persistDeliveredDeviceDownloads();
-            })
+          downloadTaskFile(task.vid)
             .catch((error) => {
               toast(error.message || "Could not download that file.", "error");
             });

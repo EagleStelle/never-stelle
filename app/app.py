@@ -2089,8 +2089,26 @@ def list_media_files(root: Path) -> list[Path]:
     return candidates
 
 
-def select_iwara_output_path(root_dir: str, expected_path: str = "", preferred_id: str = "", started_at: float | None = None) -> tuple[str, str, str]:
+def select_iwara_output_path(
+    root_dir: str,
+    expected_path: str = "",
+    preferred_id: str = "",
+    started_at: float | None = None,
+    changed_candidates: list[Path] | None = None,
+) -> tuple[str, str, str]:
     expected = Path(expected_path) if str(expected_path).strip() else None
+    expected_name = expected.name if expected else ""
+
+    changed_pool = [candidate for candidate in (changed_candidates or []) if is_media_file_path(candidate)]
+    if changed_pool:
+        best_changed = choose_best_media_file(
+            changed_pool,
+            preferred_stem=Path(expected_name).stem if expected_name else "",
+            preferred_id=preferred_id,
+        )
+        if best_changed:
+            return str(best_changed), str(best_changed.parent), best_changed.name
+
     if expected and expected.exists() and expected.is_file():
         return str(expected), str(expected.parent), expected.name
 
@@ -2108,7 +2126,6 @@ def select_iwara_output_path(root_dir: str, expected_path: str = "", preferred_i
             except Exception:
                 continue
     search_pool = recent_candidates or candidates
-    expected_name = expected.name if expected else ""
     best = choose_best_media_file(search_pool, preferred_stem=Path(expected_name).stem if expected_name else "", preferred_id=preferred_id)
     if best:
         return str(best), str(best.parent), best.name
@@ -2673,15 +2690,36 @@ def list_media_files(root: Path) -> list[Path]:
     return sorted(files, key=lambda p: (str(p.parent), p.name.lower()))
 
 
-def capture_new_media_files(root: Path, callback) -> list[Path]:
-    before = {str(path.resolve()) for path in list_media_files(root)}
-    callback()
-    after: list[Path] = []
+def build_media_snapshot(root: Path) -> dict[str, tuple[int, int]]:
+    snapshot: dict[str, tuple[int, int]] = {}
     for path in list_media_files(root):
-        resolved = str(path.resolve())
-        if resolved not in before:
-            after.append(path)
-    return after
+        try:
+            stat = path.stat()
+            snapshot[str(path.resolve())] = (int(stat.st_mtime_ns), int(stat.st_size))
+        except Exception:
+            continue
+    return snapshot
+
+
+def find_changed_media_files(root: Path, before: dict[str, tuple[int, int]] | None) -> list[Path]:
+    before = before or {}
+    changed: list[Path] = []
+    for path in list_media_files(root):
+        try:
+            stat = path.stat()
+            key = str(path.resolve())
+            current = (int(stat.st_mtime_ns), int(stat.st_size))
+            if before.get(key) != current:
+                changed.append(path)
+        except Exception:
+            continue
+    return changed
+
+
+def capture_new_media_files(root: Path, callback) -> list[Path]:
+    before = build_media_snapshot(root)
+    callback()
+    return [path for path in find_changed_media_files(root, before) if str(path.resolve()) not in before]
 
 
 def unique_output_path(path: Path) -> Path:
@@ -3698,12 +3736,27 @@ def fetch_tasks(include_hidden: bool = False) -> list[dict]:
     active_ids = {task.get("vid", "") for task in iwara_tasks if task.get("vid")}
     active_ids.update(ytdlp_tasks.keys())
     active_ids.update(instaloader_tasks.keys())
-    meta = cleanup_meta(load_meta(), active_ids)
+
+    raw_meta = load_meta()
+    history_backed_ids: set[str] = set()
+    for task_id in list((raw_meta.get("tasks") or {}).keys()):
+        if task_id in active_ids:
+            continue
+        history_entry, _ = find_history_entry_by_task_id(task_id)
+        if history_entry:
+            history_backed_ids.add(task_id)
+
+    active_ids.update(history_backed_ids)
+    meta = cleanup_meta(raw_meta, active_ids)
     save_meta(meta)
 
     merged = [merge_iwara_task(task, meta) for task in iwara_tasks]
     merged.extend(convert_general_task(task_id, task, meta) for task_id, task in ytdlp_tasks.items())
     merged.extend(convert_instaloader_task(task_id, task, meta) for task_id, task in instaloader_tasks.items())
+    for task_id in sorted(history_backed_ids):
+        history_entry, _ = find_history_entry_by_task_id(task_id)
+        if history_entry:
+            merged.append(build_history_api_task(task_id, history_entry, meta))
     if not include_hidden:
         merged = [task for task in merged if not task["hidden"]]
     merged.sort(key=lambda task: (STATUS_ORDER.get(task["status"], 99), task["vid"]))
@@ -3827,34 +3880,16 @@ def run_iwara_task(task_id: str, task: dict[str, Any]) -> None:
         update_iwara_task(task_id, status="failed", error="iwaradl was not found in the DL Hub container.")
         return
 
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    output_root = Path(output_dir)
+    output_root.mkdir(parents=True, exist_ok=True)
     expected_path = str(task.get("resolved_full_path") or "").strip()
     expected_folder = str(task.get("resolved_folder") or output_dir).strip() or output_dir
     expected_name = str(task.get("resolved_filename") or "").strip()
 
-    if expected_path:
-        existing_path = Path(expected_path)
-        if existing_path.exists() and existing_path.is_file():
-            current = load_iwara_tasks().get("tasks", {}).get(task_id, {})
-            log_lines = list(current.get("last_log_lines") or [])
-            log_lines.append(f"[skip] File already exists: {expected_path}")
-            log_lines = log_lines[-30:]
-            update_iwara_task(
-                task_id,
-                status="completed",
-                progress_pct=100,
-                progress=1,
-                error="",
-                resolved_full_path=expected_path,
-                resolved_folder=str(existing_path.parent),
-                resolved_filename=existing_path.name,
-                last_log_lines=log_lines,
-            )
-            return
-
     cmd = build_iwara_cmd(source_url, output_dir, filename_template)
     process = None
     start_ts = time.time()
+    media_snapshot_before = build_media_snapshot(output_root)
     try:
         update_iwara_task(task_id, status="running", progress_pct=0, progress=0, error="")
         process = subprocess.Popen(
@@ -3886,11 +3921,13 @@ def run_iwara_task(task_id: str, task: dict[str, Any]) -> None:
                 update_iwara_task(task_id, **updates)
         rc = process.wait()
         if rc == 0:
+            changed_candidates = find_changed_media_files(output_root, media_snapshot_before)
             final_path, final_folder, final_name = select_iwara_output_path(
                 output_dir,
                 expected_path=expected_path,
                 preferred_id=task_id,
                 started_at=start_ts,
+                changed_candidates=changed_candidates,
             )
             update_iwara_task(
                 task_id,
@@ -4676,6 +4713,12 @@ def add_task():
 def hide_task(vid: str):
     meta = load_meta()
     task = load_task_record(vid)
+    history_entry, _ = find_history_entry_by_task_id(vid)
+    if not task and history_entry:
+        task = {
+            "status": "completed",
+            "save_mode": str(meta.get("tasks", {}).get(vid, {}).get("save_mode") or history_entry.get("save_mode") or "nas"),
+        }
     if not task:
         return ("", 204)
     if str(task.get("status") or "") not in {"completed", "failed"}:
@@ -4791,7 +4834,6 @@ def clear_completed():
 
 @app.route("/api/cleanup-nfo", methods=["POST"])
 def cleanup_nfo():
-    cfg = load_app_config()
     locations = discover_volume_roots()
     if not locations:
         return jsonify({"error": "No downloadLocations are configured."}), 500
