@@ -1,4 +1,3 @@
-import base64
 import hashlib
 import json
 import os
@@ -31,7 +30,6 @@ IWARADL_BIN = os.environ.get("IWARADL_BIN", "iwaradl").strip() or "iwaradl"
 LEGACY_DEFAULT_FILENAME_TEMPLATE = "{{author_nickname}} - {{title}} [{{video_id}}]"
 LEGACY_DEFAULT_FOLDER_TEMPLATE = "{{author_nickname}}"
 LEGACY_DEFAULT_GENERAL_CREATOR_TEMPLATE = "%(artist,artists,album_artist,creator,uploader,channel,playlist_uploader|Unknown)s"
-LEGACY_DEFAULT_GENERAL_FILENAME_TEMPLATE = "%(artist,creator,uploader,channel,playlist_uploader|Unknown)s - %(title|Unknown)s [%(id|NA)s].%(ext)s"
 DEFAULT_FILENAME_TEMPLATE = os.environ.get(
     "DEFAULT_FILENAME_TEMPLATE",
     LEGACY_DEFAULT_FILENAME_TEMPLATE,
@@ -40,10 +38,6 @@ DEFAULT_FOLDER_TEMPLATE = os.environ.get(
     "DEFAULT_FOLDER_TEMPLATE",
     LEGACY_DEFAULT_FOLDER_TEMPLATE,
 )
-DEFAULT_TEMPLATE_SETTINGS = {
-    "filename_template": DEFAULT_FILENAME_TEMPLATE,
-    "folder_template": DEFAULT_FOLDER_TEMPLATE,
-}
 GENERAL_CREATOR_OUTPUT_TEMPLATE = "%(artist,artists,album_artist,creator,uploader,channel,playlist_uploader|Unknown)s"
 GENERAL_ID_OUTPUT_TEMPLATE = "%(id|NA)s"
 GENERAL_TITLE_OUTPUT_TEMPLATE = "%(title|Unknown)s"
@@ -54,7 +48,6 @@ APP_CONFIG_PATH = os.environ.get("APP_CONFIG_PATH", "/config/config.yaml")
 DATA_DIR = Path(os.environ.get("APP_DATA_DIR", "/app/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 META_FILE = DATA_DIR / "task_meta.json"
-LEGACY_YTDLP_TASKS_FILE = DATA_DIR / "general_tasks.json"
 YTDLP_TASKS_FILE = DATA_DIR / "ytdlp_tasks.json"
 INSTALOADER_TASKS_FILE = DATA_DIR / "instaloader_tasks.json"
 IWARA_TASKS_FILE = DATA_DIR / "iwara_tasks.json"
@@ -298,7 +291,6 @@ def detect_ffmpeg_location() -> str:
     return ""
 
 
-
 def load_instagram_session_cookie_values() -> dict[str, str]:
     if not INSTAGRAM_SESSION_FILE.exists() or not INSTAGRAM_SESSION_FILE.is_file():
         return {}
@@ -429,7 +421,6 @@ def find_instagram_cookies_source_file() -> str:
     return ""
 
 
-
 def prepare_runtime_cookies(source_url: str) -> str:
     site_category = detect_site_category(source_url)
     if site_category == "instagram":
@@ -451,7 +442,6 @@ def prepare_runtime_cookies(source_url: str) -> str:
     if candidate and os.path.isfile(candidate):
         return candidate
     return ""
-
 
 
 def load_netscape_cookies_file(path: str) -> requests.cookies.RequestsCookieJar:
@@ -491,7 +481,6 @@ def load_netscape_cookies_file(path: str) -> requests.cookies.RequestsCookieJar:
         except Exception:
             continue
     return jar
-
 
 
 def try_instaloader_cookie_login(loader: instaloader.Instaloader) -> dict[str, Any] | None:
@@ -538,7 +527,6 @@ def try_instaloader_cookie_login(loader: instaloader.Instaloader) -> dict[str, A
         return None
 
 
-
 def try_extract_ytdlp_info(source_url: str) -> dict[str, Any]:
     cmd = ["yt-dlp", "--dump-single-json", "--skip-download", "--no-warnings"]
     cookies_file = prepare_runtime_cookies(source_url)
@@ -565,7 +553,6 @@ def try_extract_ytdlp_info(source_url: str) -> dict[str, Any]:
         return payload if isinstance(payload, dict) else {}
     except Exception:
         return {}
-
 
 
 def _first_ytdlp_entry(info: dict[str, Any]) -> dict[str, Any]:
@@ -847,7 +834,6 @@ def discover_volume_roots() -> list[str]:
     return out
 
 
-
 def discover_volume_locations() -> list[str]:
     roots = discover_volume_roots()
     out: list[str] = []
@@ -867,24 +853,20 @@ def discover_volume_locations() -> list[str]:
     return out
 
 
-
-def normalize_allowed_location(raw_path: str, cfg: dict[str, Any] | None = None) -> str:
+def normalize_allowed_location(raw_path: str) -> str:
     candidate_raw = str(raw_path or "").strip()
     if not candidate_raw:
         return ""
-    candidate = Path(candidate_raw)
     try:
-        candidate_resolved = candidate.resolve(strict=False)
+        candidate_resolved = Path(candidate_raw).resolve(strict=False)
     except Exception:
-        candidate_resolved = candidate
+        candidate_resolved = Path(candidate_raw)
 
-    roots = discover_volume_roots()
-    for root_value in roots:
-        root = Path(root_value)
+    for root_value in discover_volume_roots():
         try:
-            root_resolved = root.resolve()
+            root_resolved = Path(root_value).resolve()
         except Exception:
-            root_resolved = root
+            root_resolved = Path(root_value)
         if candidate_resolved == root_resolved or root_resolved in candidate_resolved.parents:
             return str(candidate_resolved)
     return ""
@@ -906,12 +888,9 @@ def save_saved_settings_file(payload: dict[str, Any]) -> None:
         SETTINGS_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-
-
 def normalize_instagram_identifier_type(value: Any) -> str:
     candidate = str(value or "").strip().lower()
     return candidate if candidate in {"username", "email", "phone"} else "username"
-
 
 
 def normalize_instagram_auth_payload(raw: Any) -> dict[str, str]:
@@ -930,7 +909,6 @@ def normalize_instagram_auth_payload(raw: Any) -> dict[str, str]:
     }
 
 
-
 def get_instagram_auth_settings() -> dict[str, str]:
     payload = load_saved_settings_file()
     auth = normalize_instagram_auth_payload(payload.get("instagram_auth"))
@@ -941,7 +919,6 @@ def get_instagram_auth_settings() -> dict[str, str]:
     if not auth["password"]:
         auth["password"] = str(os.environ.get("INSTAGRAM_PASSWORD") or "")
     return auth
-
 
 
 def save_instagram_auth_settings(
@@ -963,7 +940,6 @@ def save_instagram_auth_settings(
         "last_error": str(last_error or "").strip(),
     }
     save_saved_settings_file(existing)
-
 
 
 def update_instagram_auth_settings(
@@ -1001,25 +977,6 @@ def update_instagram_auth_settings(
     return current
 
 
-
-def load_instagram_pending_2fa() -> dict[str, Any]:
-    with settings_lock:
-        if not INSTAGRAM_PENDING_2FA_FILE.exists():
-            return {}
-        try:
-            payload = json.loads(INSTAGRAM_PENDING_2FA_FILE.read_text(encoding="utf-8"))
-            return payload if isinstance(payload, dict) else {}
-        except Exception:
-            return {}
-
-
-
-def save_instagram_pending_2fa(payload: dict[str, Any]) -> None:
-    with settings_lock:
-        INSTAGRAM_PENDING_2FA_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-
 def clear_instagram_pending_2fa() -> None:
     with settings_lock:
         try:
@@ -1027,55 +984,6 @@ def clear_instagram_pending_2fa() -> None:
                 INSTAGRAM_PENDING_2FA_FILE.unlink()
         except Exception:
             pass
-
-
-
-def build_instagram_pending_2fa_payload(
-    loader: instaloader.Instaloader,
-    *,
-    identifier_type: str,
-    identifier: str,
-    password: str,
-) -> dict[str, Any]:
-    pending = getattr(loader.context, "two_factor_auth_pending", None)
-    if not pending or len(pending) < 3:
-        return {}
-    session, pending_identifier, two_factor_identifier = pending
-    cookies = requests.utils.dict_from_cookiejar(session.cookies)
-    headers = dict(session.headers or {})
-    session_pickle = ""
-    try:
-        session_pickle = base64.b64encode(pickle.dumps(session)).decode("ascii")
-    except Exception:
-        session_pickle = ""
-    return {
-        "identifier_type": normalize_instagram_identifier_type(identifier_type),
-        "identifier": str(identifier or pending_identifier or "").strip(),
-        "password": str(password or ""),
-        "pending_identifier": str(pending_identifier or identifier or "").strip(),
-        "two_factor_identifier": str(two_factor_identifier or "").strip(),
-        "cookies": cookies,
-        "headers": headers,
-        "session_pickle": session_pickle,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-
-def restore_instagram_pending_session(pending: dict[str, Any]) -> requests.Session:
-    encoded = str(pending.get("session_pickle") or "").strip()
-    if encoded:
-        try:
-            restored = pickle.loads(base64.b64decode(encoded.encode("ascii")))
-            if isinstance(restored, requests.Session):
-                return restored
-        except Exception:
-            pass
-    session = requests.Session()
-    session.headers.update(pending.get("headers") or {})
-    session.cookies = requests.utils.cookiejar_from_dict(pending.get("cookies") or {})
-    return session
-
 
 
 def clear_instagram_auth_settings() -> None:
@@ -1089,7 +997,6 @@ def clear_instagram_auth_settings() -> None:
                 path.unlink()
         except Exception:
             pass
-
 
 
 def get_instagram_auth_status() -> dict[str, Any]:
@@ -1234,7 +1141,6 @@ def get_effective_template_settings() -> dict[str, str]:
     return normalize_template_settings(payload.get("template_settings"))
 
 
-
 def build_runtime_config() -> dict[str, Any]:
     file_cfg: dict[str, Any] = {}
     path = Path(APP_CONFIG_PATH)
@@ -1264,7 +1170,6 @@ def build_runtime_config() -> dict[str, Any]:
         if value:
             cfg[key] = value
     return cfg
-
 
 
 def load_app_config() -> dict[str, Any]:
@@ -1326,7 +1231,7 @@ def get_default_site_location(cfg: dict[str, Any], site: str) -> str:
     if site == "iwara":
         return get_default_iwara_location(cfg)
     key = SITE_DEFAULT_LOCATION_KEYS.get(site, "")
-    value = normalize_allowed_location(str(cfg.get(key) or "").strip(), cfg) if key else ""
+    value = normalize_allowed_location(str(cfg.get(key) or "").strip()) if key else ""
     if value:
         return value
     return get_default_general_location(cfg)
@@ -1348,10 +1253,9 @@ def normalize_site_location_selection(raw: Any, cfg: dict[str, Any]) -> dict[str
     source = raw if isinstance(raw, dict) else {}
     out: dict[str, str] = {}
     for site in ("youtube", "facebook", "instagram", "tiktok", "iwara", "others"):
-        candidate = normalize_allowed_location(str(source.get(site) or "").strip(), cfg)
+        candidate = normalize_allowed_location(str(source.get(site) or "").strip())
         out[site] = candidate or defaults.get(site, "")
     return out
-
 
 
 def get_effective_saved_settings(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -1363,7 +1267,6 @@ def get_effective_saved_settings(cfg: dict[str, Any]) -> dict[str, Any]:
         "instagram_auth": get_instagram_auth_status(),
         "instagram_ytdlp_cookies": get_instagram_ytdlp_cookies_status(),
     }
-
 
 
 def persist_settings(cfg: dict[str, Any], raw_site_locations: Any, raw_save_mode: Any, raw_template_settings: Any = None) -> dict[str, Any]:
@@ -1378,7 +1281,6 @@ def persist_settings(cfg: dict[str, Any], raw_site_locations: Any, raw_save_mode
     return get_effective_saved_settings(cfg)
 
 
-
 def build_settings_signature(cfg: dict[str, Any]) -> str:
     effective = get_effective_saved_settings(cfg)
     payload = {
@@ -1389,7 +1291,6 @@ def build_settings_signature(cfg: dict[str, Any]) -> str:
         "instagram_ytdlp_cookies": effective.get("instagram_ytdlp_cookies", {}),
     }
     return hashlib.sha1(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
-
 
 
 def build_settings_response(cfg: dict[str, Any], saved: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1801,40 +1702,6 @@ def purge_task_entry(task_id: str, task: dict[str, Any], meta: dict[str, Any]) -
     meta.setdefault("tasks", {}).pop(task_id, None)
 
 
-def find_existing_general_task(source_url: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
-    source_url = canonicalize_source_url(source_url)
-    if not source_url:
-        return None, None
-    tasks = load_general_tasks().get("tasks", {})
-    for task_id, task in tasks.items():
-        if canonicalize_source_url(task.get("source_url") or "") != source_url:
-            continue
-        status = str(task.get("status") or "")
-        resolved, folder, filename = recover_general_task_paths(task_id, task)
-        if status == "completed" and resolved:
-            task = dict(task)
-            task["resolved_full_path"] = resolved
-            task["resolved_folder"] = folder
-            task["resolved_filename"] = filename
-            return task_id, task
-    for task_id, task in tasks.items():
-        if canonicalize_source_url(task.get("source_url") or "") == source_url and str(task.get("status") or "") in {"pending", "running"}:
-            return task_id, task
-    history_task_id, history_entry = find_history_entry_by_source_url(source_url, task_type="ytdlp")
-    if history_task_id and history_entry:
-        return history_task_id, {
-            "status": "completed",
-            "source_url": history_entry.get("source_url") or source_url,
-            "resolved_folder": history_entry.get("resolved_folder") or "",
-            "resolved_filename": history_entry.get("resolved_filename") or "",
-            "resolved_full_path": history_entry.get("resolved_full_path") or "",
-            "resolved_archive_name": history_entry.get("resolved_archive_name") or "",
-            "downloaded_files": history_entry.get("downloaded_files") or [],
-            "preview_warning": history_entry.get("preview_warning") or "",
-        }
-    return None, None
-
-
 def is_allowed_location(path: str) -> bool:
     path = (path or "").strip()
     if not path:
@@ -1843,100 +1710,115 @@ def is_allowed_location(path: str) -> bool:
     return path in normalize_download_locations(cfg)
 
 
-def load_general_tasks() -> dict[str, Any]:
-    with general_lock:
-        if not YTDLP_TASKS_FILE.exists():
+TASK_STORE_MIRRORED_FIELDS = {
+    "default": {
+        "source_url",
+        "resolved_folder",
+        "resolved_filename",
+        "resolved_full_path",
+        "preview_warning",
+        "save_mode",
+        "resolved_archive_name",
+    },
+    "iwara": {
+        "source_url",
+        "resolved_folder",
+        "resolved_filename",
+        "resolved_full_path",
+        "preview_warning",
+        "save_mode",
+    },
+}
+
+
+def _normalize_task_store(raw: dict | None) -> dict[str, Any]:
+    if isinstance(raw, dict) and isinstance(raw.get("tasks"), dict):
+        return {"tasks": raw.get("tasks") or {}}
+    return {"tasks": {}}
+
+
+def _load_task_store(path: Path, lock: Any, *, normalizer=_normalize_task_store) -> dict[str, Any]:
+    with lock:
+        if not path.exists():
             return {"tasks": {}}
         try:
-            data = json.loads(YTDLP_TASKS_FILE.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and isinstance(data.get("tasks"), dict):
-                return data
+            return normalizer(json.loads(path.read_text(encoding="utf-8")))
         except Exception:
-            pass
-        return {"tasks": {}}
+            return {"tasks": {}}
+
+
+def _save_task_store(path: Path, lock: Any, data: dict[str, Any]) -> None:
+    with lock:
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _mirror_task_updates(task_id: str, updates: dict[str, Any], *, mirrored_fields: set[str]) -> None:
+    mirrored_updates = {key: value for key, value in updates.items() if key in mirrored_fields}
+    if not mirrored_updates:
+        return
+    meta = load_meta()
+    meta.setdefault("tasks", {}).setdefault(task_id, {}).update(mirrored_updates)
+    save_meta(meta)
+
+
+def _update_task_store(
+    path: Path,
+    lock: Any,
+    task_id: str,
+    updates: dict[str, Any],
+    *,
+    normalizer=_normalize_task_store,
+    mirrored_fields: set[str],
+) -> dict[str, Any]:
+    data = _load_task_store(path, lock, normalizer=normalizer)
+    task = data.setdefault("tasks", {}).setdefault(task_id, {})
+    task.update(updates)
+    data["tasks"][task_id] = task
+    _save_task_store(path, lock, data)
+    _mirror_task_updates(task_id, updates, mirrored_fields=mirrored_fields)
+    return task
+
+
+def _remove_task_store_entry(path: Path, lock: Any, task_id: str, *, normalizer=_normalize_task_store) -> None:
+    data = _load_task_store(path, lock, normalizer=normalizer)
+    data.setdefault("tasks", {}).pop(task_id, None)
+    _save_task_store(path, lock, data)
+
+
+def load_general_tasks() -> dict[str, Any]:
+    return _load_task_store(YTDLP_TASKS_FILE, general_lock)
 
 
 def save_general_tasks(data: dict[str, Any]) -> None:
-    with general_lock:
-        YTDLP_TASKS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    _save_task_store(YTDLP_TASKS_FILE, general_lock, data)
 
 
 def update_general_task(task_id: str, **updates: Any) -> dict[str, Any]:
-    data = load_general_tasks()
-    tasks = data.setdefault("tasks", {})
-    task = tasks.setdefault(task_id, {})
-    task.update(updates)
-    tasks[task_id] = task
-    save_general_tasks(data)
-
-    mirrored_fields = {
-        "source_url",
-        "resolved_folder",
-        "resolved_filename",
-        "resolved_full_path",
-        "preview_warning",
-        "save_mode",
-        "resolved_archive_name",
-    }
-    mirrored_updates = {key: value for key, value in updates.items() if key in mirrored_fields}
-    if mirrored_updates:
-        meta = load_meta()
-        local = meta.setdefault("tasks", {}).setdefault(task_id, {})
-        local.update(mirrored_updates)
-        save_meta(meta)
-
-    return task
+    return _update_task_store(
+        YTDLP_TASKS_FILE,
+        general_lock,
+        task_id,
+        updates,
+        mirrored_fields=TASK_STORE_MIRRORED_FIELDS["default"],
+    )
 
 
 def load_instaloader_tasks() -> dict[str, Any]:
-    with instaloader_lock:
-        if not INSTALOADER_TASKS_FILE.exists():
-            return {"tasks": {}}
-        try:
-            data = json.loads(INSTALOADER_TASKS_FILE.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and isinstance(data.get("tasks"), dict):
-                return data
-        except Exception:
-            pass
-        return {"tasks": {}}
-
-
-def save_instaloader_tasks(data: dict[str, Any]) -> None:
-    with instaloader_lock:
-        INSTALOADER_TASKS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return _load_task_store(INSTALOADER_TASKS_FILE, instaloader_lock)
 
 
 def update_instaloader_task(task_id: str, **updates: Any) -> dict[str, Any]:
-    data = load_instaloader_tasks()
-    tasks = data.setdefault("tasks", {})
-    task = tasks.setdefault(task_id, {})
-    task.update(updates)
-    tasks[task_id] = task
-    save_instaloader_tasks(data)
-
-    mirrored_fields = {
-        "source_url",
-        "resolved_folder",
-        "resolved_filename",
-        "resolved_full_path",
-        "preview_warning",
-        "save_mode",
-        "resolved_archive_name",
-    }
-    mirrored_updates = {key: value for key, value in updates.items() if key in mirrored_fields}
-    if mirrored_updates:
-        meta = load_meta()
-        local = meta.setdefault("tasks", {}).setdefault(task_id, {})
-        local.update(mirrored_updates)
-        save_meta(meta)
-
-    return task
+    return _update_task_store(
+        INSTALOADER_TASKS_FILE,
+        instaloader_lock,
+        task_id,
+        updates,
+        mirrored_fields=TASK_STORE_MIRRORED_FIELDS["default"],
+    )
 
 
 def remove_instaloader_task(task_id: str) -> None:
-    data = load_instaloader_tasks()
-    data.setdefault("tasks", {}).pop(task_id, None)
-    save_instaloader_tasks(data)
+    _remove_task_store_entry(INSTALOADER_TASKS_FILE, instaloader_lock, task_id)
 
 
 def is_ytdlp_task_id(task_id: str) -> bool:
@@ -1964,10 +1846,6 @@ def remove_non_iwara_task(task_id: str) -> None:
         remove_instaloader_task(task_id)
     else:
         remove_general_task(task_id)
-
-
-def load_non_iwara_store_for_task(task_id: str) -> dict[str, Any]:
-    return load_instaloader_tasks() if is_instaloader_task_id(task_id) else load_general_tasks()
 
 
 def find_existing_non_iwara_task(source_url: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
@@ -2030,63 +1908,34 @@ def normalize_iwara_tasks(raw: dict | None) -> dict[str, Any]:
 
 
 def load_iwara_tasks() -> dict[str, Any]:
-    with iwara_lock:
-        if not IWARA_TASKS_FILE.exists():
-            return {"tasks": {}}
-        try:
-            return normalize_iwara_tasks(json.loads(IWARA_TASKS_FILE.read_text(encoding="utf-8")))
-        except Exception:
-            return {"tasks": {}}
-
-
-def save_iwara_tasks(data: dict[str, Any]) -> None:
-    with iwara_lock:
-        IWARA_TASKS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return _load_task_store(IWARA_TASKS_FILE, iwara_lock, normalizer=normalize_iwara_tasks)
 
 
 def update_iwara_task(task_id: str, **updates: Any) -> dict[str, Any]:
-    data = load_iwara_tasks()
-    tasks = data.setdefault("tasks", {})
-    task = tasks.setdefault(task_id, {})
-    task.update(updates)
-    tasks[task_id] = task
-    save_iwara_tasks(data)
-
-    mirrored_fields = {
-        "source_url",
-        "resolved_folder",
-        "resolved_filename",
-        "resolved_full_path",
-        "preview_warning",
-        "save_mode",
-    }
-    mirrored_updates = {key: value for key, value in updates.items() if key in mirrored_fields}
-    if mirrored_updates:
-        meta = load_meta()
-        local = meta.setdefault("tasks", {}).setdefault(task_id, {})
-        local.update(mirrored_updates)
-        save_meta(meta)
-
-    return task
+    return _update_task_store(
+        IWARA_TASKS_FILE,
+        iwara_lock,
+        task_id,
+        updates,
+        normalizer=normalize_iwara_tasks,
+        mirrored_fields=TASK_STORE_MIRRORED_FIELDS["iwara"],
+    )
 
 
 def remove_iwara_task(task_id: str) -> None:
-    data = load_iwara_tasks()
-    data.setdefault("tasks", {}).pop(task_id, None)
-    save_iwara_tasks(data)
-
+    _remove_task_store_entry(IWARA_TASKS_FILE, iwara_lock, task_id, normalizer=normalize_iwara_tasks)
 
 def list_media_files(root: Path) -> list[Path]:
     if not root.exists():
         return []
-    candidates: list[Path] = []
+    files: list[Path] = []
     try:
-        for child in root.rglob("*"):
-            if child.is_file() and is_media_file_path(child):
-                candidates.append(child)
+        for path in root.rglob("*"):
+            if path.is_file() and is_media_file_path(path):
+                files.append(path)
     except Exception:
         return []
-    return candidates
+    return sorted(files, key=lambda path: (str(path.parent), path.name.lower()))
 
 
 def select_iwara_output_path(
@@ -2299,7 +2148,6 @@ def detect_site_category(url: str) -> str:
 def is_rule34video_url(url: str) -> bool:
     host = (urlparse(url).hostname or "").lower()
     return host.endswith("rule34video.com")
-
 
 
 def fetch_rule34_page(url: str) -> str:
@@ -2528,8 +2376,6 @@ def get_video_preview_metadata(url: str) -> dict[str, Any]:
     }
 
 
-
-
 def parse_instagram_target(source_url: str) -> dict[str, str]:
     parsed = urlparse(source_url)
     parts = [part for part in parsed.path.split("/") if part]
@@ -2626,23 +2472,6 @@ def build_instagram_post_context(post: instaloader.Post, *, creator_hint: str = 
     }
 
 
-def build_instagram_story_context(item: instaloader.StoryItem, *, creator_hint: str = "", fallback_title: str = "Story") -> dict[str, Any]:
-    creator = to_str(creator_hint or getattr(item, "owner_username", ""))
-    publish_time = getattr(item, "date_utc", None) or getattr(item, "date_local", None)
-    title = instagram_title_from_text(getattr(item, "caption", ""), fallback_title)
-    item_id = to_str(getattr(item, "mediaid", "") or getattr(item, "shortcode", ""))
-    return {
-        "title": title,
-        "video_id": item_id,
-        "id": item_id,
-        "author": creator,
-        "author_nickname": creator,
-        "creator": creator,
-        "quality": "video" if bool(getattr(item, "is_video", False)) else "image",
-        "publish_time": publish_time,
-    }
-
-
 def build_instagram_profile_pic_context(username: str) -> dict[str, Any]:
     creator = to_str(username)
     return {
@@ -2678,16 +2507,6 @@ def default_instagram_basename(context: dict[str, Any]) -> str:
     title = safe_component(to_str(context.get("title") or context.get("id") or context.get("video_id") or "instagram"))
     media_id = safe_component(to_str(context.get("video_id") or context.get("id") or "NA"))
     return f"{creator} - {title} [{media_id}]"
-
-
-def list_media_files(root: Path) -> list[Path]:
-    files: list[Path] = []
-    if not root.exists():
-        return files
-    for path in root.rglob("*"):
-        if path.is_file() and is_media_file_path(path):
-            files.append(path)
-    return sorted(files, key=lambda p: (str(p.parent), p.name.lower()))
 
 
 def build_media_snapshot(root: Path) -> dict[str, tuple[int, int]]:
@@ -2815,7 +2634,6 @@ def append_instagram_log(task_id: str, message: str, *, progress_pct: float | No
         payload["progress_pct"] = max(0.0, min(100.0, float(progress_pct)))
     payload.update(extra)
     update_non_iwara_task(task_id, **payload)
-
 
 
 def build_instagram_story_url_context(target: dict[str, str], *, fallback_title: str = "story") -> dict[str, Any]:
@@ -3223,14 +3041,6 @@ def download_instagram_post_to_output(loader: instaloader.Instaloader, staging_r
     if not downloaded_files:
         raise RuntimeError(f"Instaloader did not produce media files for Instagram post {getattr(post, 'shortcode', 'unknown')}.")
     moved, _ = move_instagram_downloads(downloaded_files, output_root, folder_template, filename_template, build_instagram_post_context(post, creator_hint=creator_hint))
-    return moved
-
-
-def download_instagram_storyitem_to_output(loader: instaloader.Instaloader, staging_root: Path, output_root: Path, folder_template: str, filename_template: str, item: instaloader.StoryItem, *, creator_hint: str = "", fallback_title: str = "Story") -> list[Path]:
-    downloaded_files = capture_new_media_files(staging_root, lambda: loader.download_storyitem(item, target="item"))
-    if not downloaded_files:
-        raise RuntimeError(f"Instaloader did not produce media files for Instagram story item {getattr(item, 'mediaid', 'unknown')}.")
-    moved, _ = move_instagram_downloads(downloaded_files, output_root, folder_template, filename_template, build_instagram_story_context(item, creator_hint=creator_hint, fallback_title=fallback_title))
     return moved
 
 
@@ -3834,37 +3644,46 @@ def recover_iwara_task_paths(task_id: str, task: dict[str, Any] | None) -> tuple
     return "", str(task.get("resolved_folder") or "").strip(), str(task.get("resolved_filename") or "").strip()
 
 
-def ensure_iwara_worker() -> None:
-    global iwara_worker_started
-    with iwara_worker_lock:
-        if iwara_worker_started:
+def _next_pending_task(load_store) -> tuple[str | None, dict[str, Any] | None]:
+    tasks = (load_store().get("tasks") or {})
+    for task_id, task in tasks.items():
+        if task.get("status") == "pending":
+            return task_id, task
+    return None, None
+
+
+def _worker_loop(load_store, wakeup: threading.Event, runner) -> None:
+    while True:
+        try:
+            task_id, task = _next_pending_task(load_store)
+            if task_id and task:
+                runner(task_id, task)
+                continue
+            wakeup.clear()
+            task_id, task = _next_pending_task(load_store)
+            if task_id and task:
+                wakeup.set()
+                continue
+            wakeup.wait()
+        except Exception:
+            wakeup.wait(2)
+
+
+def _ensure_worker_started(flag_name: str, lock: Any, wakeup: threading.Event, target) -> None:
+    with lock:
+        if globals().get(flag_name):
             return
-        thread = threading.Thread(target=iwara_worker_loop, daemon=True)
-        thread.start()
-        iwara_worker_started = True
-        iwara_worker_wakeup.set()
+        threading.Thread(target=target, daemon=True).start()
+        globals()[flag_name] = True
+        wakeup.set()
+
+
+def ensure_iwara_worker() -> None:
+    _ensure_worker_started("iwara_worker_started", iwara_worker_lock, iwara_worker_wakeup, iwara_worker_loop)
 
 
 def iwara_worker_loop() -> None:
-    while True:
-        try:
-            data = load_iwara_tasks()
-            tasks = data.get("tasks", {})
-            pending = [(tid, t) for tid, t in tasks.items() if t.get("status") == "pending"]
-            if not pending:
-                iwara_worker_wakeup.clear()
-                data = load_iwara_tasks()
-                tasks = data.get("tasks", {})
-                pending = [(tid, t) for tid, t in tasks.items() if t.get("status") == "pending"]
-                if pending:
-                    iwara_worker_wakeup.set()
-                    continue
-                iwara_worker_wakeup.wait()
-                continue
-            task_id, task = pending[0]
-            run_iwara_task(task_id, task)
-        except Exception:
-            iwara_worker_wakeup.wait(2)
+    _worker_loop(load_iwara_tasks, iwara_worker_wakeup, run_iwara_task)
 
 
 def run_iwara_task(task_id: str, task: dict[str, Any]) -> None:
@@ -3961,69 +3780,19 @@ def run_iwara_task(task_id: str, task: dict[str, Any]) -> None:
 
 
 def ensure_general_worker() -> None:
-    global general_worker_started
-    with general_worker_lock:
-        if general_worker_started:
-            return
-        thread = threading.Thread(target=general_worker_loop, daemon=True)
-        thread.start()
-        general_worker_started = True
-        general_worker_wakeup.set()
+    _ensure_worker_started("general_worker_started", general_worker_lock, general_worker_wakeup, general_worker_loop)
 
 
 def general_worker_loop() -> None:
-    while True:
-        try:
-            data = load_general_tasks()
-            tasks = data.get("tasks", {})
-            pending = [(tid, t) for tid, t in tasks.items() if t.get("status") == "pending"]
-            if not pending:
-                general_worker_wakeup.clear()
-                data = load_general_tasks()
-                tasks = data.get("tasks", {})
-                pending = [(tid, t) for tid, t in tasks.items() if t.get("status") == "pending"]
-                if pending:
-                    general_worker_wakeup.set()
-                    continue
-                general_worker_wakeup.wait()
-                continue
-            task_id, task = pending[0]
-            run_general_task(task_id, task)
-        except Exception:
-            general_worker_wakeup.wait(2)
+    _worker_loop(load_general_tasks, general_worker_wakeup, run_general_task)
 
 
 def ensure_instaloader_worker() -> None:
-    global instaloader_worker_started
-    with instaloader_worker_lock:
-        if instaloader_worker_started:
-            return
-        thread = threading.Thread(target=instaloader_worker_loop, daemon=True)
-        thread.start()
-        instaloader_worker_started = True
-        instaloader_worker_wakeup.set()
+    _ensure_worker_started("instaloader_worker_started", instaloader_worker_lock, instaloader_worker_wakeup, instaloader_worker_loop)
 
 
 def instaloader_worker_loop() -> None:
-    while True:
-        try:
-            data = load_instaloader_tasks()
-            tasks = data.get("tasks", {})
-            pending = [(tid, t) for tid, t in tasks.items() if t.get("status") == "pending"]
-            if not pending:
-                instaloader_worker_wakeup.clear()
-                data = load_instaloader_tasks()
-                tasks = data.get("tasks", {})
-                pending = [(tid, t) for tid, t in tasks.items() if t.get("status") == "pending"]
-                if pending:
-                    instaloader_worker_wakeup.set()
-                    continue
-                instaloader_worker_wakeup.wait()
-                continue
-            task_id, task = pending[0]
-            run_instagram_task(task_id, task)
-        except Exception:
-            instaloader_worker_wakeup.wait(2)
+    _worker_loop(load_instaloader_tasks, instaloader_worker_wakeup, run_instagram_task)
 
 
 def run_general_task(task_id: str, task: dict[str, Any]) -> None:
@@ -4808,6 +4577,8 @@ def clear_pending():
 
 
 @app.route("/api/tasks/clear-completed", methods=["POST"])
+
+@app.route("/api/tasks/clear-completed", methods=["POST"])
 def clear_completed():
     try:
         tasks = fetch_tasks(include_hidden=True)
@@ -4819,6 +4590,12 @@ def clear_completed():
                 continue
             task_id = str(item.get("vid") or "")
             task = load_task_record(task_id)
+            history_entry, _ = find_history_entry_by_task_id(task_id)
+            if not task and history_entry:
+                task = {
+                    "status": "completed",
+                    "save_mode": str(meta.get("tasks", {}).get(task_id, {}).get("save_mode") or history_entry.get("save_mode") or "nas"),
+                }
             if not task:
                 continue
             if not can_delete_done_task(task_id, task, meta):
@@ -4833,10 +4610,12 @@ def clear_completed():
 
 
 @app.route("/api/cleanup-nfo", methods=["POST"])
+
+@app.route("/api/cleanup-nfo", methods=["POST"])
 def cleanup_nfo():
     locations = discover_volume_roots()
     if not locations:
-        return jsonify({"error": "No downloadLocations are configured."}), 500
+        return jsonify({"error": "No accessible volume roots are configured."}), 500
     deleted = 0
     errors = []
     for location in locations:
@@ -4855,4 +4634,5 @@ def cleanup_nfo():
 if __name__ == "__main__":
     ensure_general_worker()
     ensure_instaloader_worker()
+    ensure_iwara_worker()
     app.run(host="0.0.0.0", port=8088, debug=False)
