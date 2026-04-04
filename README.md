@@ -1,4 +1,7 @@
-# Never Stelle
+<h1 align="left">
+  <img src="./app/static/assets/logo.png" alt="Never Stelle logo" width="45" />
+  Never Stelle
+</h1>
 
 Never Stelle is a self-hosted media downloader with a browser UI for YouTube, Facebook, Instagram, TikTok, Iwara, and other supported sites.
 
