@@ -30,6 +30,8 @@ IWARADL_BIN = os.environ.get("IWARADL_BIN", "iwaradl").strip() or "iwaradl"
 LEGACY_DEFAULT_FILENAME_TEMPLATE = "{{author_nickname}} - {{title}} [{{video_id}}]"
 LEGACY_DEFAULT_FOLDER_TEMPLATE = "{{author_nickname}}"
 LEGACY_DEFAULT_GENERAL_CREATOR_TEMPLATE = "%(artist,artists,album_artist,creator,uploader,channel,playlist_uploader|Unknown)s"
+DEFAULT_GENERAL_CREATOR_OUTPUT_TEMPLATE = "%(artist,artists,album_artist,creator,uploader,channel,playlist_uploader|Unknown)s"
+TIKTOK_GENERAL_CREATOR_OUTPUT_TEMPLATE = "%(uploader,channel,playlist_uploader,artist,artists,album_artist,creator|Unknown)s"
 DEFAULT_FILENAME_TEMPLATE = os.environ.get(
     "DEFAULT_FILENAME_TEMPLATE",
     LEGACY_DEFAULT_FILENAME_TEMPLATE,
@@ -38,7 +40,6 @@ DEFAULT_FOLDER_TEMPLATE = os.environ.get(
     "DEFAULT_FOLDER_TEMPLATE",
     LEGACY_DEFAULT_FOLDER_TEMPLATE,
 )
-GENERAL_CREATOR_OUTPUT_TEMPLATE = "%(artist,artists,album_artist,creator,uploader,channel,playlist_uploader|Unknown)s"
 GENERAL_ID_OUTPUT_TEMPLATE = "%(id|NA)s"
 GENERAL_TITLE_OUTPUT_TEMPLATE = "%(title|Unknown)s"
 GENERAL_QUALITY_OUTPUT_TEMPLATE = "%(format_id,format_note,resolution|Unknown)s"
@@ -2331,10 +2332,16 @@ def fetch_rule34_scene_metadata(url: str) -> dict[str, str]:
     return {"artist": artist, "scene_id": scene_id, "slug": slug}
 
 
+def build_general_creator_output_template(source_url: str) -> str:
+    if is_tiktok_url(source_url):
+        return TIKTOK_GENERAL_CREATOR_OUTPUT_TEMPLATE
+    return DEFAULT_GENERAL_CREATOR_OUTPUT_TEMPLATE
+
+
 def build_general_output_template(source_url: str, output_dir: str) -> str:
     template_settings = get_effective_template_settings()
-    folder_template = convert_template_string_to_general_output(template_settings["folder_template"], kind="folder")
-    filename_template = convert_template_string_to_general_output(template_settings["filename_template"], kind="filename")
+    folder_template = convert_template_string_to_general_output(template_settings["folder_template"], kind="folder", source_url=source_url)
+    filename_template = convert_template_string_to_general_output(template_settings["filename_template"], kind="filename", source_url=source_url)
 
     if is_rule34video_url(source_url):
         meta = fetch_rule34_scene_metadata(source_url)
@@ -3454,9 +3461,10 @@ def convert_legacy_general_template_to_unified(template: str, *, kind: str) -> s
     return candidate.strip()
 
 
-def convert_template_string_to_general_output(template: str, *, kind: str) -> str:
+def convert_template_string_to_general_output(template: str, *, kind: str, source_url: str = "") -> str:
     candidate = normalize_template_syntax(template)
     candidate = build_template_alias_context({"template": candidate}).get("template", candidate)
+    creator_output_template = build_general_creator_output_template(source_url)
 
     def repl(match: re.Match[str]) -> str:
         name = (match.group(1) or "").strip()
@@ -3467,7 +3475,7 @@ def convert_template_string_to_general_output(template: str, *, kind: str) -> st
         if name == "publish_time":
             return "%(upload_date|Unknown)s"
         if name in {"creator", "author", "author_nickname"}:
-            return GENERAL_CREATOR_OUTPUT_TEMPLATE
+            return creator_output_template
         if name in {"title"}:
             return GENERAL_TITLE_OUTPUT_TEMPLATE
         if name in {"id", "video_id"}:
@@ -3481,7 +3489,7 @@ def convert_template_string_to_general_output(template: str, *, kind: str) -> st
     converted = GO_TEMPLATE_RE.sub(repl, candidate).strip()
     converted = safe_path_component_for_output_template(converted)
     if kind == "folder":
-        return converted or GENERAL_CREATOR_OUTPUT_TEMPLATE
+        return converted or creator_output_template
     if GENERAL_EXT_OUTPUT_TEMPLATE not in converted:
         converted = f"{converted}.%(ext)s" if converted else f"{GENERAL_TITLE_OUTPUT_TEMPLATE}.%(ext)s"
     return converted or f"{GENERAL_TITLE_OUTPUT_TEMPLATE}.%(ext)s"
