@@ -5,3 +5,4 @@ settings.json
 .venv/
 *.tar
 iwaradl.exe
+tools/
