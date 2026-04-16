@@ -13,9 +13,8 @@ RUN apt-get update && apt-get install -y ffmpeg ca-certificates && rm -rf /var/l
 RUN pip install --no-cache-dir flask requests PyYAML yt-dlp instaloader
 
 COPY --from=iwaradl-builder /out/iwaradl /usr/local/bin/iwaradl
-COPY app.py /app/
-COPY templates /app/templates
-COPY static /app/static
+COPY run.py /app/run.py
+COPY app /app/app
 
 EXPOSE 8088
-CMD ["python", "app.py"]
+CMD ["python", "run.py"]

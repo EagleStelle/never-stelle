@@ -129,8 +129,12 @@ never-stelle/
 ├─ README.md
 ├─ requirements.txt
 ├─ docker-compose.yml
+├─ run.py
 ├─ app/
-│  ├─ app.py
+│  ├─ __init__.py
+│  ├─ routes/
+│  ├─ services/
+│  ├─ workers/
 │  ├─ templates/
 │  └─ static/
 ├─ data/
@@ -185,11 +189,10 @@ Test it:
 Run Never Stelle:
 
 ```powershell
-cd .\app
-$env:APP_DATA_DIR="..\data"
-$env:ACCESSIBLE_VOLUMES_ROOTS="..\library"
-$env:IWARADL_BIN="..\tools\iwaradl\iwaradl.exe"
-python app.py
+$env:APP_DATA_DIR=".\data"
+$env:ACCESSIBLE_VOLUMES_ROOTS=".\library"
+$env:IWARADL_BIN=".\tools\iwaradl\iwaradl.exe"
+python run.py
 ```
 
 If `ffmpeg.exe` is not on your `PATH`, also set:
@@ -234,11 +237,10 @@ Test it:
 Run Never Stelle:
 
 ```cmd
-cd app
-set "APP_DATA_DIR=..\data"
-set "ACCESSIBLE_VOLUMES_ROOTS=..\library"
-set "IWARADL_BIN=..\tools\iwaradl\iwaradl.exe"
-python app.py
+set "APP_DATA_DIR=.\data"
+set "ACCESSIBLE_VOLUMES_ROOTS=.\library"
+set "IWARADL_BIN=.\tools\iwaradl\iwaradl.exe"
+python run.py
 ```
 
 If `ffmpeg.exe` is not on your `PATH`, also set:
@@ -306,11 +308,10 @@ Test it:
 Run Never Stelle:
 
 ```bash
-cd app
-export APP_DATA_DIR=../data
-export ACCESSIBLE_VOLUMES_ROOTS=../library
-export IWARADL_BIN=../tools/iwaradl/iwaradl
-python app.py
+export APP_DATA_DIR=./data
+export ACCESSIBLE_VOLUMES_ROOTS=./library
+export IWARADL_BIN=./tools/iwaradl/iwaradl
+python run.py
 ```
 
 If `ffmpeg` is not on your `PATH`, also set:

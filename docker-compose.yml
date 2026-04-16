@@ -1,12 +1,17 @@
 services:
   never-stelle:
-    image: eaglestelle/never-stelle
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    image: never-stelle:local
     container_name: never-stelle
     restart: unless-stopped
     environment:
       ACCESSIBLE_VOLUMES_ROOTS: "/library|/media"
+      APP_DATA_DIR: "/app/data"
     volumes:
       - ./data:/app/data
       - ./library:/library
+      # - ./media:/media
     ports:
       - "8088:8088"
