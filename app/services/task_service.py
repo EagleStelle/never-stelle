@@ -586,25 +586,23 @@ def fetch_tasks(include_hidden: bool = False) -> list[dict]:
     active_ids.update(instaloader_tasks.keys())
 
     raw_meta = load_meta()
-    history_backed_ids: set[str] = set()
+    history_backed_entries: dict[str, dict] = {}
     for task_id in list((raw_meta.get("tasks") or {}).keys()):
         if task_id in active_ids:
             continue
         history_entry, _ = find_history_entry_by_task_id(task_id)
         if history_entry:
-            history_backed_ids.add(task_id)
+            history_backed_entries[task_id] = history_entry
 
-    active_ids.update(history_backed_ids)
+    active_ids.update(history_backed_entries.keys())
     meta = cleanup_meta(raw_meta, active_ids)
     save_meta(meta)
 
     merged: list[dict] = [merge_iwara_task(task, meta) for task in iwara_tasks]
     merged.extend(convert_general_task(task_id, task, meta) for task_id, task in ytdlp_tasks.items())
     merged.extend(convert_instaloader_task(task_id, task, meta) for task_id, task in instaloader_tasks.items())
-    for task_id in sorted(history_backed_ids):
-        history_entry, _ = find_history_entry_by_task_id(task_id)
-        if history_entry:
-            merged.append(build_history_api_task(task_id, history_entry, meta))
+    for task_id in sorted(history_backed_entries.keys()):
+        merged.append(build_history_api_task(task_id, history_backed_entries[task_id], meta))
     if not include_hidden:
         merged = [task for task in merged if not task["hidden"]]
     merged.sort(key=lambda task: (STATUS_ORDER.get(task["status"], 99), task["vid"]))

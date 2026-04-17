@@ -1706,10 +1706,16 @@
 
       async function downloadTaskFile(vid, options = {}) {
         const skipReload = options && options.skipReload === true;
-        await triggerTaskFileDownload(vid);
-        await acknowledgeDeliveredTask(vid);
         state.deliveredDeviceDownloads[deliveredKey(vid)] = true;
         persistDeliveredDeviceDownloads();
+        try {
+          await triggerTaskFileDownload(vid);
+          await acknowledgeDeliveredTask(vid);
+        } catch (err) {
+          delete state.deliveredDeviceDownloads[deliveredKey(vid)];
+          persistDeliveredDeviceDownloads();
+          throw err;
+        }
         if (!skipReload) {
           await loadTasks(true);
         }
@@ -1718,7 +1724,7 @@
 
       function processCompletedDeviceDownloads(tasks) {
         (tasks || []).forEach((task) => {
-          if (task.save_mode !== "device" || task.status !== "completed" || !task.resolved_full_path) return;
+          if (task.save_mode !== "device" || task.status !== "completed" || !task.can_download) return;
           const allowedTabs = Array.isArray(task.device_request_tabs) ? task.device_request_tabs : [];
           if (!allowedTabs.includes(state.tabId)) return;
           const key = deliveredKey(task.vid);
@@ -1757,7 +1763,7 @@
           urlInput.value = "";
           const firstTask = Array.isArray(data.created) ? data.created[0] : null;
           if (firstTask && data.reused && settings.save_mode === "device" && firstTask.status === "completed") {
-            await downloadTaskFile(firstTask.vid);
+            await downloadTaskFile(firstTask.vid, { skipReload: true });
             toast("That file was already downloaded.");
           } else if (data.reused) {
             const reusedMessage = firstTask && firstTask.status === "completed"
