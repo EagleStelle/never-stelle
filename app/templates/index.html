@@ -15,6 +15,10 @@
       href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@700;800&display=swap"
       rel="stylesheet"
     />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    />
 
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script>
@@ -391,145 +395,189 @@
           </h2>
 
           <div
-            class="rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-2 shadow-soft"
+            class="sticky top-0 z-10 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-2 shadow-soft"
           >
-            <div
-              class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between"
-            >
+            <div class="flex flex-col gap-2">
               <div class="max-w-full overflow-x-auto">
                 <nav
                   class="inline-flex w-max flex-nowrap items-center gap-0.5 whitespace-nowrap rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft"
                   aria-label="Task sources"
                 >
                   <button
-                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    class="menu-btn inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-sm font-semibold transition bg-[var(--iw-accent)] text-[color:var(--iw-strong-text)]"
                     type="button"
                     data-menu="all"
+                    aria-pressed="true"
                   >
-                    All
+                    <i
+                      class="fa-solid fa-layer-group w-4 shrink-0 text-center text-base leading-none"
+                      aria-hidden="true"
+                    ></i>
+                    <span>All</span>
                   </button>
                   <button
-                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    class="menu-btn inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-sm font-semibold transition text-[var(--iw-muted)] hover:text-[var(--iw-text)]"
                     type="button"
                     data-menu="youtube"
+                    aria-pressed="false"
                   >
-                    YouTube
+                    <i
+                      class="fa-brands fa-youtube w-4 shrink-0 text-center text-base leading-none"
+                      aria-hidden="true"
+                    ></i>
+                    <span>YouTube</span>
                   </button>
                   <button
-                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    class="menu-btn inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-sm font-semibold transition text-[var(--iw-muted)] hover:text-[var(--iw-text)]"
                     type="button"
                     data-menu="facebook"
+                    aria-pressed="false"
                   >
-                    Facebook
+                    <i
+                      class="fa-brands fa-facebook-f w-4 shrink-0 text-center text-base leading-none"
+                      aria-hidden="true"
+                    ></i>
+                    <span>Facebook</span>
                   </button>
                   <button
-                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    class="menu-btn inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-sm font-semibold transition text-[var(--iw-muted)] hover:text-[var(--iw-text)]"
                     type="button"
                     data-menu="instagram"
+                    aria-pressed="false"
                   >
-                    Instagram
+                    <i
+                      class="fa-brands fa-instagram w-4 shrink-0 text-center text-base leading-none"
+                      aria-hidden="true"
+                    ></i>
+                    <span>Instagram</span>
                   </button>
                   <button
-                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    class="menu-btn inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-sm font-semibold transition text-[var(--iw-muted)] hover:text-[var(--iw-text)]"
                     type="button"
                     data-menu="tiktok"
+                    aria-pressed="false"
                   >
-                    TikTok
+                    <i
+                      class="fa-brands fa-tiktok w-4 shrink-0 text-center text-base leading-none"
+                      aria-hidden="true"
+                    ></i>
+                    <span>TikTok</span>
                   </button>
                   <button
-                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    class="menu-btn inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-sm font-semibold transition text-[var(--iw-muted)] hover:text-[var(--iw-text)]"
                     type="button"
                     data-menu="iwara"
+                    aria-pressed="false"
                   >
-                    Iwara
+                    <i
+                      class="fa-solid fa-clapperboard w-4 shrink-0 text-center text-base leading-none"
+                      aria-hidden="true"
+                    ></i>
+                    <span>Iwara</span>
                   </button>
                   <button
-                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
+                    class="menu-btn inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-sm font-semibold transition text-[var(--iw-muted)] hover:text-[var(--iw-text)]"
                     type="button"
                     data-menu="others"
+                    aria-pressed="false"
                   >
-                    Others
+                    <i
+                      class="fa-solid fa-ellipsis w-4 shrink-0 text-center text-base leading-none"
+                      aria-hidden="true"
+                    ></i>
+                    <span>Others</span>
                   </button>
                 </nav>
               </div>
 
-              <div class="flex flex-wrap items-center gap-2">
-                <div class="flex min-w-[120px] flex-1 items-center gap-0.5 rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft focus-within:border-[var(--iw-accent)]/60 focus-within:ring-1 focus-within:ring-[var(--iw-accent)]/30">
-                  <input
-                    id="taskSearch"
-                    type="search"
-                    placeholder="Search…"
-                    autocomplete="off"
-                    class="h-8 w-full bg-transparent px-2 text-sm text-[var(--iw-text)] placeholder-[var(--iw-muted)] outline-none"
-                  />
-                </div>
-                <div
-                  class="flex items-center gap-0.5 rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft"
-                >
-                  <button
-                    id="gridViewButton"
-                    class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--iw-muted)] transition hover:text-[var(--iw-text)]"
-                    type="button"
-                    aria-label="Grid view"
-                    aria-pressed="true"
+              <div class="flex flex-col sm:flex-row flex-wrap gap-2">
+                <div class="flex w-full sm:flex-1 items-center gap-2">
+                  <div
+                    class="flex flex-1 items-center gap-0.5 rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft focus-within:border-[var(--iw-accent)]/60 focus-within:ring-1 focus-within:ring-[var(--iw-accent)]/30"
                   >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.8"
-                      class="h-4 w-4"
-                    >
-                      <rect x="4" y="4" width="6" height="6" rx="1.2"></rect>
-                      <rect x="14" y="4" width="6" height="6" rx="1.2"></rect>
-                      <rect x="4" y="14" width="6" height="6" rx="1.2"></rect>
-                      <rect x="14" y="14" width="6" height="6" rx="1.2"></rect>
-                    </svg>
-                  </button>
-                  <button
-                    id="tableViewButton"
-                    class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--iw-muted)] transition hover:text-[var(--iw-text)]"
-                    type="button"
-                    aria-label="Table view"
-                    aria-pressed="false"
+                    <i
+                      class="fa-solid fa-magnifying-glass ml-2 w-4 shrink-0 text-center text-base leading-none text-[var(--iw-muted)]"
+                      aria-hidden="true"
+                    ></i>
+                    <input
+                      id="taskSearch"
+                      type="search"
+                      placeholder="Search…"
+                      autocomplete="off"
+                      class="h-7 w-full bg-transparent px-1 text-xs text-[var(--iw-text)] placeholder-[var(--iw-muted)] outline-none"
+                    />
+                  </div>
+
+                  <div
+                    class="flex shrink-0 items-center gap-0.5 rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft"
                   >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.8"
-                      class="h-4 w-4"
+                    <button
+                      id="gridViewButton"
+                      class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-semibold transition bg-[var(--iw-accent)] text-[color:var(--iw-strong-text)]"
+                      type="button"
+                      aria-label="Grid view"
+                      aria-pressed="true"
                     >
-                      <path d="M5 7h14"></path>
-                      <path d="M5 12h14"></path>
-                      <path d="M5 17h14"></path>
-                    </svg>
-                  </button>
+                      <i
+                        class="fa-solid fa-table-cells-large w-4 shrink-0 text-center text-base leading-none"
+                        aria-hidden="true"
+                      ></i>
+                      <span>Grid</span>
+                    </button>
+                    <button
+                      id="tableViewButton"
+                      class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-semibold transition text-[var(--iw-muted)] hover:text-[var(--iw-text)]"
+                      type="button"
+                      aria-label="Table view"
+                      aria-pressed="false"
+                    >
+                      <i
+                        class="fa-solid fa-table-list w-4 shrink-0 text-center text-base leading-none"
+                        aria-hidden="true"
+                      ></i>
+                      <span>Table</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div
-                  class="flex items-center gap-0.5 rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft"
+                  class="flex w-full sm:w-auto items-center gap-0.5 rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft"
                 >
                   <button
-                    class="filter-btn h-8 rounded-lg px-4 text-sm font-semibold transition"
+                    class="filter-btn inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition sm:flex-none bg-[var(--iw-accent)] text-[color:var(--iw-strong-text)]"
                     type="button"
                     data-filter="all"
+                    aria-pressed="true"
                   >
-                    All
+                    <i
+                      class="fa-solid fa-globe w-4 shrink-0 text-center text-base leading-none"
+                      aria-hidden="true"
+                    ></i>
+                    <span>All</span>
                   </button>
                   <button
-                    class="filter-btn h-8 rounded-lg px-4 text-sm font-semibold transition"
+                    class="filter-btn inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition sm:flex-none text-[var(--iw-muted)] hover:text-[var(--iw-text)]"
                     type="button"
                     data-filter="active"
+                    aria-pressed="false"
                   >
-                    Active
+                    <i
+                      class="fa-solid fa-bolt w-4 shrink-0 text-center text-base leading-none"
+                      aria-hidden="true"
+                    ></i>
+                    <span>Active</span>
                   </button>
                   <button
-                    class="filter-btn h-8 rounded-lg px-4 text-sm font-semibold transition"
+                    class="filter-btn inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition sm:flex-none text-[var(--iw-muted)] hover:text-[var(--iw-text)]"
                     type="button"
                     data-filter="done"
+                    aria-pressed="false"
                   >
-                    Done
+                    <i
+                      class="fa-solid fa-check w-4 shrink-0 text-center text-base leading-none"
+                      aria-hidden="true"
+                    ></i>
+                    <span>Done</span>
                   </button>
                 </div>
               </div>
@@ -937,6 +985,9 @@
         saved_save_mode: {{ saved_save_mode|tojson }},
       };
     </script>
-    <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script
+      type="module"
+      src="{{ url_for('static', filename='js/main.js') }}"
+    ></script>
   </body>
 </html>
