@@ -42,7 +42,9 @@ from app.utils.platforms.instagram import (
     resolve_instagram_highlight_owner_username,
     summarize_instagram_paths,
 )
+from app.utils.process import ActivityWatchdog
 from app.utils.url import canonicalize_source_url, parse_instagram_target, to_str
+from app.workers import clear_task_cancelled, is_task_cancelled
 from app.utils.ytdlp import (
     build_general_ytdlp_cmd,
     detect_ffmpeg_location,
@@ -106,8 +108,10 @@ def download_instagram_post_video_with_ytdlp(
                 ffmpeg_location=ffmpeg_location,
             )
 
+        watchdog = ActivityWatchdog(process)
         if process.stdout is not None:
             for raw_line in process.stdout:
+                watchdog.ping()
                 line = raw_line.strip()
                 if not line:
                     continue
@@ -122,8 +126,11 @@ def download_instagram_post_video_with_ytdlp(
                     if match:
                         updates["progress_pct"] = float(match.group(1))
                     update_non_iwara_task(task_id, **updates)
+        watchdog.cancel()
 
         rc = process.wait()
+        if watchdog.timed_out:
+            raise RuntimeError("Task timed out: no output for too long.")
         if rc != 0:
             tail = "\n".join(log_lines[-12:]).strip()
             detail = f"yt-dlp exited with code {rc}."
@@ -241,8 +248,10 @@ def download_instagram_highlight_with_ytdlp(
                 ffmpeg_location=ffmpeg_location,
             )
 
+        watchdog = ActivityWatchdog(process)
         if process.stdout is not None:
             for raw_line in process.stdout:
+                watchdog.ping()
                 line = raw_line.strip()
                 if not line:
                     continue
@@ -257,8 +266,11 @@ def download_instagram_highlight_with_ytdlp(
                     if match:
                         updates["progress_pct"] = float(match.group(1))
                     update_non_iwara_task(task_id, **updates)
+        watchdog.cancel()
 
         rc = process.wait()
+        if watchdog.timed_out:
+            raise RuntimeError("Task timed out: no output for too long.")
         if rc != 0:
             tail = "\n".join(log_lines[-12:]).strip()
             detail = f"yt-dlp exited with code {rc}."
@@ -383,8 +395,10 @@ def download_instagram_story_video_with_ytdlp(
                 ffmpeg_location=ffmpeg_location,
             )
 
+        watchdog = ActivityWatchdog(process)
         if process.stdout is not None:
             for raw_line in process.stdout:
+                watchdog.ping()
                 line = raw_line.strip()
                 if not line:
                     continue
@@ -399,8 +413,11 @@ def download_instagram_story_video_with_ytdlp(
                     if match:
                         updates["progress_pct"] = float(match.group(1))
                     update_non_iwara_task(task_id, **updates)
+        watchdog.cancel()
 
         rc = process.wait()
+        if watchdog.timed_out:
+            raise RuntimeError("Task timed out: no output for too long.")
         if rc != 0:
             tail = "\n".join(log_lines[-12:]).strip()
             detail = f"yt-dlp exited with code {rc}."
@@ -766,6 +783,7 @@ def run_instagram_task(task_id: str, task: dict[str, Any]) -> None:
                 raise RuntimeError("Unsupported Instagram URL.")
 
             downloaded_count = 0
+            total_media = max(1, getattr(profile, "mediacount", 0) or 1)
             for label, iterator in collections:
                 for post in iterator:
                     shortcode = to_str(getattr(post, "shortcode", ""))
@@ -775,7 +793,7 @@ def run_instagram_task(task_id: str, task: dict[str, Any]) -> None:
                         seen_shortcodes.add(shortcode)
 
                     downloaded_count += 1
-                    pct = min(95.0, 10.0 + downloaded_count)
+                    pct = min(95.0, 10.0 + 85.0 * downloaded_count / total_media)
                     append_instagram_log(
                         task_id,
                         f"[instagram] Downloading {label} item {downloaded_count}...",
@@ -860,12 +878,16 @@ def run_instagram_task(task_id: str, task: dict[str, Any]) -> None:
         update_non_iwara_task(task_id, **completed_payload)
 
     except Exception as exc:
-        update_non_iwara_task(
-            task_id,
-            status="failed",
-            error=str(exc),
-            output_template="instaloader",
-        )
+        if is_task_cancelled(task_id):
+            clear_task_cancelled(task_id)
+            update_non_iwara_task(task_id, status="failed", error="Cancelled by user.", output_template="instaloader")
+        else:
+            update_non_iwara_task(
+                task_id,
+                status="failed",
+                error=str(exc),
+                output_template="instaloader",
+            )
     finally:
         try:
             loader.close()

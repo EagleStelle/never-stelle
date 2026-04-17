@@ -4,6 +4,7 @@ import json
 import os
 import pickle
 import shutil
+import threading
 import time
 from datetime import datetime, timezone
 from http.cookiejar import Cookie, MozillaCookieJar
@@ -47,6 +48,7 @@ def load_saved_settings_file() -> dict[str, Any]:
 def save_saved_settings_file(payload: dict[str, Any]) -> None:
     with settings_lock:
         SETTINGS_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    invalidate_app_config_cache()
 
 
 # ── Volume / location discovery ───────────────────────────────────────────────
@@ -165,8 +167,29 @@ def build_runtime_config() -> dict[str, Any]:
     return cfg
 
 
+_app_config_cache: dict[str, Any] = {}
+_app_config_cache_ts: float = 0.0
+_APP_CONFIG_TTL = 30.0
+_app_config_lock = threading.Lock()
+
+
+def invalidate_app_config_cache() -> None:
+    global _app_config_cache_ts
+    with _app_config_lock:
+        _app_config_cache_ts = 0.0
+
+
 def load_app_config() -> dict[str, Any]:
-    return build_runtime_config()
+    global _app_config_cache, _app_config_cache_ts
+    now = time.time()
+    with _app_config_lock:
+        if now - _app_config_cache_ts < _APP_CONFIG_TTL and _app_config_cache:
+            return dict(_app_config_cache)
+    cfg = build_runtime_config()
+    with _app_config_lock:
+        _app_config_cache = cfg
+        _app_config_cache_ts = time.time()
+    return dict(cfg)
 
 
 def normalize_download_locations(cfg: dict[str, Any]) -> list[str]:

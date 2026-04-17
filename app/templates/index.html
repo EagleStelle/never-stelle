@@ -446,6 +446,15 @@
               </div>
 
               <div class="flex flex-wrap items-center gap-2">
+                <div class="flex min-w-[120px] flex-1 items-center gap-0.5 rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft focus-within:border-[var(--iw-accent)]/60 focus-within:ring-1 focus-within:ring-[var(--iw-accent)]/30">
+                  <input
+                    id="taskSearch"
+                    type="search"
+                    placeholder="Search…"
+                    autocomplete="off"
+                    class="h-8 w-full bg-transparent px-2 text-sm text-[var(--iw-text)] placeholder-[var(--iw-muted)] outline-none"
+                  />
+                </div>
                 <div
                   class="flex items-center gap-0.5 rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft"
                 >
@@ -925,6 +934,8 @@
         others: "Others",
       };
 
+      let _lastSettingsSignature = "";
+
       const currentTabId = (() => {
         const key = "neverstelle.tabId";
         let value = sessionStorage.getItem(key);
@@ -977,6 +988,8 @@
         taskCache: new Map(),
         lastFocusedTrigger: null,
         settingsSection: "downloads",
+        searchQuery: "",
+        notifyPermission: Notification.permission,
       };
 
       function getSavedSettings() {
@@ -1397,6 +1410,9 @@
           const response = await fetch("/api/ui-config");
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || "Could not load UI config.");
+          const sig = data.settings_signature || "";
+          if (sig && sig === _lastSettingsSignature) return;
+          _lastSettingsSignature = sig;
           applyServerSettings(data);
           renderLocationOptions(state.settings.download_locations || []);
           updateSaveModeButtons();
@@ -1436,6 +1452,13 @@
         let filtered = getMenuTasks(tasks);
         if (state.activeFilter === "active") filtered = filtered.filter((task) => ["pending", "running"].includes(task.status));
         if (state.activeFilter === "done") filtered = filtered.filter((task) => ["completed", "failed"].includes(task.status));
+        const q = (state.searchQuery || "").trim().toLowerCase();
+        if (q) filtered = filtered.filter((task) =>
+          (task.source_url || "").toLowerCase().includes(q) ||
+          (task.resolved_filename || "").toLowerCase().includes(q) ||
+          (task.resolved_folder || "").toLowerCase().includes(q) ||
+          (task.vid || "").toLowerCase().includes(q)
+        );
         return filtered;
       }
 
@@ -1521,6 +1544,16 @@
                         </svg>
                       </button>`
                     : "";
+                  const retryButtonTable = task.status === "failed"
+                    ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-accent)]/40 bg-[var(--iw-accent)]/10 text-[var(--iw-accent)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:bg-[var(--iw-accent)]/20" type="button" onclick="retryTask('${task.vid}')" aria-label="Retry task" title="Retry task">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                      </button>`
+                    : "";
+                  const cancelButtonTable = task.status === "running" || task.status === "pending"
+                    ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-danger-border)] bg-[var(--iw-danger-bg)] text-[var(--iw-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-danger-hover-border)] hover:bg-[var(--iw-danger-hover-bg)] hover:text-[var(--iw-danger-hover-text)]" type="button" onclick="cancelTask('${task.vid}')" aria-label="Cancel task" title="Cancel task">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                      </button>`
+                    : "";
                   const removeButton = task.can_remove && task.status !== "running"
                     ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-danger-border)] bg-[var(--iw-danger-bg)] text-[var(--iw-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-danger-hover-border)] hover:bg-[var(--iw-danger-hover-bg)] hover:text-[var(--iw-danger-hover-text)]" type="button" onclick="removeTask('${task.vid}')" aria-label="Remove task from the list" title="Remove task from the list">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4">
@@ -1537,7 +1570,7 @@
                       <td class="px-4 py-3 align-top text-sm">${task.resolved_filename ? escapeHtml(task.resolved_filename) : ""}</td>
                       <td class="px-4 py-3 align-top"><span class="inline-flex rounded-xl px-3 py-1 text-xs font-bold ${getStatusBadgeClass(task.status)}">${escapeHtml(task.status_label)}</span></td>
                       <td class="px-4 py-3 align-top text-sm text-[var(--iw-muted)]">${Math.max(0, Math.min(100, Number(task.progress_pct) || 0))}%</td>
-                      <td class="px-4 py-3 align-top text-right"><div class="inline-flex gap-2">${dismissButton}${deviceButton}${removeButton}</div></td>
+                      <td class="px-4 py-3 align-top text-right"><div class="inline-flex gap-2">${dismissButton}${retryButtonTable}${cancelButtonTable}${deviceButton}${removeButton}</div></td>
                     </tr>
                   `;
                 }).join("")}
@@ -1568,6 +1601,16 @@
                 </svg>
               </button>`
             : "";
+          const retryButton = task.status === "failed"
+            ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-accent)]/40 bg-[var(--iw-accent)]/10 text-[var(--iw-accent)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:bg-[var(--iw-accent)]/20" type="button" onclick="retryTask('${task.vid}')" aria-label="Retry task" title="Retry task">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+              </button>`
+            : "";
+          const cancelButton = task.status === "running" || task.status === "pending"
+            ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-danger-border)] bg-[var(--iw-danger-bg)] text-[var(--iw-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-danger-hover-border)] hover:bg-[var(--iw-danger-hover-bg)] hover:text-[var(--iw-danger-hover-text)]" type="button" onclick="cancelTask('${task.vid}')" aria-label="Cancel task" title="Cancel task">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+              </button>`
+            : "";
           const removeButton = task.can_remove && task.status !== "running"
             ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-danger-border)] bg-[var(--iw-danger-bg)] text-[var(--iw-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-danger-hover-border)] hover:bg-[var(--iw-danger-hover-bg)] hover:text-[var(--iw-danger-hover-text)]" type="button" onclick="removeTask('${task.vid}')" aria-label="Remove task from the list" title="Remove task from the list">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4">
@@ -1576,9 +1619,18 @@
                 </svg>
               </button>`
             : "";
-          const errorLine = task.status === "failed" && task.error
-            ? `<div class="text-xs text-[var(--iw-text)]">${escapeHtml(task.error)}</div>`
-            : "";
+          const errorLine = (() => {
+            if (task.status !== "failed" || !task.error) return "";
+            const lines = task.error.split("\n");
+            const short = escapeHtml(lines[0]);
+            if (lines.length <= 2) return `<div class="text-xs text-[var(--iw-text)]">${escapeHtml(task.error)}</div>`;
+            const full = escapeHtml(task.error);
+            const errId = "err-" + task.vid.replace(/[^a-zA-Z0-9]/g, "_");
+            return `<div class="text-xs text-[var(--iw-text)]">
+              <span id="${errId}-short">${short}… <button class="underline opacity-70 hover:opacity-100" type="button" onclick="document.getElementById('${errId}-short').style.display='none';document.getElementById('${errId}-full').style.display='block'">show more</button></span>
+              <span id="${errId}-full" style="display:none;white-space:pre-wrap">${full} <button class="underline opacity-70 hover:opacity-100" type="button" onclick="document.getElementById('${errId}-full').style.display='none';document.getElementById('${errId}-short').style.display='block'">show less</button></span>
+            </div>`;
+          })();
 
           return `
             <article class="w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-4 shadow-soft">
@@ -1589,7 +1641,7 @@
                   </div>
                   <div class="flex shrink-0 flex-wrap items-start justify-end gap-2">
                     <span class="inline-flex rounded-xl px-3 py-1 text-xs font-bold ${getStatusBadgeClass(task.status)}">${escapeHtml(task.status_label)}</span>
-                    ${dismissButton}${deviceButton}${removeButton}
+                    ${dismissButton}${retryButton}${cancelButton}${deviceButton}${removeButton}
                   </div>
                 </div>
                 <div class="min-w-0 break-all text-sm text-[var(--iw-muted)]">${escapeHtml(task.source_url || task.vid)}</div>
@@ -1729,6 +1781,10 @@
           if (!allowedTabs.includes(state.tabId)) return;
           const key = deliveredKey(task.vid);
           if (state.deliveredDeviceDownloads[key]) return;
+          if (document.hidden && Notification.permission === "granted") {
+            const label = task.resolved_filename || task.source_url || "Download ready";
+            new Notification("never-stelle", { body: label, icon: "/static/favicon.png" });
+          }
           downloadTaskFile(task.vid)
             .catch((error) => {
               toast(error.message || "Could not download that file.", "error");
@@ -1740,12 +1796,14 @@
       async function addTask(event) {
         event.preventDefault();
         const urlInput = document.getElementById("urlInput");
+        const submitBtn = document.getElementById("submitButton");
         const url = urlInput.value.trim();
         if (!url) {
           toast("Paste a supported URL first.", "error");
           return;
         }
 
+        if (submitBtn) submitBtn.disabled = true;
         const settings = getSavedSettings();
         try {
           const response = await fetch("/api/tasks", {
@@ -1776,6 +1834,8 @@
           await loadTasks(true);
         } catch (error) {
           toast(error.message || "Failed to add task.", "error");
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
         }
       }
 
@@ -1810,6 +1870,38 @@
         }
       }
       window.hideTask = hideTask;
+
+      async function retryTask(vid) {
+        try {
+          const response = await fetch(`/api/tasks/${encodeURIComponent(vid)}/retry`, { method: "POST" });
+          if (response.status === 204) {
+            toast("Task queued for retry.");
+            await loadTasks(true);
+            return;
+          }
+          const data = await response.json();
+          throw new Error(data.error || "Could not retry task.");
+        } catch (error) {
+          toast(error.message || "Could not retry task.", "error");
+        }
+      }
+      window.retryTask = retryTask;
+
+      async function cancelTask(vid) {
+        try {
+          const response = await fetch(`/api/tasks/${encodeURIComponent(vid)}/cancel`, { method: "POST" });
+          if (response.status === 204) {
+            toast("Task cancelled.");
+            await loadTasks(true);
+            return;
+          }
+          const data = await response.json();
+          throw new Error(data.error || "Could not cancel task.");
+        } catch (error) {
+          toast(error.message || "Could not cancel task.", "error");
+        }
+      }
+      window.cancelTask = cancelTask;
 
       async function clearPending() {
         try {
@@ -1890,6 +1982,11 @@
         applyTheme(document.body.classList.contains("light-mode") ? "dark" : "light");
       }
       document.getElementById("downloadForm").addEventListener("submit", addTask);
+      document.getElementById("taskSearch").addEventListener("input", (e) => {
+        state.searchQuery = e.target.value;
+        renderTasks(state.visibleTasks || []);
+        updateCountsForMenu(state.visibleTasks || []);
+      });
       document.querySelectorAll(".menu-btn").forEach((button) => {
         button.addEventListener("click", () => setActiveMenu(button.dataset.menu));
       });
@@ -2033,6 +2130,9 @@
       updateSaveModeButtons();
       fetchUIConfig();
       loadTasks();
+      if ("Notification" in window && Notification.permission === "default") {
+        Notification.requestPermission();
+      }
     </script>
   </body>
 </html>

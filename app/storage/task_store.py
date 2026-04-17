@@ -288,10 +288,23 @@ def load_download_history() -> dict[str, Any]:
             return {"entries": {}}
 
 
+_MAX_HISTORY_ENTRIES = 500
+
+
 def save_download_history(data: dict[str, Any]) -> None:
     with history_lock:
+        normalized = normalize_history(data)
+        entries = normalized.get("entries") or {}
+        if len(entries) > _MAX_HISTORY_ENTRIES:
+            sorted_keys = sorted(
+                entries,
+                key=lambda k: entries[k].get("completed_at") or entries[k].get("created_at") or "",
+            )
+            for old_key in sorted_keys[: len(entries) - _MAX_HISTORY_ENTRIES]:
+                entries.pop(old_key, None)
+            normalized["entries"] = entries
         DOWNLOAD_HISTORY_FILE.write_text(
-            json.dumps(normalize_history(data), ensure_ascii=False, indent=2), encoding="utf-8"
+            json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
 

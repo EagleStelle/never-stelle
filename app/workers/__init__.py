@@ -1,16 +1,16 @@
 """Background worker threads and wakeup events for task queues."""
 
+import os
 import threading
 from typing import Any, Callable
 
-from app.services.download_service import run_general_task
-from app.services.instagram_service import run_instagram_task
-from app.services.iwara_service import run_iwara_task
 from app.storage.task_store import (
     load_general_tasks,
     load_instaloader_tasks,
     load_iwara_tasks,
 )
+
+MAX_CONCURRENT_DOWNLOADS = max(1, int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", "1")))
 
 
 general_worker_lock = threading.Lock()
@@ -25,15 +25,37 @@ general_worker_wakeup = threading.Event()
 instaloader_worker_wakeup = threading.Event()
 iwara_worker_wakeup = threading.Event()
 
+_cancelled_tasks: set[str] = set()
+_cancelled_lock = threading.Lock()
 
-def _next_pending_task(
+
+def mark_task_cancelled(task_id: str) -> None:
+    with _cancelled_lock:
+        _cancelled_tasks.add(task_id)
+
+
+def is_task_cancelled(task_id: str) -> bool:
+    with _cancelled_lock:
+        return task_id in _cancelled_tasks
+
+
+def clear_task_cancelled(task_id: str) -> None:
+    with _cancelled_lock:
+        _cancelled_tasks.discard(task_id)
+
+
+def _next_pending_tasks(
     load_store: Callable[[], dict[str, Any]],
-) -> tuple[str | None, dict[str, Any] | None]:
+    limit: int,
+) -> list[tuple[str, dict[str, Any]]]:
     tasks = (load_store().get("tasks") or {})
+    results = []
     for task_id, task in tasks.items():
         if task.get("status") == "pending":
-            return task_id, task
-    return None, None
+            results.append((task_id, task))
+            if len(results) >= limit:
+                break
+    return results
 
 
 def _worker_loop(
@@ -41,16 +63,29 @@ def _worker_loop(
     wakeup: threading.Event,
     runner: Callable[[str, dict[str, Any]], None],
 ) -> None:
+    semaphore = threading.Semaphore(MAX_CONCURRENT_DOWNLOADS)
+    active = threading.local()
+
+    def _run_with_semaphore(task_id: str, task: dict[str, Any]) -> None:
+        with semaphore:
+            runner(task_id, task)
+
     while True:
         try:
-            task_id, task = _next_pending_task(load_store)
-            if task_id and task:
-                runner(task_id, task)
+            pending = _next_pending_tasks(load_store, MAX_CONCURRENT_DOWNLOADS)
+            if pending:
+                threads = []
+                for task_id, task in pending:
+                    t = threading.Thread(target=_run_with_semaphore, args=(task_id, task), daemon=True)
+                    t.start()
+                    threads.append(t)
+                for t in threads:
+                    t.join()
                 continue
 
             wakeup.clear()
-            task_id, task = _next_pending_task(load_store)
-            if task_id and task:
+            pending = _next_pending_tasks(load_store, 1)
+            if pending:
                 wakeup.set()
                 continue
 
@@ -83,6 +118,7 @@ def ensure_general_worker() -> None:
 
 
 def general_worker_loop() -> None:
+    from app.services.download_service import run_general_task
     _worker_loop(load_general_tasks, general_worker_wakeup, run_general_task)
 
 
@@ -96,6 +132,7 @@ def ensure_instaloader_worker() -> None:
 
 
 def instaloader_worker_loop() -> None:
+    from app.services.instagram_service import run_instagram_task
     _worker_loop(load_instaloader_tasks, instaloader_worker_wakeup, run_instagram_task)
 
 
@@ -109,4 +146,5 @@ def ensure_iwara_worker() -> None:
 
 
 def iwara_worker_loop() -> None:
+    from app.services.iwara_service import run_iwara_task
     _worker_loop(load_iwara_tasks, iwara_worker_wakeup, run_iwara_task)

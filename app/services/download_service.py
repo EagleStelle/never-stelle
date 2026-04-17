@@ -22,6 +22,8 @@ from app.utils.media import (
     extract_long_filename_error_path,
 )
 from app.utils.url import canonicalize_source_url, is_instagram_url
+from app.utils.process import ActivityWatchdog
+from app.workers import clear_task_cancelled, is_task_cancelled
 from app.utils.ytdlp import (
     build_general_ytdlp_cmd,
     detect_ffmpeg_location,
@@ -118,8 +120,10 @@ def run_general_task(task_id: str, task: dict[str, Any]) -> None:
                 last_log_lines=[],
             )
 
+            watchdog = ActivityWatchdog(process)
             if process.stdout is not None:
                 for line in process.stdout:
+                    watchdog.ping()
                     line = line.strip()
                     current = load_general_tasks().get("tasks", {}).get(task_id, {})
                     log_lines = list(current.get("last_log_lines") or [])
@@ -143,8 +147,12 @@ def run_general_task(task_id: str, task: dict[str, Any]) -> None:
                             resolved_folder=str(Path(downloaded_path).parent),
                             resolved_filename=Path(downloaded_path).name,
                         )
+            watchdog.cancel()
 
             rc = process.wait()
+            if watchdog.timed_out:
+                update_general_task(task_id, status="failed", error="Task timed out: no output for too long.")
+                return
             if rc == 0:
                 current_task = load_general_tasks().get("tasks", {}).get(task_id, {})
                 recovered_path, recovered_folder, recovered_filename = recover_general_task_paths(
@@ -198,6 +206,10 @@ def run_general_task(task_id: str, task: dict[str, Any]) -> None:
                     last_dest = retry_final_path or last_dest
                     continue
 
+            if is_task_cancelled(task_id):
+                clear_task_cancelled(task_id)
+                update_general_task(task_id, status="failed", error="Cancelled by user.", output_template=current_output_template)
+                return
             tail = "\n".join(log_lines[-12:]).strip()
             detail = f"yt-dlp exited with code {rc}."
             if tail:
@@ -211,6 +223,10 @@ def run_general_task(task_id: str, task: dict[str, Any]) -> None:
             return
 
         except Exception as exc:
+            if is_task_cancelled(task_id):
+                clear_task_cancelled(task_id)
+                update_general_task(task_id, status="failed", error="Cancelled by user.", output_template=current_output_template)
+                return
             update_general_task(
                 task_id,
                 status="failed",
