@@ -74,6 +74,7 @@ from app.workers import (
     general_worker_wakeup,
     instaloader_worker_wakeup,
     iwara_worker_wakeup,
+    mark_task_cancelled,
 )
 
 
@@ -261,6 +262,20 @@ def task_file_download(vid: str):
     file_path = Path(resolved_path)
     if not file_path.exists() or not file_path.is_file():
         return jsonify({"error": "The completed file could not be found."}), 404
+
+    if not temp_dir_to_cleanup:
+        from app.storage.settings_store import discover_volume_roots
+        try:
+            resolved_abs = file_path.resolve()
+        except Exception:
+            resolved_abs = file_path
+        allowed_roots = [Path(r) for r in discover_volume_roots()]
+        in_allowed = any(
+            resolved_abs == root or root in resolved_abs.parents
+            for root in allowed_roots
+        )
+        if not in_allowed:
+            return jsonify({"error": "File is outside allowed download locations."}), 403
 
     response = send_file(file_path, as_attachment=True, download_name=filename, max_age=0)
     if temp_dir_to_cleanup:
@@ -660,6 +675,55 @@ def remove_task(vid: str):
     meta = load_meta()
     meta["tasks"].pop(vid, None)
     save_meta(meta)
+    return ("", 204)
+
+
+@tasks_bp.route("/api/tasks/<vid>/cancel", methods=["POST"])
+def cancel_task(vid: str):
+    import os as _os
+    import signal as _signal
+    task = load_task_record(vid)
+    if not task:
+        return jsonify({"error": "Task not found."}), 404
+    if task.get("status") != "running":
+        return jsonify({"error": "Only running tasks can be cancelled."}), 409
+    mark_task_cancelled(vid)
+    pid = task.get("pid")
+    if pid:
+        try:
+            _os.kill(int(pid), _signal.SIGTERM)
+        except Exception:
+            try:
+                _os.kill(int(pid), _signal.SIGKILL)
+            except Exception:
+                pass
+    return ("", 204)
+
+
+@tasks_bp.route("/api/tasks/<vid>/retry", methods=["POST"])
+def retry_task(vid: str):
+    if vid.startswith(("ytdlp:", "instaloader:")):
+        task = load_non_iwara_task(vid)
+        if not task:
+            return jsonify({"error": "Task not found."}), 404
+        if task.get("status") != "failed":
+            return jsonify({"error": "Only failed tasks can be retried."}), 409
+        if is_instaloader_task_id(vid):
+            update_instaloader_task(vid, status="pending", error="", progress_pct=0)
+            instaloader_worker_wakeup.set()
+        else:
+            update_general_task(vid, status="pending", error="", progress_pct=0)
+            general_worker_wakeup.set()
+        return ("", 204)
+
+    data = load_iwara_tasks()
+    task = data.get("tasks", {}).get(vid)
+    if not task:
+        return jsonify({"error": "Task not found."}), 404
+    if task.get("status") != "failed":
+        return jsonify({"error": "Only failed tasks can be retried."}), 409
+    update_iwara_task(vid, status="pending", error="", progress_pct=0, progress=0)
+    iwara_worker_wakeup.set()
     return ("", 204)
 
 

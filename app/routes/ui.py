@@ -32,6 +32,11 @@ def index():
     )
 
 
+@ui_bp.route("/healthz")
+def healthz():
+    return jsonify({"status": "ok"})
+
+
 @ui_bp.route("/api/ui-config")
 def ui_config():
     cfg = load_app_config()

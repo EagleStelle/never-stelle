@@ -24,7 +24,9 @@ from app.utils.media import (
     select_iwara_output_path,
 )
 from app.utils.templates import normalize_template_syntax, render_template_string
+from app.utils.process import ActivityWatchdog
 from app.utils.url import canonicalize_source_url, extract_profile_slug, extract_video_id, to_str
+from app.workers import clear_task_cancelled, is_task_cancelled
 
 
 HTTP = requests.Session()
@@ -263,8 +265,10 @@ def run_iwara_task(task_id: str, task: dict[str, Any]) -> None:
             last_log_lines=[],
         )
 
+        watchdog = ActivityWatchdog(process)
         if process.stdout is not None:
             for line in process.stdout:
+                watchdog.ping()
                 line = line.strip()
                 if not line:
                     continue
@@ -282,8 +286,12 @@ def run_iwara_task(task_id: str, task: dict[str, Any]) -> None:
                     except Exception:
                         pass
                 update_iwara_task(task_id, **updates)
+        watchdog.cancel()
 
         rc = process.wait()
+        if watchdog.timed_out:
+            update_iwara_task(task_id, status="failed", error="Task timed out: no output for too long.")
+            return
         if rc == 0:
             changed_candidates = find_changed_media_files(output_root, media_snapshot_before)
             final_path, final_folder, final_name = select_iwara_output_path(
@@ -305,6 +313,10 @@ def run_iwara_task(task_id: str, task: dict[str, Any]) -> None:
             )
             return
 
+        if is_task_cancelled(task_id):
+            clear_task_cancelled(task_id)
+            update_iwara_task(task_id, status="failed", error="Cancelled by user.")
+            return
         current = load_iwara_tasks().get("tasks", {}).get(task_id, {})
         log_lines = list(current.get("last_log_lines") or [])
         tail = "\n".join(log_lines[-12:]).strip()
@@ -313,6 +325,10 @@ def run_iwara_task(task_id: str, task: dict[str, Any]) -> None:
             detail = f"{detail}\n{tail}"
         update_iwara_task(task_id, status="failed", error=detail)
     except Exception as exc:
+        if is_task_cancelled(task_id):
+            clear_task_cancelled(task_id)
+            update_iwara_task(task_id, status="failed", error="Cancelled by user.")
+            return
         update_iwara_task(task_id, status="failed", error=str(exc))
     finally:
         if process and process.poll() is None:
