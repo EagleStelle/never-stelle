@@ -27,7 +27,7 @@ import {
   renderInstagramYtdlpCookiesStatus,
   syncInstagramAuthInputs,
 } from "./settings.js";
-import { loadTasks } from "./api.js";
+import { loadTasks, startSSE, stopSSE } from "./api.js";
 import {
   addTask,
   clearPending,
@@ -173,12 +173,10 @@ document.getElementById("themeToggleButton").addEventListener("click", toggleThe
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
-    if (state.pollHandle) {
-      clearInterval(state.pollHandle);
-      state.pollHandle = null;
-    }
+    stopSSE();
   } else {
     loadTasks(true);
+    startSSE();
   }
 });
 
@@ -216,6 +214,7 @@ updateMenuButtons();
 updateSaveModeButtons();
 fetchUIConfig();
 loadTasks();
+startSSE();
 if ("Notification" in window && Notification.permission === "default") {
   Notification.requestPermission();
 }

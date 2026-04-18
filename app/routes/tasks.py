@@ -1,13 +1,16 @@
 """Task queue and task file routes."""
 
+import hashlib
+import json
 import os
 import shutil
 import tempfile
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, Response, jsonify, request, send_file, stream_with_context
 
 from app.config import SITE_LABELS
 from app.services.download_service import download_general_to_temp
@@ -285,6 +288,56 @@ def task_file_download(vid: str):
             shutil.rmtree(temp_dir_to_cleanup, ignore_errors=True)
 
     return response
+
+
+@tasks_bp.route("/api/tasks/stream")
+def tasks_stream():
+    def generate():
+        ensure_general_worker()
+        ensure_instaloader_worker()
+        ensure_iwara_worker()
+        last_hash = ""
+        while True:
+            try:
+                tasks = fetch_tasks()
+                counts = {
+                    "queued": sum(1 for t in tasks if t["status"] == "pending"),
+                    "running": sum(1 for t in tasks if t["status"] == "running"),
+                    "completed": sum(1 for t in tasks if t["status"] == "completed"),
+                    "failed": sum(1 for t in tasks if t["status"] == "failed"),
+                }
+                counts_by_menu: dict[str, dict[str, int]] = {}
+                for menu in ("all", "youtube", "facebook", "instagram", "tiktok", "iwara", "others"):
+                    subset = tasks if menu == "all" else [
+                        t for t in tasks if t.get("site_category") == menu
+                    ]
+                    counts_by_menu[menu] = {
+                        "queued": sum(1 for t in subset if t["status"] == "pending"),
+                        "running": sum(1 for t in subset if t["status"] == "running"),
+                        "completed": sum(1 for t in subset if t["status"] == "completed"),
+                        "failed": sum(1 for t in subset if t["status"] == "failed"),
+                    }
+                payload = json.dumps({"tasks": tasks, "counts": counts, "counts_by_menu": counts_by_menu})
+                current_hash = hashlib.md5(payload.encode()).hexdigest()
+                if current_hash != last_hash:
+                    last_hash = current_hash
+                    yield f"data: {payload}\n\n"
+                else:
+                    yield ": ping\n\n"
+            except GeneratorExit:
+                return
+            except Exception:
+                yield ": error\n\n"
+            time.sleep(3)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @tasks_bp.route("/api/tasks", methods=["GET"])

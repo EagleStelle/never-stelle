@@ -1,6 +1,6 @@
 import { state } from "./state.js";
 import { toast } from "./utils.js";
-import { loadTasks, downloadTaskFile } from "./api.js";
+import { loadTasks, debouncedLoadTasks, downloadTaskFile, stopSSE, startSSE } from "./api.js";
 import { getSavedSettings, persistSettings } from "./settings.js";
 import { renderTasks, updateCountsForMenu } from "./render.js";
 
@@ -33,16 +33,18 @@ export async function addTask(event) {
     if (firstTask && data.reused && settings.save_mode === "device" && firstTask.status === "completed") {
       await downloadTaskFile(firstTask.vid, { skipReload: true });
       toast("That file was already downloaded.");
+      debouncedLoadTasks();
     } else if (data.reused) {
       toast(
         firstTask && firstTask.status === "completed"
           ? "That file was already downloaded."
           : "That download is already in your list."
       );
+      debouncedLoadTasks();
     } else {
       toast(settings.save_mode === "device" ? "Device download queued." : "Download added.");
+      debouncedLoadTasks();
     }
-    await loadTasks(true);
   } catch (error) {
     toast(error.message || "Failed to add task.", "error");
   } finally {
@@ -55,7 +57,7 @@ export async function removeTask(vid) {
     const response = await fetch(`/api/tasks/${encodeURIComponent(vid)}`, { method: "DELETE" });
     if (response.status === 204) {
       toast("Task removed from the list.");
-      await loadTasks(true);
+      debouncedLoadTasks();
       return;
     }
     const data = await response.json();
@@ -70,7 +72,7 @@ export async function hideTask(vid) {
     const response = await fetch(`/api/tasks/${encodeURIComponent(vid)}/hide`, { method: "POST" });
     if (response.status === 204) {
       toast("Task cleared.");
-      await loadTasks(true);
+      debouncedLoadTasks();
       return;
     }
     const data = await response.json();
@@ -85,7 +87,7 @@ export async function retryTask(vid) {
     const response = await fetch(`/api/tasks/${encodeURIComponent(vid)}/retry`, { method: "POST" });
     if (response.status === 204) {
       toast("Task queued for retry.");
-      await loadTasks(true);
+      debouncedLoadTasks();
       return;
     }
     const data = await response.json();
@@ -100,7 +102,7 @@ export async function cancelTask(vid) {
     const response = await fetch(`/api/tasks/${encodeURIComponent(vid)}/cancel`, { method: "POST" });
     if (response.status === 204) {
       toast("Task cancelled.");
-      await loadTasks(true);
+      debouncedLoadTasks();
       return;
     }
     const data = await response.json();
@@ -111,6 +113,9 @@ export async function cancelTask(vid) {
 }
 
 export async function clearPending() {
+  const btn = document.getElementById("clearPendingButton");
+  if (btn) btn.disabled = true;
+  stopSSE();
   try {
     const response = await fetch("/api/tasks/clear-pending", { method: "POST" });
     const data = await response.json();
@@ -120,13 +125,19 @@ export async function clearPending() {
         ? "No queued tasks to clear."
         : `Cleared ${data.cleared} queued task${data.cleared === 1 ? "" : "s"}.`
     );
-    await loadTasks(true);
   } catch (error) {
     toast(error.message || "Could not clear queue.", "error");
+  } finally {
+    if (btn) btn.disabled = false;
+    await loadTasks(true);
+    startSSE();
   }
 }
 
 export async function clearCompleted() {
+  const btn = document.getElementById("clearCompletedButton");
+  if (btn) btn.disabled = true;
+  stopSSE();
   try {
     const response = await fetch("/api/tasks/clear-completed", { method: "POST" });
     const data = await response.json();
@@ -141,9 +152,12 @@ export async function clearCompleted() {
     } else {
       toast(`Cleared ${data.cleared} done task${data.cleared === 1 ? "" : "s"}.`);
     }
-    await loadTasks(true);
   } catch (error) {
     toast(error.message || "Could not clear done.", "error");
+  } finally {
+    if (btn) btn.disabled = false;
+    await loadTasks(true);
+    startSSE();
   }
 }
 

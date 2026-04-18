@@ -8,5 +8,4 @@ export const SITE_LABELS = {
   others: "Others",
 };
 
-export const POLL_RUNNING_MS = 2000;
-export const POLL_PENDING_MS = 5000;
+export const POLL_FALLBACK_MS = 30000;
