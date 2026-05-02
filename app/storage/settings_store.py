@@ -69,11 +69,20 @@ def _parse_env_locations(raw: str) -> list[str]:
 def discover_volume_roots() -> list[str]:
     configured = _parse_env_locations(os.environ.get("DOWNLOAD_LOCATIONS", ""))
     if not configured:
-        configured = _parse_env_locations(os.environ.get("ACCESSIBLE_VOLUMES_ROOTS", "/library"))
+        configured = _parse_env_locations(os.environ.get("ACCESSIBLE_VOLUMES_ROOTS", ""))
+    if not configured:
+        _project_root = Path(__file__).parent.parent
+        _default_lib = _project_root / "library"
+        configured = [str(_default_lib)]
     out: list[str] = []
     seen: set[str] = set()
     for item in configured:
-        path = Path(str(item).strip())
+        raw = str(item).strip()
+        if not raw:
+            continue
+        path = Path(raw)
+        if not path.is_absolute():
+            path = (Path(__file__).parent.parent / path).resolve()
         if not path.exists() or not path.is_dir():
             continue
         try:
@@ -254,6 +263,27 @@ def get_effective_template_settings() -> dict[str, str]:
     return normalize_template_settings(payload.get("template_settings"))
 
 
+def get_iwara_auth_settings() -> dict[str, Any]:
+    payload = load_saved_settings_file()
+    saved_token = str(payload.get("iwara_auth_token") or "").strip()
+    env_token = os.environ.get("IWARA_AUTH_TOKEN", "").strip()
+    configured = bool(saved_token or env_token)
+    source = "env" if env_token else ("saved" if saved_token else "none")
+    return {"configured": configured, "source": source}
+
+
+def save_iwara_auth_token(token: str) -> None:
+    existing = load_saved_settings_file()
+    existing["iwara_auth_token"] = str(token or "").strip()
+    save_saved_settings_file(existing)
+
+
+def clear_iwara_auth_token() -> None:
+    existing = load_saved_settings_file()
+    existing.pop("iwara_auth_token", None)
+    save_saved_settings_file(existing)
+
+
 def get_effective_saved_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     payload = load_saved_settings_file()
     return {
@@ -262,6 +292,7 @@ def get_effective_saved_settings(cfg: dict[str, Any]) -> dict[str, Any]:
         "template_settings": normalize_template_settings(payload.get("template_settings")),
         "instagram_auth": get_instagram_auth_status(),
         "instagram_ytdlp_cookies": get_instagram_ytdlp_cookies_status(),
+        "iwara_auth": get_iwara_auth_settings(),
     }
 
 
@@ -757,4 +788,5 @@ def build_settings_response(cfg: dict[str, Any], saved: dict[str, Any] | None = 
         "template_settings": saved.get("template_settings", normalize_template_settings({})),
         "instagram_auth": saved.get("instagram_auth", get_instagram_auth_status()),
         "instagram_ytdlp_cookies": saved.get("instagram_ytdlp_cookies", get_instagram_ytdlp_cookies_status()),
+        "iwara_auth": saved.get("iwara_auth", get_iwara_auth_settings()),
     }

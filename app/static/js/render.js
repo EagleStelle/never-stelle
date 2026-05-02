@@ -313,11 +313,11 @@ export function updateSettingsPanels() {
 }
 
 export function setSettingsSection(section, shouldFocus = false) {
-  state.settingsSection = ["downloads", "instagram", "advanced"].includes(section) ? section : "downloads";
+  state.settingsSection = ["downloads", "instagram", "iwara", "advanced"].includes(section) ? section : "downloads";
   updateSettingsSectionButtons();
   updateSettingsPanels();
   if (!shouldFocus) return;
-  const focusTargets = { downloads: "youtubeLocationInput", instagram: "instagramIdentifierInput", advanced: "folderTemplateInput" };
+  const focusTargets = { downloads: "youtubeLocationInput", instagram: "instagramIdentifierInput", iwara: "iwaraTokenInput", advanced: "folderTemplateInput" };
   const target = document.getElementById(focusTargets[state.settingsSection]);
   if (target) requestAnimationFrame(() => target.focus());
 }

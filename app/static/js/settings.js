@@ -134,9 +134,11 @@ export function applyServerSettings(data) {
   state.settings.instagram_ytdlp_cookies = data.instagram_ytdlp_cookies || {
     configured: false, source: "none", filename: "", uploaded_at: "",
   };
+  state.settings.iwara_auth = data.iwara_auth || { configured: false, source: "none" };
   syncInstagramAuthInputs();
   renderInstagramAuthStatus();
   renderInstagramYtdlpCookiesStatus();
+  renderIwaraAuthStatus();
 }
 
 export async function persistSettings(settings, successMessage = "") {
@@ -207,6 +209,45 @@ export async function configureInstagramYtdlpCookies(file) {
   return data;
 }
 
+export function renderIwaraAuthStatus() {
+  const info = state.settings.iwara_auth || {};
+  const status = document.getElementById("iwaraAuthStatus");
+  const removeButton = document.getElementById("removeIwaraAuthButton");
+  if (!status || !removeButton) return;
+  if (info.configured) {
+    status.textContent = info.source === "env" ? "Token active (set via environment variable)." : "Token saved.";
+    removeButton.disabled = info.source === "env";
+    removeButton.classList.toggle("opacity-50", info.source === "env");
+    removeButton.classList.toggle("cursor-not-allowed", info.source === "env");
+  } else {
+    status.textContent = "No token saved. Iwara requires a token to download videos.";
+    removeButton.disabled = true;
+    removeButton.classList.add("opacity-50", "cursor-not-allowed");
+  }
+}
+
+export async function configureIwaraAuth(token) {
+  const response = await fetch("/api/settings/iwara-auth", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Could not save Iwara token.");
+  applyServerSettings(data);
+  return data;
+}
+
+export async function removeIwaraAuth() {
+  const response = await fetch("/api/settings/iwara-auth", { method: "DELETE" });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Could not remove Iwara token.");
+  applyServerSettings(data);
+  const input = document.getElementById("iwaraTokenInput");
+  if (input) input.value = "";
+  return data;
+}
+
 export async function removeInstagramYtdlpCookies() {
   const response = await fetch("/api/settings/instagram-ytdlp-cookies", { method: "DELETE" });
   const data = await response.json();
@@ -232,6 +273,9 @@ export function openSettings(trigger = document.activeElement, section = "downlo
   syncInstagramAuthInputs();
   document.getElementById("instagramPasswordInput").value = "";
   renderInstagramAuthStatus();
+  const iwaraTokenInput = document.getElementById("iwaraTokenInput");
+  if (iwaraTokenInput) iwaraTokenInput.value = "";
+  renderIwaraAuthStatus();
   const modal = document.getElementById("settingsModal");
   modal.classList.remove("hidden");
   modal.classList.add("flex");

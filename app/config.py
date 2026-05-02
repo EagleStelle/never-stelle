@@ -104,7 +104,7 @@ FILENAME_TOO_LONG_RE = re.compile(
 )
 
 # ── Misc constants ────────────────────────────────────────────────────────────
-IWARA_RESOURCE_POSTFIX = "_5nFp9kmbNnHdAFhaqMvt"
+IWARA_RESOURCE_POSTFIX = "_mSvL05GfEmeEmsEYfGCnVpEjYgTJraJN"
 GENERAL_FILENAME_COMPONENT_LIMIT = 220
 MEDIA_FILE_EXTENSIONS = {
     ".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi", ".flv", ".wmv",

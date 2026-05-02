@@ -13,6 +13,7 @@ from app.storage.settings_store import (
     clear_instagram_auth_settings,
     clear_instagram_pending_2fa,
     clear_instagram_ytdlp_cookies_settings,
+    clear_iwara_auth_token,
     create_instaloader_client,
     ensure_instagram_login,
     get_effective_saved_settings,
@@ -21,6 +22,7 @@ from app.storage.settings_store import (
     normalize_instagram_identifier_type,
     persist_settings,
     save_instagram_ytdlp_cookies_upload,
+    save_iwara_auth_token,
     update_instagram_auth_settings,
 )
 
@@ -135,3 +137,17 @@ def instagram_auth_api():
             loader.close()
         except Exception:
             pass
+
+
+@settings_bp.route("/api/settings/iwara-auth", methods=["POST", "DELETE"])
+def iwara_auth_api():
+    cfg = load_app_config()
+    if request.method == "DELETE":
+        clear_iwara_auth_token()
+        return jsonify(build_settings_response(cfg, get_effective_saved_settings(cfg)))
+    body = request.get_json(silent=True) or {}
+    token = str(body.get("token") or "").strip()
+    if not token:
+        return jsonify({"error": "Paste your Iwara auth token first."}), 400
+    save_iwara_auth_token(token)
+    return jsonify(build_settings_response(cfg, get_effective_saved_settings(cfg)))

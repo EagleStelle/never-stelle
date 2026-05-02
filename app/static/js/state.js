@@ -35,6 +35,7 @@ export const state = {
       last_error: "",
     },
     instagram_ytdlp_cookies: { configured: false, source: "none", filename: "", uploaded_at: "" },
+    iwara_auth: { configured: false, source: "none" },
   },
   tabId: currentTabId,
   pollHandle: null,

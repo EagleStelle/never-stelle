@@ -658,6 +658,13 @@
               </button>
               <button
                 type="button"
+                data-settings-section="iwara"
+                class="settings-nav-btn flex min-h-[48px] min-w-[148px] items-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 text-left text-sm font-semibold text-[var(--iw-muted)] transition hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)] aria-pressed:bg-[color-mix(in_srgb,var(--iw-accent)_26%,var(--iw-panel2))] aria-pressed:border-[var(--iw-border-strong)] aria-pressed:text-[var(--iw-text)] aria-pressed:[box-shadow:inset_0_0_0_1px_color-mix(in_srgb,var(--iw-accent)_22%,transparent)] md:min-w-0"
+              >
+                Iwara
+              </button>
+              <button
+                type="button"
                 data-settings-section="advanced"
                 class="settings-nav-btn flex min-h-[48px] min-w-[148px] items-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 text-left text-sm font-semibold text-[var(--iw-muted)] transition hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)] aria-pressed:bg-[color-mix(in_srgb,var(--iw-accent)_26%,var(--iw-panel2))] aria-pressed:border-[var(--iw-border-strong)] aria-pressed:text-[var(--iw-text)] aria-pressed:[box-shadow:inset_0_0_0_1px_color-mix(in_srgb,var(--iw-accent)_22%,transparent)] md:min-w-0"
               >
@@ -888,6 +895,50 @@
                             class="h-11 rounded-2xl bg-[var(--iw-accent)] px-4 text-sm font-semibold text-[color:var(--iw-strong-text)] transition hover:-translate-y-px hover:brightness-110"
                           >
                             Connect
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section
+                    data-settings-panel="iwara"
+                    class="settings-panel flex-1 hidden rounded-3xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-4 text-[var(--iw-text)] sm:p-5"
+                  >
+                    <div class="grid gap-3">
+                      <div class="flex h-full flex-col rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3">
+                        <div class="mb-3 text-sm font-semibold text-[var(--iw-text)]">Auth Token</div>
+                        <label class="flex flex-col text-sm font-semibold">
+                          <span class="mb-2 block text-[var(--iw-text)]">Token</span>
+                          <input
+                            id="iwaraTokenInput"
+                            type="password"
+                            autocomplete="off"
+                            placeholder="Paste your Iwara auth token"
+                            class="block min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                          />
+                        </label>
+                        <div class="mt-2 rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-3 py-2 text-xs text-[var(--iw-muted)]">
+                          Get token: log in to iwara.tv → DevTools (F12) → Application → Local Storage → <code>https://www.iwara.tv</code> → find key <code>user</code> → copy the <code>token</code> value from the JSON.
+                        </div>
+                        <div class="mt-3 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-muted)]">
+                          <div id="iwaraAuthStatus">No token saved. Iwara requires a token to download videos.</div>
+                        </div>
+                        <div class="mt-auto pt-3 flex flex-wrap justify-end gap-3">
+                          <button
+                            id="removeIwaraAuthButton"
+                            type="button"
+                            class="h-11 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 text-sm font-semibold text-[var(--iw-text)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)] hover:bg-[var(--iw-panel)] opacity-50 cursor-not-allowed"
+                            disabled=""
+                          >
+                            Clear
+                          </button>
+                          <button
+                            id="saveIwaraAuthButton"
+                            type="button"
+                            class="h-11 rounded-2xl bg-[var(--iw-accent)] px-4 text-sm font-semibold text-[color:var(--iw-strong-text)] transition hover:-translate-y-px hover:brightness-110"
+                          >
+                            Save
                           </button>
                         </div>
                       </div>

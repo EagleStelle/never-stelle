@@ -26,6 +26,9 @@ import {
   renderInstagramAuthStatus,
   renderInstagramYtdlpCookiesStatus,
   syncInstagramAuthInputs,
+  configureIwaraAuth,
+  removeIwaraAuth,
+  renderIwaraAuthStatus,
 } from "./settings.js";
 import { loadTasks, startSSE, stopSSE } from "./api.js";
 import {
@@ -147,6 +150,32 @@ document.getElementById("removeInstagramYtdlpCookiesButton").addEventListener("c
     await removeInstagramYtdlpCookies();
   } catch (error) {
     toast(error.message || "Could not remove yt-dlp cookies.", "error");
+  }
+});
+
+document.getElementById("saveIwaraAuthButton").addEventListener("click", async () => {
+  const token = (document.getElementById("iwaraTokenInput").value || "").trim();
+  if (!token) {
+    toast("Paste your Iwara auth token first.", "error");
+    return;
+  }
+  try {
+    await configureIwaraAuth(token);
+    document.getElementById("iwaraTokenInput").value = "";
+    toast("Iwara token saved.");
+  } catch (error) {
+    renderIwaraAuthStatus();
+    toast(error.message || "Could not save Iwara token.", "error");
+  }
+});
+
+document.getElementById("removeIwaraAuthButton").addEventListener("click", async () => {
+  if (document.getElementById("removeIwaraAuthButton").disabled) return;
+  try {
+    await removeIwaraAuth();
+    toast("Iwara token cleared.");
+  } catch (error) {
+    toast(error.message || "Could not clear Iwara token.", "error");
   }
 });
 

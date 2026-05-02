@@ -58,11 +58,16 @@ def parse_datetimeish(value: Any) -> datetime | None:
 
 
 def find_iwaradl_bin() -> str:
+    _project_root = Path(__file__).parent.parent
     configured = (IWARADL_BIN or "").strip()
+    configured_abs = str(_project_root / configured) if configured and not Path(configured).is_absolute() else configured
     candidates = [
         configured,
+        configured_abs,
         shutil.which(configured) or "",
         shutil.which("iwaradl") or "",
+        str(_project_root / "tools" / "iwaradl" / "iwaradl.exe"),
+        str(_project_root / "tools" / "iwaradl" / "iwaradl"),
         "/usr/local/bin/iwaradl",
         "/usr/bin/iwaradl",
     ]
@@ -79,7 +84,12 @@ def find_iwaradl_bin() -> str:
 
 def get_iwara_auth_token() -> str:
     cfg = load_app_config()
-    return str(cfg.get("authorization", "") or "").strip()
+    token = str(cfg.get("authorization", "") or "").strip()
+    if token:
+        return token
+    from app.storage.settings_store import load_saved_settings_file
+    saved = load_saved_settings_file()
+    return str(saved.get("iwara_auth_token", "") or "").strip()
 
 
 def get_iwara_headers() -> dict[str, str]:
