@@ -1,0 +1,144 @@
+@import "tailwindcss";
+
+@theme {
+  --shadow-soft: 0 18px 48px rgba(10, 4, 20, 0.2);
+}
+
+:root {
+  --ns-bg: #210535;
+  --ns-panel: #420d4a;
+  --ns-panel2: #2d0a3d;
+  --ns-text: #f4d5e0;
+  --ns-muted: #c99db8;
+  --ns-accent: #c774b2;
+  --ns-accent2: #7b347e;
+  --ns-warning: #c774b2;
+  --ns-success: #f4d5e0;
+  --ns-danger: #7b347e;
+  --ns-strong-text: #210535;
+  --ns-input-placeholder: #8a567e;
+  --ns-overlay: rgba(10, 4, 20, 0.72);
+  --ns-border: #7b347e;
+  --ns-border-strong: #c774b2;
+  --ns-soft-fill: color-mix(in srgb, var(--ns-panel) 82%, var(--ns-bg));
+  --ns-cta-bg: #c774b2;
+  --ns-cta-bg-hover: #f4d5e0;
+  --ns-cta-text: #210535;
+  --ns-action-bg: #c774b2;
+  --ns-action-border: #f4d5e0;
+  --ns-action-text: #210535;
+  --ns-action-hover-bg: #f4d5e0;
+  --ns-action-hover-border: #c774b2;
+  --ns-action-hover-text: #210535;
+  --ns-danger-bg: #7b347e;
+  --ns-danger-border: #c774b2;
+  --ns-danger-text: #f4d5e0;
+  --ns-danger-hover-bg: #c774b2;
+  --ns-danger-hover-border: #f4d5e0;
+  --ns-danger-hover-text: #210535;
+  color-scheme: dark;
+}
+
+body.light-mode {
+  --ns-bg: #f4d5e0;
+  --ns-panel: #ffffff;
+  --ns-panel2: #eddae5;
+  --ns-text: #210535;
+  --ns-muted: #7b347e;
+  --ns-accent: #c774b2;
+  --ns-accent2: #420d4a;
+  --ns-warning: #c774b2;
+  --ns-success: #420d4a;
+  --ns-danger: #7b347e;
+  --ns-strong-text: #210535;
+  --ns-input-placeholder: #9e6f95;
+  --ns-overlay: rgba(33, 5, 53, 0.3);
+  --ns-border: #c774b2;
+  --ns-border-strong: #7b347e;
+  --ns-soft-fill: color-mix(in srgb, var(--ns-panel2) 78%, var(--ns-bg));
+  --ns-cta-bg: #420d4a;
+  --ns-cta-bg-hover: #7b347e;
+  --ns-cta-text: #f4d5e0;
+  --ns-action-bg: #420d4a;
+  --ns-action-border: #7b347e;
+  --ns-action-text: #f4d5e0;
+  --ns-action-hover-bg: #7b347e;
+  --ns-action-hover-border: #420d4a;
+  --ns-action-hover-text: #f4d5e0;
+  --ns-danger-bg: #7b347e;
+  --ns-danger-border: #420d4a;
+  --ns-danger-text: #f4d5e0;
+  --ns-danger-hover-bg: #420d4a;
+  --ns-danger-hover-border: #7b347e;
+  --ns-danger-hover-text: #f4d5e0;
+  color-scheme: light;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--ns-bg);
+  color: var(--ns-text);
+}
+
+body.light-mode .settings-nav-btn[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--ns-accent) 14%, var(--ns-panel));
+  color: var(--ns-text);
+}
+
+body.light-mode .settings-modal,
+body.light-mode .settings-modal input,
+body.light-mode .settings-modal textarea,
+body.light-mode .settings-modal select {
+  color: #210535 !important;
+  -webkit-text-fill-color: #210535;
+  caret-color: #210535;
+}
+
+body.light-mode .settings-modal option,
+body.light-mode .settings-modal optgroup {
+  color: #210535;
+  background: #eddae5;
+}
+
+.settings-modal input:-webkit-autofill,
+.settings-modal input:-webkit-autofill:hover,
+.settings-modal input:-webkit-autofill:focus,
+.settings-modal textarea:-webkit-autofill,
+.settings-modal select:-webkit-autofill {
+  -webkit-text-fill-color: var(--ns-text);
+  -webkit-box-shadow: 0 0 0 1000px var(--ns-panel2) inset;
+  box-shadow: 0 0 0 1000px var(--ns-panel2) inset;
+  caret-color: var(--ns-text);
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+.settings-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ns-border-strong) color-mix(in srgb, var(--ns-panel2) 88%, transparent);
+}
+
+.settings-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.settings-scroll::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--ns-panel2) 88%, transparent);
+  border-radius: 9999px;
+}
+
+.settings-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--ns-accent), var(--ns-border-strong));
+  border: 2px solid color-mix(in srgb, var(--ns-panel2) 88%, transparent);
+  border-radius: 9999px;
+}
+
+.settings-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--ns-border-strong), var(--ns-accent));
+}

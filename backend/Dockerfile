@@ -1,3 +1,15 @@
+FROM node:24-slim AS frontend-builder
+
+WORKDIR /app/frontend
+
+COPY frontend/package*.json ./
+RUN npm ci
+
+COPY frontend/index.html frontend/tsconfig.json frontend/vite.config.ts ./
+COPY frontend/src ./src
+COPY frontend/public ./public
+RUN npm run build
+
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -10,11 +22,8 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY backend /app/backend
-COPY frontend /app/frontend
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
-ENV APP_DATA_DIR=/app/data
-ENV APP_DATABASE_PATH=/app/data/never-stelle.sqlite3
-ENV FRONTEND_DIR=/app/frontend
 ENV PYTHONPATH=/app
 
 EXPOSE 8088

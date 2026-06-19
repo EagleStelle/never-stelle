@@ -1,6 +1,6 @@
 # Never Stelle
 
-Self-hosted media download manager with a static frontend, FastAPI backend, and `yt-dlp` worker.
+Self-hosted media download manager with a Vue TypeScript frontend, FastAPI backend, SQLite state store, and `yt-dlp` worker.
 
 ## Quick Start
 
@@ -22,7 +22,7 @@ Use another port:
 .\run.cmd -Port 8090
 ```
 
-Runtime files are kept in `.local/`, including the virtual environment, SQLite database, temporary files, pip cache, and default download library.
+Runtime files are kept in `.local/`. The app derives its SQLite database, Vue build output, temporary files, dependency caches, and default library from that directory.
 
 ## Docker
 
@@ -36,27 +36,25 @@ Open:
 http://127.0.0.1:8088
 ```
 
-Docker state is stored under `.local/docker-data/`; the default library bind uses `.local/library/`.
+Docker state is stored under `.local/docker-runtime/`.
 
 ## Requirements
 
 - Python 3.11+
+- Node.js ^20.19.0 or >=22.12.0
 - `ffmpeg`
 - Docker, if running the container
 
-Python dependencies are defined in [requirements.txt](requirements.txt). The backend uses FastAPI `0.137.2`.
+Python dependencies are defined in [requirements.txt](requirements.txt). Frontend dependencies are defined in [frontend/package.json](frontend/package.json). The backend uses FastAPI `0.137.2`.
 
-## Configuration
+## Optional Overrides
 
-Common environment variables:
+Runtime paths are derived automatically. These environment variables are only needed for custom deployments:
 
 | Variable | Description |
 | --- | --- |
-| `APP_DATA_DIR` | Runtime state directory. |
-| `APP_DATABASE_PATH` | SQLite database path. |
-| `FRONTEND_DIR` | Static frontend directory. |
-| `ACCESSIBLE_VOLUMES_ROOTS` | Pipe-separated save roots. |
-| `DOWNLOAD_LOCATIONS` | Optional explicit save locations. |
+| `APP_RUNTIME_DIR` | Optional runtime directory override. |
+| `DOWNLOAD_LOCATIONS` | Optional pipe-separated save roots. |
 | `DEFAULT_GENERAL_DOWNLOAD_LOCATION` | Fallback download location. |
 | `DEFAULT_FOLDER_TEMPLATE` | Default folder template. |
 | `DEFAULT_FILENAME_TEMPLATE` | Default filename template. |
@@ -103,6 +101,7 @@ http://127.0.0.1:8088/redoc
 never-stelle/
   backend/
   frontend/
+    src/
   scripts/
   docker-compose.yml
   requirements.txt

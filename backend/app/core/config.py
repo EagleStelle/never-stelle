@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import sys
+import tempfile
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -10,13 +13,153 @@ import yaml
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = Path(os.environ.get("APP_DATA_DIR", PROJECT_ROOT / ".local")).resolve()
-DATABASE_PATH = Path(os.environ.get("APP_DATABASE_PATH", DATA_DIR / "never-stelle.sqlite3")).resolve()
-FRONTEND_DIR = Path(os.environ.get("FRONTEND_DIR", PROJECT_ROOT / "frontend")).resolve()
-APP_CONFIG_PATH = Path(os.environ.get("APP_CONFIG_PATH", "/config/config.yaml"))
 
+
+def _truthy(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _running_in_container() -> bool:
+    """Best-effort detection of a containerized runtime.
+
+    Honors an explicit APP_IN_CONTAINER override, then falls back to the
+    standard Docker markers. Detection only decides the *default* root; any
+    explicit APP_RUNTIME_DIR / per-role override wins regardless.
+    """
+    flag = os.environ.get("APP_IN_CONTAINER", "")
+    if flag:
+        return _truthy(flag)
+    if Path("/.dockerenv").exists():
+        return True
+    # Image is built with WORKDIR /app and no checked-out repo.
+    if sys.platform.startswith("linux") and Path("/app/backend").exists() and not (PROJECT_ROOT / ".git").exists():
+        return True
+    return False
+
+
+def _runtime_root() -> Path:
+    """Root that holds the data/media/scratch trio.
+
+    - Container  -> ``/`` so the trio resolves to ``/data /media /scratch``.
+    - Local/dev  -> ``<repo>/.local`` (Windows constraint: everything under .local).
+    """
+    override = os.environ.get("APP_RUNTIME_DIR", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    if _running_in_container():
+        return Path("/")
+    return (PROJECT_ROOT / ".local").resolve()
+
+
+def _role_dir(env_name: str, root: Path, name: str) -> Path:
+    override = os.environ.get(env_name, "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    return (root / name).resolve()
+
+
+RUNTIME_ROOT = _runtime_root()
+# Persistent app state: sqlite db, config.yaml, built frontend.
+DATA_DIR = _role_dir("APP_DATA_DIR", RUNTIME_ROOT, "data")
+# Downloaded media library (also the default download root).
+MEDIA_DIR = _role_dir("APP_MEDIA_DIR", RUNTIME_ROOT, "media")
+# Ephemeral scratch: temp files, partial downloads, caches.
+SCRATCH_DIR = _role_dir("APP_SCRATCH_DIR", RUNTIME_ROOT, "scratch")
+
+# Back-compat alias: code/scripts still reference RUNTIME_DIR.
+RUNTIME_DIR = DATA_DIR
+
+DATABASE_PATH = Path(os.environ.get("APP_DATABASE_PATH") or DATA_DIR / "never-stelle.sqlite3").resolve()
+DEFAULT_LIBRARY_DIR = MEDIA_DIR
+
+
+def _resolve_existing_path(env_name: str, candidates: list[Path]) -> Path:
+    override = os.environ.get(env_name, "").strip()
+    if override:
+        return Path(override).resolve()
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    return candidates[0].resolve()
+
+
+FRONTEND_DIR = _resolve_existing_path(
+    "FRONTEND_DIR",
+    [
+        DATA_DIR / "frontend-dist",
+        PROJECT_ROOT / "frontend" / "dist",
+        PROJECT_ROOT / "frontend",
+    ],
+)
+APP_CONFIG_PATH = _resolve_existing_path(
+    "APP_CONFIG_PATH",
+    [
+        DATA_DIR / "config.yaml",
+        PROJECT_ROOT / "config.yaml",
+        PROJECT_ROOT / "config" / "config.yaml",
+        Path("/config/config.yaml"),
+    ],
+)
+
+
+def _migrate_legacy_layout() -> None:
+    """Move pre-split flat ``.local`` files into the new data/media dirs.
+
+    Only runs locally and only when the destination does not already exist,
+    so it is safe to call on every startup. No-op in containers.
+    """
+    if _running_in_container():
+        return
+    legacy_local = PROJECT_ROOT / ".local"
+    if not legacy_local.exists():
+        return
+
+    # sqlite db (+ WAL/SHM sidecars)
+    legacy_db = legacy_local / "never-stelle.sqlite3"
+    if legacy_db.exists() and not DATABASE_PATH.exists() and not os.environ.get("APP_DATABASE_PATH"):
+        try:
+            DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(legacy_db), str(DATABASE_PATH))
+            for suffix in ("-wal", "-shm"):
+                side = legacy_db.with_name(legacy_db.name + suffix)
+                if side.exists():
+                    shutil.move(str(side), str(DATABASE_PATH.parent / (DATABASE_PATH.name + suffix)))
+        except Exception:
+            pass
+
+    # config.yaml
+    legacy_cfg = legacy_local / "config.yaml"
+    if legacy_cfg.exists() and not (DATA_DIR / "config.yaml").exists():
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(legacy_cfg), str(DATA_DIR / "config.yaml"))
+        except Exception:
+            pass
+
+    # library -> media (only when media is absent or empty, never clobber)
+    legacy_lib = legacy_local / "library"
+    media_empty = (not MEDIA_DIR.exists()) or not any(MEDIA_DIR.iterdir())
+    if legacy_lib.is_dir() and legacy_lib.resolve() != MEDIA_DIR and media_empty:
+        try:
+            if MEDIA_DIR.exists():
+                MEDIA_DIR.rmdir()
+            MEDIA_DIR.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(legacy_lib), str(MEDIA_DIR))
+        except Exception:
+            pass
+
+
+for _dir in (DATA_DIR, MEDIA_DIR, SCRATCH_DIR):
+    _dir.mkdir(parents=True, exist_ok=True)
+_migrate_legacy_layout()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+DEFAULT_LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
+
+# Route all temp activity (yt-dlp, ffmpeg, tempfile) into scratch.
+for _tmp_var in ("TMPDIR", "TEMP", "TMP"):
+    os.environ[_tmp_var] = str(SCRATCH_DIR)
+tempfile.tempdir = str(SCRATCH_DIR)
 
 SITE_KEYS = ("youtube", "facebook", "instagram", "tiktok", "others")
 SITE_LABELS = {
@@ -45,9 +188,7 @@ def parse_env_locations(raw: str) -> list[str]:
 def discover_volume_roots() -> list[str]:
     configured = parse_env_locations(os.environ.get("DOWNLOAD_LOCATIONS", ""))
     if not configured:
-        configured = parse_env_locations(
-            os.environ.get("ACCESSIBLE_VOLUMES_ROOTS", str(PROJECT_ROOT / "library"))
-        )
+        configured = parse_env_locations(os.environ.get("ACCESSIBLE_VOLUMES_ROOTS", str(DEFAULT_LIBRARY_DIR)))
 
     out: list[str] = []
     seen: set[str] = set()

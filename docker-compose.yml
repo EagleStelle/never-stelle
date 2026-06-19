@@ -5,13 +5,9 @@ services:
       dockerfile: backend/Dockerfile
     container_name: never-stelle
     restart: unless-stopped
-    environment:
-      APP_DATA_DIR: /app/data
-      APP_DATABASE_PATH: /app/data/never-stelle.sqlite3
-      FRONTEND_DIR: /app/frontend
-      ACCESSIBLE_VOLUMES_ROOTS: /library|/media
     volumes:
-      - ./.local/docker-data:/app/data
-      - ./.local/library:/library
+      - ./data:/data
+      - ./media:/media
+      - ./scratch:/scratch
     ports:
       - "8088:8088"
