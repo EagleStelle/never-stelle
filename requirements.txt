@@ -1,8 +1,5 @@
-# Python packages only.
-# External tools such as ffmpeg and iwaradl must be installed separately.
-
-flask
-requests
+fastapi[standard]==0.137.2
+uvicorn[standard]
+python-multipart
 PyYAML
 yt-dlp
-instaloader

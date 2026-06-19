@@ -7,7 +7,7 @@
     <link
       rel="icon"
       type="image/png"
-      href="{{ url_for('static', filename='assets/logo.png') }}"
+      href="/assets/logo.png"
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -19,98 +19,98 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 
     <style>
-      /* ── Palette ───────────────────────────────────────────────────────── */
+      /* -- Palette --------------------------------------------------------- */
       :root {
-        --iw-bg: #210535;
-        --iw-panel: #420d4a;
-        --iw-panel2: #2d0a3d;
+        --ns-bg: #210535;
+        --ns-panel: #420d4a;
+        --ns-panel2: #2d0a3d;
 
-        --iw-text: #f4d5e0;
-        --iw-muted: #c99db8;
+        --ns-text: #f4d5e0;
+        --ns-muted: #c99db8;
 
-        --iw-accent: #c774b2;
-        --iw-accent2: #7b347e;
+        --ns-accent: #c774b2;
+        --ns-accent2: #7b347e;
 
-        --iw-warning: #c774b2;
-        --iw-success: #f4d5e0;
-        --iw-danger: #7b347e;
+        --ns-warning: #c774b2;
+        --ns-success: #f4d5e0;
+        --ns-danger: #7b347e;
 
-        --iw-strong-text: #210535;
-        --iw-input-placeholder: #8a567e;
-        --iw-overlay: rgba(10, 4, 20, 0.72);
-        --iw-border: #7b347e;
-        --iw-border-strong: #c774b2;
-        --iw-soft-fill: color-mix(in srgb, var(--iw-panel) 82%, var(--iw-bg));
+        --ns-strong-text: #210535;
+        --ns-input-placeholder: #8a567e;
+        --ns-overlay: rgba(10, 4, 20, 0.72);
+        --ns-border: #7b347e;
+        --ns-border-strong: #c774b2;
+        --ns-soft-fill: color-mix(in srgb, var(--ns-panel) 82%, var(--ns-bg));
       }
 
       body.light-mode {
-        --iw-bg: #f4d5e0;
-        --iw-panel: #ffffff;
-        --iw-panel2: #eddae5;
+        --ns-bg: #f4d5e0;
+        --ns-panel: #ffffff;
+        --ns-panel2: #eddae5;
 
-        --iw-text: #210535;
-        --iw-muted: #7b347e;
+        --ns-text: #210535;
+        --ns-muted: #7b347e;
 
-        --iw-accent: #c774b2;
-        --iw-accent2: #420d4a;
+        --ns-accent: #c774b2;
+        --ns-accent2: #420d4a;
 
-        --iw-warning: #c774b2;
-        --iw-success: #420d4a;
-        --iw-danger: #7b347e;
+        --ns-warning: #c774b2;
+        --ns-success: #420d4a;
+        --ns-danger: #7b347e;
 
-        --iw-strong-text: #210535;
-        --iw-input-placeholder: #9e6f95;
-        --iw-overlay: rgba(33, 5, 53, 0.3);
-        --iw-border: #c774b2;
-        --iw-border-strong: #7b347e;
-        --iw-soft-fill: color-mix(in srgb, var(--iw-panel2) 78%, var(--iw-bg));
+        --ns-strong-text: #210535;
+        --ns-input-placeholder: #9e6f95;
+        --ns-overlay: rgba(33, 5, 53, 0.3);
+        --ns-border: #c774b2;
+        --ns-border-strong: #7b347e;
+        --ns-soft-fill: color-mix(in srgb, var(--ns-panel2) 78%, var(--ns-bg));
       }
 
       :root {
-        --iw-cta-bg: #c774b2;
-        --iw-cta-bg-hover: #f4d5e0;
-        --iw-cta-text: #210535;
+        --ns-cta-bg: #c774b2;
+        --ns-cta-bg-hover: #f4d5e0;
+        --ns-cta-text: #210535;
 
-        --iw-action-bg: #c774b2;
-        --iw-action-border: #f4d5e0;
-        --iw-action-text: #210535;
-        --iw-action-hover-bg: #f4d5e0;
-        --iw-action-hover-border: #c774b2;
-        --iw-action-hover-text: #210535;
+        --ns-action-bg: #c774b2;
+        --ns-action-border: #f4d5e0;
+        --ns-action-text: #210535;
+        --ns-action-hover-bg: #f4d5e0;
+        --ns-action-hover-border: #c774b2;
+        --ns-action-hover-text: #210535;
 
-        --iw-danger-bg: #7b347e;
-        --iw-danger-border: #c774b2;
-        --iw-danger-text: #f4d5e0;
-        --iw-danger-hover-bg: #c774b2;
-        --iw-danger-hover-border: #f4d5e0;
-        --iw-danger-hover-text: #210535;
+        --ns-danger-bg: #7b347e;
+        --ns-danger-border: #c774b2;
+        --ns-danger-text: #f4d5e0;
+        --ns-danger-hover-bg: #c774b2;
+        --ns-danger-hover-border: #f4d5e0;
+        --ns-danger-hover-text: #210535;
       }
 
       body.light-mode {
-        --iw-cta-bg: #420d4a;
-        --iw-cta-bg-hover: #7b347e;
-        --iw-cta-text: #f4d5e0;
+        --ns-cta-bg: #420d4a;
+        --ns-cta-bg-hover: #7b347e;
+        --ns-cta-text: #f4d5e0;
 
-        --iw-action-bg: #420d4a;
-        --iw-action-border: #7b347e;
-        --iw-action-text: #f4d5e0;
-        --iw-action-hover-bg: #7b347e;
-        --iw-action-hover-border: #420d4a;
-        --iw-action-hover-text: #f4d5e0;
+        --ns-action-bg: #420d4a;
+        --ns-action-border: #7b347e;
+        --ns-action-text: #f4d5e0;
+        --ns-action-hover-bg: #7b347e;
+        --ns-action-hover-border: #420d4a;
+        --ns-action-hover-text: #f4d5e0;
 
-        --iw-danger-bg: #7b347e;
-        --iw-danger-border: #420d4a;
-        --iw-danger-text: #f4d5e0;
-        --iw-danger-hover-bg: #420d4a;
-        --iw-danger-hover-border: #7b347e;
-        --iw-danger-hover-text: #f4d5e0;
+        --ns-danger-bg: #7b347e;
+        --ns-danger-border: #420d4a;
+        --ns-danger-text: #f4d5e0;
+        --ns-danger-hover-bg: #420d4a;
+        --ns-danger-hover-border: #7b347e;
+        --ns-danger-hover-text: #f4d5e0;
       }
 
       /* Minimal CSS kept only where Tailwind cannot cover it cleanly */
       .settings-scroll {
         scrollbar-width: thin;
-        scrollbar-color: var(--iw-border-strong)
-          color-mix(in srgb, var(--iw-panel2) 88%, transparent);
+        scrollbar-color: var(--ns-border-strong)
+          color-mix(in srgb, var(--ns-panel2) 88%, transparent);
       }
 
       .settings-scroll::-webkit-scrollbar {
@@ -118,31 +118,31 @@
       }
 
       .settings-scroll::-webkit-scrollbar-track {
-        background: color-mix(in srgb, var(--iw-panel2) 88%, transparent);
+        background: color-mix(in srgb, var(--ns-panel2) 88%, transparent);
         border-radius: 9999px;
       }
 
       .settings-scroll::-webkit-scrollbar-thumb {
         background: linear-gradient(
           180deg,
-          var(--iw-accent),
-          var(--iw-border-strong)
+          var(--ns-accent),
+          var(--ns-border-strong)
         );
-        border: 2px solid color-mix(in srgb, var(--iw-panel2) 88%, transparent);
+        border: 2px solid color-mix(in srgb, var(--ns-panel2) 88%, transparent);
         border-radius: 9999px;
       }
 
       .settings-scroll::-webkit-scrollbar-thumb:hover {
         background: linear-gradient(
           180deg,
-          var(--iw-border-strong),
-          var(--iw-accent)
+          var(--ns-border-strong),
+          var(--ns-accent)
         );
       }
 
       body.light-mode .settings-nav-btn[aria-pressed="true"] {
-        background: color-mix(in srgb, var(--iw-accent) 14%, var(--iw-panel));
-        color: var(--iw-text);
+        background: color-mix(in srgb, var(--ns-accent) 14%, var(--ns-panel));
+        color: var(--ns-text);
       }
 
       body.light-mode #settingsModal,
@@ -165,15 +165,15 @@
       #settingsModal input:-webkit-autofill:focus,
       #settingsModal textarea:-webkit-autofill,
       #settingsModal select:-webkit-autofill {
-        -webkit-text-fill-color: var(--iw-text);
-        -webkit-box-shadow: 0 0 0 1000px var(--iw-panel2) inset;
-        box-shadow: 0 0 0 1000px var(--iw-panel2) inset;
-        caret-color: var(--iw-text);
+        -webkit-text-fill-color: var(--ns-text);
+        -webkit-box-shadow: 0 0 0 1000px var(--ns-panel2) inset;
+        box-shadow: 0 0 0 1000px var(--ns-panel2) inset;
+        caret-color: var(--ns-text);
         transition: background-color 5000s ease-in-out 0s;
       }
     </style>
   </head>
-  <body class="min-h-screen bg-[var(--iw-bg)] text-[var(--iw-text)] font-sans">
+  <body class="min-h-screen bg-[var(--ns-bg)] text-[var(--ns-text)] font-sans">
     <a
       class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-xl focus:bg-white focus:px-4 focus:py-2 focus:font-bold focus:text-slate-900"
       href="#mainContent"
@@ -195,12 +195,12 @@
               aria-label="Never Stelle Home"
             >
               <img
-                src="{{ url_for('static', filename='assets/logo.png') }}"
+                src="/assets/logo.png"
                 alt=""
                 class="h-[2.8rem] w-auto flex-none sm:h-[3.05rem]"
               />
               <span
-                class="translate-y-[2px] whitespace-nowrap font-['League_Spartan',ui-sans-serif,system-ui,sans-serif] text-[clamp(1.55rem,2.65vw,2.3rem)] font-extrabold uppercase tracking-[0.03em] text-[var(--iw-cta-bg)] [text-shadow:0_1px_0_rgba(33,5,53,0.06)]"
+                class="translate-y-[2px] whitespace-nowrap font-['League_Spartan',ui-sans-serif,system-ui,sans-serif] text-[clamp(1.55rem,2.65vw,2.3rem)] font-extrabold uppercase tracking-[0.03em] text-[var(--ns-cta-bg)] [text-shadow:0_1px_0_rgba(33,5,53,0.06)]"
               >
                 Never Stelle
               </span>
@@ -209,7 +209,7 @@
               <button
                 id="themeToggleButton"
                 type="button"
-                class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] text-[var(--iw-text)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)]"
+                class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] text-[var(--ns-text)] transition hover:-translate-y-px hover:border-[var(--ns-border-strong)]"
                 aria-label="Toggle light and dark mode"
                 aria-pressed="false"
                 title="Toggle light and dark mode"
@@ -228,7 +228,7 @@
               <button
                 id="settingsButton"
                 type="button"
-                class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] text-[var(--iw-text)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)]"
+                class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] text-[var(--ns-text)] transition hover:-translate-y-px hover:border-[var(--ns-border-strong)]"
                 aria-label="Open settings"
               >
                 <svg
@@ -250,14 +250,14 @@
       </section>
 
       <section
-        class="mt-4 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-4 shadow-soft"
+        class="mt-4 rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] p-4 shadow-soft"
       >
         <form id="downloadForm" class="space-y-3">
           <div
             class="grid grid-cols-1 gap-2.5 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center"
           >
             <div
-              class="overflow-hidden rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] focus-within:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus-within:ring-2 focus-within:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+              class="overflow-hidden rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] focus-within:border-[color-mix(in_srgb,var(--ns-accent)_70%,transparent)] focus-within:ring-2 focus-within:ring-[color-mix(in_srgb,var(--ns-accent)_20%,transparent)]"
             >
               <div class="flex h-[46px] items-center gap-2 pr-2">
                 <input
@@ -267,18 +267,18 @@
                   autocomplete="off"
                   placeholder="Paste a supported URL"
                   required
-                  class="h-full w-full bg-transparent px-4 text-base text-[var(--iw-text)] outline-none placeholder:text-[color:var(--iw-input-placeholder)]"
+                  class="h-full w-full bg-transparent px-4 text-base text-[var(--ns-text)] outline-none placeholder:text-[color:var(--ns-input-placeholder)]"
                 />
               </div>
             </div>
 
             <div
-              class="flex h-[46px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft lg:w-auto lg:min-w-[290px]"
+              class="flex h-[46px] w-full rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] p-1 shadow-soft lg:w-auto lg:min-w-[290px]"
               aria-label="Save mode"
             >
               <button
                 type="button"
-                class="save-mode-btn flex-1 rounded-xl px-4 text-sm font-semibold transition bg-[var(--iw-accent)] text-[color:var(--iw-strong-text)]"
+                class="save-mode-btn flex-1 rounded-xl px-4 text-sm font-semibold transition bg-[var(--ns-accent)] text-[color:var(--ns-strong-text)]"
                 data-save-mode="nas"
                 aria-pressed="true"
               >
@@ -286,7 +286,7 @@
               </button>
               <button
                 type="button"
-                class="save-mode-btn flex-1 rounded-xl px-4 text-sm font-semibold transition text-[var(--iw-muted)]"
+                class="save-mode-btn flex-1 rounded-xl px-4 text-sm font-semibold transition text-[var(--ns-muted)]"
                 data-save-mode="device"
                 aria-pressed="false"
               >
@@ -297,7 +297,7 @@
             <button
               id="submitButton"
               type="submit"
-              class="flex h-[46px] w-full shrink-0 items-center justify-center rounded-2xl border border-transparent bg-[var(--iw-cta-bg)] font-bold text-[var(--iw-cta-text)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:bg-[var(--iw-cta-bg-hover)] lg:w-[46px]"
+              class="flex h-[46px] w-full shrink-0 items-center justify-center rounded-2xl border border-transparent bg-[var(--ns-cta-bg)] font-bold text-[var(--ns-cta-text)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:bg-[var(--ns-cta-bg-hover)] lg:w-[46px]"
               aria-label="Download"
             >
               <svg
@@ -317,29 +317,29 @@
       </section>
       <section class="my-5 flex flex-col gap-3 xl:flex-row xl:items-center">
         <div
-          class="min-w-0 flex-1 overflow-hidden rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] shadow-soft"
+          class="min-w-0 flex-1 overflow-hidden rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] shadow-soft"
         >
           <div class="grid grid-cols-2 md:grid-cols-4">
             <div
-              class="flex items-center justify-between gap-3 border-b border-r border-[var(--iw-border)] px-4 py-3 md:border-b-0"
+              class="flex items-center justify-between gap-3 border-b border-r border-[var(--ns-border)] px-4 py-3 md:border-b-0"
             >
-              <span class="text-sm text-[var(--iw-muted)]">Queued</span>
+              <span class="text-sm text-[var(--ns-muted)]">Queued</span>
               <strong id="queuedCount" class="text-2xl font-bold leading-none"
                 >0</strong
               >
             </div>
             <div
-              class="flex items-center justify-between gap-3 border-b border-[var(--iw-border)] px-4 py-3 md:border-b-0 md:border-r"
+              class="flex items-center justify-between gap-3 border-b border-[var(--ns-border)] px-4 py-3 md:border-b-0 md:border-r"
             >
-              <span class="text-sm text-[var(--iw-muted)]">Active</span>
+              <span class="text-sm text-[var(--ns-muted)]">Active</span>
               <strong id="runningCount" class="text-2xl font-bold leading-none"
                 >0</strong
               >
             </div>
             <div
-              class="flex items-center justify-between gap-3 border-r border-[var(--iw-border)] px-4 py-3 md:border-r"
+              class="flex items-center justify-between gap-3 border-r border-[var(--ns-border)] px-4 py-3 md:border-r"
             >
-              <span class="text-sm text-[var(--iw-muted)]">Done</span>
+              <span class="text-sm text-[var(--ns-muted)]">Done</span>
               <strong
                 id="completedCount"
                 class="text-2xl font-bold leading-none"
@@ -347,7 +347,7 @@
               >
             </div>
             <div class="flex items-center justify-between gap-3 px-4 py-3">
-              <span class="text-sm text-[var(--iw-muted)]">Failed</span>
+              <span class="text-sm text-[var(--ns-muted)]">Failed</span>
               <strong id="failedCount" class="text-2xl font-bold leading-none"
                 >0</strong
               >
@@ -359,14 +359,14 @@
           <button
             id="clearCompletedButton"
             type="button"
-            class="inline-flex h-10 flex-1 items-center justify-center rounded-2xl border-[1.5px] border-[var(--iw-danger-border)] bg-[var(--iw-danger-bg)] px-4 text-sm font-semibold text-[var(--iw-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-danger-hover-border)] hover:bg-[var(--iw-danger-hover-bg)] hover:text-[var(--iw-danger-hover-text)] xl:min-w-[124px] xl:flex-none"
+            class="inline-flex h-10 flex-1 items-center justify-center rounded-2xl border-[1.5px] border-[var(--ns-danger-border)] bg-[var(--ns-danger-bg)] px-4 text-sm font-semibold text-[var(--ns-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--ns-danger-hover-border)] hover:bg-[var(--ns-danger-hover-bg)] hover:text-[var(--ns-danger-hover-text)] xl:min-w-[124px] xl:flex-none"
           >
             Clear done
           </button>
           <button
             id="clearPendingButton"
             type="button"
-            class="inline-flex h-10 flex-1 items-center justify-center rounded-2xl border-[1.5px] border-[var(--iw-danger-border)] bg-[var(--iw-danger-bg)] px-4 text-sm font-semibold text-[var(--iw-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-danger-hover-border)] hover:bg-[var(--iw-danger-hover-bg)] hover:text-[var(--iw-danger-hover-text)] xl:min-w-[128px] xl:flex-none"
+            class="inline-flex h-10 flex-1 items-center justify-center rounded-2xl border-[1.5px] border-[var(--ns-danger-border)] bg-[var(--ns-danger-bg)] px-4 text-sm font-semibold text-[var(--ns-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--ns-danger-hover-border)] hover:bg-[var(--ns-danger-hover-bg)] hover:text-[var(--ns-danger-hover-text)] xl:min-w-[128px] xl:flex-none"
           >
             Clear queue
           </button>
@@ -377,20 +377,20 @@
         <div class="mb-3 flex flex-col gap-3">
           <h2
             id="downloadsHeading"
-            class="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--iw-muted)]"
+            class="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ns-muted)]"
           >
             Downloads
           </h2>
 
           <div
-            class="rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-2 shadow-soft"
+            class="rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] p-2 shadow-soft"
           >
             <div
               class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between"
             >
               <div class="max-w-full overflow-x-auto">
                 <nav
-                  class="inline-flex w-max flex-nowrap items-center gap-0.5 whitespace-nowrap rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft"
+                  class="inline-flex w-max flex-nowrap items-center gap-0.5 whitespace-nowrap rounded-xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] p-1 shadow-soft"
                   aria-label="Task sources"
                 >
                   <button
@@ -431,13 +431,6 @@
                   <button
                     class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
                     type="button"
-                    data-menu="iwara"
-                  >
-                    Iwara
-                  </button>
-                  <button
-                    class="menu-btn inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold transition"
-                    type="button"
                     data-menu="others"
                   >
                     Others
@@ -447,11 +440,11 @@
 
               <div class="flex flex-wrap items-center gap-2">
                 <div
-                  class="flex items-center gap-0.5 rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft"
+                  class="flex items-center gap-0.5 rounded-xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] p-1 shadow-soft"
                 >
                   <button
                     id="gridViewButton"
-                    class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--iw-muted)] transition hover:text-[var(--iw-text)]"
+                    class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--ns-muted)] transition hover:text-[var(--ns-text)]"
                     type="button"
                     aria-label="Grid view"
                     aria-pressed="true"
@@ -471,7 +464,7 @@
                   </button>
                   <button
                     id="tableViewButton"
-                    class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--iw-muted)] transition hover:text-[var(--iw-text)]"
+                    class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--ns-muted)] transition hover:text-[var(--ns-text)]"
                     type="button"
                     aria-label="Table view"
                     aria-pressed="false"
@@ -491,7 +484,7 @@
                 </div>
 
                 <div
-                  class="flex items-center gap-0.5 rounded-xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-1 shadow-soft"
+                  class="flex items-center gap-0.5 rounded-xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] p-1 shadow-soft"
                 >
                   <button
                     class="filter-btn h-8 rounded-lg px-4 text-sm font-semibold transition"
@@ -530,19 +523,19 @@
 
     <div
       id="settingsModal"
-      class="fixed inset-0 z-50 hidden overflow-hidden overscroll-contain bg-[color:var(--iw-overlay)] p-0 text-[var(--iw-text)] sm:items-center sm:justify-center sm:p-4"
+      class="fixed inset-0 z-50 hidden overflow-hidden overscroll-contain bg-[color:var(--ns-overlay)] p-0 text-[var(--ns-text)] sm:items-center sm:justify-center sm:p-4"
       aria-hidden="true"
     >
       <div
-        class="flex h-[100dvh] w-full flex-col overflow-hidden rounded-t-[1.75rem] border border-[var(--iw-border)] bg-[var(--iw-panel)] text-[var(--iw-text)] shadow-soft sm:h-[min(88dvh,760px)] sm:max-h-[min(88dvh,760px)] sm:max-w-[940px] sm:rounded-2xl"
+        class="flex h-[100dvh] w-full flex-col overflow-hidden rounded-t-[1.75rem] border border-[var(--ns-border)] bg-[var(--ns-panel)] text-[var(--ns-text)] shadow-soft sm:h-[min(88dvh,760px)] sm:max-h-[min(88dvh,760px)] sm:max-w-[940px] sm:rounded-2xl"
       >
         <div
-          class="flex items-center justify-between gap-4 border-b border-[var(--iw-border)] px-4 py-3 sm:px-6 sm:py-4"
+          class="flex items-center justify-between gap-4 border-b border-[var(--ns-border)] px-4 py-3 sm:px-6 sm:py-4"
         >
           <div class="min-w-0 flex min-h-[44px] items-center">
             <h2
               id="settingsTitle"
-              class="text-2xl font-bold leading-none text-[var(--iw-text)]"
+              class="text-2xl font-bold leading-none text-[var(--ns-text)]"
             >
               Settings
             </h2>
@@ -550,7 +543,7 @@
           <button
             id="closeSettingsButton"
             type="button"
-            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] text-[var(--iw-muted)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)]"
+            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] text-[var(--ns-muted)] transition hover:-translate-y-px hover:border-[var(--ns-border-strong)] hover:text-[var(--ns-text)]"
             aria-label="Close settings"
           >
             <svg
@@ -574,27 +567,27 @@
             class="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4 md:grid-cols-[220px_minmax(0,1fr)] md:grid-rows-1"
           >
             <nav
-              class="settings-scroll -mx-1 flex min-h-0 shrink-0 gap-2 overflow-x-auto overscroll-contain touch-pan-x px-1 pb-1 text-[var(--iw-text)] md:mx-0 md:flex-col md:overflow-x-hidden md:overflow-y-auto md:touch-pan-y md:px-0 md:pb-0"
+              class="settings-scroll -mx-1 flex min-h-0 shrink-0 gap-2 overflow-x-auto overscroll-contain touch-pan-x px-1 pb-1 text-[var(--ns-text)] md:mx-0 md:flex-col md:overflow-x-hidden md:overflow-y-auto md:touch-pan-y md:px-0 md:pb-0"
               aria-label="Settings sections"
             >
               <button
                 type="button"
                 data-settings-section="downloads"
-                class="settings-nav-btn flex min-h-[48px] min-w-[148px] items-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 text-left text-sm font-semibold text-[var(--iw-muted)] transition hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)] aria-pressed:bg-[color-mix(in_srgb,var(--iw-accent)_26%,var(--iw-panel2))] aria-pressed:border-[var(--iw-border-strong)] aria-pressed:text-[var(--iw-text)] aria-pressed:[box-shadow:inset_0_0_0_1px_color-mix(in_srgb,var(--iw-accent)_22%,transparent)] md:min-w-0"
+                class="settings-nav-btn flex min-h-[48px] min-w-[148px] items-center rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-4 text-left text-sm font-semibold text-[var(--ns-muted)] transition hover:border-[var(--ns-border-strong)] hover:text-[var(--ns-text)] aria-pressed:bg-[color-mix(in_srgb,var(--ns-accent)_26%,var(--ns-panel2))] aria-pressed:border-[var(--ns-border-strong)] aria-pressed:text-[var(--ns-text)] aria-pressed:[box-shadow:inset_0_0_0_1px_color-mix(in_srgb,var(--ns-accent)_22%,transparent)] md:min-w-0"
               >
                 Downloads
               </button>
               <button
                 type="button"
                 data-settings-section="instagram"
-                class="settings-nav-btn flex min-h-[48px] min-w-[148px] items-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 text-left text-sm font-semibold text-[var(--iw-muted)] transition hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)] aria-pressed:bg-[color-mix(in_srgb,var(--iw-accent)_26%,var(--iw-panel2))] aria-pressed:border-[var(--iw-border-strong)] aria-pressed:text-[var(--iw-text)] aria-pressed:[box-shadow:inset_0_0_0_1px_color-mix(in_srgb,var(--iw-accent)_22%,transparent)] md:min-w-0"
+                class="settings-nav-btn flex min-h-[48px] min-w-[148px] items-center rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-4 text-left text-sm font-semibold text-[var(--ns-muted)] transition hover:border-[var(--ns-border-strong)] hover:text-[var(--ns-text)] aria-pressed:bg-[color-mix(in_srgb,var(--ns-accent)_26%,var(--ns-panel2))] aria-pressed:border-[var(--ns-border-strong)] aria-pressed:text-[var(--ns-text)] aria-pressed:[box-shadow:inset_0_0_0_1px_color-mix(in_srgb,var(--ns-accent)_22%,transparent)] md:min-w-0"
               >
                 Instagram
               </button>
               <button
                 type="button"
                 data-settings-section="advanced"
-                class="settings-nav-btn flex min-h-[48px] min-w-[148px] items-center rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 text-left text-sm font-semibold text-[var(--iw-muted)] transition hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)] aria-pressed:bg-[color-mix(in_srgb,var(--iw-accent)_26%,var(--iw-panel2))] aria-pressed:border-[var(--iw-border-strong)] aria-pressed:text-[var(--iw-text)] aria-pressed:[box-shadow:inset_0_0_0_1px_color-mix(in_srgb,var(--iw-accent)_22%,transparent)] md:min-w-0"
+                class="settings-nav-btn flex min-h-[48px] min-w-[148px] items-center rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-4 text-left text-sm font-semibold text-[var(--ns-muted)] transition hover:border-[var(--ns-border-strong)] hover:text-[var(--ns-text)] aria-pressed:bg-[color-mix(in_srgb,var(--ns-accent)_26%,var(--ns-panel2))] aria-pressed:border-[var(--ns-border-strong)] aria-pressed:text-[var(--ns-text)] aria-pressed:[box-shadow:inset_0_0_0_1px_color-mix(in_srgb,var(--ns-accent)_22%,transparent)] md:min-w-0"
               >
                 Advanced
               </button>
@@ -607,254 +600,145 @@
                 <div class="flex min-h-full flex-col">
                   <section
                     data-settings-panel="downloads"
-                    class="settings-panel flex-1 rounded-3xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-4 text-[var(--iw-text)] sm:p-5"
+                    class="settings-panel flex-1 rounded-3xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] p-4 text-[var(--ns-text)] sm:p-5"
                   >
                     <div class="grid gap-3 sm:grid-cols-2">
                       <label
-                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                        class="block rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] p-3 text-sm font-semibold"
                       >
-                        <span class="mb-2 block text-[var(--iw-text)]"
+                        <span class="mb-2 block text-[var(--ns-text)]"
                           >YouTube</span
                         >
                         <input
                           id="youtubeLocationInput"
                           list="downloadLocationSuggestions"
                           placeholder="Enter a save path"
-                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                          class="min-h-[48px] w-full rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-4 py-3 text-[var(--ns-text)] outline-none transition placeholder:text-[var(--ns-muted)] focus:border-[color-mix(in_srgb,var(--ns-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ns-accent)_20%,transparent)]"
                         />
                       </label>
                       <label
-                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                        class="block rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] p-3 text-sm font-semibold"
                       >
-                        <span class="mb-2 block text-[var(--iw-text)]"
+                        <span class="mb-2 block text-[var(--ns-text)]"
                           >Facebook</span
                         >
                         <input
                           id="facebookLocationInput"
                           list="downloadLocationSuggestions"
                           placeholder="Enter a save path"
-                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                          class="min-h-[48px] w-full rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-4 py-3 text-[var(--ns-text)] outline-none transition placeholder:text-[var(--ns-muted)] focus:border-[color-mix(in_srgb,var(--ns-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ns-accent)_20%,transparent)]"
                         />
                       </label>
                       <label
-                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                        class="block rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] p-3 text-sm font-semibold"
                       >
-                        <span class="mb-2 block text-[var(--iw-text)]"
+                        <span class="mb-2 block text-[var(--ns-text)]"
                           >Instagram</span
                         >
                         <input
                           id="instagramLocationInput"
                           list="downloadLocationSuggestions"
                           placeholder="Enter a save path"
-                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                          class="min-h-[48px] w-full rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-4 py-3 text-[var(--ns-text)] outline-none transition placeholder:text-[var(--ns-muted)] focus:border-[color-mix(in_srgb,var(--ns-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ns-accent)_20%,transparent)]"
                         />
                       </label>
                       <label
-                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                        class="block rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] p-3 text-sm font-semibold"
                       >
-                        <span class="mb-2 block text-[var(--iw-text)]"
+                        <span class="mb-2 block text-[var(--ns-text)]"
                           >TikTok</span
                         >
                         <input
                           id="tiktokLocationInput"
                           list="downloadLocationSuggestions"
                           placeholder="Enter a save path"
-                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                          class="min-h-[48px] w-full rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-4 py-3 text-[var(--ns-text)] outline-none transition placeholder:text-[var(--ns-muted)] focus:border-[color-mix(in_srgb,var(--ns-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ns-accent)_20%,transparent)]"
                         />
                       </label>
                       <label
-                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                        class="block rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] p-3 text-sm font-semibold"
                       >
-                        <span class="mb-2 block text-[var(--iw-text)]"
-                          >Iwara</span
-                        >
-                        <input
-                          id="iwaraLocationInput"
-                          list="downloadLocationSuggestions"
-                          placeholder="Enter a save path"
-                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
-                        />
-                      </label>
-                      <label
-                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
-                      >
-                        <span class="mb-2 block text-[var(--iw-text)]"
+                        <span class="mb-2 block text-[var(--ns-text)]"
                           >Others</span
                         >
                         <input
                           id="othersLocationInput"
                           list="downloadLocationSuggestions"
                           placeholder="Enter a save path"
-                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                          class="min-h-[48px] w-full rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-4 py-3 text-[var(--ns-text)] outline-none transition placeholder:text-[var(--ns-muted)] focus:border-[color-mix(in_srgb,var(--ns-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ns-accent)_20%,transparent)]"
                         />
                       </label>
                     </div>
                   </section>
-
                   <section
                     data-settings-panel="instagram"
-                    class="settings-panel flex-1 rounded-3xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-4 text-[var(--iw-text)] sm:p-5"
+                    class="settings-panel flex-1 rounded-3xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] p-4 text-[var(--ns-text)] sm:p-5"
                   >
-                    <div class="grid gap-3 xl:grid-cols-2">
-                      <div
-                        class="flex h-full flex-col rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3"
-                      >
-                        <div
-                          class="mb-3 text-sm font-semibold text-[var(--iw-text)]"
-                        >
-                          Instaloader
-                        </div>
-
-                        <div class="grid gap-3">
-                          <label class="flex flex-col text-sm font-semibold">
-                            <span class="mb-2 block text-[var(--iw-text)]"
-                              >Login type</span
-                            >
-                            <select
-                              id="instagramIdentifierTypeInput"
-                              class="block min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-text)] outline-none transition focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
-                            >
-                              <option value="username">Username</option>
-                              <option value="email">Email</option>
-                              <option value="phone">Mobile number</option>
-                            </select>
-                          </label>
-
-                          <label class="flex flex-col text-sm font-semibold">
-                            <span
-                              class="mb-2 block text-[var(--iw-text)]"
-                              id="instagramIdentifierLabel"
-                              >Username</span
-                            >
-                            <input
-                              id="instagramIdentifierInput"
-                              autocomplete="username"
-                              placeholder="Enter your Instagram username"
-                              class="block min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
-                            />
-                          </label>
-
-                          <label class="flex flex-col text-sm font-semibold">
-                            <span class="mb-2 block text-[var(--iw-text)]"
-                              >Password</span
-                            >
-                            <input
-                              id="instagramPasswordInput"
-                              type="password"
-                              autocomplete="current-password"
-                              placeholder="Enter your Instagram password"
-                              class="block min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
-                            />
-                          </label>
-                        </div>
-
-                        <div
-                          class="mt-3 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-muted)]"
-                        >
-                          <div id="instagramAuthStatus">
-                            No Instagram login saved.
-                          </div>
-                        </div>
-
-                        <div
-                          class="mt-auto pt-3 flex flex-wrap justify-end gap-3"
-                        >
-                          <button
-                            id="removeInstagramAuthButton"
-                            type="button"
-                            class="h-11 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 text-sm font-semibold text-[var(--iw-text)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)] hover:bg-[var(--iw-panel)] opacity-50 cursor-not-allowed"
-                            disabled=""
-                          >
-                            Disconnect
-                          </button>
-                          <button
-                            id="connectInstagramAuthButton"
-                            type="button"
-                            class="h-11 rounded-2xl bg-[var(--iw-accent)] px-4 text-sm font-semibold text-[color:var(--iw-strong-text)] transition hover:-translate-y-px hover:brightness-110"
-                          >
-                            Connect
-                          </button>
-                        </div>
+                    <div class="flex h-full flex-col rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] p-3">
+                      <div class="mb-3 text-sm font-semibold text-[var(--ns-text)]">
+                        yt-dlp Cookies
                       </div>
 
-                      <div
-                        class="flex h-full flex-col rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3"
-                      >
-                        <div
-                          class="mb-3 text-sm font-semibold text-[var(--iw-text)]"
-                        >
-                          YT-DLP
-                        </div>
+                      <label class="flex flex-col text-sm font-semibold">
+                        <span class="mb-2 block text-[var(--ns-text)]">Cookies</span>
+                        <input
+                          id="instagramYtdlpCookiesInput"
+                          type="file"
+                          accept=".txt,.cookies,text/plain"
+                          class="block min-h-[48px] w-full rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-4 py-3 text-sm text-[var(--ns-text)] outline-none transition file:mr-3 file:rounded-xl file:border-0 file:bg-[var(--ns-accent)] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[color:var(--ns-strong-text)] focus:border-[color-mix(in_srgb,var(--ns-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ns-accent)_20%,transparent)]"
+                        />
+                      </label>
 
-                        <label class="flex flex-col text-sm font-semibold">
-                          <span class="mb-2 block text-[var(--iw-text)]"
-                            >Cookies</span
-                          >
-                          <input
-                            id="instagramYtdlpCookiesInput"
-                            type="file"
-                            accept=".txt,.cookies,text/plain"
-                            class="block min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-text)] outline-none transition file:mr-3 file:rounded-xl file:border-0 file:bg-[var(--iw-accent)] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[color:var(--iw-strong-text)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
-                          />
-                        </label>
+                      <div class="mt-3 rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-4 py-3 text-sm text-[var(--ns-muted)]">
+                        <div id="instagramYtdlpCookiesStatus">No yt-dlp cookies saved.</div>
+                      </div>
 
-                        <div
-                          class="mt-3 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 text-sm text-[var(--iw-muted)]"
+                      <div class="mt-auto pt-3 flex flex-wrap justify-end gap-3">
+                        <button
+                          id="removeInstagramYtdlpCookiesButton"
+                          type="button"
+                          class="h-11 rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-4 text-sm font-semibold text-[var(--ns-text)] transition hover:-translate-y-px hover:border-[var(--ns-border-strong)] hover:bg-[var(--ns-panel)] opacity-50 cursor-not-allowed"
+                          disabled=""
                         >
-                          <div id="instagramYtdlpCookiesStatus">
-                            No yt-dlp cookies saved.
-                          </div>
-                        </div>
-
-                        <div
-                          class="mt-auto pt-3 flex flex-wrap justify-end gap-3"
+                          Disconnect
+                        </button>
+                        <button
+                          id="connectInstagramYtdlpCookiesButton"
+                          type="button"
+                          class="h-11 rounded-2xl bg-[var(--ns-accent)] px-4 text-sm font-semibold text-[color:var(--ns-strong-text)] transition hover:-translate-y-px hover:brightness-110"
                         >
-                          <button
-                            id="removeInstagramYtdlpCookiesButton"
-                            type="button"
-                            class="h-11 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 text-sm font-semibold text-[var(--iw-text)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)] hover:bg-[var(--iw-panel)] opacity-50 cursor-not-allowed"
-                            disabled=""
-                          >
-                            Disconnect
-                          </button>
-                          <button
-                            id="connectInstagramYtdlpCookiesButton"
-                            type="button"
-                            class="h-11 rounded-2xl bg-[var(--iw-accent)] px-4 text-sm font-semibold text-[color:var(--iw-strong-text)] transition hover:-translate-y-px hover:brightness-110"
-                          >
-                            Connect
-                          </button>
-                        </div>
+                          Connect
+                        </button>
                       </div>
                     </div>
                   </section>
 
                   <section
                     data-settings-panel="advanced"
-                    class="settings-panel flex-1 hidden rounded-3xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] p-4 text-[var(--iw-text)] sm:p-5"
+                    class="settings-panel flex-1 hidden rounded-3xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] p-4 text-[var(--ns-text)] sm:p-5"
                   >
                     <div class="grid gap-3">
                       <label
-                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                        class="block rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] p-3 text-sm font-semibold"
                       >
-                        <span class="mb-2 block text-[var(--iw-text)]"
+                        <span class="mb-2 block text-[var(--ns-text)]"
                           >Folder Template</span
                         >
                         <input
                           id="folderTemplateInput"
-                          class="min-h-[48px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 font-mono text-sm text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                          class="min-h-[48px] w-full rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-4 py-3 font-mono text-sm text-[var(--ns-text)] outline-none transition placeholder:text-[var(--ns-muted)] focus:border-[color-mix(in_srgb,var(--ns-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ns-accent)_20%,transparent)]"
                         />
                       </label>
                       <label
-                        class="block rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-3 text-sm font-semibold"
+                        class="block rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] p-3 text-sm font-semibold"
                       >
-                        <span class="mb-2 block text-[var(--iw-text)]"
+                        <span class="mb-2 block text-[var(--ns-text)]"
                           >Filename Template</span
                         >
                         <textarea
                           id="filenameTemplateInput"
                           rows="2"
-                          class="min-h-[84px] w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-4 py-3 font-mono text-sm text-[var(--iw-text)] outline-none transition placeholder:text-[var(--iw-muted)] focus:border-[color-mix(in_srgb,var(--iw-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]"
+                          class="min-h-[84px] w-full rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-4 py-3 font-mono text-sm text-[var(--ns-text)] outline-none transition placeholder:text-[var(--ns-muted)] focus:border-[color-mix(in_srgb,var(--ns-accent)_70%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ns-accent)_20%,transparent)]"
                         ></textarea>
                       </label>
                     </div>
@@ -866,7 +750,7 @@
         </div>
 
         <footer
-          class="border-t border-[var(--iw-border)] bg-[var(--iw-panel)] px-4 py-4 text-[var(--iw-text)] sm:px-6"
+          class="border-t border-[var(--ns-border)] bg-[var(--ns-panel)] px-4 py-4 text-[var(--ns-text)] sm:px-6"
         >
           <div
             class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
@@ -874,7 +758,7 @@
             <button
               id="cleanNfoButton"
               type="button"
-              class="h-11 w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-5 text-sm font-semibold text-[var(--iw-muted)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)] sm:w-auto"
+              class="h-11 w-full rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-5 text-sm font-semibold text-[var(--ns-muted)] transition hover:-translate-y-px hover:border-[var(--ns-border-strong)] hover:text-[var(--ns-text)] sm:w-auto"
               title="Find and delete all .nfo sidecar files from the downloads folder"
             >
               Delete .nfo files
@@ -884,14 +768,14 @@
             >
               <button
                 id="cancelSettingsButton"
-                class="h-11 rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel2)] px-5 text-sm font-semibold text-[var(--iw-muted)] transition hover:-translate-y-px hover:border-[var(--iw-border-strong)] hover:text-[var(--iw-text)]"
+                class="h-11 rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel2)] px-5 text-sm font-semibold text-[var(--ns-muted)] transition hover:-translate-y-px hover:border-[var(--ns-border-strong)] hover:text-[var(--ns-text)]"
                 type="button"
               >
                 Cancel
               </button>
               <button
                 id="saveSettingsButton"
-                class="h-11 rounded-2xl bg-[var(--iw-accent)] px-5 text-sm font-semibold text-[color:var(--iw-strong-text)] transition hover:-translate-y-px hover:brightness-110"
+                class="h-11 rounded-2xl bg-[var(--ns-accent)] px-5 text-sm font-semibold text-[color:var(--ns-strong-text)] transition hover:-translate-y-px hover:brightness-110"
                 type="button"
               >
                 Save
@@ -921,7 +805,6 @@
         facebook: "Facebook",
         instagram: "Instagram",
         tiktok: "TikTok",
-        iwara: "Iwara",
         others: "Others",
       };
 
@@ -942,22 +825,21 @@
 
       const state = {
         defaults: {
-          site_locations: {{ site_default_locations|tojson }},
-          save_mode: {{ saved_save_mode|tojson }},
+          site_locations: {},
+          save_mode: "nas",
           template_settings: {
             filename_template: "",
             folder_template: "",
           },
         },
         settings: {
-          site_locations: {{ site_default_locations|tojson }},
-          save_mode: {{ saved_save_mode|tojson }},
+          site_locations: {},
+          save_mode: "nas",
           template_settings: {
             filename_template: "",
             folder_template: "",
           },
           download_locations: [],
-          instagram_auth: { configured: false, identifier_type: "username", identifier: "", session_username: "", username: "", session_saved: false, last_login_at: "", last_error: "" },
           instagram_ytdlp_cookies: { configured: false, source: "none", filename: "", uploaded_at: "" },
         },
         tabId: currentTabId,
@@ -986,7 +868,6 @@
             facebook: state.settings.site_locations.facebook || state.defaults.site_locations.facebook || "",
             instagram: state.settings.site_locations.instagram || state.defaults.site_locations.instagram || "",
             tiktok: state.settings.site_locations.tiktok || state.defaults.site_locations.tiktok || "",
-            iwara: state.settings.site_locations.iwara || state.defaults.site_locations.iwara || "",
             others: state.settings.site_locations.others || state.defaults.site_locations.others || "",
           },
           save_mode: state.settings.save_mode === "device" ? "device" : (state.defaults.save_mode || "nas"),
@@ -1021,10 +902,7 @@
           };
         }
         state.settings.download_locations = Array.isArray(data.download_locations) ? data.download_locations : [];
-        state.settings.instagram_auth = data.instagram_auth || { configured: false, identifier_type: "username", identifier: "", session_username: "", username: "", session_saved: false, last_login_at: "", last_error: "" };
         state.settings.instagram_ytdlp_cookies = data.instagram_ytdlp_cookies || { configured: false, source: "none", filename: "", uploaded_at: "" };
-        syncInstagramAuthInputs();
-        renderInstagramAuthStatus();
         renderInstagramYtdlpCookiesStatus();
       }
 
@@ -1055,8 +933,8 @@
         el.className = [
           "rounded-2xl border px-4 py-3 text-sm font-medium shadow-soft transition",
           type === "error"
-            ? "border-[color-mix(in_srgb,var(--iw-danger)_30%,transparent)] bg-[var(--iw-panel)] text-[var(--iw-text)]"
-            : "border-[color-mix(in_srgb,var(--iw-success)_30%,transparent)] bg-[var(--iw-panel)] text-[var(--iw-text)]",
+            ? "border-[color-mix(in_srgb,var(--ns-danger)_30%,transparent)] bg-[var(--ns-panel)] text-[var(--ns-text)]"
+            : "border-[color-mix(in_srgb,var(--ns-success)_30%,transparent)] bg-[var(--ns-panel)] text-[var(--ns-text)]",
         ].join(" ");
         el.textContent = message;
         wrap.appendChild(el);
@@ -1104,119 +982,6 @@
         if (Number.isNaN(date.getTime())) return "";
         return date.toLocaleString();
       }
-
-      function syncInstagramAuthInputs() {
-        const info = state.settings.instagram_auth || {};
-        const typeInput = document.getElementById("instagramIdentifierTypeInput");
-        const identifierInput = document.getElementById("instagramIdentifierInput");
-        if (typeInput) typeInput.value = info.identifier_type || "username";
-        if (identifierInput) identifierInput.value = info.identifier || "";
-        updateInstagramIdentifierField();
-      }
-
-      function updateInstagramIdentifierField() {
-        const typeInput = document.getElementById("instagramIdentifierTypeInput");
-        const label = document.getElementById("instagramIdentifierLabel");
-        const identifierInput = document.getElementById("instagramIdentifierInput");
-        const type = typeInput ? typeInput.value : "username";
-        const presets = {
-          username: {
-            label: "Username",
-            placeholder: "Enter your Instagram username",
-            autocomplete: "username",
-          },
-          email: {
-            label: "Email",
-            placeholder: "Enter your Instagram email",
-            autocomplete: "email",
-          },
-          phone: {
-            label: "Mobile number",
-            placeholder: "Enter your Instagram mobile number",
-            autocomplete: "tel",
-          },
-        };
-        const preset = presets[type] || presets.username;
-        if (label) label.textContent = preset.label;
-        if (identifierInput) {
-          identifierInput.placeholder = preset.placeholder;
-          identifierInput.autocomplete = preset.autocomplete;
-        }
-      }
-
-      function renderInstagramAuthStatus() {
-        const info = state.settings.instagram_auth || {};
-        const status = document.getElementById("instagramAuthStatus");
-        const removeButton = document.getElementById("removeInstagramAuthButton");
-        if (!status || !removeButton) return;
-
-        removeButton.classList.remove("opacity-50", "cursor-not-allowed");
-
-        if (info.session_saved) {
-          const parts = [];
-          if (info.session_username) {
-            parts.push(`Connected as @${info.session_username}`);
-          } else if (info.identifier) {
-            parts.push(`Connected with ${info.identifier}`);
-          } else {
-            parts.push("Connected to Instagram");
-          }
-          const when = formatTimestamp(info.last_login_at);
-          if (when) parts.push(when);
-          if (info.last_error) parts.push(`Last error: ${info.last_error}`);
-          status.textContent = parts.join(" · ");
-          removeButton.disabled = false;
-          return;
-        }
-
-        if (info.identifier) {
-          const parts = [`Saved ${info.identifier_type || "username"}: ${info.identifier}`];
-          if (info.last_error) parts.push(`Last error: ${info.last_error}`);
-          status.textContent = parts.join(" · ");
-          removeButton.disabled = false;
-          return;
-        }
-
-        if (info.last_error) {
-          status.textContent = info.last_error;
-          removeButton.disabled = false;
-          return;
-        }
-
-        status.textContent = "No Instagram login saved.";
-        removeButton.disabled = true;
-        removeButton.classList.add("opacity-50", "cursor-not-allowed");
-      }
-
-      async function configureInstagramAuth(identifierType, identifier, password) {
-        const response = await fetch("/api/settings/instagram-auth", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier_type: identifierType, identifier, password }),
-        });
-        const data = await response.json();
-        if (data && typeof data === "object" && (data.instagram_auth || data.download_locations || data.site_default_locations || data.save_mode)) {
-          applyServerSettings(data);
-        }
-        if (!response.ok) throw new Error(data.error || "Could not connect Instagram login.");
-        return data;
-      }
-
-      async function removeInstagramAuth() {
-        const response = await fetch("/api/settings/instagram-auth", {
-          method: "DELETE",
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Could not remove Instagram login.");
-        applyServerSettings(data);
-        const identifierInput = document.getElementById("instagramIdentifierInput");
-        const passwordInput = document.getElementById("instagramPasswordInput");
-        if (identifierInput) identifierInput.value = "";
-        if (passwordInput) passwordInput.value = "";
-        syncInstagramAuthInputs();
-        return data;
-      }
-
       function renderInstagramYtdlpCookiesStatus() {
         const info = state.settings.instagram_ytdlp_cookies || {};
         const status = document.getElementById("instagramYtdlpCookiesStatus");
@@ -1234,7 +999,7 @@
           }
           const when = formatTimestamp(info.uploaded_at);
           if (when) parts.push(when);
-          status.textContent = parts.join(" · ");
+          status.textContent = parts.join(" - ");
           removeButton.disabled = false;
           return;
         }
@@ -1252,7 +1017,7 @@
           body: formData,
         });
         const data = await response.json();
-        if (data && typeof data === "object" && (data.instagram_ytdlp_cookies || data.instagram_auth || data.download_locations || data.site_default_locations || data.save_mode)) {
+        if (data && typeof data === "object" && (data.instagram_ytdlp_cookies || data.download_locations || data.site_default_locations || data.save_mode)) {
           applyServerSettings(data);
         }
         if (!response.ok) throw new Error(data.error || "Could not connect yt-dlp cookies.");
@@ -1275,10 +1040,10 @@
         document.querySelectorAll(".menu-btn").forEach((button) => {
           const active = button.dataset.menu === state.activeMenu;
           button.setAttribute("aria-pressed", active ? "true" : "false");
-          button.classList.toggle("bg-[var(--iw-accent)]", active);
-          button.classList.toggle("text-[color:var(--iw-strong-text)]", active);
-          button.classList.toggle("text-[var(--iw-muted)]", !active);
-          button.classList.toggle("hover:text-[var(--iw-text)]", !active);
+          button.classList.toggle("bg-[var(--ns-accent)]", active);
+          button.classList.toggle("text-[color:var(--ns-strong-text)]", active);
+          button.classList.toggle("text-[var(--ns-muted)]", !active);
+          button.classList.toggle("hover:text-[var(--ns-text)]", !active);
         });
       }
 
@@ -1288,18 +1053,18 @@
         document.querySelectorAll(".save-mode-btn").forEach((button) => {
           const active = button.dataset.saveMode === saveMode;
           button.setAttribute("aria-pressed", active ? "true" : "false");
-          button.classList.toggle("bg-[var(--iw-accent)]", active);
-          button.classList.toggle("text-[color:var(--iw-strong-text)]", active);
-          button.classList.toggle("text-[var(--iw-muted)]", !active);
+          button.classList.toggle("bg-[var(--ns-accent)]", active);
+          button.classList.toggle("text-[color:var(--ns-strong-text)]", active);
+          button.classList.toggle("text-[var(--ns-muted)]", !active);
         });
       }
 
       function applyButtonState(button, active) {
         button.setAttribute("aria-pressed", String(active));
-        button.classList.toggle("bg-[var(--iw-accent)]", active);
-        button.classList.toggle("text-[color:var(--iw-strong-text)]", active);
-        button.classList.toggle("text-[var(--iw-muted)]", !active);
-        button.classList.toggle("hover:text-[var(--iw-text)]", !active);
+        button.classList.toggle("bg-[var(--ns-accent)]", active);
+        button.classList.toggle("text-[color:var(--ns-strong-text)]", active);
+        button.classList.toggle("text-[var(--ns-muted)]", !active);
+        button.classList.toggle("hover:text-[var(--ns-text)]", !active);
       }
 
       function updateViewButtons() {
@@ -1325,8 +1090,8 @@
         document.querySelectorAll(".settings-nav-btn").forEach((button) => {
           const active = button.dataset.settingsSection === state.settingsSection;
           button.setAttribute("aria-pressed", active ? "true" : "false");
-          button.classList.toggle("text-[var(--iw-muted)]", !active);
-          button.classList.toggle("hover:text-[var(--iw-text)]", !active);
+          button.classList.toggle("text-[var(--ns-muted)]", !active);
+          button.classList.toggle("hover:text-[var(--ns-text)]", !active);
         });
       }
 
@@ -1343,7 +1108,7 @@
         if (!shouldFocus) return;
         const focusTargets = {
           downloads: "youtubeLocationInput",
-          instagram: "instagramIdentifierInput",
+          instagram: "instagramYtdlpCookiesInput",
           advanced: "folderTemplateInput",
         };
         const target = document.getElementById(focusTargets[state.settingsSection]);
@@ -1366,13 +1131,9 @@
         document.getElementById("facebookLocationInput").value = settings.site_locations.facebook;
         document.getElementById("instagramLocationInput").value = settings.site_locations.instagram;
         document.getElementById("tiktokLocationInput").value = settings.site_locations.tiktok;
-        document.getElementById("iwaraLocationInput").value = settings.site_locations.iwara;
         document.getElementById("othersLocationInput").value = settings.site_locations.others;
         document.getElementById("folderTemplateInput").value = settings.template_settings.folder_template;
         document.getElementById("filenameTemplateInput").value = settings.template_settings.filename_template;
-        syncInstagramAuthInputs();
-        document.getElementById("instagramPasswordInput").value = "";
-        renderInstagramAuthStatus();
         const modal = document.getElementById("settingsModal");
         modal.classList.remove("hidden");
         modal.classList.add("flex");
@@ -1460,18 +1221,17 @@
       }
 
       function getStatusBadgeClass(status) {
-        if (status === "pending") return "bg-[color-mix(in_srgb,var(--iw-warning)_10%,transparent)] text-[var(--iw-text)] border border-[color-mix(in_srgb,var(--iw-warning)_20%,transparent)]";
-        if (status === "running") return "bg-[var(--iw-accent)]/10 text-[var(--iw-text)] border border-[color-mix(in_srgb,var(--iw-accent)_20%,transparent)]";
-        if (status === "completed") return "bg-[color-mix(in_srgb,var(--iw-accent2)_10%,var(--iw-panel))] text-[color-mix(in_srgb,var(--iw-text)_88%,var(--iw-accent2))] border border-[color-mix(in_srgb,var(--iw-accent2)_18%,transparent)] dark:bg-[color-mix(in_srgb,var(--iw-accent2)_14%,var(--iw-panel2))] dark:text-[var(--iw-text)] dark:border-[color-mix(in_srgb,var(--iw-accent2)_24%,transparent)]";        return "bg-[var(--iw-soft-fill)] text-[var(--iw-text)] border border-[var(--iw-border)]";
+        if (status === "pending") return "bg-[color-mix(in_srgb,var(--ns-warning)_10%,transparent)] text-[var(--ns-text)] border border-[color-mix(in_srgb,var(--ns-warning)_20%,transparent)]";
+        if (status === "running") return "bg-[var(--ns-accent)]/10 text-[var(--ns-text)] border border-[color-mix(in_srgb,var(--ns-accent)_20%,transparent)]";
+        if (status === "completed") return "bg-[color-mix(in_srgb,var(--ns-accent2)_10%,var(--ns-panel))] text-[color-mix(in_srgb,var(--ns-text)_88%,var(--ns-accent2))] border border-[color-mix(in_srgb,var(--ns-accent2)_18%,transparent)] dark:bg-[color-mix(in_srgb,var(--ns-accent2)_14%,var(--ns-panel2))] dark:text-[var(--ns-text)] dark:border-[color-mix(in_srgb,var(--ns-accent2)_24%,transparent)]";        return "bg-[var(--ns-soft-fill)] text-[var(--ns-text)] border border-[var(--ns-border)]";
       }
 
       function getSiteBadgeClass(siteCategory) {
-        if (siteCategory === "youtube") return "border border-[#ff3d3d]/30 bg-[#ff3d3d]/10 text-[var(--iw-text)]";
-        if (siteCategory === "facebook") return "border border-[#6ea8ff]/30 bg-[#6ea8ff]/10 text-[var(--iw-text)]";
-        if (siteCategory === "instagram") return "border border-[#ff8ad4]/30 bg-[#ff8ad4]/10 text-[var(--iw-text)]";
-        if (siteCategory === "tiktok") return "border border-[#7ce7ff]/30 bg-[#7ce7ff]/10 text-[var(--iw-text)]";
-        if (siteCategory === "iwara") return "border border-[var(--iw-accent2)]/30 bg-[color-mix(in_srgb,var(--iw-accent2)_12%,transparent)] text-[var(--iw-text)]";
-        return "border border-[var(--iw-border)] bg-[var(--iw-soft-fill)] text-[var(--iw-muted)]";
+        if (siteCategory === "youtube") return "border border-[#ff3d3d]/30 bg-[#ff3d3d]/10 text-[var(--ns-text)]";
+        if (siteCategory === "facebook") return "border border-[#6ea8ff]/30 bg-[#6ea8ff]/10 text-[var(--ns-text)]";
+        if (siteCategory === "instagram") return "border border-[#ff8ad4]/30 bg-[#ff8ad4]/10 text-[var(--ns-text)]";
+        if (siteCategory === "tiktok") return "border border-[#7ce7ff]/30 bg-[#7ce7ff]/10 text-[var(--ns-text)]";
+        return "border border-[var(--ns-border)] bg-[var(--ns-soft-fill)] text-[var(--ns-muted)]";
       }
 
       function renderTasks(tasks) {
@@ -1482,15 +1242,15 @@
           : "grid w-full grid-cols-1 gap-4 md:grid-cols-2";
 
         if (!visibleTasks.length) {
-          root.innerHTML = `<div class="rounded-2xl border border-dashed border-[var(--iw-border)] bg-[var(--iw-panel)] px-5 py-10 text-center text-[var(--iw-muted)]">No ${escapeHtml(SITE_LABELS[state.activeMenu] || "matching")} tasks right now.</div>`;
+          root.innerHTML = `<div class="rounded-2xl border border-dashed border-[var(--ns-border)] bg-[var(--ns-panel)] px-5 py-10 text-center text-[var(--ns-muted)]">No ${escapeHtml(SITE_LABELS[state.activeMenu] || "matching")} tasks right now.</div>`;
           return;
         }
 
         if (state.viewMode === "table") {
           root.innerHTML = `
-            <table class="min-w-full overflow-hidden rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] text-left shadow-soft">
+            <table class="min-w-full overflow-hidden rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] text-left shadow-soft">
               <thead>
-                <tr class="border-b border-[var(--iw-border)] text-xs uppercase tracking-[0.08em] text-[var(--iw-muted)]">
+                <tr class="border-b border-[var(--ns-border)] text-xs uppercase tracking-[0.08em] text-[var(--ns-muted)]">
                   <th class="px-4 py-3">Site</th>
                   <th class="px-4 py-3">Source</th>
                   <th class="px-4 py-3">Folder</th>
@@ -1503,7 +1263,7 @@
               <tbody>
                 ${visibleTasks.map((task) => {
                   const dismissButton = task.can_hide
-                    ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-border)] bg-[var(--iw-soft-fill)] text-[var(--iw-muted)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-accent)]/30 hover:bg-[var(--iw-panel-strong)] hover:text-[var(--iw-text)]" type="button" onclick="hideTask('${task.vid}')" aria-label="Clear task" title="Clear task">
+                    ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--ns-border)] bg-[var(--ns-soft-fill)] text-[var(--ns-muted)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--ns-accent)]/30 hover:bg-[var(--ns-panel-strong)] hover:text-[var(--ns-text)]" type="button" onclick="hideTask('${task.vid}')" aria-label="Clear task" title="Clear task">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" class="h-4 w-4">
                           <path d="M3 3l18 18"></path>
                           <path d="M10.58 10.58a2 2 0 0 0 2.84 2.84"></path>
@@ -1513,7 +1273,7 @@
                       </button>`
                     : "";
                   const deviceButton = task.can_download && task.status !== "failed"
-                    ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-action-border)] bg-[var(--iw-action-bg)] text-[var(--iw-action-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-action-hover-border)] hover:bg-[var(--iw-action-hover-bg)] hover:text-[var(--iw-action-hover-text)]" type="button" onclick="downloadTaskFile('${task.vid}')" aria-label="Download file" title="Download file">
+                    ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--ns-action-border)] bg-[var(--ns-action-bg)] text-[var(--ns-action-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--ns-action-hover-border)] hover:bg-[var(--ns-action-hover-bg)] hover:text-[var(--ns-action-hover-text)]" type="button" onclick="downloadTaskFile('${task.vid}')" aria-label="Download file" title="Download file">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4">
                           <path d="M12 5v10" />
                           <path d="M7 10l5 5 5-5" />
@@ -1522,7 +1282,7 @@
                       </button>`
                     : "";
                   const removeButton = task.can_remove && task.status !== "running"
-                    ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-danger-border)] bg-[var(--iw-danger-bg)] text-[var(--iw-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-danger-hover-border)] hover:bg-[var(--iw-danger-hover-bg)] hover:text-[var(--iw-danger-hover-text)]" type="button" onclick="removeTask('${task.vid}')" aria-label="Remove task from the list" title="Remove task from the list">
+                    ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--ns-danger-border)] bg-[var(--ns-danger-bg)] text-[var(--ns-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--ns-danger-hover-border)] hover:bg-[var(--ns-danger-hover-bg)] hover:text-[var(--ns-danger-hover-text)]" type="button" onclick="removeTask('${task.vid}')" aria-label="Remove task from the list" title="Remove task from the list">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4">
                           <path d="M6 6l12 12"></path>
                           <path d="M18 6L6 18"></path>
@@ -1530,13 +1290,13 @@
                       </button>`
                     : "";
                   return `
-                    <tr class="border-b border-[var(--iw-border)] last:border-b-0">
+                    <tr class="border-b border-[var(--ns-border)] last:border-b-0">
                       <td class="px-4 py-3 align-top"><span class="inline-flex rounded-xl px-3 py-1 text-xs font-bold ${getSiteBadgeClass(task.site_category)}">${escapeHtml(task.site_label)}</span></td>
-                      <td class="px-4 py-3 align-top"><div class="break-all text-sm text-[var(--iw-muted)]">${escapeHtml(task.source_url || task.vid)}</div></td>
+                      <td class="px-4 py-3 align-top"><div class="break-all text-sm text-[var(--ns-muted)]">${escapeHtml(task.source_url || task.vid)}</div></td>
                       <td class="px-4 py-3 align-top text-sm font-semibold">${task.resolved_folder ? escapeHtml(task.resolved_folder) : ""}</td>
                       <td class="px-4 py-3 align-top text-sm">${task.resolved_filename ? escapeHtml(task.resolved_filename) : ""}</td>
                       <td class="px-4 py-3 align-top"><span class="inline-flex rounded-xl px-3 py-1 text-xs font-bold ${getStatusBadgeClass(task.status)}">${escapeHtml(task.status_label)}</span></td>
-                      <td class="px-4 py-3 align-top text-sm text-[var(--iw-muted)]">${Math.max(0, Math.min(100, Number(task.progress_pct) || 0))}%</td>
+                      <td class="px-4 py-3 align-top text-sm text-[var(--ns-muted)]">${Math.max(0, Math.min(100, Number(task.progress_pct) || 0))}%</td>
                       <td class="px-4 py-3 align-top text-right"><div class="inline-flex gap-2">${dismissButton}${deviceButton}${removeButton}</div></td>
                     </tr>
                   `;
@@ -1550,7 +1310,7 @@
         root.innerHTML = visibleTasks.map((task) => {
           const progressPct = Math.max(0, Math.min(100, Number(task.progress_pct) || 0));
           const dismissButton = task.can_hide
-            ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-border)] bg-[var(--iw-soft-fill)] text-[var(--iw-muted)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-accent)]/30 hover:bg-[var(--iw-panel-strong)] hover:text-[var(--iw-text)]" type="button" onclick="hideTask('${task.vid}')" aria-label="Clear task" title="Clear task">
+            ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--ns-border)] bg-[var(--ns-soft-fill)] text-[var(--ns-muted)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--ns-accent)]/30 hover:bg-[var(--ns-panel-strong)] hover:text-[var(--ns-text)]" type="button" onclick="hideTask('${task.vid}')" aria-label="Clear task" title="Clear task">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" class="h-4 w-4">
                   <path d="M3 3l18 18"></path>
                   <path d="M10.58 10.58a2 2 0 0 0 2.84 2.84"></path>
@@ -1560,7 +1320,7 @@
               </button>`
             : "";
           const deviceButton = task.can_download && task.status !== "failed"
-            ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-action-border)] bg-[var(--iw-action-bg)] text-[var(--iw-action-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-action-hover-border)] hover:bg-[var(--iw-action-hover-bg)] hover:text-[var(--iw-action-hover-text)]" type="button" onclick="downloadTaskFile('${task.vid}')" aria-label="Download file" title="Download file">
+            ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--ns-action-border)] bg-[var(--ns-action-bg)] text-[var(--ns-action-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--ns-action-hover-border)] hover:bg-[var(--ns-action-hover-bg)] hover:text-[var(--ns-action-hover-text)]" type="button" onclick="downloadTaskFile('${task.vid}')" aria-label="Download file" title="Download file">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4">
                   <path d="M12 5v10" />
                   <path d="M7 10l5 5 5-5" />
@@ -1569,7 +1329,7 @@
               </button>`
             : "";
           const removeButton = task.can_remove && task.status !== "running"
-            ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--iw-danger-border)] bg-[var(--iw-danger-bg)] text-[var(--iw-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--iw-danger-hover-border)] hover:bg-[var(--iw-danger-hover-bg)] hover:text-[var(--iw-danger-hover-text)]" type="button" onclick="removeTask('${task.vid}')" aria-label="Remove task from the list" title="Remove task from the list">
+            ? `<button class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--ns-danger-border)] bg-[var(--ns-danger-bg)] text-[var(--ns-danger-text)] transition-[background-color,border-color,color,filter,transform,box-shadow] duration-150 hover:-translate-y-px hover:border-[var(--ns-danger-hover-border)] hover:bg-[var(--ns-danger-hover-bg)] hover:text-[var(--ns-danger-hover-text)]" type="button" onclick="removeTask('${task.vid}')" aria-label="Remove task from the list" title="Remove task from the list">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4">
                   <path d="M6 6l12 12"></path>
                   <path d="M18 6L6 18"></path>
@@ -1577,11 +1337,11 @@
               </button>`
             : "";
           const errorLine = task.status === "failed" && task.error
-            ? `<div class="text-xs text-[var(--iw-text)]">${escapeHtml(task.error)}</div>`
+            ? `<div class="text-xs text-[var(--ns-text)]">${escapeHtml(task.error)}</div>`
             : "";
 
           return `
-            <article class="w-full rounded-2xl border border-[var(--iw-border)] bg-[var(--iw-panel)] p-4 shadow-soft">
+            <article class="w-full rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] p-4 shadow-soft">
               <div class="grid grid-cols-1 gap-3">
                 <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
                   <div class="min-w-0">
@@ -1592,7 +1352,7 @@
                     ${dismissButton}${deviceButton}${removeButton}
                   </div>
                 </div>
-                <div class="min-w-0 break-all text-sm text-[var(--iw-muted)]">${escapeHtml(task.source_url || task.vid)}</div>
+                <div class="min-w-0 break-all text-sm text-[var(--ns-muted)]">${escapeHtml(task.source_url || task.vid)}</div>
                 <div class="grid gap-2">
                   ${task.resolved_folder ? `<div class="break-all text-sm font-semibold">${escapeHtml(task.resolved_folder)}</div>` : ""}
                   ${task.resolved_filename ? `<div class="break-all text-sm">${escapeHtml(task.resolved_filename)}</div>` : ""}
@@ -1600,10 +1360,10 @@
                 </div>
               </div>
               <div class="mt-4">
-                <div class="h-2.5 overflow-hidden rounded-full bg-[var(--iw-soft-fill)]">
-                  <div class="h-full rounded-full bg-[var(--iw-accent)] transition-all" style="width:${progressPct}%"></div>
+                <div class="h-2.5 overflow-hidden rounded-full bg-[var(--ns-soft-fill)]">
+                  <div class="h-full rounded-full bg-[var(--ns-accent)] transition-all" style="width:${progressPct}%"></div>
                 </div>
-                <div class="mt-2 flex justify-end text-xs text-[var(--iw-muted)]">${progressPct}%</div>
+                <div class="mt-2 flex justify-end text-xs text-[var(--ns-muted)]">${progressPct}%</div>
               </div>
             </article>
           `;
@@ -1838,7 +1598,7 @@
       async function cleanNfo() {
         const btn = document.getElementById("cleanNfoButton");
         const originalText = btn.textContent;
-        btn.textContent = "Deleting…";
+        btn.textContent = "Deleting...";
         btn.disabled = true;
         try {
           const response = await fetch("/api/cleanup-nfo", { method: "POST" });
@@ -1905,7 +1665,6 @@
       document.querySelectorAll(".settings-nav-btn").forEach((button) => {
         button.addEventListener("click", () => setSettingsSection(button.dataset.settingsSection, true));
       });
-      document.getElementById("instagramIdentifierTypeInput").addEventListener("change", updateInstagramIdentifierField);
       document.getElementById("cancelSettingsButton").addEventListener("click", closeSettings);
       document.getElementById("closeSettingsButton").addEventListener("click", closeSettings);
       document.getElementById("saveSettingsButton").addEventListener("click", async () => {
@@ -1915,7 +1674,6 @@
           facebook: document.getElementById("facebookLocationInput").value || state.defaults.site_locations.facebook || "",
           instagram: document.getElementById("instagramLocationInput").value || state.defaults.site_locations.instagram || "",
           tiktok: document.getElementById("tiktokLocationInput").value || state.defaults.site_locations.tiktok || "",
-          iwara: document.getElementById("iwaraLocationInput").value || state.defaults.site_locations.iwara || "",
           others: document.getElementById("othersLocationInput").value || state.defaults.site_locations.others || "",
         };
         settings.template_settings = {
@@ -1928,30 +1686,6 @@
           closeSettings();
         } catch (error) {
           toast(error.message || "Could not save settings.", "error");
-        }
-      });
-      document.getElementById("connectInstagramAuthButton").addEventListener("click", async () => {
-        const identifierType = document.getElementById("instagramIdentifierTypeInput").value || "username";
-        const identifier = (document.getElementById("instagramIdentifierInput").value || "").trim();
-        const password = document.getElementById("instagramPasswordInput").value || "";
-        try {
-          const data = await configureInstagramAuth(identifierType, identifier, password);
-          if (state.settings.instagram_auth && state.settings.instagram_auth.session_saved) {
-            document.getElementById("instagramPasswordInput").value = "";
-          }
-          syncInstagramAuthInputs();
-          return data;
-        } catch (error) {
-          renderInstagramAuthStatus();
-          toast("Could not reach the Instagram auth endpoint.", "error");
-        }
-      });
-      document.getElementById("removeInstagramAuthButton").addEventListener("click", async () => {
-        if (document.getElementById("removeInstagramAuthButton").disabled) return;
-        try {
-          await removeInstagramAuth();
-        } catch (error) {
-          toast(error.message || "Could not remove Instagram login.", "error");
         }
       });
       document.getElementById("connectInstagramYtdlpCookiesButton").addEventListener("click", async () => {
@@ -2019,7 +1753,7 @@
       if (!localStorage.getItem("neverstelle.activeMenu")) {
         localStorage.setItem("neverstelle.activeMenu", "all");
       }
-      state.activeMenu = localStorage.getItem("neverstelle.activeMenu") || "all";
+      state.activeMenu = SITE_LABELS[localStorage.getItem("neverstelle.activeMenu")] ? localStorage.getItem("neverstelle.activeMenu") : "all";
       applyTheme(getThemeMode());
       updateViewButtons();
       updateFilterButtons();
@@ -2030,3 +1764,4 @@
     </script>
   </body>
 </html>
+

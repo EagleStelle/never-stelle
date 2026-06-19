@@ -1,10 +1,14 @@
 services:
   never-stelle:
-    image: eaglestelle/never-stelle
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: never-stelle
     restart: unless-stopped
     environment:
-      ACCESSIBLE_VOLUMES_ROOTS: "/library|/media"
+      APP_DATA_DIR: /app/data
+      FRONTEND_DIR: /app/frontend
+      ACCESSIBLE_VOLUMES_ROOTS: /library|/media
     volumes:
       - ./data:/app/data
       - ./library:/library

@@ -3,4 +3,5 @@ data/
 library/
 settings.json
 .venv/
+.local/
 *.tar
