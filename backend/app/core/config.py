@@ -10,11 +10,13 @@ import yaml
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = Path(os.environ.get("APP_DATA_DIR", PROJECT_ROOT / "data")).resolve()
+DATA_DIR = Path(os.environ.get("APP_DATA_DIR", PROJECT_ROOT / ".local")).resolve()
+DATABASE_PATH = Path(os.environ.get("APP_DATABASE_PATH", DATA_DIR / "never-stelle.sqlite3")).resolve()
 FRONTEND_DIR = Path(os.environ.get("FRONTEND_DIR", PROJECT_ROOT / "frontend")).resolve()
 APP_CONFIG_PATH = Path(os.environ.get("APP_CONFIG_PATH", "/config/config.yaml"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 SITE_KEYS = ("youtube", "facebook", "instagram", "tiktok", "others")
 SITE_LABELS = {

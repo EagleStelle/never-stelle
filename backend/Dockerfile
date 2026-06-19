@@ -13,6 +13,7 @@ COPY backend /app/backend
 COPY frontend /app/frontend
 
 ENV APP_DATA_DIR=/app/data
+ENV APP_DATABASE_PATH=/app/data/never-stelle.sqlite3
 ENV FRONTEND_DIR=/app/frontend
 ENV PYTHONPATH=/app
 

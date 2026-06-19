@@ -22,7 +22,7 @@ Use another port:
 .\run.cmd -Port 8090
 ```
 
-Runtime files are kept in `.local/`, including the virtual environment, data files, logs, temporary files, and default download library.
+Runtime files are kept in `.local/`, including the virtual environment, SQLite database, temporary files, pip cache, and default download library.
 
 ## Docker
 
@@ -35,6 +35,8 @@ Open:
 ```text
 http://127.0.0.1:8088
 ```
+
+Docker state is stored under `.local/docker-data/`; the default library bind uses `.local/library/`.
 
 ## Requirements
 
@@ -51,6 +53,7 @@ Common environment variables:
 | Variable | Description |
 | --- | --- |
 | `APP_DATA_DIR` | Runtime state directory. |
+| `APP_DATABASE_PATH` | SQLite database path. |
 | `FRONTEND_DIR` | Static frontend directory. |
 | `ACCESSIBLE_VOLUMES_ROOTS` | Pipe-separated save roots. |
 | `DOWNLOAD_LOCATIONS` | Optional explicit save locations. |

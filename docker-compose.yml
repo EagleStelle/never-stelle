@@ -7,10 +7,11 @@ services:
     restart: unless-stopped
     environment:
       APP_DATA_DIR: /app/data
+      APP_DATABASE_PATH: /app/data/never-stelle.sqlite3
       FRONTEND_DIR: /app/frontend
       ACCESSIBLE_VOLUMES_ROOTS: /library|/media
     volumes:
-      - ./data:/app/data
-      - ./library:/library
+      - ./.local/docker-data:/app/data
+      - ./.local/library:/library
     ports:
       - "8088:8088"

@@ -15,14 +15,20 @@ from typing import Any
 from urllib.parse import urlparse
 
 from backend.app.core.config import (
-    DATA_DIR,
     SITE_KEYS,
     SITE_LABELS,
     get_site_default_locations,
     is_allowed_location,
     load_app_config,
 )
-from backend.app.core.storage import load_json, save_json
+from backend.app.db.repositories import (
+    load_history_payload,
+    load_task_meta_payload,
+    load_task_store_payload,
+    save_history_payload,
+    save_task_meta_payload,
+    save_task_store_payload,
+)
 from backend.app.services.settings import (
     find_cookies_file_for_url,
     get_effective_saved_settings,
@@ -30,10 +36,6 @@ from backend.app.services.settings import (
     normalize_site_location_selection,
 )
 
-
-TASKS_FILE = DATA_DIR / "tasks.json"
-META_FILE = DATA_DIR / "task_meta.json"
-HISTORY_FILE = DATA_DIR / "download_history.json"
 
 STATUS_LABELS = {
     "pending": "Queued",
@@ -77,18 +79,6 @@ _worker_wakeup = threading.Event()
 _worker_started = False
 
 
-def _task_store_default() -> dict[str, Any]:
-    return {"tasks": {}}
-
-
-def _meta_default() -> dict[str, Any]:
-    return {"tasks": {}}
-
-
-def _history_default() -> dict[str, Any]:
-    return {"entries": {}}
-
-
 def _normalize_task_store(raw: Any) -> dict[str, Any]:
     if isinstance(raw, dict) and isinstance(raw.get("tasks"), dict):
         return {"tasks": raw.get("tasks") or {}}
@@ -110,27 +100,27 @@ def _normalize_history(raw: Any) -> dict[str, Any]:
 
 
 def load_task_store() -> dict[str, Any]:
-    return load_json(TASKS_FILE, _task_store_default, _normalize_task_store)
+    return _normalize_task_store(load_task_store_payload())
 
 
 def save_task_store(data: dict[str, Any]) -> None:
-    save_json(TASKS_FILE, _normalize_task_store(data))
+    save_task_store_payload(_normalize_task_store(data))
 
 
 def load_meta() -> dict[str, Any]:
-    return load_json(META_FILE, _meta_default, _normalize_meta)
+    return _normalize_meta(load_task_meta_payload())
 
 
 def save_meta(data: dict[str, Any]) -> None:
-    save_json(META_FILE, _normalize_meta(data))
+    save_task_meta_payload(_normalize_meta(data))
 
 
 def load_history() -> dict[str, Any]:
-    return load_json(HISTORY_FILE, _history_default, _normalize_history)
+    return _normalize_history(load_history_payload())
 
 
 def save_history(data: dict[str, Any]) -> None:
-    save_json(HISTORY_FILE, _normalize_history(data))
+    save_history_payload(_normalize_history(data))
 
 
 def update_task(task_id: str, **updates: Any) -> dict[str, Any]:

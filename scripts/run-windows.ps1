@@ -12,13 +12,12 @@ Set-Location -LiteralPath $RepoRoot
 
 $LocalDir = Join-Path $RepoRoot ".local"
 $VenvDir = Join-Path $LocalDir ".venv"
-$DataDir = Join-Path $LocalDir "data"
+$DatabasePath = Join-Path $LocalDir "never-stelle.sqlite3"
 $LibraryDir = Join-Path $LocalDir "library"
-$LogsDir = Join-Path $LocalDir "logs"
 $TempDir = Join-Path $LocalDir "tmp"
 $PipCacheDir = Join-Path $LocalDir "pip-cache"
 
-foreach ($Path in @($LocalDir, $DataDir, $LibraryDir, $LogsDir, $TempDir, $PipCacheDir)) {
+foreach ($Path in @($LocalDir, $LibraryDir, $TempDir, $PipCacheDir)) {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
 }
 
@@ -51,7 +50,8 @@ if ($Reinstall -or $InstalledHash -ne $RequirementsHash) {
     Set-Content -LiteralPath $RequirementsStamp -Value $RequirementsHash -Encoding ascii
 }
 
-$env:APP_DATA_DIR = $DataDir
+$env:APP_DATA_DIR = $LocalDir
+$env:APP_DATABASE_PATH = $DatabasePath
 $env:FRONTEND_DIR = Join-Path $RepoRoot "frontend"
 $env:ACCESSIBLE_VOLUMES_ROOTS = $LibraryDir
 $env:PYTHONPATH = $RepoRoot
@@ -64,7 +64,7 @@ Write-Host ""
 Write-Host "Never Stelle"
 Write-Host "  URL:      http://${HostAddress}:$Port"
 Write-Host "  Runtime:  $LocalDir"
-Write-Host "  Data:     $DataDir"
+Write-Host "  Database: $DatabasePath"
 Write-Host "  Library:  $LibraryDir"
 Write-Host ""
 Write-Host "Press Ctrl+C to stop."

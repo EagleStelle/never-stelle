@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,20 +11,25 @@ from typing import Any
 from fastapi import UploadFile
 
 from backend.app.core.config import (
-    DATA_DIR,
     SITE_KEYS,
     get_site_default_locations,
     load_app_config,
     normalize_allowed_location,
     normalize_download_locations,
 )
-from backend.app.core.storage import file_lock, load_json, save_json
+from backend.app.db.repositories import (
+    delete_file_blob,
+    get_file_blob,
+    get_file_blob_metadata,
+    load_settings_payload,
+    save_file_blob,
+    save_settings_payload,
+)
 
 
-SETTINGS_FILE = DATA_DIR / "settings.json"
-COOKIE_FILE = DATA_DIR / "instagram-ytdlp-cookies.txt"
-RUNTIME_COOKIE_FILE = DATA_DIR / "instagram-ytdlp-cookies.runtime.txt"
+COOKIE_BLOB_KEY = "instagram_ytdlp_cookies"
 MAX_COOKIE_UPLOAD_BYTES = 5 * 1024 * 1024
+_cookie_file_lock = threading.RLock()
 
 DEFAULT_FOLDER_TEMPLATE = os.environ.get("DEFAULT_FOLDER_TEMPLATE", "{{creator}}").strip() or "{{creator}}"
 DEFAULT_FILENAME_TEMPLATE = (
@@ -31,17 +38,13 @@ DEFAULT_FILENAME_TEMPLATE = (
 )
 
 
-def _settings_default() -> dict[str, Any]:
-    return {}
-
-
 def load_saved_settings_file() -> dict[str, Any]:
-    payload = load_json(SETTINGS_FILE, _settings_default)
+    payload = load_settings_payload()
     return payload if isinstance(payload, dict) else {}
 
 
 def save_saved_settings_file(payload: dict[str, Any]) -> None:
-    save_json(SETTINGS_FILE, payload if isinstance(payload, dict) else {})
+    save_settings_payload(payload if isinstance(payload, dict) else {})
 
 
 def normalize_template_settings(raw: Any) -> dict[str, str]:
@@ -70,14 +73,13 @@ def normalize_site_location_selection(raw: Any, cfg: dict[str, Any]) -> dict[str
 
 
 def get_ytdlp_cookies_status() -> dict[str, Any]:
-    filename = str(load_saved_settings_file().get("instagram_cookies_filename") or "").strip()
-    uploaded_at = str(load_saved_settings_file().get("instagram_cookies_uploaded_at") or "").strip()
-    if COOKIE_FILE.exists() and COOKIE_FILE.is_file():
+    uploaded = get_file_blob_metadata(COOKIE_BLOB_KEY)
+    if uploaded:
         return {
             "configured": True,
             "source": "uploaded",
-            "filename": filename or COOKIE_FILE.name,
-            "uploaded_at": uploaded_at,
+            "filename": str(uploaded.get("filename") or "cookies.txt"),
+            "uploaded_at": str(uploaded.get("created_at") or uploaded.get("updated_at") or ""),
         }
 
     mounted = str(os.environ.get("YTDLP_INSTAGRAM_COOKIES") or os.environ.get("YTDLP_COOKIES") or "").strip()
@@ -96,6 +98,24 @@ def get_ytdlp_cookies_status() -> dict[str, Any]:
     return {"configured": False, "source": "none", "filename": "", "uploaded_at": ""}
 
 
+def materialize_cookie_blob() -> str:
+    uploaded = get_file_blob(COOKIE_BLOB_KEY)
+    if not uploaded:
+        return ""
+    content = uploaded.get("content")
+    if not isinstance(content, bytes) or not content:
+        return ""
+
+    runtime_dir = Path(tempfile.gettempdir()) / "never-stelle"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    target = runtime_dir / "instagram-ytdlp-cookies.txt"
+    with _cookie_file_lock:
+        temp_target = target.with_suffix(".tmp")
+        temp_target.write_bytes(content)
+        temp_target.replace(target)
+    return str(target)
+
+
 def find_cookies_file_for_url(source_url: str) -> str:
     host = ""
     try:
@@ -106,8 +126,8 @@ def find_cookies_file_for_url(source_url: str) -> str:
         host = ""
 
     candidates: list[str] = []
-    if host.endswith("instagram.com") and COOKIE_FILE.exists() and COOKIE_FILE.is_file():
-        candidates.append(str(COOKIE_FILE))
+    if host.endswith("instagram.com"):
+        candidates.append(materialize_cookie_blob())
     if host.endswith("instagram.com"):
         candidates.append(str(os.environ.get("YTDLP_INSTAGRAM_COOKIES") or "").strip())
     candidates.append(str(os.environ.get("YTDLP_COOKIES") or "").strip())
@@ -125,33 +145,22 @@ async def save_ytdlp_cookies_upload(uploaded: UploadFile) -> None:
     if len(raw) > MAX_COOKIE_UPLOAD_BYTES:
         raise ValueError("Cookies file is too large.")
 
-    COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with file_lock(COOKIE_FILE):
-        temp_path = COOKIE_FILE.with_suffix(".tmp")
-        temp_path.write_bytes(raw)
-        temp_path.replace(COOKIE_FILE)
-
-    try:
-        RUNTIME_COOKIE_FILE.unlink(missing_ok=True)
-    except Exception:
-        pass
-
-    existing = load_saved_settings_file()
-    existing["instagram_cookies_filename"] = Path(uploaded.filename or "cookies.txt").name
-    existing["instagram_cookies_uploaded_at"] = datetime.now(timezone.utc).isoformat()
-    save_saved_settings_file(existing)
+    save_file_blob(
+        COOKIE_BLOB_KEY,
+        Path(uploaded.filename or "cookies.txt").name,
+        raw,
+        "text/plain",
+    )
 
 
 def clear_ytdlp_cookies_upload() -> None:
-    for path in (COOKIE_FILE, RUNTIME_COOKIE_FILE):
+    delete_file_blob(COOKIE_BLOB_KEY)
+    runtime_dir = Path(tempfile.gettempdir()) / "never-stelle"
+    for filename in ("instagram-ytdlp-cookies.txt", "instagram-ytdlp-cookies.tmp"):
         try:
-            path.unlink(missing_ok=True)
+            (runtime_dir / filename).unlink(missing_ok=True)
         except Exception:
             pass
-    existing = load_saved_settings_file()
-    existing.pop("instagram_cookies_filename", None)
-    existing.pop("instagram_cookies_uploaded_at", None)
-    save_saved_settings_file(existing)
 
 
 def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, Any]:

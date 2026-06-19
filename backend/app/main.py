@@ -8,11 +8,13 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.app.api.routes import router
 from backend.app.core.config import FRONTEND_DIR
+from backend.app.db import initialize_database
 from backend.app.services.tasks import ensure_worker
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    initialize_database()
     ensure_worker()
     yield
 
