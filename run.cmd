@@ -18,9 +18,11 @@ exit /b %RC%
 param(
     [int]$Port = 8088,
     [string]$HostAddress = "127.0.0.1",
-    [switch]$Reinstall
+    [switch]$Reinstall,
+    [switch]$Prod
 )
 
+$Dev = -not $Prod
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path -LiteralPath $env:NS_REPO_ROOT).Path
@@ -90,47 +92,60 @@ if (-not $Node -or -not $Npm) {
     throw "Node.js and npm are required to build the Vue frontend. Install Node.js ^20.19.0 or >=22.12.0."
 }
 
-foreach ($Name in @("src", "public")) {
-    $Target = Join-Path $FrontendWorkDir $Name
-    if (Test-Path -LiteralPath $Target) {
-        Assert-UnderLocal $Target
-        Remove-Item -LiteralPath $Target -Recurse -Force
+if ($Dev) {
+    $FrontendDevNodeModules = Join-Path $FrontendSourceDir "node_modules"
+    if (-not (Test-Path -LiteralPath $FrontendDevNodeModules)) {
+        Write-Host "Installing frontend dependencies for development..."
+        & $Npm.Source install --prefix $FrontendSourceDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "Frontend dev dependency installation failed."
+        }
     }
-}
-
-foreach ($Name in @("package.json", "package-lock.json", "tsconfig.json", "vite.config.ts", "index.html", "src", "public")) {
-    $Source = Join-Path $FrontendSourceDir $Name
-    if (Test-Path -LiteralPath $Source) {
-        Copy-Item -LiteralPath $Source -Destination $FrontendWorkDir -Recurse -Force
-    }
-}
-
-$FrontendLockPath = Join-Path $FrontendSourceDir "package-lock.json"
-$FrontendNodeModules = Join-Path $FrontendWorkDir "node_modules"
-$FrontendStamp = Join-Path $BuildDir "frontend-package-lock.sha256"
-$FrontendLockHash = (Get-FileHash -LiteralPath $FrontendLockPath -Algorithm SHA256).Hash
-$InstalledFrontendHash = if (Test-Path -LiteralPath $FrontendStamp) {
-    (Get-Content -LiteralPath $FrontendStamp -Raw).Trim()
+    Write-Host "Starting Vue frontend dev server in new window..."
+    Start-Process -FilePath cmd.exe -ArgumentList "/c", "title Never Stelle Frontend (Dev) & npm --prefix `"$FrontendSourceDir`" run dev"
 } else {
-    ""
-}
-
-if ($Reinstall -or $InstalledFrontendHash -ne $FrontendLockHash -or -not (Test-Path -LiteralPath $FrontendNodeModules)) {
-    Write-Host "Installing frontend dependencies..."
-    & $Npm.Source install --prefix $FrontendWorkDir --cache $NpmCacheDir
-    if ($LASTEXITCODE -ne 0) {
-        throw "Frontend dependency installation failed."
+    foreach ($Name in @("src", "public")) {
+        $Target = Join-Path $FrontendWorkDir $Name
+        if (Test-Path -LiteralPath $Target) {
+            Assert-UnderLocal $Target
+            Remove-Item -LiteralPath $Target -Recurse -Force
+        }
     }
-    Set-Content -LiteralPath $FrontendStamp -Value $FrontendLockHash -Encoding ascii
-}
 
-Write-Host "Building Vue frontend..."
-$env:FRONTEND_OUT_DIR = $FrontendDistDir
-& $Npm.Source --prefix $FrontendWorkDir run build
-if ($LASTEXITCODE -ne 0) {
-    throw "Vue frontend build failed."
+    foreach ($Name in @("package.json", "package-lock.json", "tsconfig.json", "vite.config.ts", "index.html", "src", "public")) {
+        $Source = Join-Path $FrontendSourceDir $Name
+        if (Test-Path -LiteralPath $Source) {
+            Copy-Item -LiteralPath $Source -Destination $FrontendWorkDir -Recurse -Force
+        }
+    }
+
+    $FrontendLockPath = Join-Path $FrontendSourceDir "package-lock.json"
+    $FrontendNodeModules = Join-Path $FrontendWorkDir "node_modules"
+    $FrontendStamp = Join-Path $BuildDir "frontend-package-lock.sha256"
+    $FrontendLockHash = (Get-FileHash -LiteralPath $FrontendLockPath -Algorithm SHA256).Hash
+    $InstalledFrontendHash = if (Test-Path -LiteralPath $FrontendStamp) {
+        (Get-Content -LiteralPath $FrontendStamp -Raw).Trim()
+    } else {
+        ""
+    }
+
+    if ($Reinstall -or $InstalledFrontendHash -ne $FrontendLockHash -or -not (Test-Path -LiteralPath $FrontendNodeModules)) {
+        Write-Host "Installing frontend dependencies..."
+        & $Npm.Source install --prefix $FrontendWorkDir --cache $NpmCacheDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "Frontend dependency installation failed."
+        }
+        Set-Content -LiteralPath $FrontendStamp -Value $FrontendLockHash -Encoding ascii
+    }
+
+    Write-Host "Building Vue frontend..."
+    $env:FRONTEND_OUT_DIR = $FrontendDistDir
+    & $Npm.Source --prefix $FrontendWorkDir run build
+    if ($LASTEXITCODE -ne 0) {
+        throw "Vue frontend build failed."
+    }
+    Remove-Item Env:\FRONTEND_OUT_DIR -ErrorAction SilentlyContinue
 }
-Remove-Item Env:\FRONTEND_OUT_DIR -ErrorAction SilentlyContinue
 
 $env:PYTHONPATH = $RepoRoot
 $env:PYTHONDONTWRITEBYTECODE = "1"
@@ -145,7 +160,13 @@ $env:TMPDIR = $TempDir
 
 Write-Host ""
 Write-Host "Never Stelle"
-Write-Host "  URL:      http://${HostAddress}:$Port"
+if ($Dev) {
+    Write-Host "  Mode:     Development (Hot Reload)"
+    Write-Host "  URL:      http://${HostAddress}:5173"
+    Write-Host "  API URL:  http://${HostAddress}:$Port"
+} else {
+    Write-Host "  URL:      http://${HostAddress}:$Port"
+}
 Write-Host "  Data:     $DataDir"
 Write-Host "  Media:    $MediaDir"
 Write-Host "  Scratch:  $ScratchDir"
@@ -155,4 +176,8 @@ Write-Host ""
 Write-Host "Press Ctrl+C to stop."
 Write-Host ""
 
-& $PythonExe -m uvicorn backend.app.main:app --host $HostAddress --port $Port
+if ($Dev) {
+    & $PythonExe -m uvicorn backend.app.main:app --host $HostAddress --port $Port --reload
+} else {
+    & $PythonExe -m uvicorn backend.app.main:app --host $HostAddress --port $Port
+}

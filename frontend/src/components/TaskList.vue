@@ -53,8 +53,6 @@ function getSiteBadgeClass(siteCategory: string): string {
       {{ props.errorMessage }}
     </div>
 
-    <div v-else-if="!props.tasks.length" class="border border-dashed border-accent-subtle rounded-lg bg-panel flex min-h-[12rem] items-center justify-center gap-[0.55rem] text-text-muted font-[800] text-center">No {{ activeMenuLabel }} tasks right now.</div>
-
     <div v-else-if="viewMode === 'table'" class="w-full overflow-auto rounded-lg">
       <table class="w-full min-w-[58rem] border-separate border-spacing-0 overflow-hidden text-left border border-accent-subtle rounded-lg bg-panel">
         <thead>
@@ -129,9 +127,9 @@ function getSiteBadgeClass(siteCategory: string): string {
           </span>
         </div>
 
-        <div class="break-words color-text-muted text-[0.9rem]">{{ task.source_url || task.vid }}</div>
+        <div class="break-words text-text-muted">{{ task.source_url || task.vid }}</div>
 
-        <div class="grid gap-[0.3rem] text-[0.9rem]">
+        <div class="grid gap-[0.3rem]">
           <div v-if="task.resolved_folder" class="break-words font-[800]">{{ task.resolved_folder }}</div>
           <div v-if="task.resolved_filename">{{ task.resolved_filename }}</div>
           <div v-if="task.status === 'failed' && task.error" class="break-words whitespace-pre-line">
@@ -139,7 +137,7 @@ function getSiteBadgeClass(siteCategory: string): string {
           </div>
         </div>
 
-        <div class="grid gap-[0.35rem] text-text-muted text-[0.75rem] font-[800] text-right">
+        <div class="grid gap-[0.35rem] text-text-muted font-[800] text-right">
           <div class="h-[0.45rem] overflow-hidden rounded-full bg-panel-subtle">
             <div class="h-full rounded-full bg-accent transition-[width] duration-[260ms] ease-out" :style="{ width: `${progressPct(task)}%` }"></div>
           </div>
@@ -147,16 +145,16 @@ function getSiteBadgeClass(siteCategory: string): string {
         </div>
 
         <div class="flex items-center gap-[0.45rem] flex-wrap justify-end">
-          <button v-if="task.can_hide" class="inline-flex items-center justify-center gap-[0.42rem] min-h-[2.55rem] px-[0.85rem] text-[0.9rem] border border-accent-subtle rounded-lg bg-panel-subtle text-text-muted font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:border-accent hover:text-text md:flex-none" type="button" @click="emit('hide', task.vid)">
-            <PhEyeClosed aria-hidden="true" />
+          <button v-if="task.can_hide" class="inline-flex items-center justify-center gap-[0.42rem] min-h-[2.55rem] px-[0.85rem] border border-accent-subtle rounded-lg bg-panel-subtle text-text-muted font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:border-accent hover:text-text md:flex-none" type="button" @click="emit('hide', task.vid)">
+            <IconEyeClosed aria-hidden="true" />
             <span>Clear</span>
           </button>
-          <button v-if="task.can_download && task.status !== 'failed'" class="inline-flex items-center justify-center gap-[0.42rem] min-h-[2.55rem] px-[0.85rem] text-[0.9rem] border border-text rounded-lg bg-accent text-bg font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:border-accent hover:bg-text hover:text-bg" type="button" @click="emit('download', task.vid)">
-            <PhDownloadSimple aria-hidden="true" />
+          <button v-if="task.can_download && task.status !== 'failed'" class="inline-flex items-center justify-center gap-[0.42rem] min-h-[2.55rem] px-[0.85rem] border border-text rounded-lg bg-accent text-bg font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:border-accent hover:bg-text hover:text-bg" type="button" @click="emit('download', task.vid)">
+            <IconDownload aria-hidden="true" />
             <span>Download</span>
           </button>
-          <button v-if="task.can_remove && task.status !== 'running'" class="inline-flex items-center justify-center gap-[0.42rem] min-h-[2.55rem] px-[0.85rem] text-[0.9rem] border border-accent-subtle rounded-lg bg-panel-subtle text-text-muted font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:border-accent hover:text-text md:flex-none border-red-600 bg-red-600 text-white hover:bg-red-700 hover:border-red-700 hover:text-white" type="button" @click="emit('remove', task.vid)">
-            <PhX aria-hidden="true" />
+          <button v-if="task.can_remove && task.status !== 'running'" class="inline-flex items-center justify-center gap-[0.42rem] min-h-[2.55rem] px-[0.85rem] border border-accent-subtle rounded-lg bg-panel-subtle text-text-muted font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:border-accent hover:text-text md:flex-none border-red-600 bg-red-600 text-white hover:bg-red-700 hover:border-red-700 hover:text-white" type="button" @click="emit('remove', task.vid)">
+            <IconX aria-hidden="true" />
             <span>Remove</span>
           </button>
         </div>

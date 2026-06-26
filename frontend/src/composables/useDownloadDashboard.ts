@@ -42,10 +42,11 @@ export function useDownloadDashboard() {
     const tasks = taskQueue.taskItems.value;
     return activeMenu.value === "all" ? tasks : tasks.filter((task) => (task.site_category || "others") === activeMenu.value);
   });
-  const filteredTasks = computed(() => {
-    if (activeFilter.value === "active") return menuTasks.value.filter((task) => ["pending", "running"].includes(task.status));
-    if (activeFilter.value === "done") return menuTasks.value.filter((task) => ["completed", "failed"].includes(task.status));
-    return menuTasks.value;
+  const activeTasks = computed(() => {
+    return menuTasks.value.filter((task) => ["pending", "running", "failed"].includes(task.status));
+  });
+  const completedTasks = computed(() => {
+    return menuTasks.value.filter((task) => ["completed"].includes(task.status));
   });
   const countsForActiveMenu = computed(() => countTasks(menuTasks.value));
   const activeMenuLabel = computed(() => SITE_LABELS[activeMenu.value] || "matching");
@@ -92,8 +93,9 @@ export function useDownloadDashboard() {
     activeFilter,
     activeMenu,
     activeMenuLabel,
+    activeTasks,
+    completedTasks,
     countCards,
-    filteredTasks,
     isLightMode,
     navigationItems,
     pageItems,

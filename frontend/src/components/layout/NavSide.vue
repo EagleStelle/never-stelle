@@ -30,7 +30,7 @@ const isExpanded = ref(false);
     :class="isExpanded ? 'w-[16rem]' : 'w-[4.5rem] items-center'"
     aria-label="App navigation"
   >
-    <div class="group flex items-center w-full mb-2 min-h-[3.5rem]" :class="isExpanded ? 'px-2 justify-between' : 'justify-center relative'">
+    <div class="group flex items-center w-full mb-2 h-10" :class="isExpanded ? 'px-2 justify-between' : 'justify-center relative'">
       <a href="/" class="inline-flex items-center min-w-0 gap-[0.6rem] text-accent text-[1.4rem] font-[800] leading-none no-underline transition-opacity duration-200" :class="!isExpanded ? 'group-hover:opacity-0' : ''" aria-label="Never Stelle Home">
         <img src="/assets/logo.png" alt="" class="w-[2.2rem] h-[2.2rem] shrink-0" />
         <span v-show="isExpanded" class="whitespace-nowrap overflow-hidden transition-opacity duration-200" :class="isExpanded ? 'opacity-100' : 'opacity-0'">Never Stelle</span>
@@ -47,13 +47,13 @@ const isExpanded = ref(false);
       </button>
     </div>
 
-    <nav class="grid w-full gap-[0.35rem]" aria-label="App navigation">
+    <nav class="flex gap-[0.35rem]" :class="isExpanded ? 'w-full flex-col' : 'flex-col items-center w-full'" aria-label="App navigation">
       <button
         v-for="item in pageItems"
         :key="item.key"
         type="button"
         class="inline-flex items-center rounded-lg bg-transparent text-text-muted leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:text-text hover:bg-panel-subtle aria-pressed:bg-accent aria-pressed:text-bg"
-        :class="isExpanded ? 'w-full flex-row justify-start px-4 py-3 gap-3 min-h-[3.5rem]' : 'w-[3.5rem] h-[3.5rem] flex-col justify-center gap-1'"
+        :class="isExpanded ? 'w-full flex-row justify-start px-4 h-10 gap-3' : 'w-10 h-10 justify-center'"
         :aria-pressed="activePage === item.key"
         :title="!isExpanded ? item.label : undefined"
         @click="emit('selectPage', item.key)"
@@ -67,7 +67,7 @@ const isExpanded = ref(false);
       <button
         type="button"
         class="inline-flex items-center rounded-lg bg-transparent text-text-muted leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:text-text hover:bg-panel-subtle"
-        :class="isExpanded ? 'w-full flex-row justify-start px-4 py-3 gap-3 min-h-[3.5rem]' : 'w-[3.5rem] h-[3.5rem] justify-center'"
+        :class="isExpanded ? 'w-full flex-row justify-start px-4 h-10 gap-3' : 'w-10 h-10 justify-center'"
         :aria-label="isLightMode ? 'Switch to dark mode' : 'Switch to light mode'"
         :title="!isExpanded ? (isLightMode ? 'Switch to dark mode' : 'Switch to light mode') : undefined"
         @click="emit('toggleTheme')"
@@ -79,7 +79,7 @@ const isExpanded = ref(false);
       <button 
         type="button" 
         class="inline-flex items-center rounded-lg bg-transparent text-text-muted leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:text-text hover:bg-panel-subtle aria-pressed:bg-accent aria-pressed:text-bg"
-        :class="[isExpanded ? 'w-full flex-row justify-start px-4 py-3 gap-3 min-h-[3.5rem]' : 'w-[3.5rem] h-[3.5rem] justify-center', activePage === 'settings' ? 'bg-accent text-bg' : '']"
+        :class="[isExpanded ? 'w-full flex-row justify-start px-4 h-10 gap-3' : 'w-10 h-10 justify-center', activePage === 'settings' ? 'bg-accent text-bg' : '']"
         aria-label="Open settings" 
         :title="!isExpanded ? 'Settings' : undefined" 
         @click="emit('openSettings', $event)"
