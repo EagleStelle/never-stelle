@@ -1,0 +1,224 @@
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
+
+import { cleanupNfoFiles, deleteInstagramCookies, getUiConfig, saveSettings, uploadInstagramCookies } from "../api";
+import { UI_CONFIG_QUERY_KEY } from "../ui";
+import type { RuntimeSettings, SavedSettings, SettingsSection, ToastType, UiConfigResponse } from "../types";
+import { createCookiesStatus, createSiteLocations, createTemplateSettings, errorMessage, formatTimestamp } from "../utils/dashboard";
+
+interface UseDashboardSettingsOptions {
+  toast: (message: string, type?: ToastType) => void;
+}
+
+export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
+  const queryClient = useQueryClient();
+  const defaults = reactive<SavedSettings>({
+    site_locations: createSiteLocations(),
+    save_mode: "nas",
+    template_settings: createTemplateSettings(),
+  });
+  const settings = reactive<RuntimeSettings>({
+    site_locations: createSiteLocations(),
+    save_mode: "nas",
+    template_settings: createTemplateSettings(),
+    download_locations: [],
+    instagram_ytdlp_cookies: createCookiesStatus(),
+  });
+  const settingsDraft = reactive<SavedSettings>({
+    site_locations: createSiteLocations(),
+    save_mode: "nas",
+    template_settings: createTemplateSettings(),
+  });
+
+  const settingsOpen = ref(false);
+  const settingsSection = ref<SettingsSection>("downloads");
+  const cleanupBusy = ref(false);
+  const lastFocusedTrigger = ref<HTMLElement | null>(null);
+
+  const uiConfigQuery = useQuery<UiConfigResponse>({
+    queryKey: UI_CONFIG_QUERY_KEY,
+    queryFn: getUiConfig,
+    staleTime: 60_000,
+  });
+  const saveSettingsMutation = useMutation({ mutationFn: saveSettings });
+  const uploadCookiesMutation = useMutation({ mutationFn: uploadInstagramCookies });
+  const deleteCookiesMutation = useMutation({ mutationFn: deleteInstagramCookies });
+
+  const savedSettings = computed<SavedSettings>(() => getSavedSettings());
+  const cookiesStatusText = computed(() => {
+    const info = settings.instagram_ytdlp_cookies;
+    if (!info.configured) return "No yt-dlp cookies saved.";
+    const parts = [info.filename ? `Connected with ${info.filename}` : "Connected to yt-dlp cookies"];
+    const when = formatTimestamp(info.uploaded_at);
+    if (when) parts.push(when);
+    return parts.join(" - ");
+  });
+
+  function getSavedSettings(): SavedSettings {
+    return {
+      site_locations: {
+        youtube: settings.site_locations.youtube || defaults.site_locations.youtube || "",
+        facebook: settings.site_locations.facebook || defaults.site_locations.facebook || "",
+        instagram: settings.site_locations.instagram || defaults.site_locations.instagram || "",
+        tiktok: settings.site_locations.tiktok || defaults.site_locations.tiktok || "",
+        others: settings.site_locations.others || defaults.site_locations.others || "",
+      },
+      save_mode: settings.save_mode === "device" ? "device" : defaults.save_mode || "nas",
+      template_settings: {
+        folder_template: settings.template_settings.folder_template || defaults.template_settings.folder_template || "",
+        filename_template: settings.template_settings.filename_template || defaults.template_settings.filename_template || "",
+      },
+    };
+  }
+
+  function applyServerSettings(data: UiConfigResponse): void {
+    if (data.site_default_locations) {
+      Object.assign(defaults.site_locations, createSiteLocations({ ...defaults.site_locations, ...data.site_default_locations }));
+      Object.assign(settings.site_locations, createSiteLocations({ ...settings.site_locations, ...data.site_default_locations }));
+    }
+    settings.save_mode = data.save_mode === "device" ? "device" : "nas";
+    defaults.save_mode = settings.save_mode;
+    if (data.template_settings) {
+      Object.assign(defaults.template_settings, createTemplateSettings({ ...defaults.template_settings, ...data.template_settings }));
+      Object.assign(settings.template_settings, createTemplateSettings({ ...settings.template_settings, ...data.template_settings }));
+    }
+    settings.download_locations = Array.isArray(data.download_locations) ? data.download_locations : [];
+    settings.instagram_ytdlp_cookies = createCookiesStatus(data.instagram_ytdlp_cookies || {});
+  }
+
+  function cacheUiConfig(data: UiConfigResponse): void {
+    applyServerSettings(data);
+    queryClient.setQueryData(UI_CONFIG_QUERY_KEY, data);
+  }
+
+  async function persistSettings(payload: SavedSettings, successMessage = ""): Promise<void> {
+    cacheUiConfig(await saveSettingsMutation.mutateAsync(payload));
+    if (successMessage) toast(successMessage);
+  }
+
+  function copySettingsToDraft(): void {
+    const current = getSavedSettings();
+    Object.assign(settingsDraft.site_locations, current.site_locations);
+    settingsDraft.save_mode = current.save_mode;
+    Object.assign(settingsDraft.template_settings, current.template_settings);
+  }
+
+  function setSettingsSection(section: SettingsSection, shouldFocus = false): void {
+    settingsSection.value = section;
+    if (!shouldFocus) return;
+    const focusTargets: Record<SettingsSection, string> = {
+      downloads: "youtubeLocationInput",
+      instagram: "instagramYtdlpCookiesInput",
+      advanced: "folderTemplateInput",
+    };
+    void nextTick(() => document.getElementById(focusTargets[settingsSection.value])?.focus());
+  }
+
+  function openSettings(event?: Event, section: SettingsSection = "downloads"): void {
+    lastFocusedTrigger.value = event?.currentTarget instanceof HTMLElement ? event.currentTarget : document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    copySettingsToDraft();
+    settingsOpen.value = true;
+    setSettingsSection(section, true);
+  }
+
+  function closeSettings(): void {
+    settingsOpen.value = false;
+  }
+
+  async function updateSaveMode(mode: "nas" | "device"): Promise<void> {
+    const payload = getSavedSettings();
+    if (payload.save_mode === mode) return;
+    payload.save_mode = mode;
+    try {
+      await persistSettings(payload, "Save mode updated.");
+    } catch (error) {
+      toast(errorMessage(error, "Could not save save mode."), "error");
+    }
+  }
+
+  async function saveSettingsDraft(): Promise<void> {
+    const payload: SavedSettings = {
+      site_locations: createSiteLocations(settingsDraft.site_locations),
+      save_mode: settingsDraft.save_mode === "device" ? "device" : "nas",
+      template_settings: createTemplateSettings(settingsDraft.template_settings),
+    };
+    try {
+      await persistSettings(payload);
+      toast("Settings saved.");
+      closeSettings();
+    } catch (error) {
+      toast(errorMessage(error, "Could not save settings."), "error");
+    }
+  }
+
+  async function connectInstagramCookies(file?: File): Promise<void> {
+    if (!file) {
+      toast("Choose a cookies file first.", "error");
+      return;
+    }
+    try {
+      cacheUiConfig(await uploadCookiesMutation.mutateAsync(file));
+      toast("yt-dlp cookies connected.");
+    } catch (error) {
+      toast(errorMessage(error, "Could not connect yt-dlp cookies."), "error");
+    }
+  }
+
+  async function removeInstagramCookies(): Promise<void> {
+    if (!settings.instagram_ytdlp_cookies.configured) return;
+    try {
+      cacheUiConfig(await deleteCookiesMutation.mutateAsync());
+      toast("yt-dlp cookies disconnected.");
+    } catch (error) {
+      toast(errorMessage(error, "Could not remove yt-dlp cookies."), "error");
+    }
+  }
+
+  async function cleanNfo(): Promise<void> {
+    cleanupBusy.value = true;
+    try {
+      const data = await cleanupNfoFiles();
+      if (data.errors && data.errors.length) {
+        toast(`Deleted ${data.deleted} .nfo file${data.deleted === 1 ? "" : "s"}, ${data.errors.length} could not be removed.`, "error");
+      } else {
+        toast(data.deleted === 0 ? "No .nfo files found." : `Deleted ${data.deleted} .nfo file${data.deleted === 1 ? "" : "s"}.`);
+      }
+    } catch (error) {
+      toast(errorMessage(error, "Could not delete .nfo files."), "error");
+    } finally {
+      cleanupBusy.value = false;
+    }
+  }
+
+  watch(
+    () => uiConfigQuery.data.value,
+    (data) => {
+      if (data) applyServerSettings(data);
+    },
+    { immediate: true },
+  );
+  watch(settingsOpen, (open) => {
+    document.body.classList.toggle("dialog-open", open);
+    if (!open) lastFocusedTrigger.value?.focus();
+  });
+
+  onBeforeUnmount(() => document.body.classList.remove("dialog-open"));
+
+  return {
+    cleanNfo,
+    cleanupBusy,
+    connectInstagramCookies,
+    cookiesStatusText,
+    getSavedSettings,
+    openSettings,
+    removeInstagramCookies,
+    saveSettingsDraft,
+    savedSettings,
+    setSettingsSection,
+    settings,
+    settingsDraft,
+    settingsOpen,
+    settingsSection,
+    updateSaveMode,
+  };
+}

@@ -1,8 +1,10 @@
-export const SITE_KEYS = ["youtube", "facebook", "instagram", "tiktok", "others"] as const;
+export const SITE_KEYS = ["youtube", "facebook", "instagram", "tiktok", "others"] as const;
 export const MENU_KEYS = ["all", ...SITE_KEYS] as const;
+export const PAGE_KEYS = ["downloads", "history", "settings"] as const;
 
 export type SiteKey = (typeof SITE_KEYS)[number];
 export type MenuKey = (typeof MENU_KEYS)[number];
+export type PageKey = (typeof PAGE_KEYS)[number];
 export type SaveMode = "nas" | "device";
 export type TaskStatus = "pending" | "running" | "completed" | "failed" | string;
 export type TaskFilter = "all" | "active" | "done";

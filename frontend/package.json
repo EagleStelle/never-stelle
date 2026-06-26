@@ -12,15 +12,19 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173"
   },
   "dependencies": {
-    "@lucide/vue": "^1.21.0",
+    "@tanstack/vue-query": "^5.101.1",
+    "@vueuse/core": "^14.3.0",
+    "reka-ui": "^2.1.1",
     "vue": "^3.5.38"
   },
   "devDependencies": {
+    "@iconify-json/material-symbols": "^1.2.81",
     "@tailwindcss/vite": "^4.3.1",
     "@types/node": "^26.0.0",
     "@vitejs/plugin-vue": "^6.0.7",
     "tailwindcss": "^4.3.1",
     "typescript": "^6.0.3",
+    "unplugin-icons": "^23.0.1",
     "vite": "^8.0.16",
     "vue-tsc": "^3.3.5"
   }

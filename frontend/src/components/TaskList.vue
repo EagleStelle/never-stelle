@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { Download, EyeOff, X } from "@lucide/vue";
+import IconDownload from "~icons/material-symbols/download";
+import IconEyeClosed from "~icons/material-symbols/visibility-off";
+import IconSpinner from "~icons/material-symbols/sync";
+import IconX from "~icons/material-symbols/close";
 
 import type { MenuKey, TaskItem, ViewMode } from "../types";
 
@@ -8,6 +11,8 @@ const props = defineProps<{
   viewMode: ViewMode;
   activeMenu: MenuKey;
   activeMenuLabel: string;
+  loading?: boolean;
+  errorMessage?: string;
 }>();
 
 const emit = defineEmits<{
@@ -21,173 +26,139 @@ function progressPct(task: TaskItem): number {
 }
 
 function getStatusBadgeClass(status: string): string {
-  if (status === "pending") {
-    return "bg-[color-mix(in_srgb,var(--ns-warning)_10%,transparent)] text-[var(--ns-text)] border border-[color-mix(in_srgb,var(--ns-warning)_20%,transparent)]";
-  }
-  if (status === "running") {
-    return "bg-[var(--ns-accent)]/10 text-[var(--ns-text)] border border-[color-mix(in_srgb,var(--ns-accent)_20%,transparent)]";
-  }
-  if (status === "completed") {
-    return "bg-[color-mix(in_srgb,var(--ns-accent2)_10%,var(--ns-panel))] text-[color-mix(in_srgb,var(--ns-text)_88%,var(--ns-accent2))] border border-[color-mix(in_srgb,var(--ns-accent2)_18%,transparent)]";
-  }
-  return "bg-[var(--ns-soft-fill)] text-[var(--ns-text)] border border-[var(--ns-border)]";
+  if (status === "pending") return "border-amber-500 bg-amber-500/20 text-amber-500 dark:border-amber-400 dark:bg-amber-400/20 dark:text-amber-400";
+  if (status === "running") return "border-accent bg-accent/24 text-text";
+  if (status === "completed") return "border-accent-subtle bg-accent-subtle/34 text-text";
+  if (status === "failed") return "border-red-600 bg-red-600 text-white dark:border-red-500 dark:bg-red-500";
+  return "border-accent-subtle bg-panel-subtle text-text-muted";
 }
 
 function getSiteBadgeClass(siteCategory: string): string {
-  if (siteCategory === "youtube") return "border border-[#ff3d3d]/30 bg-[#ff3d3d]/10 text-[var(--ns-text)]";
-  if (siteCategory === "facebook") return "border border-[#6ea8ff]/30 bg-[#6ea8ff]/10 text-[var(--ns-text)]";
-  if (siteCategory === "instagram") return "border border-[#ff8ad4]/30 bg-[#ff8ad4]/10 text-[var(--ns-text)]";
-  if (siteCategory === "tiktok") return "border border-[#7ce7ff]/30 bg-[#7ce7ff]/10 text-[var(--ns-text)]";
-  return "border border-[var(--ns-border)] bg-[var(--ns-soft-fill)] text-[var(--ns-muted)]";
+  if (siteCategory === "youtube") return "border-accent bg-accent/24 text-text";
+  if (siteCategory === "facebook") return "border-accent-subtle bg-accent-subtle/34 text-text";
+  if (siteCategory === "instagram") return "border-accent bg-accent/24 text-text";
+  if (siteCategory === "tiktok") return "border-accent-subtle bg-accent-subtle/34 text-text";
+  return "border-accent-subtle bg-panel-subtle text-text-muted";
 }
 </script>
 
 <template>
-  <section
-    :class="viewMode === 'table' ? 'w-full overflow-x-auto' : 'grid w-full grid-cols-1 gap-4 md:grid-cols-2'"
-    aria-live="polite"
-  >
-    <div
-      v-if="!props.tasks.length"
-      class="rounded-2xl border border-dashed border-[var(--ns-border)] bg-[var(--ns-panel)] px-5 py-10 text-center text-[var(--ns-muted)]"
-    >
-      No {{ activeMenuLabel }} tasks right now.
+  <section class="grid grid-cols-[minmax(0,1fr)] gap-[0.5rem] sm:grid-cols-[repeat(2,minmax(0,1fr))]" :class="{ 'block': viewMode === 'table' }" aria-live="polite">
+    <div v-if="props.loading" class="border border-dashed border-accent-subtle rounded-lg bg-panel flex min-h-[12rem] items-center justify-center gap-[0.55rem] text-text-muted font-[800] text-center">
+      <IconSpinner class="animate-[ns-spin_900ms_linear_infinite]" aria-hidden="true" />
+      <span>Loading downloads...</span>
     </div>
 
-    <table
-      v-else-if="viewMode === 'table'"
-      class="min-w-full overflow-hidden rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] text-left shadow-soft"
-    >
-      <thead>
-        <tr class="border-b border-[var(--ns-border)] text-xs uppercase tracking-[0.08em] text-[var(--ns-muted)]">
-          <th class="px-4 py-3">Site</th>
-          <th class="px-4 py-3">Source</th>
-          <th class="px-4 py-3">Folder</th>
-          <th class="px-4 py-3">Filename</th>
-          <th class="px-4 py-3">Status</th>
-          <th class="px-4 py-3">Progress</th>
-          <th class="px-4 py-3"></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="task in props.tasks" :key="task.vid" class="border-b border-[var(--ns-border)] last:border-b-0">
-          <td class="px-4 py-3 align-top">
-            <span class="inline-flex rounded-xl px-3 py-1 text-xs font-bold" :class="getSiteBadgeClass(task.site_category)">
-              {{ task.site_label }}
-            </span>
-          </td>
-          <td class="px-4 py-3 align-top">
-            <div class="break-all text-sm text-[var(--ns-muted)]">{{ task.source_url || task.vid }}</div>
-          </td>
-          <td class="px-4 py-3 align-top text-sm font-semibold">{{ task.resolved_folder }}</td>
-          <td class="px-4 py-3 align-top text-sm">{{ task.resolved_filename }}</td>
-          <td class="px-4 py-3 align-top">
-            <span class="inline-flex rounded-xl px-3 py-1 text-xs font-bold" :class="getStatusBadgeClass(task.status)">
-              {{ task.status_label }}
-            </span>
-          </td>
-          <td class="px-4 py-3 align-top text-sm text-[var(--ns-muted)]">{{ progressPct(task) }}%</td>
-          <td class="px-4 py-3 align-top text-right">
-            <div class="inline-flex gap-2">
-              <button
-                v-if="task.can_hide"
-                class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--ns-border)] bg-[var(--ns-soft-fill)] text-[var(--ns-muted)] transition hover:-translate-y-px hover:border-[var(--ns-border-strong)] hover:text-[var(--ns-text)]"
-                type="button"
-                aria-label="Clear task"
-                title="Clear task"
-                @click="emit('hide', task.vid)"
-              >
-                <EyeOff class="h-4 w-4" />
-              </button>
-              <button
-                v-if="task.can_download && task.status !== 'failed'"
-                class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--ns-action-border)] bg-[var(--ns-action-bg)] text-[var(--ns-action-text)] transition hover:-translate-y-px hover:border-[var(--ns-action-hover-border)] hover:bg-[var(--ns-action-hover-bg)] hover:text-[var(--ns-action-hover-text)]"
-                type="button"
-                aria-label="Download file"
-                title="Download file"
-                @click="emit('download', task.vid)"
-              >
-                <Download class="h-4 w-4" />
-              </button>
-              <button
-                v-if="task.can_remove && task.status !== 'running'"
-                class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--ns-danger-border)] bg-[var(--ns-danger-bg)] text-[var(--ns-danger-text)] transition hover:-translate-y-px hover:border-[var(--ns-danger-hover-border)] hover:bg-[var(--ns-danger-hover-bg)] hover:text-[var(--ns-danger-hover-text)]"
-                type="button"
-                aria-label="Remove task from the list"
-                title="Remove task from the list"
-                @click="emit('remove', task.vid)"
-              >
-                <X class="h-4 w-4" />
-              </button>
-            </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <div v-else-if="props.errorMessage" class="border border-dashed border-accent-subtle rounded-lg bg-panel flex min-h-[12rem] items-center justify-center gap-[0.55rem] text-text-muted font-[800] text-center border-accent text-text">
+      {{ props.errorMessage }}
+    </div>
 
-    <template v-else>
-      <article
-        v-for="task in props.tasks"
-        :key="task.vid"
-        class="w-full rounded-2xl border border-[var(--ns-border)] bg-[var(--ns-panel)] p-4 shadow-soft"
-      >
-        <div class="grid grid-cols-1 gap-3">
-          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
-            <div class="min-w-0">
-              <span class="inline-flex max-w-full rounded-xl px-3 py-1 text-xs font-bold" :class="getSiteBadgeClass(task.site_category)">
+    <div v-else-if="!props.tasks.length" class="border border-dashed border-accent-subtle rounded-lg bg-panel flex min-h-[12rem] items-center justify-center gap-[0.55rem] text-text-muted font-[800] text-center">No {{ activeMenuLabel }} tasks right now.</div>
+
+    <div v-else-if="viewMode === 'table'" class="w-full overflow-auto rounded-lg">
+      <table class="w-full min-w-[58rem] border-separate border-spacing-0 overflow-hidden text-left border border-accent-subtle rounded-lg bg-panel">
+        <thead>
+          <tr>
+            <th>Site</th>
+            <th>Source</th>
+            <th>Folder</th>
+            <th>Filename</th>
+            <th>Status</th>
+            <th>Progress</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="task in props.tasks" :key="task.vid">
+            <td>
+              <span class="inline-flex max-w-full items-center border rounded-full px-[0.55rem] py-[0.32rem] text-[0.7rem] font-[900] tracking-[0.04em] leading-none uppercase" :class="getSiteBadgeClass(task.site_category)">
                 {{ task.site_label }}
               </span>
-            </div>
-            <div class="flex shrink-0 flex-wrap items-start justify-end gap-2">
-              <span class="inline-flex rounded-xl px-3 py-1 text-xs font-bold" :class="getStatusBadgeClass(task.status)">
+            </td>
+            <td>
+              <div class="break-words">{{ task.source_url || task.vid }}</div>
+            </td>
+            <td class="text-text font-[800]">{{ task.resolved_folder }}</td>
+            <td>{{ task.resolved_filename }}</td>
+            <td>
+              <span class="inline-flex max-w-full items-center border rounded-full px-[0.55rem] py-[0.32rem] text-[0.7rem] font-[900] tracking-[0.04em] leading-none uppercase" :class="getStatusBadgeClass(task.status)">
                 {{ task.status_label }}
               </span>
-              <button
-                v-if="task.can_hide"
-                class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--ns-border)] bg-[var(--ns-soft-fill)] text-[var(--ns-muted)] transition hover:-translate-y-px hover:border-[var(--ns-border-strong)] hover:text-[var(--ns-text)]"
-                type="button"
-                aria-label="Clear task"
-                title="Clear task"
-                @click="emit('hide', task.vid)"
-              >
-                <EyeOff class="h-4 w-4" />
-              </button>
-              <button
-                v-if="task.can_download && task.status !== 'failed'"
-                class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--ns-action-border)] bg-[var(--ns-action-bg)] text-[var(--ns-action-text)] transition hover:-translate-y-px hover:border-[var(--ns-action-hover-border)] hover:bg-[var(--ns-action-hover-bg)] hover:text-[var(--ns-action-hover-text)]"
-                type="button"
-                aria-label="Download file"
-                title="Download file"
-                @click="emit('download', task.vid)"
-              >
-                <Download class="h-4 w-4" />
-              </button>
-              <button
-                v-if="task.can_remove && task.status !== 'running'"
-                class="inline-flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-[var(--ns-danger-border)] bg-[var(--ns-danger-bg)] text-[var(--ns-danger-text)] transition hover:-translate-y-px hover:border-[var(--ns-danger-hover-border)] hover:bg-[var(--ns-danger-hover-bg)] hover:text-[var(--ns-danger-hover-text)]"
-                type="button"
-                aria-label="Remove task from the list"
-                title="Remove task from the list"
-                @click="emit('remove', task.vid)"
-              >
-                <X class="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-          <div class="min-w-0 break-all text-sm text-[var(--ns-muted)]">{{ task.source_url || task.vid }}</div>
-          <div class="grid gap-2">
-            <div v-if="task.resolved_folder" class="break-all text-sm font-semibold">{{ task.resolved_folder }}</div>
-            <div v-if="task.resolved_filename" class="break-all text-sm">{{ task.resolved_filename }}</div>
-            <div v-if="task.status === 'failed' && task.error" class="whitespace-pre-line text-xs text-[var(--ns-text)]">
-              {{ task.error }}
-            </div>
+            </td>
+            <td>{{ progressPct(task) }}%</td>
+            <td>
+              <div class="flex items-center gap-[0.45rem]">
+                <button v-if="task.can_hide" class="inline-flex items-center justify-center gap-[0.42rem] min-h-[2.45rem] border border-accent-subtle rounded-lg bg-panel-subtle text-text-muted font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] w-[2.7rem] h-[2.7rem] hover:border-accent hover:text-text" type="button" aria-label="Clear task" title="Clear task" @click="emit('hide', task.vid)">
+                  <IconEyeClosed aria-hidden="true" />
+                </button>
+                <button
+                  v-if="task.can_download && task.status !== 'failed'"
+                  class="inline-flex items-center justify-center gap-[0.42rem] min-h-[2.45rem] border border-accent-subtle rounded-lg bg-panel-subtle text-text-muted font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] w-[2.7rem] h-[2.7rem] hover:border-accent hover:text-text border-text bg-accent text-bg hover:border-accent hover:bg-text hover:text-bg"
+                  type="button"
+                  aria-label="Download file"
+                  title="Download file"
+                  @click="emit('download', task.vid)"
+                >
+                  <IconDownload aria-hidden="true" />
+                </button>
+                <button
+                  v-if="task.can_remove && task.status !== 'running'"
+                  class="inline-flex items-center justify-center gap-[0.42rem] min-h-[2.45rem] border border-accent-subtle rounded-lg bg-panel-subtle text-text-muted font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] w-[2.7rem] h-[2.7rem] hover:border-accent hover:text-text border-red-600 bg-red-600 text-white hover:bg-red-700 hover:border-red-700 hover:text-white"
+                  type="button"
+                  aria-label="Remove task from the list"
+                  title="Remove task from the list"
+                  @click="emit('remove', task.vid)"
+                >
+                  <IconX aria-hidden="true" />
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <template v-else>
+      <article v-for="task in props.tasks" :key="task.vid" class="border border-accent-subtle rounded-lg bg-panel grid gap-[0.75rem] p-[0.85rem]">
+        <div class="flex flex-wrap justify-between gap-[0.45rem]">
+          <span class="inline-flex max-w-full items-center border rounded-full px-[0.55rem] py-[0.32rem] text-[0.7rem] font-[900] tracking-[0.04em] leading-none uppercase" :class="getSiteBadgeClass(task.site_category)">
+            {{ task.site_label }}
+          </span>
+          <span class="inline-flex max-w-full items-center border rounded-full px-[0.55rem] py-[0.32rem] text-[0.7rem] font-[900] tracking-[0.04em] leading-none uppercase" :class="getStatusBadgeClass(task.status)">
+            {{ task.status_label }}
+          </span>
+        </div>
+
+        <div class="break-words color-text-muted text-[0.9rem]">{{ task.source_url || task.vid }}</div>
+
+        <div class="grid gap-[0.3rem] text-[0.9rem]">
+          <div v-if="task.resolved_folder" class="break-words font-[800]">{{ task.resolved_folder }}</div>
+          <div v-if="task.resolved_filename">{{ task.resolved_filename }}</div>
+          <div v-if="task.status === 'failed' && task.error" class="break-words whitespace-pre-line">
+            {{ task.error }}
           </div>
         </div>
-        <div class="mt-4">
-          <div class="h-2.5 overflow-hidden rounded-full bg-[var(--ns-soft-fill)]">
-            <div class="h-full rounded-full bg-[var(--ns-accent)] transition-all" :style="{ width: `${progressPct(task)}%` }"></div>
+
+        <div class="grid gap-[0.35rem] text-text-muted text-[0.75rem] font-[800] text-right">
+          <div class="h-[0.45rem] overflow-hidden rounded-full bg-panel-subtle">
+            <div class="h-full rounded-full bg-accent transition-[width] duration-[260ms] ease-out" :style="{ width: `${progressPct(task)}%` }"></div>
           </div>
-          <div class="mt-2 flex justify-end text-xs text-[var(--ns-muted)]">{{ progressPct(task) }}%</div>
+          <span>{{ progressPct(task) }}%</span>
+        </div>
+
+        <div class="flex items-center gap-[0.45rem] flex-wrap justify-end">
+          <button v-if="task.can_hide" class="inline-flex items-center justify-center gap-[0.42rem] min-h-[2.55rem] px-[0.85rem] text-[0.9rem] border border-accent-subtle rounded-lg bg-panel-subtle text-text-muted font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:border-accent hover:text-text md:flex-none" type="button" @click="emit('hide', task.vid)">
+            <PhEyeClosed aria-hidden="true" />
+            <span>Clear</span>
+          </button>
+          <button v-if="task.can_download && task.status !== 'failed'" class="inline-flex items-center justify-center gap-[0.42rem] min-h-[2.55rem] px-[0.85rem] text-[0.9rem] border border-text rounded-lg bg-accent text-bg font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:border-accent hover:bg-text hover:text-bg" type="button" @click="emit('download', task.vid)">
+            <PhDownloadSimple aria-hidden="true" />
+            <span>Download</span>
+          </button>
+          <button v-if="task.can_remove && task.status !== 'running'" class="inline-flex items-center justify-center gap-[0.42rem] min-h-[2.55rem] px-[0.85rem] text-[0.9rem] border border-accent-subtle rounded-lg bg-panel-subtle text-text-muted font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:border-accent hover:text-text md:flex-none border-red-600 bg-red-600 text-white hover:bg-red-700 hover:border-red-700 hover:text-white" type="button" @click="emit('remove', task.vid)">
+            <PhX aria-hidden="true" />
+            <span>Remove</span>
+          </button>
         </div>
       </article>
     </template>

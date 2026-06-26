@@ -7,18 +7,9 @@ defineProps<{
 </script>
 
 <template>
-  <div class="fixed bottom-4 right-4 z-[60] grid max-w-[360px] gap-3">
+  <div class="fixed z-90 right-[0.75rem] bottom-[5.7rem] grid w-[min(22rem,calc(100vw-1.5rem))] gap-[0.5rem] sm:bottom-[0.75rem]">
     <TransitionGroup name="toast">
-      <div
-        v-for="toast in toasts"
-        :key="toast.id"
-        class="rounded-2xl border px-4 py-3 text-sm font-medium shadow-soft transition"
-        :class="
-          toast.type === 'error'
-            ? 'border-[color-mix(in_srgb,var(--ns-danger)_30%,transparent)] bg-[var(--ns-panel)] text-[var(--ns-text)]'
-            : 'border-[color-mix(in_srgb,var(--ns-success)_30%,transparent)] bg-[var(--ns-panel)] text-[var(--ns-text)]'
-        "
-      >
+      <div v-for="toast in toasts" :key="toast.id" class="border border-accent-subtle rounded-lg bg-panel text-text px-[0.85rem] py-[0.75rem] text-[0.9rem] font-[800]" :class="toast.type === 'error' ? 'border-accent text-text' : 'border-accent'">
         {{ toast.message }}
       </div>
     </TransitionGroup>
