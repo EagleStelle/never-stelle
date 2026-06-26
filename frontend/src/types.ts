@@ -19,7 +19,7 @@ export interface TemplateSettings {
 
 export interface CookiesStatus {
   configured: boolean;
-  source: "uploaded" | "mounted" | "none" | string;
+  source: "uploaded" | "none" | string;
   filename: string;
   uploaded_at: string;
 }

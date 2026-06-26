@@ -1,13 +1,12 @@
 services:
   never-stelle:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    image: eaglestelle/never-stelle:latest
+    build: .
     container_name: never-stelle
     restart: unless-stopped
     volumes:
-      - ./data:/data
-      - ./media:/media
-      - ./scratch:/scratch
+      - .local/data:/data
+      - .local/media:/media
+      - .local/scratch:/scratch
     ports:
       - "8088:8088"

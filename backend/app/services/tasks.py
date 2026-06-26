@@ -277,8 +277,7 @@ def build_output_template(source_url: str, output_dir: str) -> str:
 
 
 def detect_ffmpeg_location() -> str:
-    configured = os.environ.get("YTDLP_FFMPEG_LOCATION", "").strip()
-    candidates = [configured, shutil.which("ffmpeg") or "", "/usr/bin/ffmpeg", "/bin/ffmpeg"]
+    candidates = [shutil.which("ffmpeg") or "", "/usr/bin/ffmpeg", "/bin/ffmpeg"]
     seen: set[str] = set()
     for candidate in candidates:
         candidate = (candidate or "").strip()
@@ -740,7 +739,7 @@ def run_task(task_id: str, task: dict[str, Any]) -> None:
         update_task(
             task_id,
             status="failed",
-            error="ffmpeg was not found. Set YTDLP_FFMPEG_LOCATION or install ffmpeg in the container.",
+            error="ffmpeg was not found. Install ffmpeg or make it available on PATH.",
         )
         return
 

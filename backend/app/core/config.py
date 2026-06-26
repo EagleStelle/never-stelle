@@ -23,8 +23,7 @@ def _running_in_container() -> bool:
     """Best-effort detection of a containerized runtime.
 
     Honors an explicit APP_IN_CONTAINER override, then falls back to the
-    standard Docker markers. Detection only decides the *default* root; any
-    explicit APP_RUNTIME_DIR / per-role override wins regardless.
+    standard Docker markers. Detection only decides the default root.
     """
     flag = os.environ.get("APP_IN_CONTAINER", "")
     if flag:
@@ -43,9 +42,6 @@ def _runtime_root() -> Path:
     - Container  -> ``/`` so the trio resolves to ``/data /media /scratch``.
     - Local/dev  -> ``<repo>/.local`` (Windows constraint: everything under .local).
     """
-    override = os.environ.get("APP_RUNTIME_DIR", "").strip()
-    if override:
-        return Path(override).expanduser().resolve()
     if _running_in_container():
         return Path("/")
     return (PROJECT_ROOT / ".local").resolve()
@@ -186,9 +182,7 @@ def parse_env_locations(raw: str) -> list[str]:
 
 
 def discover_volume_roots() -> list[str]:
-    configured = parse_env_locations(os.environ.get("DOWNLOAD_LOCATIONS", ""))
-    if not configured:
-        configured = parse_env_locations(os.environ.get("ACCESSIBLE_VOLUMES_ROOTS", str(DEFAULT_LIBRARY_DIR)))
+    configured = parse_env_locations(os.environ.get("ACCESSIBLE_VOLUMES_ROOTS", str(DEFAULT_LIBRARY_DIR)))
 
     out: list[str] = []
     seen: set[str] = set()
@@ -275,10 +269,7 @@ def load_app_config() -> dict[str, Any]:
     if discovered_locations:
         cfg["downloadLocations"] = discovered_locations
 
-    default_others = (
-        os.environ.get("DEFAULT_OTHERS_DOWNLOAD_LOCATION", "").strip()
-        or os.environ.get("DEFAULT_GENERAL_DOWNLOAD_LOCATION", "").strip()
-    )
+    default_others = os.environ.get("DEFAULT_OTHERS_DOWNLOAD_LOCATION", "").strip()
     env_map = {
         "defaultGeneralDownloadLocation": default_others,
         "defaultYoutubeDownloadLocation": os.environ.get("DEFAULT_YOUTUBE_DOWNLOAD_LOCATION", "").strip()

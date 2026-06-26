@@ -1,5 +1,5 @@
-fastapi[standard]==0.137.2
-uvicorn[standard]
+fastapi==0.137.2
+uvicorn
 python-multipart
 PyYAML
 yt-dlp

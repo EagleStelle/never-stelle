@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import os
 import tempfile
 import threading
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -31,11 +29,8 @@ COOKIE_BLOB_KEY = "instagram_ytdlp_cookies"
 MAX_COOKIE_UPLOAD_BYTES = 5 * 1024 * 1024
 _cookie_file_lock = threading.RLock()
 
-DEFAULT_FOLDER_TEMPLATE = os.environ.get("DEFAULT_FOLDER_TEMPLATE", "{{creator}}").strip() or "{{creator}}"
-DEFAULT_FILENAME_TEMPLATE = (
-    os.environ.get("DEFAULT_FILENAME_TEMPLATE", "{{creator}} - {{title}} [{{id}}]").strip()
-    or "{{creator}} - {{title}} [{{id}}]"
-)
+BUILTIN_FOLDER_TEMPLATE = "{{creator}}"
+BUILTIN_FILENAME_TEMPLATE = "{{creator}} - {{title}} [{{id}}]"
 
 
 def load_saved_settings_file() -> dict[str, Any]:
@@ -49,8 +44,8 @@ def save_saved_settings_file(payload: dict[str, Any]) -> None:
 
 def normalize_template_settings(raw: Any) -> dict[str, str]:
     source = raw if isinstance(raw, dict) else {}
-    folder_template = str(source.get("folder_template") or "").strip() or DEFAULT_FOLDER_TEMPLATE
-    filename_template = str(source.get("filename_template") or "").strip() or DEFAULT_FILENAME_TEMPLATE
+    folder_template = str(source.get("folder_template") or "").strip() or BUILTIN_FOLDER_TEMPLATE
+    filename_template = str(source.get("filename_template") or "").strip() or BUILTIN_FILENAME_TEMPLATE
     return {
         "folder_template": folder_template,
         "filename_template": filename_template,
@@ -80,19 +75,6 @@ def get_ytdlp_cookies_status() -> dict[str, Any]:
             "source": "uploaded",
             "filename": str(uploaded.get("filename") or "cookies.txt"),
             "uploaded_at": str(uploaded.get("created_at") or uploaded.get("updated_at") or ""),
-        }
-
-    mounted = str(os.environ.get("YTDLP_INSTAGRAM_COOKIES") or os.environ.get("YTDLP_COOKIES") or "").strip()
-    if mounted and Path(mounted).is_file():
-        try:
-            uploaded_at = datetime.fromtimestamp(Path(mounted).stat().st_mtime, tz=timezone.utc).isoformat()
-        except Exception:
-            uploaded_at = ""
-        return {
-            "configured": True,
-            "source": "mounted",
-            "filename": Path(mounted).name,
-            "uploaded_at": uploaded_at,
         }
 
     return {"configured": False, "source": "none", "filename": "", "uploaded_at": ""}
@@ -128,9 +110,6 @@ def find_cookies_file_for_url(source_url: str) -> str:
     candidates: list[str] = []
     if host.endswith("instagram.com"):
         candidates.append(materialize_cookie_blob())
-    if host.endswith("instagram.com"):
-        candidates.append(str(os.environ.get("YTDLP_INSTAGRAM_COOKIES") or "").strip())
-    candidates.append(str(os.environ.get("YTDLP_COOKIES") or "").strip())
 
     for candidate in candidates:
         if candidate and Path(candidate).is_file():

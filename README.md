@@ -36,7 +36,7 @@ Open:
 http://127.0.0.1:8088
 ```
 
-Docker state is stored under `.local/docker-runtime/`.
+Docker state is stored in the bind-mounted `data/`, `media/`, and `scratch/` directories.
 
 ## Requirements
 
@@ -47,22 +47,11 @@ Docker state is stored under `.local/docker-runtime/`.
 
 Python dependencies are defined in [requirements.txt](requirements.txt). Frontend dependencies are defined in [frontend/package.json](frontend/package.json). The backend uses FastAPI `0.137.2`.
 
-## Optional Overrides
+## Runtime Layout
 
-Runtime paths are derived automatically. These environment variables are only needed for custom deployments:
+Runtime paths are derived automatically. Local runs use `.local/data`, `.local/media`, and `.local/scratch`; Docker runs use `/data`, `/media`, and `/scratch` through the compose bind mounts.
 
-| Variable | Description |
-| --- | --- |
-| `APP_RUNTIME_DIR` | Optional runtime directory override. |
-| `DOWNLOAD_LOCATIONS` | Optional pipe-separated save roots. |
-| `DEFAULT_GENERAL_DOWNLOAD_LOCATION` | Fallback download location. |
-| `DEFAULT_FOLDER_TEMPLATE` | Default folder template. |
-| `DEFAULT_FILENAME_TEMPLATE` | Default filename template. |
-| `YTDLP_FFMPEG_LOCATION` | Optional `ffmpeg` path. |
-| `YTDLP_COOKIES` | Optional global `yt-dlp` cookies file. |
-| `YTDLP_INSTAGRAM_COOKIES` | Optional Instagram cookies file. |
-
-Only paths inside configured accessible roots can be selected as save locations.
+Only paths inside accessible media roots can be selected as save locations. Instagram `yt-dlp` cookies are managed from Settings.
 
 ## Templates
 
