@@ -88,10 +88,10 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
     return build_settings_response(cfg, saved)
 
 
-@router.post("/settings/instagram-ytdlp-cookies")
-async def upload_instagram_ytdlp_cookies(file: UploadFile = File(...)) -> dict[str, Any]:
+@router.post("/settings/ytdlp-cookies/{platform}")
+async def upload_ytdlp_cookies(platform: str, file: UploadFile = File(...)) -> dict[str, Any]:
     try:
-        await save_ytdlp_cookies_upload(file)
+        await save_ytdlp_cookies_upload(file, platform)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -100,9 +100,9 @@ async def upload_instagram_ytdlp_cookies(file: UploadFile = File(...)) -> dict[s
     return build_settings_response(cfg, get_effective_saved_settings(cfg))
 
 
-@router.delete("/settings/instagram-ytdlp-cookies")
-def delete_instagram_ytdlp_cookies() -> dict[str, Any]:
-    clear_ytdlp_cookies_upload()
+@router.delete("/settings/ytdlp-cookies/{platform}")
+def delete_ytdlp_cookies(platform: str) -> dict[str, Any]:
+    clear_ytdlp_cookies_upload(platform)
     cfg = load_app_config()
     return build_settings_response(cfg, get_effective_saved_settings(cfg))
 

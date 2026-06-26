@@ -7,7 +7,7 @@ const props = defineProps<ToggleGroupItemProps & { class?: string }>()
 <template>
  <ToggleGroupItem
  v-bind="props"
- :class="['segmented-control-item inline-flex items-center justify-center gap-2 px-3 h-full rounded-md text-text-muted leading-none whitespace-nowrap transition-all duration-200 ease-out active:scale-95 focus-visible:outline-none', props.class ]"
+ :class="['segmented-control-item inline-flex items-center justify-center gap-2 px-3 h-full rounded-lg text-text-muted leading-none whitespace-nowrap transition-all duration-300 ease-glass active:scale-[0.97] focus-visible:outline-none', props.class ]"
  >
  <slot />
  </ToggleGroupItem>
@@ -17,11 +17,11 @@ const props = defineProps<ToggleGroupItemProps & { class?: string }>()
 .segmented-control-item[data-state="on"] {
  background: var(--primary);
  color: var(--text-on-primary);
- box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+ box-shadow: 0 8px 20px -8px rgba(237, 158, 89, 0.6);
 }
 
 .segmented-control-item[data-state="off"]:hover {
- background: var(--panel);
+ background: var(--glass-hover);
  color: var(--text);
 }
 </style>

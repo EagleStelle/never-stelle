@@ -45,7 +45,7 @@ const pasteFromClipboard = async () => {
  <template #action>
  <button 
  type="button" 
- class="flex items-center justify-center w-8 h-8 text-text-muted hover:text-text transition-colors rounded-md hover:bg-secondary-muted mr-0.5" 
+ class="flex items-center justify-center w-8 h-8 text-text-muted hover:text-text transition-all duration-300 ease-glass rounded-lg hover:bg-white/10 mr-0.5"
  aria-label="Paste from clipboard"
  @click="pasteFromClipboard"
  >
@@ -53,8 +53,8 @@ const pasteFromClipboard = async () => {
  </button>
  </template>
  </InputBar>
- <button type="submit" class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary text-text-on-primary leading-none transition-all duration-200 ease-out active:scale-95 w-10 h-10 shrink-0 hover:bg-text hover:text-background" aria-label="Download">
- <IconDownload aria-hidden="true" class="w-6 h-6" />
+ <button type="submit" class="group inline-flex items-center justify-center rounded-xl bg-primary text-text-on-primary leading-none transition-all duration-300 ease-glass active:scale-[0.96] w-10 h-10 shrink-0 shadow-[0_10px_28px_-10px_rgba(237,158,89,0.7)] hover:shadow-[0_14px_34px_-8px_rgba(237,158,89,0.85)]" aria-label="Download">
+ <IconDownload aria-hidden="true" class="w-6 h-6 transition-transform duration-300 ease-glass group-hover:-translate-y-px group-hover:scale-110" />
  </button>
  </form>
  </section>

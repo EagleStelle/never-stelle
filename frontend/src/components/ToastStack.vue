@@ -9,7 +9,7 @@ defineProps<{
 <template>
  <div class="fixed z-50 left-2 right-2 bottom-16 grid gap-1.5 sm:left-auto sm:bottom-2 sm:w-80">
  <TransitionGroup name="toast">
- <div v-for="toast in toasts" :key="toast.id" class="rounded-lg bg-secondary text-text px-3 py-2" :class="toast.type ==='error'?'text-text':''">
+ <div v-for="toast in toasts" :key="toast.id" class="rounded-xl glass-chrome text-text px-4 py-3 shadow-[0_14px_44px_-16px_rgba(0,0,0,0.7)]" :class="toast.type ==='error'?'border-red-500/40':''">
  {{ toast.message }}
  </div>
  </TransitionGroup>

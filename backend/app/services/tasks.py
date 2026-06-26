@@ -33,6 +33,7 @@ from backend.app.services.settings import (
     find_cookies_file_for_url,
     get_effective_saved_settings,
     get_effective_template_settings,
+    has_cookies_for_url,
     normalize_site_location_selection,
 )
 
@@ -294,7 +295,13 @@ def detect_ffmpeg_location() -> str:
     return ""
 
 
-def build_ytdlp_command(source_url: str, ffmpeg_location: str, output_template: str) -> list[str]:
+def build_ytdlp_command(
+    source_url: str,
+    ffmpeg_location: str,
+    output_template: str,
+    *,
+    with_cookies: bool = False,
+) -> list[str]:
     category = detect_site_category(source_url)
     selected_format = (
         "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
@@ -312,13 +319,34 @@ def build_ytdlp_command(source_url: str, ffmpeg_location: str, output_template: 
         ffmpeg_location,
         "--merge-output-format",
         "mp4",
-        "--output",
-        output_template,
     ]
-    cookies_file = find_cookies_file_for_url(source_url)
-    if cookies_file:
-        cmd.extend(["--cookies", cookies_file])
-    cmd.append(source_url)
+    # First pass runs fast and anonymous. Cookies are only attached on a retry
+    # after the anonymous attempt fails, so most downloads never touch them.
+    # When we do authenticate, add anti-ban pacing (randomized request/item
+    # delays + polite retries) so the logged-in account is not hammered into a
+    # ban. No throttle on the cookie-less path.
+    if with_cookies:
+        cookies_file = find_cookies_file_for_url(source_url)
+        if cookies_file:
+            cmd.extend(
+                [
+                    "--cookies",
+                    cookies_file,
+                    "--sleep-requests",
+                    "1",
+                    "--min-sleep-interval",
+                    "2",
+                    "--max-sleep-interval",
+                    "6",
+                    "--retries",
+                    "5",
+                    "--fragment-retries",
+                    "5",
+                    "--retry-sleep",
+                    "linear=1::2",
+                ]
+            )
+    cmd.extend(["--output", output_template, source_url])
     return cmd
 
 
@@ -727,39 +755,14 @@ def _worker_loop() -> None:
             _worker_wakeup.wait(2)
 
 
-def run_task(task_id: str, task: dict[str, Any]) -> None:
-    source_url = canonicalize_source_url(str(task.get("source_url") or ""))
-    output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
-    if not source_url or not output_dir:
-        update_task(task_id, status="failed", error="Missing URL or output directory.")
-        return
+def _run_ytdlp_to_task(task_id: str, cmd: list[str]) -> tuple[int, str]:
+    """Run one yt-dlp invocation, streaming progress into the task store.
 
-    ffmpeg_location = detect_ffmpeg_location()
-    if not ffmpeg_location:
-        update_task(
-            task_id,
-            status="failed",
-            error="ffmpeg was not found. Install ffmpeg or make it available on PATH.",
-        )
-        return
-
-    output_root = Path(output_dir)
-    output_root.mkdir(parents=True, exist_ok=True)
-    output_template = str(task.get("output_template") or build_output_template(source_url, output_dir))
-    cmd = build_ytdlp_command(source_url, ffmpeg_location, output_template)
-    started_at = time.time()
+    Returns the process return code and the last detected destination path.
+    """
     process: subprocess.Popen[str] | None = None
     last_dest = ""
-
     try:
-        update_task(
-            task_id,
-            status="running",
-            progress_pct=0,
-            error="",
-            command=" ".join(shlex.quote(part) for part in cmd),
-            last_log_lines=[],
-        )
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -795,8 +798,58 @@ def run_task(task_id: str, task: dict[str, Any]) -> None:
                         }
                     )
                 update_task(task_id, **updates)
+        return process.wait(), last_dest
+    finally:
+        if process and process.poll() is None:
+            try:
+                process.kill()
+            except Exception:
+                pass
 
-        rc = process.wait()
+
+def run_task(task_id: str, task: dict[str, Any]) -> None:
+    source_url = canonicalize_source_url(str(task.get("source_url") or ""))
+    output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
+    if not source_url or not output_dir:
+        update_task(task_id, status="failed", error="Missing URL or output directory.")
+        return
+
+    ffmpeg_location = detect_ffmpeg_location()
+    if not ffmpeg_location:
+        update_task(
+            task_id,
+            status="failed",
+            error="ffmpeg was not found. Install ffmpeg or make it available on PATH.",
+        )
+        return
+
+    output_root = Path(output_dir)
+    output_root.mkdir(parents=True, exist_ok=True)
+    output_template = str(task.get("output_template") or build_output_template(source_url, output_dir))
+    started_at = time.time()
+
+    # Try anonymously first (fast, no throttle). Only if that fails and a cookie
+    # jar exists for this URL do we retry authenticated + paced.
+    attempts = [False]
+    if has_cookies_for_url(source_url):
+        attempts.append(True)
+
+    rc = 1
+    last_dest = ""
+    try:
+        update_task(task_id, status="running", progress_pct=0, error="", last_log_lines=[])
+        for with_cookies in attempts:
+            if with_cookies:
+                current = (load_task_store().get("tasks") or {}).get(task_id, {})
+                log_lines = list(current.get("last_log_lines") or [])
+                log_lines.append("[never-stelle] Anonymous attempt failed; retrying with cookies...")
+                update_task(task_id, progress_pct=0, last_log_lines=log_lines[-30:])
+            cmd = build_ytdlp_command(source_url, ffmpeg_location, output_template, with_cookies=with_cookies)
+            update_task(task_id, command=" ".join(shlex.quote(part) for part in cmd))
+            rc, last_dest = _run_ytdlp_to_task(task_id, cmd)
+            if rc == 0:
+                break
+
         current_task = (load_task_store().get("tasks") or {}).get(task_id, {})
         if rc == 0:
             final_path = Path(last_dest) if last_dest else None
@@ -829,12 +882,6 @@ def run_task(task_id: str, task: dict[str, Any]) -> None:
         update_task(task_id, status="failed", error=detail, output_template=output_template)
     except Exception as exc:
         update_task(task_id, status="failed", error=str(exc), output_template=output_template)
-    finally:
-        if process and process.poll() is None:
-            try:
-                process.kill()
-            except Exception:
-                pass
 
 
 def download_url_to_temp(source_url: str) -> tuple[Path, str]:
@@ -845,31 +892,51 @@ def download_url_to_temp(source_url: str) -> tuple[Path, str]:
     temp_dir = tempfile.mkdtemp(prefix="neverstelle-device-")
     temp_root = Path(temp_dir)
     output_template = str(temp_root / "download.%(ext)s")
-    cmd = build_ytdlp_command(source_url, ffmpeg_location, output_template)
-    process: subprocess.Popen[str] | None = None
-    last_dest = ""
-    log_lines: list[str] = []
+
+    def _attempt(with_cookies: bool) -> tuple[int, str, list[str]]:
+        cmd = build_ytdlp_command(source_url, ffmpeg_location, output_template, with_cookies=with_cookies)
+        process: subprocess.Popen[str] | None = None
+        last_dest = ""
+        log_lines: list[str] = []
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+            )
+            if process.stdout is not None:
+                for raw_line in process.stdout:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    log_lines.append(line)
+                    log_lines = log_lines[-40:]
+                    downloaded_path = extract_downloaded_path(line)
+                    if downloaded_path:
+                        last_dest = downloaded_path
+            return process.wait(), last_dest, log_lines
+        finally:
+            if process and process.poll() is None:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+
     try:
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
-        )
-        if process.stdout is not None:
-            for raw_line in process.stdout:
-                line = raw_line.strip()
-                if not line:
-                    continue
-                log_lines.append(line)
-                log_lines = log_lines[-40:]
-                downloaded_path = extract_downloaded_path(line)
-                if downloaded_path:
-                    last_dest = downloaded_path
-        rc = process.wait()
+        # Anonymous first; retry with cookies only if it fails and a jar exists.
+        attempts = [False]
+        if has_cookies_for_url(source_url):
+            attempts.append(True)
+
+        rc, last_dest, log_lines = 1, "", []
+        for with_cookies in attempts:
+            rc, last_dest, log_lines = _attempt(with_cookies)
+            if rc == 0:
+                break
         if rc != 0:
             raise RuntimeError("yt-dlp failed for device download.\n" + "\n".join(log_lines[-12:]))
         final_path = Path(last_dest) if last_dest else find_newest_media_file(temp_root, time.time() - 3600)
@@ -879,9 +946,3 @@ def download_url_to_temp(source_url: str) -> tuple[Path, str]:
     except Exception:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
-    finally:
-        if process and process.poll() is None:
-            try:
-                process.kill()
-            except Exception:
-                pass

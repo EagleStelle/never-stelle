@@ -22,11 +22,11 @@ const attrs = useAttrs()
 </script>
 
 <template>
- <Label 
- class="flex items-center min-w-0 h-10 p-1 rounded-lg bg-secondary-muted focus-within:ring-2 focus-within:ring-primary transition-colors duration-200 ease-out gap-1"
+ <Label
+ class="flex items-center min-w-0 h-10 p-1 rounded-xl glass-soft focus-within:ring-2 focus-within:ring-primary/70 focus-within:border-primary/50 transition-all duration-300 ease-glass gap-1"
  :class="attrs.class"
  >
- <div v-if="$slots.icon" class="flex items-center justify-center w-8 h-8 shrink-0 text-text-muted ml-1.5">
+ <div v-if="$slots.icon" class="flex items-center justify-center w-8 h-8 shrink-0 text-primary ml-1.5">
  <slot name="icon" />
  </div>
  <div v-else class="w-3" />

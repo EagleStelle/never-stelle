@@ -40,8 +40,8 @@ export const FILTER_LABELS: Record<TaskFilter, string> = {
 };
 
 export const SETTINGS_SECTIONS: Array<{ key: SettingsSection; label: string }> = [
-  { key: "downloads", label: "Downloads" },
-  { key: "instagram", label: "Instagram" },
+  { key: "downloads", label: "Locations" },
+  { key: "instagram", label: "Cookies" },
   { key: "advanced", label: "Advanced" },
 ];
 

@@ -26,6 +26,8 @@ export interface CookiesStatus {
   uploaded_at: string;
 }
 
+export type CookiesMap = Record<string, CookiesStatus>;
+
 export interface SavedSettings {
   site_locations: SiteLocations;
   save_mode: SaveMode;
@@ -34,7 +36,7 @@ export interface SavedSettings {
 
 export interface RuntimeSettings extends SavedSettings {
   download_locations: string[];
-  instagram_ytdlp_cookies: CookiesStatus;
+  ytdlp_cookies: CookiesMap;
 }
 
 export interface UiConfigResponse {
@@ -42,7 +44,7 @@ export interface UiConfigResponse {
   site_default_locations?: Partial<SiteLocations>;
   save_mode?: SaveMode | string;
   template_settings?: Partial<TemplateSettings>;
-  instagram_ytdlp_cookies?: Partial<CookiesStatus>;
+  ytdlp_cookies?: Record<string, Partial<CookiesStatus>>;
   default_filename_template?: string;
   default_folder_template?: string;
   default_general_location?: string;

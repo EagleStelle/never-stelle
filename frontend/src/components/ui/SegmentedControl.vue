@@ -14,7 +14,7 @@ const emit = defineEmits<{
  <ToggleGroupRoot
  v-bind="props"
  @update:modelValue="emit('update:modelValue', $event)"
- :class="['inline-flex items-center gap-1 px-1 py-1 h-10 bg-secondary-muted rounded-lg', props.class]"
+ :class="['inline-flex items-center gap-1 px-1 py-1 h-10 glass-soft rounded-xl', props.class]"
  >
  <slot />
  </ToggleGroupRoot>

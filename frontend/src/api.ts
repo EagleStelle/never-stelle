@@ -50,24 +50,24 @@ export function saveSettings(settings: SavedSettings): Promise<UiConfigResponse>
   );
 }
 
-export function uploadInstagramCookies(file: File): Promise<UiConfigResponse> {
+export function uploadPlatformCookies(platform: string, file: File): Promise<UiConfigResponse> {
   const formData = new FormData();
   formData.append("file", file);
   return jsonRequest<UiConfigResponse>(
-    "/api/settings/instagram-ytdlp-cookies",
+    `/api/settings/ytdlp-cookies/${encodeURIComponent(platform)}`,
     {
       method: "POST",
       body: formData,
     },
-    "Could not connect yt-dlp cookies.",
+    "Could not connect cookies.",
   );
 }
 
-export function deleteInstagramCookies(): Promise<UiConfigResponse> {
+export function deletePlatformCookies(platform: string): Promise<UiConfigResponse> {
   return jsonRequest<UiConfigResponse>(
-    "/api/settings/instagram-ytdlp-cookies",
+    `/api/settings/ytdlp-cookies/${encodeURIComponent(platform)}`,
     { method: "DELETE" },
-    "Could not remove yt-dlp cookies.",
+    "Could not remove cookies.",
   );
 }
 

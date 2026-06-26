@@ -73,7 +73,7 @@ const handleOpenChange = (isOpen: boolean) => {
  @update:open="handleOpenChange"
  :display-value="(val: any) => (val as any)?.label ||''"
  >
- <ComboboxAnchor :class="['relative inline-flex items-center rounded-lg bg-secondary-muted focus-within:ring-2 focus-within:ring-primary h-10 transition-all duration-200', props.class]">
+ <ComboboxAnchor :class="['relative inline-flex items-center rounded-xl glass-soft focus-within:ring-2 focus-within:ring-primary/70 focus-within:border-primary/50 h-10 transition-all duration-300 ease-glass', props.class]">
  <div class="pl-3 pr-2 flex items-center justify-center text-text-muted">
  <component 
  v-if="items.find(i => i.key === modelValue)?.icon"
@@ -92,10 +92,10 @@ const handleOpenChange = (isOpen: boolean) => {
  </ComboboxAnchor>
 
  <ComboboxPortal>
- <ComboboxContent 
- class="z-50 min-w-[160px] bg-secondary rounded-lg shadow-lg overflow-hidden" 
- position="popper" 
- :side-offset="4"
+ <ComboboxContent
+ class="z-50 min-w-[160px] glass-chrome rounded-xl shadow-[0_18px_50px_-18px_rgba(0,0,0,0.75)] overflow-hidden"
+ position="popper"
+ :side-offset="6"
  >
  <ComboboxViewport class="p-1">
  <ComboboxEmpty class="py-3 text-center text-sm text-text-muted">

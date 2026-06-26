@@ -22,12 +22,10 @@ const {
  activeMenuLabel,
  activePage,
  addDownloadTask,
- cleanNfo,
- cleanupBusy,
  clearCompleted,
  clearPending,
- connectInstagramCookies,
- cookiesStatusText,
+ connectCookies,
+ cookieStatuses,
  countCards,
  downloadTask,
  activeTasks,
@@ -37,7 +35,7 @@ const {
  navigationItems,
  openSettings,
  pageItems,
- removeInstagramCookies,
+ removeCookies,
  removeTask,
  saveSettingsDraft,
  savedSettings,
@@ -59,8 +57,8 @@ const {
 </script>
 
 <template>
- <div class="w-full max-w-full h-dvh overflow-hidden bg-bg text-text lg:flex">
- <a class="sr-only focus:not-sr-only focus:fixed focus:z-50 focus:top-2 focus:left-2 rounded-lg bg-secondary text-text px-3 py-2 transition-transform duration-200 ease-out" href="#mainContent">Skip to content</a>
+ <div class="w-full max-w-full h-dvh overflow-hidden text-text lg:flex">
+ <a class="sr-only focus:not-sr-only focus:fixed focus:z-50 focus:top-2 focus:left-2 rounded-xl glass-chrome text-text px-3 py-2 transition-transform duration-300 ease-glass" href="#mainContent">Skip to content</a>
 
  <NavSide
  class="shrink-0"
@@ -161,13 +159,11 @@ const {
  <SettingsPage
  v-else-if="activePage ==='settings'"
  v-model:section="settingsSection"
- :cleanup-busy="cleanupBusy"
- :cookies-status-text="cookiesStatusText"
+ :cookie-statuses="cookieStatuses"
  :settings="settings"
  :settings-draft="settingsDraft"
- @clean-nfo="cleanNfo"
- @connect-instagram-cookies="connectInstagramCookies"
- @remove-instagram-cookies="removeInstagramCookies"
+ @connect-cookies="connectCookies"
+ @remove-cookies="removeCookies"
  @save="saveSettingsDraft"
  />
  </main>

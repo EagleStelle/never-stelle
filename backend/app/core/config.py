@@ -157,13 +157,31 @@ for _tmp_var in ("TMPDIR", "TEMP", "TMP"):
     os.environ[_tmp_var] = str(SCRATCH_DIR)
 tempfile.tempdir = str(SCRATCH_DIR)
 
-SITE_KEYS = ("youtube", "facebook", "instagram", "tiktok", "others")
+SITE_KEYS = (
+    "youtube",
+    "tiktok",
+    "instagram",
+    "twitter",
+    "facebook",
+    "reddit",
+    "twitch",
+    "pinterest",
+    "bluesky",
+    "linkedin",
+    "others",
+)
 SITE_LABELS = {
     "all": "All",
     "youtube": "YouTube",
-    "facebook": "Facebook",
-    "instagram": "Instagram",
     "tiktok": "TikTok",
+    "instagram": "Instagram",
+    "twitter": "X (Twitter)",
+    "facebook": "Facebook",
+    "reddit": "Reddit",
+    "twitch": "Twitch",
+    "pinterest": "Pinterest",
+    "bluesky": "Bluesky",
+    "linkedin": "LinkedIn",
     "others": "Others",
 }
 

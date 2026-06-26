@@ -1,10 +1,14 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 
-import { cleanupNfoFiles, deleteInstagramCookies, getUiConfig, saveSettings, uploadInstagramCookies } from "../api";
+import { cleanupNfoFiles, deletePlatformCookies, getUiConfig, saveSettings, uploadPlatformCookies } from "../api";
 import { UI_CONFIG_QUERY_KEY } from "../ui";
-import type { RuntimeSettings, SavedSettings, SettingsSection, ToastType, UiConfigResponse } from "../types";
-import { createCookiesStatus, createSiteLocations, createTemplateSettings, errorMessage, formatTimestamp } from "../utils/dashboard";
+import { SITE_KEYS, type CookiesMap, type CookiesStatus, type RuntimeSettings, type SavedSettings, type SettingsSection, type ToastType, type UiConfigResponse } from "../types";
+import { createCookiesStatus, createSiteLocations, createTemplateSettings, errorMessage } from "../utils/dashboard";
+
+function createCookiesMap(source: Record<string, Partial<CookiesStatus>> = {}): CookiesMap {
+  return Object.fromEntries(SITE_KEYS.map((key) => [key, createCookiesStatus(source[key] || {})])) as CookiesMap;
+}
 
 interface UseDashboardSettingsOptions {
   toast: (message: string, type?: ToastType) => void;
@@ -22,7 +26,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     save_mode: "nas",
     template_settings: createTemplateSettings(),
     download_locations: [],
-    instagram_ytdlp_cookies: createCookiesStatus(),
+    ytdlp_cookies: createCookiesMap(),
   });
   const settingsDraft = reactive<SavedSettings>({
     site_locations: createSiteLocations(),
@@ -41,18 +45,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     staleTime: 60_000,
   });
   const saveSettingsMutation = useMutation({ mutationFn: saveSettings });
-  const uploadCookiesMutation = useMutation({ mutationFn: uploadInstagramCookies });
-  const deleteCookiesMutation = useMutation({ mutationFn: deleteInstagramCookies });
+  const uploadCookiesMutation = useMutation({ mutationFn: ({ platform, file }: { platform: string; file: File }) => uploadPlatformCookies(platform, file) });
+  const deleteCookiesMutation = useMutation({ mutationFn: (platform: string) => deletePlatformCookies(platform) });
 
   const savedSettings = computed<SavedSettings>(() => getSavedSettings());
-  const cookiesStatusText = computed(() => {
-    const info = settings.instagram_ytdlp_cookies;
-    if (!info.configured) return "No yt-dlp cookies saved.";
-    const parts = [info.filename ? `Connected with ${info.filename}` : "Connected to yt-dlp cookies"];
-    const when = formatTimestamp(info.uploaded_at);
-    if (when) parts.push(when);
-    return parts.join(" - ");
-  });
+  const cookieStatuses = computed<CookiesMap>(() => settings.ytdlp_cookies);
 
   function getSavedSettings(): SavedSettings {
     return {
@@ -89,7 +86,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       Object.assign(settings.template_settings, createTemplateSettings({ ...settings.template_settings, ...data.template_settings }));
     }
     settings.download_locations = Array.isArray(data.download_locations) ? data.download_locations : [];
-    settings.instagram_ytdlp_cookies = createCookiesStatus(data.instagram_ytdlp_cookies || {});
+    Object.assign(settings.ytdlp_cookies, createCookiesMap(data.ytdlp_cookies || {}));
   }
 
   function cacheUiConfig(data: UiConfigResponse): void {
@@ -157,26 +154,26 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     }
   }
 
-  async function connectInstagramCookies(file?: File): Promise<void> {
+  async function connectCookies(platform: string, file?: File): Promise<void> {
     if (!file) {
       toast("Choose a cookies file first.", "error");
       return;
     }
     try {
-      cacheUiConfig(await uploadCookiesMutation.mutateAsync(file));
-      toast("yt-dlp cookies connected.");
+      cacheUiConfig(await uploadCookiesMutation.mutateAsync({ platform, file }));
+      toast("Cookies connected.");
     } catch (error) {
-      toast(errorMessage(error, "Could not connect yt-dlp cookies."), "error");
+      toast(errorMessage(error, "Could not connect cookies."), "error");
     }
   }
 
-  async function removeInstagramCookies(): Promise<void> {
-    if (!settings.instagram_ytdlp_cookies.configured) return;
+  async function removeCookies(platform: string): Promise<void> {
+    if (!settings.ytdlp_cookies[platform]?.configured) return;
     try {
-      cacheUiConfig(await deleteCookiesMutation.mutateAsync());
-      toast("yt-dlp cookies disconnected.");
+      cacheUiConfig(await deleteCookiesMutation.mutateAsync(platform));
+      toast("Cookies removed.");
     } catch (error) {
-      toast(errorMessage(error, "Could not remove yt-dlp cookies."), "error");
+      toast(errorMessage(error, "Could not remove cookies."), "error");
     }
   }
 
@@ -196,10 +193,19 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     }
   }
 
+  let draftSeeded = false;
   watch(
     () => uiConfigQuery.data.value,
     (data) => {
-      if (data) applyServerSettings(data);
+      if (!data) return;
+      applyServerSettings(data);
+      // Seed the draft once config arrives so the Settings page shows the
+      // saved/default paths even when it is reached via reload (not a click,
+      // which is the only other place the draft is copied).
+      if (!draftSeeded) {
+        copySettingsToDraft();
+        draftSeeded = true;
+      }
     },
     { immediate: true },
   );
@@ -213,11 +219,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   return {
     cleanNfo,
     cleanupBusy,
-    connectInstagramCookies,
-    cookiesStatusText,
+    connectCookies,
+    cookieStatuses,
     getSavedSettings,
     openSettings,
-    removeInstagramCookies,
+    removeCookies,
     saveSettingsDraft,
     savedSettings,
     setSettingsSection,

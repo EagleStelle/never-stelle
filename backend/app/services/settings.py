@@ -5,6 +5,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import UploadFile
 
@@ -25,9 +26,65 @@ from backend.app.db.repositories import (
 )
 
 
-COOKIE_BLOB_KEY = "instagram_ytdlp_cookies"
+# One cookies.txt per platform. yt-dlp is given the jar that matches the URL
+# being downloaded; an "others" jar acts as a catch-all fallback.
+COOKIE_PLATFORMS = (
+    "youtube",
+    "tiktok",
+    "instagram",
+    "twitter",
+    "facebook",
+    "reddit",
+    "twitch",
+    "pinterest",
+    "bluesky",
+    "linkedin",
+    "others",
+)
+COOKIE_BLOB_PREFIX = "ytdlp_cookies::"
 MAX_COOKIE_UPLOAD_BYTES = 5 * 1024 * 1024
 _cookie_file_lock = threading.RLock()
+
+_COOKIE_HOST_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("youtube", ("youtube.com", "youtu.be")),
+    ("tiktok", ("tiktok.com",)),
+    ("instagram", ("instagram.com",)),
+    ("twitter", ("twitter.com", "x.com")),
+    ("facebook", ("facebook.com", "fb.com", "fb.watch")),
+    ("reddit", ("reddit.com", "redd.it")),
+    ("twitch", ("twitch.tv",)),
+    ("pinterest", ("pinterest.com", "pin.it")),
+    ("bluesky", ("bsky.app", "bsky.social")),
+    ("linkedin", ("linkedin.com",)),
+)
+
+
+def normalize_cookie_platform(platform: Any) -> str:
+    candidate = str(platform or "").strip().lower()
+    return candidate if candidate in COOKIE_PLATFORMS else "others"
+
+
+def _cookie_key(platform: Any) -> str:
+    return f"{COOKIE_BLOB_PREFIX}{normalize_cookie_platform(platform)}"
+
+
+def detect_cookie_platform(source_url: str) -> str:
+    try:
+        host = (urlparse(source_url).hostname or "").lower()
+    except Exception:
+        host = ""
+    for platform, suffixes in _COOKIE_HOST_RULES:
+        if host.endswith(suffixes):
+            return platform
+    return "others"
+
+
+def _cookie_blob_metadata(platform: str) -> dict[str, Any] | None:
+    return get_file_blob_metadata(_cookie_key(platform))
+
+
+def _cookie_blob_content(platform: str) -> dict[str, Any] | None:
+    return get_file_blob(_cookie_key(platform))
 
 BUILTIN_FOLDER_TEMPLATE = "{{creator}}"
 BUILTIN_FILENAME_TEMPLATE = "{{creator}} - {{title}} [{{id}}]"
@@ -67,8 +124,8 @@ def normalize_site_location_selection(raw: Any, cfg: dict[str, Any]) -> dict[str
     return out
 
 
-def get_ytdlp_cookies_status() -> dict[str, Any]:
-    uploaded = get_file_blob_metadata(COOKIE_BLOB_KEY)
+def get_cookie_platform_status(platform: str) -> dict[str, Any]:
+    uploaded = _cookie_blob_metadata(platform)
     if uploaded:
         return {
             "configured": True,
@@ -80,8 +137,13 @@ def get_ytdlp_cookies_status() -> dict[str, Any]:
     return {"configured": False, "source": "none", "filename": "", "uploaded_at": ""}
 
 
-def materialize_cookie_blob() -> str:
-    uploaded = get_file_blob(COOKIE_BLOB_KEY)
+def get_ytdlp_cookies_status() -> dict[str, dict[str, Any]]:
+    return {platform: get_cookie_platform_status(platform) for platform in COOKIE_PLATFORMS}
+
+
+def materialize_cookie_blob(platform: str) -> str:
+    platform = normalize_cookie_platform(platform)
+    uploaded = _cookie_blob_content(platform)
     if not uploaded:
         return ""
     content = uploaded.get("content")
@@ -90,7 +152,7 @@ def materialize_cookie_blob() -> str:
 
     runtime_dir = Path(tempfile.gettempdir()) / "never-stelle"
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    target = runtime_dir / "instagram-ytdlp-cookies.txt"
+    target = runtime_dir / f"ytdlp-cookies-{platform}.txt"
     with _cookie_file_lock:
         temp_target = target.with_suffix(".tmp")
         temp_target.write_bytes(content)
@@ -99,25 +161,27 @@ def materialize_cookie_blob() -> str:
 
 
 def find_cookies_file_for_url(source_url: str) -> str:
-    host = ""
-    try:
-        from urllib.parse import urlparse
-
-        host = (urlparse(source_url).hostname or "").lower()
-    except Exception:
-        host = ""
-
-    candidates: list[str] = []
-    if host.endswith("instagram.com"):
-        candidates.append(materialize_cookie_blob())
-
-    for candidate in candidates:
-        if candidate and Path(candidate).is_file():
-            return candidate
+    # Use the jar uploaded for this URL's platform; fall back to the catch-all
+    # "others" jar so a generic cookies.txt still helps unmapped sites.
+    platform = detect_cookie_platform(source_url)
+    candidate = materialize_cookie_blob(platform)
+    if candidate and Path(candidate).is_file():
+        return candidate
+    if platform != "others":
+        fallback = materialize_cookie_blob("others")
+        if fallback and Path(fallback).is_file():
+            return fallback
     return ""
 
 
-async def save_ytdlp_cookies_upload(uploaded: UploadFile) -> None:
+def has_cookies_for_url(source_url: str) -> bool:
+    platform = detect_cookie_platform(source_url)
+    if _cookie_blob_metadata(platform):
+        return True
+    return platform != "others" and bool(_cookie_blob_metadata("others"))
+
+
+async def save_ytdlp_cookies_upload(uploaded: UploadFile, platform: str) -> None:
     raw = await uploaded.read()
     if not raw:
         raise ValueError("Cookies file is empty.")
@@ -125,17 +189,18 @@ async def save_ytdlp_cookies_upload(uploaded: UploadFile) -> None:
         raise ValueError("Cookies file is too large.")
 
     save_file_blob(
-        COOKIE_BLOB_KEY,
+        _cookie_key(platform),
         Path(uploaded.filename or "cookies.txt").name,
         raw,
         "text/plain",
     )
 
 
-def clear_ytdlp_cookies_upload() -> None:
-    delete_file_blob(COOKIE_BLOB_KEY)
+def clear_ytdlp_cookies_upload(platform: str) -> None:
+    platform = normalize_cookie_platform(platform)
+    delete_file_blob(_cookie_key(platform))
     runtime_dir = Path(tempfile.gettempdir()) / "never-stelle"
-    for filename in ("instagram-ytdlp-cookies.txt", "instagram-ytdlp-cookies.tmp"):
+    for filename in (f"ytdlp-cookies-{platform}.txt", f"ytdlp-cookies-{platform}.tmp"):
         try:
             (runtime_dir / filename).unlink(missing_ok=True)
         except Exception:
@@ -149,7 +214,7 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
         "site_locations": normalize_site_location_selection(payload.get("site_locations"), cfg),
         "save_mode": "device" if str(payload.get("save_mode") or "").lower() == "device" else "nas",
         "template_settings": normalize_template_settings(payload.get("template_settings")),
-        "instagram_ytdlp_cookies": get_ytdlp_cookies_status(),
+        "ytdlp_cookies": get_ytdlp_cookies_status(),
     }
 
 
@@ -182,6 +247,6 @@ def build_settings_response(
         "site_default_locations": saved.get("site_locations", {}),
         "save_mode": saved.get("save_mode", "nas"),
         "template_settings": saved.get("template_settings", normalize_template_settings({})),
-        "instagram_ytdlp_cookies": saved.get("instagram_ytdlp_cookies", get_ytdlp_cookies_status()),
+        "ytdlp_cookies": saved.get("ytdlp_cookies", get_ytdlp_cookies_status()),
         "settings_loaded_at": int(time.time()),
     }

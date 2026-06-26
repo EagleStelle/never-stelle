@@ -25,21 +25,21 @@ const isExpanded = ref(true);
 </script>
 
 <template>
- <aside 
- class="hidden lg:flex sticky top-0 h-dvh min-w-0 flex-col gap-2 bg-secondary py-3 px-2.5" 
+ <aside
+ class="hidden lg:flex sticky top-0 h-dvh min-w-0 flex-col gap-2 glass-chrome border-y-0 border-l-0 py-3 px-2.5"
  :class="isExpanded ?'w-64':'w-16 items-center'"
  aria-label="App navigation"
  >
  <div class="group flex items-center w-full mb-3 h-10" :class="isExpanded ?'px-1.5 justify-between':'justify-center relative'">
  <a href="/" class="inline-flex items-center min-w-0 gap-3 text-text-muted hover:text-text leading-none no-underline" :class="!isExpanded ?'group-hover:opacity-0':''" aria-label="Never Stelle Home">
  <img src="/assets/logo.png" alt="" class="w-8 h-8 shrink-0" />
- <span v-show="isExpanded" class="whitespace-nowrap overflow-hidden font-bold text-text text-xl" :class="isExpanded ?'opacity-100':'opacity-0'">Never Stelle</span>
+ <span v-show="isExpanded" class="whitespace-nowrap overflow-hidden font-display font-bold text-text text-xl tracking-tight" :class="isExpanded ?'opacity-100':'opacity-0'">Never Stelle</span>
  </a>
  
  <button 
  @click="isExpanded = !isExpanded" 
- class="flex items-center justify-center text-text-muted hover:text-text"
- :class="isExpanded ?'w-8 h-8 rounded-md hover:bg-secondary-muted shrink-0':'absolute inset-0 w-full h-full opacity-0 group-hover:opacity-100 bg-secondary'"
+ class="flex items-center justify-center text-text-muted hover:text-text transition-all duration-300 ease-glass"
+ :class="isExpanded ?'w-8 h-8 rounded-lg hover:bg-white/10 shrink-0':'absolute inset-0 w-full h-full opacity-0 group-hover:opacity-100 bg-white/5'"
  :aria-label="isExpanded ?'Collapse sidebar':'Expand sidebar'"
  >
  <IconPanelClose v-if="isExpanded" class="w-5 h-5" />
@@ -52,7 +52,7 @@ const isExpanded = ref(true);
  v-for="item in pageItems"
  :key="item.key"
  type="button"
- class="inline-flex items-center rounded-lg bg-transparent text-text-muted leading-none active:scale-95 hover:text-text hover:bg-secondary-muted aria-pressed:bg-primary aria-pressed:text-text-on-primary"
+ class="inline-flex items-center rounded-xl bg-transparent text-text-muted leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-text hover:bg-white/10 aria-pressed:bg-primary aria-pressed:text-text-on-primary aria-pressed:shadow-[0_8px_24px_-8px_rgba(237,158,89,0.6)]"
  :class="isExpanded ?'w-full flex-row justify-start px-3.5 h-10 gap-3':'w-10 h-10 justify-center'"
  :aria-pressed="activePage === item.key"
  :title="!isExpanded ? item.label : undefined"
@@ -66,7 +66,7 @@ const isExpanded = ref(true);
  <div class="flex gap-1 mt-auto" :class="isExpanded ?'w-full flex-col':'flex-col items-center w-full'">
  <button
  type="button"
- class="inline-flex items-center rounded-lg bg-transparent text-text-muted leading-none active:scale-95 hover:text-text hover:bg-secondary-muted"
+ class="inline-flex items-center rounded-xl bg-transparent text-text-muted leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-text hover:bg-white/10"
  :class="isExpanded ?'w-full flex-row justify-start px-3.5 h-10 gap-3':'w-10 h-10 justify-center'"
  :aria-label="isLightMode ?'Switch to dark mode':'Switch to light mode'"
  :title="!isExpanded ? (isLightMode ?'Switch to dark mode':'Switch to light mode') : undefined"
@@ -78,9 +78,10 @@ const isExpanded = ref(true);
  </button>
  <button 
  type="button" 
- class="inline-flex items-center rounded-lg bg-transparent text-text-muted leading-none active:scale-95 hover:text-text hover:bg-secondary-muted aria-pressed:bg-primary aria-pressed:text-text-on-primary"
- :class="[isExpanded ?'w-full flex-row justify-start px-3.5 h-10 gap-3':'w-10 h-10 justify-center', activePage ==='settings'?'bg-primary text-text-on-primary':'']"
- aria-label="Open settings" 
+ class="inline-flex items-center rounded-xl bg-transparent text-text-muted leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-text hover:bg-white/10 aria-pressed:bg-primary aria-pressed:text-text-on-primary aria-pressed:shadow-[0_8px_24px_-8px_rgba(237,158,89,0.6)]"
+ :class="isExpanded ?'w-full flex-row justify-start px-3.5 h-10 gap-3':'w-10 h-10 justify-center'"
+ :aria-pressed="activePage ==='settings'"
+ aria-label="Open settings"
  :title="!isExpanded ?'Settings': undefined" 
  @click="emit('openSettings', $event)"
  >
