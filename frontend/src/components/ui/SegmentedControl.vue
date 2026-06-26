@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { ToggleGroupRoot, type ToggleGroupRootProps } from 'reka-ui'
+import { ToggleGroupRoot, type ToggleGroupRootProps } from'reka-ui'
 
 const props = withDefaults(defineProps<ToggleGroupRootProps & { class?: string }>(), {
-  type: 'single'
+ type:'single'
 })
 
 const emit = defineEmits<{
-  'update:modelValue': [value: any]
+'update:modelValue': [value: any]
 }>()
 </script>
 
 <template>
-  <ToggleGroupRoot
-    v-bind="props"
-    @update:modelValue="emit('update:modelValue', $event)"
-    :class="['inline-flex items-center gap-1 px-1 py-1 h-10 bg-secondary-muted border border-primary-muted rounded-lg', props.class]"
-  >
-    <slot />
-  </ToggleGroupRoot>
+ <ToggleGroupRoot
+ v-bind="props"
+ @update:modelValue="emit('update:modelValue', $event)"
+ :class="['inline-flex items-center gap-1 px-1 py-1 h-10 bg-secondary-muted rounded-lg', props.class]"
+ >
+ <slot />
+ </ToggleGroupRoot>
 </template>

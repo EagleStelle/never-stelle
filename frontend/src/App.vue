@@ -1,189 +1,189 @@
 <script setup lang="ts">
-import DownloadCommand from "./components/downloads/DownloadCommand.vue";
-import DownloadsPanel from "./components/downloads/DownloadsPanel.vue";
-import NavSide from "./components/layout/NavSide.vue";
-import BarStatus from "./components/layout/BarStatus.vue";
-import NavBottom from "./components/layout/NavBottom.vue";
-import SettingsPage from "./components/settings/SettingsPage.vue";
-import ToastStack from "./components/ToastStack.vue";
-import Combobox from "./components/ui/Combobox.vue";
-import InputBar from "./components/ui/InputBar.vue";
-import SegmentedControl from "./components/ui/SegmentedControl.vue";
-import SegmentedControlItem from "./components/ui/SegmentedControlItem.vue";
-import IconGrid from "~icons/material-symbols/grid-view";
-import IconList from "~icons/material-symbols/list";
-import IconSearch from "~icons/material-symbols/search";
-import IconTrash from "~icons/material-symbols/delete";
+import DownloadCommand from"./components/downloads/DownloadCommand.vue";
+import DownloadsPanel from"./components/downloads/DownloadsPanel.vue";
+import NavSide from"./components/layout/NavSide.vue";
+import BarStatus from"./components/layout/BarStatus.vue";
+import NavBottom from"./components/layout/NavBottom.vue";
+import SettingsPage from"./components/settings/SettingsPage.vue";
+import ToastStack from"./components/ToastStack.vue";
+import Combobox from"./components/ui/Combobox.vue";
+import InputBar from"./components/ui/InputBar.vue";
+import SegmentedControl from"./components/ui/SegmentedControl.vue";
+import SegmentedControlItem from"./components/ui/SegmentedControlItem.vue";
+import IconGrid from"~icons/material-symbols/grid-view";
+import IconList from"~icons/material-symbols/list";
+import IconSearch from"~icons/material-symbols/search";
+import IconTrash from"~icons/material-symbols/delete";
 
-import { useDownloadDashboard } from "./composables/useDownloadDashboard";
+import { useDownloadDashboard } from"./composables/useDownloadDashboard";
 
 const {
-  activeMenu,
-  activeMenuLabel,
-  activePage,
-  addDownloadTask,
-  cleanNfo,
-  cleanupBusy,
-  clearCompleted,
-  clearPending,
-  connectInstagramCookies,
-  cookiesStatusText,
-  countCards,
-  downloadTask,
-  activeTasks,
-  completedTasks,
-  hideTask,
-  isLightMode,
-  navigationItems,
-  openSettings,
-  pageItems,
-  removeInstagramCookies,
-  removeTask,
-  saveSettingsDraft,
-  savedSettings,
-  setActiveMenu,
-  setActivePage,
-  setViewMode,
-  settings,
-  settingsDraft,
-  settingsSection,
-  srStatus,
-  tasksErrorMessage,
-  tasksLoading,
-  toasts,
-  toggleThemeMode,
-  updateSaveMode,
-  url,
-  viewMode,
+ activeMenu,
+ activeMenuLabel,
+ activePage,
+ addDownloadTask,
+ cleanNfo,
+ cleanupBusy,
+ clearCompleted,
+ clearPending,
+ connectInstagramCookies,
+ cookiesStatusText,
+ countCards,
+ downloadTask,
+ activeTasks,
+ completedTasks,
+ hideTask,
+ isLightMode,
+ navigationItems,
+ openSettings,
+ pageItems,
+ removeInstagramCookies,
+ removeTask,
+ saveSettingsDraft,
+ savedSettings,
+ setActiveMenu,
+ setActivePage,
+ setViewMode,
+ settings,
+ settingsDraft,
+ settingsSection,
+ srStatus,
+ tasksErrorMessage,
+ tasksLoading,
+ toasts,
+ toggleThemeMode,
+ updateSaveMode,
+ url,
+ viewMode,
 } = useDownloadDashboard();
 </script>
 
 <template>
-  <div class="w-full max-w-full h-dvh overflow-hidden bg-bg text-text lg:flex">
-    <a class="sr-only focus:not-sr-only focus:fixed focus:z-50 focus:top-2 focus:left-2 border border-primary rounded-lg bg-secondary text-text px-3 py-2 transition-transform duration-200 ease-out" href="#mainContent">Skip to content</a>
+ <div class="w-full max-w-full h-dvh overflow-hidden bg-bg text-text lg:flex">
+ <a class="sr-only focus:not-sr-only focus:fixed focus:z-50 focus:top-2 focus:left-2 rounded-lg bg-secondary text-text px-3 py-2 transition-transform duration-200 ease-out" href="#mainContent">Skip to content</a>
 
-    <NavSide
-      class="shrink-0"
-      :active-page="activePage"
-      :is-light-mode="isLightMode"
-      :page-items="pageItems"
-      @open-settings="openSettings"
-      @select-page="setActivePage"
-      @toggle-theme="toggleThemeMode"
-    />
+ <NavSide
+ class="shrink-0"
+ :active-page="activePage"
+ :is-light-mode="isLightMode"
+ :page-items="pageItems"
+ @open-settings="openSettings"
+ @select-page="setActivePage"
+ @toggle-theme="toggleThemeMode"
+ />
 
-    <div class="flex-1 min-w-0 flex flex-col h-dvh relative">
-      <main id="mainContent" class="flex-1 overflow-y-auto overflow-x-hidden p-4 flex flex-col" tabindex="-1">
-      <template v-if="activePage === 'downloads'">
-        <DownloadCommand
-          class="mb-2"
-          v-model:url="url"
-          :saved-settings="savedSettings"
-          @add-download="addDownloadTask"
-        />
-      </template>
+ <div class="flex-1 min-w-0 flex flex-col h-dvh relative">
+ <main id="mainContent" class="flex-1 overflow-y-auto overflow-x-hidden p-4 flex flex-col" tabindex="-1">
+ <template v-if="activePage ==='downloads'">
+ <DownloadCommand
+ class="mb-2"
+ v-model:url="url"
+ :saved-settings="savedSettings"
+ @add-download="addDownloadTask"
+ />
+ </template>
 
-      <template v-else-if="activePage === 'history'">
-        <section aria-label="Search history" class="mb-2">
-          <InputBar
-            type="text"
-            placeholder="Search history..."
-          >
-            <template #icon>
-              <IconSearch class="w-5 h-5" aria-hidden="true" />
-            </template>
-          </InputBar>
-        </section>
-      </template>
+ <template v-else-if="activePage ==='history'">
+ <section aria-label="Search history" class="mb-2">
+ <InputBar
+ type="text"
+ placeholder="Search history..."
+ >
+ <template #icon>
+ <IconSearch class="w-5 h-5" aria-hidden="true" />
+ </template>
+ </InputBar>
+ </section>
+ </template>
 
-      <div v-if="['downloads', 'history'].includes(activePage)" class="flex items-center justify-end gap-2 mb-2 pb-1">
-        <div class="flex items-center gap-2">
-          <Combobox
-            :model-value="activeMenu"
-            :items="navigationItems"
-            @update:model-value="setActiveMenu"
-            class="w-[160px]"
-            placeholder="Search platform..."
-            empty-text="No platforms found."
-          />
-          
-          <SegmentedControl
-            :model-value="viewMode"
-            @update:model-value="(val) => { if (val) setViewMode(val as 'grid' | 'table') }"
-            aria-label="View mode"
-          >
-            <SegmentedControlItem value="grid" aria-label="Grid view">
-              <IconGrid class="w-4 h-4" aria-hidden="true" />
-              <span>Grid</span>
-            </SegmentedControlItem>
-            <SegmentedControlItem value="table" aria-label="Table view">
-              <IconList class="w-4 h-4" aria-hidden="true" />
-              <span>Table</span>
-            </SegmentedControlItem>
-          </SegmentedControl>
-        </div>
-      </div>
+ <div v-if="['downloads','history'].includes(activePage)" class="flex items-center justify-end gap-2 mb-2 pb-1">
+ <div class="flex items-center gap-2">
+ <Combobox
+ :model-value="activeMenu"
+ :items="navigationItems"
+ @update:model-value="(val) => setActiveMenu(val as any)"
+ class="w-[160px]"
+ placeholder="Search platform..."
+ empty-text="No platforms found."
+ />
+ 
+ <SegmentedControl
+ :model-value="viewMode"
+ @update:model-value="(val) => { if (val) setViewMode(val as'grid'|'table') }"
+ aria-label="View mode"
+ >
+ <SegmentedControlItem value="grid" aria-label="Grid view">
+ <IconGrid class="w-4 h-4" aria-hidden="true" />
+ <span>Grid</span>
+ </SegmentedControlItem>
+ <SegmentedControlItem value="table" aria-label="Table view">
+ <IconList class="w-4 h-4" aria-hidden="true" />
+ <span>Table</span>
+ </SegmentedControlItem>
+ </SegmentedControl>
+ </div>
+ </div>
 
-      <template v-if="activePage === 'downloads'">
-        <DownloadsPanel
-          :active-menu="activeMenu"
-          :active-menu-label="activeMenuLabel"
-          :error-message="tasksErrorMessage"
-          :loading="tasksLoading"
-          page-kind="downloads"
-          :tasks="activeTasks"
-          :view-mode="viewMode"
-          @clear-pending="clearPending"
-          @download="downloadTask"
-          @hide="hideTask"
-          @remove="removeTask"
-          @set-view-mode="setViewMode"
-        />
-      </template>
+ <template v-if="activePage ==='downloads'">
+ <DownloadsPanel
+ :active-menu="activeMenu"
+ :active-menu-label="activeMenuLabel"
+ :error-message="tasksErrorMessage"
+ :loading="tasksLoading"
+ page-kind="downloads"
+ :tasks="activeTasks"
+ :view-mode="viewMode"
+ @clear-pending="clearPending"
+ @download="downloadTask"
+ @hide="hideTask"
+ @remove="removeTask"
+ @set-view-mode="setViewMode"
+ />
+ </template>
 
-      <template v-else-if="activePage === 'history'">
-        <DownloadsPanel
-          :active-menu="activeMenu"
-          :active-menu-label="activeMenuLabel"
-          :error-message="tasksErrorMessage"
-          :loading="tasksLoading"
-          page-kind="history"
-          :tasks="completedTasks"
-          :view-mode="viewMode"
-          @clear-pending="clearPending"
-          @download="downloadTask"
-          @hide="hideTask"
-          @remove="removeTask"
-          @set-view-mode="setViewMode"
-        />
-      </template>
+ <template v-else-if="activePage ==='history'">
+ <DownloadsPanel
+ :active-menu="activeMenu"
+ :active-menu-label="activeMenuLabel"
+ :error-message="tasksErrorMessage"
+ :loading="tasksLoading"
+ page-kind="history"
+ :tasks="completedTasks"
+ :view-mode="viewMode"
+ @clear-pending="clearPending"
+ @download="downloadTask"
+ @hide="hideTask"
+ @remove="removeTask"
+ @set-view-mode="setViewMode"
+ />
+ </template>
 
-      <SettingsPage
-        v-else-if="activePage === 'settings'"
-        v-model:section="settingsSection"
-        :cleanup-busy="cleanupBusy"
-        :cookies-status-text="cookiesStatusText"
-        :settings="settings"
-        :settings-draft="settingsDraft"
-        @clean-nfo="cleanNfo"
-        @connect-instagram-cookies="connectInstagramCookies"
-        @remove-instagram-cookies="removeInstagramCookies"
-        @save="saveSettingsDraft"
-      />
-      </main>
-      <BarStatus :count-cards="countCards" @clear-queue="clearPending" />
-    </div>
+ <SettingsPage
+ v-else-if="activePage ==='settings'"
+ v-model:section="settingsSection"
+ :cleanup-busy="cleanupBusy"
+ :cookies-status-text="cookiesStatusText"
+ :settings="settings"
+ :settings-draft="settingsDraft"
+ @clean-nfo="cleanNfo"
+ @connect-instagram-cookies="connectInstagramCookies"
+ @remove-instagram-cookies="removeInstagramCookies"
+ @save="saveSettingsDraft"
+ />
+ </main>
+ <BarStatus :count-cards="countCards" @clear-queue="clearPending" />
+ </div>
 
-    <NavBottom 
-      :active-page="activePage" 
-      :page-items="pageItems"
-      :is-light-mode="isLightMode" 
-      @select-page="setActivePage" 
-      @toggle-theme="toggleThemeMode"
-      @open-settings="openSettings"
-    />
+ <NavBottom 
+ :active-page="activePage" 
+ :page-items="pageItems"
+ :is-light-mode="isLightMode" 
+ @select-page="setActivePage" 
+ @toggle-theme="toggleThemeMode"
+ @open-settings="openSettings"
+ />
 
-    <ToastStack :toasts="toasts" />
-    <div class="sr-only" aria-live="polite" aria-atomic="true">{{ srStatus }}</div>
-  </div>
+ <ToastStack :toasts="toasts" />
+ <div class="sr-only" aria-live="polite" aria-atomic="true">{{ srStatus }}</div>
+ </div>
 </template>

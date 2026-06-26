@@ -1,35 +1,37 @@
 @import "tailwindcss";
 
 @theme {
-  /* Exposing the core palette to Tailwind */
   --color-background: var(--background);
   --color-secondary: var(--secondary);
   --color-secondary-muted: var(--secondary-muted);
   --color-text: var(--text);
   --color-text-muted: var(--text-muted);
+  --color-text-on-primary: var(--text-on-primary);
   --color-primary: var(--primary);
   --color-primary-muted: var(--primary-muted);
 }
 
 :root {
-  --background: #0D0914;
-  --secondary: #161022;
-  --secondary-muted: #251A38;
-  --text: #F8F9FA;
-  --text-muted: #CBB8D9;
-  --primary: #9D4EDD;
-  --primary-muted: #7B2CBF;
+  --background: #110E1A; 
+  --secondary: #1B1931; 
+  --secondary-muted: #2A2640; 
+  --text: #F8F4F5; 
+  --text-muted: #E9BCB9; 
+  --text-on-primary: #1B1931;
+  --primary: #ED9E59; 
+  --primary-muted: #44174E; 
   color-scheme: dark;
 }
 
 :root.light-mode {
-  --background: #FCFAFD;
-  --secondary: #F3EBF5;
-  --secondary-muted: #E6D8EB;
-  --text: #1A0B2E;
-  --text-muted: #5D4075;
-  --primary: #7B2CBF;
-  --primary-muted: #9D4EDD;
+  --background: #FDFBFC;
+  --secondary: #F5EBEB;
+  --secondary-muted: #E9BCB9;
+  --text: #1B1931;
+  --text-muted: #662249;
+  --text-on-primary: #1B1931;
+  --primary: #ED9E59;
+  --primary-muted: #F2D5D3;
   color-scheme: light;
 }
 
@@ -58,9 +60,6 @@
     overflow-x: hidden;
     background: var(--background);
     color: var(--text);
-    font-family: var(--font-sans);
-    line-height: 1.42;
-    text-rendering: geometricPrecision;
   }
 
   body.dialog-open {
