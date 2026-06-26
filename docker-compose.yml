@@ -9,4 +9,4 @@ services:
       - .local/media:/media
       - .local/scratch:/scratch
     ports:
-      - "8088:8088"
+      - "8840:8840"

@@ -3,9 +3,15 @@ import { MENU_KEYS, PAGE_KEYS, type CookiesStatus, type MenuKey, type PageKey, t
 export function createSiteLocations(source: Partial<SiteLocations> = {}): SiteLocations {
   return {
     youtube: source.youtube || "",
-    facebook: source.facebook || "",
-    instagram: source.instagram || "",
     tiktok: source.tiktok || "",
+    instagram: source.instagram || "",
+    twitter: source.twitter || "",
+    facebook: source.facebook || "",
+    reddit: source.reddit || "",
+    twitch: source.twitch || "",
+    pinterest: source.pinterest || "",
+    bluesky: source.bluesky || "",
+    linkedin: source.linkedin || "",
     others: source.others || "",
   };
 }

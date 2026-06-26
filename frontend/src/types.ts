@@ -1,4 +1,4 @@
-export const SITE_KEYS = ["youtube", "facebook", "instagram", "tiktok", "others"] as const;
+export const SITE_KEYS = ["youtube", "tiktok", "instagram", "twitter", "facebook", "reddit", "twitch", "pinterest", "bluesky", "linkedin", "others"] as const;
 export const MENU_KEYS = ["all", ...SITE_KEYS] as const;
 export const PAGE_KEYS = ["downloads", "history", "settings"] as const;
 

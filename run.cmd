@@ -16,7 +16,8 @@ exit /b %RC%
 #PSMARK
 [CmdletBinding()]
 param(
-    [int]$Port = 8088,
+    [int]$Port = 8840,
+    [int]$FrontendPort = 5173,
     [string]$HostAddress = "127.0.0.1",
     [switch]$Reinstall,
     [switch]$Prod
@@ -34,6 +35,7 @@ $DataDir = Join-Path $LocalDir "data"
 $MediaDir = Join-Path $LocalDir "media"
 $ScratchDir = Join-Path $LocalDir "scratch"
 $BuildDir = Join-Path $LocalDir "build"   # tooling that must survive scratch wipes
+$LogDir = Join-Path $LocalDir "logs"
 
 $VenvDir = Join-Path $BuildDir ".venv"
 $DatabasePath = Join-Path $DataDir "never-stelle.sqlite3"
@@ -43,7 +45,7 @@ $NpmCacheDir = Join-Path $BuildDir "npm-cache"
 $FrontendWorkDir = Join-Path $BuildDir "frontend-work"
 $FrontendDistDir = Join-Path $DataDir "frontend-dist"
 
-foreach ($Path in @($LocalDir, $DataDir, $MediaDir, $ScratchDir, $BuildDir, $TempDir, $PipCacheDir, $NpmCacheDir, $FrontendWorkDir, $FrontendDistDir)) {
+foreach ($Path in @($LocalDir, $DataDir, $MediaDir, $ScratchDir, $BuildDir, $LogDir, $TempDir, $PipCacheDir, $NpmCacheDir, $FrontendWorkDir, $FrontendDistDir)) {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
 }
 
@@ -53,6 +55,53 @@ function Assert-UnderLocal {
     $FullPath = [System.IO.Path]::GetFullPath($Path)
     if (-not $FullPath.StartsWith($FullLocal, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to modify path outside .local: $FullPath"
+    }
+}
+
+function Get-ListenProcessDescription {
+    param([int]$Port)
+
+    try {
+        $Connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop | Select-Object -First 1
+    } catch {
+        $Connection = $null
+    }
+
+    if (-not $Connection) {
+        return ""
+    }
+
+    $Owner = Get-Process -Id $Connection.OwningProcess -ErrorAction SilentlyContinue
+    if ($Owner) {
+        return "PID $($Owner.Id) ($($Owner.ProcessName))"
+    }
+    return "PID $($Connection.OwningProcess)"
+}
+
+function Stop-ProcessTree {
+    param([int]$RootProcessId)
+
+    $Children = Get-CimInstance Win32_Process -Filter "ParentProcessId = $RootProcessId" -ErrorAction SilentlyContinue
+    foreach ($Child in $Children) {
+        Stop-ProcessTree -RootProcessId ([int]$Child.ProcessId)
+    }
+
+    $Process = Get-Process -Id $RootProcessId -ErrorAction SilentlyContinue
+    if ($Process) {
+        Stop-Process -Id $RootProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Show-LogTail {
+    param(
+        [string]$Path,
+        [int]$Lines = 25
+    )
+
+    if (Test-Path -LiteralPath $Path) {
+        Write-Host ""
+        Write-Host "$Path"
+        Get-Content -LiteralPath $Path -Tail $Lines
     }
 }
 
@@ -92,6 +141,10 @@ if (-not $Node -or -not $Npm) {
     throw "Node.js and npm are required to build the Vue frontend. Install Node.js ^20.19.0 or >=22.12.0."
 }
 
+$FrontendProcess = $null
+$FrontendOutLog = Join-Path $LogDir "frontend-dev.out.log"
+$FrontendErrLog = Join-Path $LogDir "frontend-dev.err.log"
+
 if ($Dev) {
     $FrontendDevNodeModules = Join-Path $FrontendSourceDir "node_modules"
     if (-not (Test-Path -LiteralPath $FrontendDevNodeModules)) {
@@ -101,8 +154,22 @@ if ($Dev) {
             throw "Frontend dev dependency installation failed."
         }
     }
-    Write-Host "Starting Vue frontend dev server in new window..."
-    Start-Process -FilePath cmd.exe -ArgumentList "/c", "title Never Stelle Frontend (Dev) & npm --prefix `"$FrontendSourceDir`" run dev"
+
+    $FrontendPortOwner = Get-ListenProcessDescription -Port $FrontendPort
+    if ($FrontendPortOwner) {
+        throw "Frontend port $FrontendPort is already in use by $FrontendPortOwner. Stop that process or run .\run.cmd -FrontendPort <port>."
+    }
+
+    $ApiTargetHost = if ($HostAddress -eq "0.0.0.0" -or $HostAddress -eq "::") { "127.0.0.1" } else { $HostAddress }
+    $ApiTarget = "http://${ApiTargetHost}:$Port"
+
+    Write-Host "Starting Vue frontend dev server..."
+    $FrontendCommand = "title Frontend Dev Server && set `"VITE_API_TARGET=$ApiTarget`" && set `"VITE_DEV_HOST=$HostAddress`" && set `"VITE_DEV_PORT=$FrontendPort`" && npm --prefix `"$FrontendSourceDir`" run dev -- --host `"$HostAddress`" --port $FrontendPort --strictPort"
+    $FrontendProcess = Start-Process -FilePath cmd.exe -ArgumentList "/d", "/s", "/c", $FrontendCommand -WorkingDirectory $FrontendSourceDir -PassThru
+    Start-Sleep -Seconds 2
+    if ($FrontendProcess.HasExited) {
+        throw "Vue frontend dev server exited early."
+    }
 } else {
     foreach ($Name in @("src", "public")) {
         $Target = Join-Path $FrontendWorkDir $Name
@@ -162,7 +229,7 @@ Write-Host ""
 Write-Host "Never Stelle"
 if ($Dev) {
     Write-Host "  Mode:     Development (Hot Reload)"
-    Write-Host "  URL:      http://${HostAddress}:5173"
+    Write-Host "  URL:      http://${HostAddress}:$FrontendPort"
     Write-Host "  API URL:  http://${HostAddress}:$Port"
 } else {
     Write-Host "  URL:      http://${HostAddress}:$Port"
@@ -176,8 +243,14 @@ Write-Host ""
 Write-Host "Press Ctrl+C to stop."
 Write-Host ""
 
-if ($Dev) {
-    & $PythonExe -m uvicorn backend.app.main:app --host $HostAddress --port $Port --reload
-} else {
-    & $PythonExe -m uvicorn backend.app.main:app --host $HostAddress --port $Port
+try {
+    if ($Dev) {
+        & $PythonExe -m uvicorn backend.app.main:app --host $HostAddress --port $Port --reload
+    } else {
+        & $PythonExe -m uvicorn backend.app.main:app --host $HostAddress --port $Port
+    }
+} finally {
+    if ($FrontendProcess -and -not $FrontendProcess.HasExited) {
+        Stop-ProcessTree -RootProcessId $FrontendProcess.Id
+    }
 }

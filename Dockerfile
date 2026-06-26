@@ -27,5 +27,5 @@ ENV PYTHONPATH=/app \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-EXPOSE 8088
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8088"]
+EXPOSE 8840
+CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8840"]

@@ -7,6 +7,9 @@ import { defineConfig } from "vite";
 import Icons from "unplugin-icons/vite";
 
 const outDir = process.env.FRONTEND_OUT_DIR || "dist";
+const apiTarget = process.env.VITE_API_TARGET || "http://127.0.0.1:8840";
+const devHost = process.env.VITE_DEV_HOST || "127.0.0.1";
+const devPort = Number(process.env.VITE_DEV_PORT || 5173);
 
 export default defineConfig({
   plugins: [
@@ -26,8 +29,11 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    host: devHost,
+    port: devPort,
+    strictPort: true,
     proxy: {
-      "/api": "http://127.0.0.1:8088",
+      "/api": apiTarget,
     },
   },
 });

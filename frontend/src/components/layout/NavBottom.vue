@@ -20,33 +20,34 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <nav class="fixed z-50 inset-x-0 bottom-0 flex w-[100vw] gap-[0.25rem] overflow-hidden border-t border-accent-subtle bg-[color-mix(in_srgb,var(--panel)_92%,var(--bg))] pt-[0.45rem] px-[0.35rem] pb-[calc(0.45rem+env(safe-area-inset-bottom))] lg:hidden" aria-label="App navigation">
+  <nav class="fixed z-50 inset-x-0 bottom-0 flex w-screen gap-1 overflow-hidden bg-secondary pt-1.5 px-1.5 pb-2 lg:hidden" aria-label="App navigation">
     <button
       v-for="item in pageItems"
       :key="item.key"
       type="button"
-      class="inline-flex flex-col items-center justify-center flex-1 w-full min-w-0 h-10 px-[0.1rem] border border-transparent rounded-lg bg-transparent text-text-muted text-[0.66rem] font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] aria-pressed:bg-accent aria-pressed:text-bg"
+      class="inline-flex flex-col items-center justify-center flex-1 w-full min-w-0 h-9 px-0 border border-transparent rounded-lg bg-transparent text-text-muted leading-none transition-all duration-200 ease-out active:scale-95 aria-pressed:bg-primary aria-pressed:text-background"
       :aria-pressed="activePage === item.key"
       @click="emit('selectPage', item.key)"
     >
-      <component :is="item.icon" class="w-5 h-5 mb-1" aria-hidden="true" />
+      <component :is="item.icon" class="w-4 h-4 mb-1" aria-hidden="true" />
       <span>{{ item.label }}</span>
     </button>
     <button
       type="button"
-      class="inline-flex flex-col items-center justify-center flex-1 w-full min-w-0 h-10 px-[0.1rem] border border-transparent rounded-lg bg-transparent text-text-muted text-[0.66rem] font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:text-text"
+      class="inline-flex flex-col items-center justify-center flex-1 w-full min-w-0 h-9 px-0 border border-transparent rounded-lg bg-transparent text-text-muted leading-none transition-all duration-200 ease-out active:scale-95 hover:text-text"
       @click="emit('toggleTheme')"
     >
-      <IconSun v-if="isLightMode" class="w-5 h-5 mb-1" aria-hidden="true" />
-      <IconMoon v-else class="w-5 h-5 mb-1" aria-hidden="true" />
+      <IconSun v-if="isLightMode" class="w-4 h-4 mb-1" aria-hidden="true" />
+      <IconMoon v-else class="w-4 h-4 mb-1" aria-hidden="true" />
       <span>Theme</span>
     </button>
     <button
       type="button"
-      class="inline-flex flex-col items-center justify-center flex-1 w-full min-w-0 h-10 px-[0.1rem] border border-transparent rounded-lg bg-transparent text-text-muted text-[0.66rem] font-[800] leading-none transition-all duration-[180ms] ease-out active:scale-[0.98] hover:text-text"
+      class="inline-flex flex-col items-center justify-center flex-1 w-full min-w-0 h-9 px-0 border border-transparent rounded-lg bg-transparent text-text-muted leading-none transition-all duration-200 ease-out active:scale-95 hover:text-text aria-pressed:bg-primary aria-pressed:text-background"
+      :aria-pressed="activePage === 'settings'"
       @click="emit('openSettings', $event)"
     >
-      <IconGear class="w-5 h-5 mb-1" aria-hidden="true" />
+      <IconGear class="w-4 h-4 mb-1" aria-hidden="true" />
       <span>Settings</span>
     </button>
   </nav>

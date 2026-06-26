@@ -13,13 +13,21 @@ Run on Windows:
 Open:
 
 ```text
-http://127.0.0.1:8088
+http://127.0.0.1:5173
 ```
 
-Use another port:
+Use another backend/API or frontend port:
 
 ```powershell
-.\run.cmd -Port 8090
+.\run.cmd -Port 8090 -FrontendPort 5175
+```
+
+The development launcher starts the Vue frontend separately with hot reload. The FastAPI backend/API uses `http://127.0.0.1:8840` by default, or the port passed with `-Port`.
+
+Run the built frontend through FastAPI instead:
+
+```powershell
+.\run.cmd -Prod
 ```
 
 Runtime files are kept in `.local/`. The app derives its SQLite database, Vue build output, temporary files, dependency caches, and default library from that directory.
@@ -33,7 +41,7 @@ docker compose up --build
 Open:
 
 ```text
-http://127.0.0.1:8088
+http://127.0.0.1:8840
 ```
 
 Docker state is stored in the bind-mounted `data/`, `media/`, and `scratch/` directories.
@@ -80,8 +88,8 @@ Filename: {{creator}} - {{title}} [{{id}}]
 Available while the app is running:
 
 ```text
-http://127.0.0.1:8088/docs
-http://127.0.0.1:8088/redoc
+http://127.0.0.1:8840/docs
+http://127.0.0.1:8840/redoc
 ```
 
 ## Project Layout

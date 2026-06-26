@@ -7,9 +7,9 @@
     "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 5173",
+    "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 4173"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@tanstack/vue-query": "^5.101.1",
@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@iconify-json/material-symbols": "^1.2.81",
+    "@iconify-json/simple-icons": "^1.2.87",
     "@tailwindcss/vite": "^4.3.1",
     "@types/node": "^26.0.0",
     "@vitejs/plugin-vue": "^6.0.7",

@@ -7,6 +7,7 @@ defineProps<{
   activeMenuLabel: string;
   errorMessage: string;
   loading: boolean;
+  pageKind: "downloads" | "history";
   tasks: TaskItem[];
   viewMode: ViewMode;
 }>();
@@ -28,6 +29,7 @@ const emit = defineEmits<{
       :active-menu="activeMenu"
       :active-menu-label="activeMenuLabel"
       :loading="loading"
+      :page-kind="pageKind"
       :error-message="errorMessage"
       @download="emit('download', $event)"
       @hide="emit('hide', $event)"

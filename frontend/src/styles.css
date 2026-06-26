@@ -1,61 +1,106 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", system-ui, sans-serif;
-
-  /* Exposing the core palette to Tailwind as classes like bg-bg, text-text-muted */
-  --color-bg: var(--bg);
-  --color-panel: var(--panel);
-  --color-panel-subtle: var(--panel-subtle);
+  /* Exposing the core palette to Tailwind */
+  --color-background: var(--background);
+  --color-secondary: var(--secondary);
+  --color-secondary-muted: var(--secondary-muted);
   --color-text: var(--text);
   --color-text-muted: var(--text-muted);
-  --color-accent: var(--accent);
-  --color-accent-subtle: var(--accent-subtle);
+  --color-primary: var(--primary);
+  --color-primary-muted: var(--primary-muted);
 }
 
 :root {
-  --bg: #210535;
-  --panel: #420d4a;
-  --panel-subtle: #2d0a3d;
-  --text: #f4d5e0;
-  --text-muted: #c99db8;
-  --accent: #c774b2;
-  --accent-subtle: #7b347e;
+  --background: #0D0914;
+  --secondary: #161022;
+  --secondary-muted: #251A38;
+  --text: #F8F9FA;
+  --text-muted: #CBB8D9;
+  --primary: #9D4EDD;
+  --primary-muted: #7B2CBF;
   color-scheme: dark;
 }
 
 :root.light-mode {
-  --bg: #f4d5e0;
-  --panel: #ffffff;
-  --panel-subtle: #eddae5;
-  --text: #210535;
-  --text-muted: #420d4a;
-  --accent: #7b347e;
-  --accent-subtle: #c774b2;
+  --background: #FCFAFD;
+  --secondary: #F3EBF5;
+  --secondary-muted: #E6D8EB;
+  --text: #1A0B2E;
+  --text-muted: #5D4075;
+  --primary: #7B2CBF;
+  --primary-muted: #9D4EDD;
   color-scheme: light;
 }
 
 @layer base {
-  *, *::before, *::after { box-sizing: border-box; }
-  html, body, #app { min-height: 100%; }
-  html { scroll-behavior: smooth; }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100%;
+  }
+
+  html {
+    font-size: 14px;
+    scroll-behavior: smooth;
+  }
+
   body {
     margin: 0;
     min-height: 100dvh;
     overflow-x: hidden;
-    background: var(--bg);
+    background: var(--background);
     color: var(--text);
     font-family: var(--font-sans);
-    line-height: 1.5;
+    line-height: 1.42;
     text-rendering: geometricPrecision;
   }
-  body.dialog-open { overflow: hidden; }
-  button, input, textarea { font: inherit; }
-  button { cursor: pointer; }
-  button:disabled { cursor: not-allowed; opacity: 0.72; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  body.dialog-open {
+    overflow: hidden;
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.72;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
 }
 
-.toast-enter-active, .toast-leave-active { transition: opacity 180ms ease, transform 180ms ease; }
-.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(6px); }
-@keyframes ns-spin { to { transform: rotate(360deg); } }
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+@keyframes ns-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

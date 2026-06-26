@@ -58,9 +58,15 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     return {
       site_locations: {
         youtube: settings.site_locations.youtube || defaults.site_locations.youtube || "",
-        facebook: settings.site_locations.facebook || defaults.site_locations.facebook || "",
-        instagram: settings.site_locations.instagram || defaults.site_locations.instagram || "",
         tiktok: settings.site_locations.tiktok || defaults.site_locations.tiktok || "",
+        instagram: settings.site_locations.instagram || defaults.site_locations.instagram || "",
+        twitter: settings.site_locations.twitter || defaults.site_locations.twitter || "",
+        facebook: settings.site_locations.facebook || defaults.site_locations.facebook || "",
+        reddit: settings.site_locations.reddit || defaults.site_locations.reddit || "",
+        twitch: settings.site_locations.twitch || defaults.site_locations.twitch || "",
+        pinterest: settings.site_locations.pinterest || defaults.site_locations.pinterest || "",
+        bluesky: settings.site_locations.bluesky || defaults.site_locations.bluesky || "",
+        linkedin: settings.site_locations.linkedin || defaults.site_locations.linkedin || "",
         others: settings.site_locations.others || defaults.site_locations.others || "",
       },
       save_mode: settings.save_mode === "device" ? "device" : defaults.save_mode || "nas",

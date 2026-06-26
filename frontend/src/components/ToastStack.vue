@@ -7,9 +7,9 @@ defineProps<{
 </script>
 
 <template>
-  <div class="fixed z-90 right-[0.75rem] bottom-[5.7rem] grid w-[min(22rem,calc(100vw-1.5rem))] gap-[0.5rem] sm:bottom-[0.75rem]">
+  <div class="fixed z-50 left-2 right-2 bottom-16 grid gap-1.5 sm:left-auto sm:bottom-2 sm:w-80">
     <TransitionGroup name="toast">
-      <div v-for="toast in toasts" :key="toast.id" class="border border-accent-subtle rounded-lg bg-panel text-text px-[0.85rem] py-[0.75rem] text-[0.9rem] font-[800]" :class="toast.type === 'error' ? 'border-accent text-text' : 'border-accent'">
+      <div v-for="toast in toasts" :key="toast.id" class="border border-primary-muted rounded-lg bg-secondary text-text px-3 py-2" :class="toast.type === 'error' ? 'border-primary text-text' : 'border-primary'">
         {{ toast.message }}
       </div>
     </TransitionGroup>
