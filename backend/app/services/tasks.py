@@ -9,7 +9,7 @@ import tempfile
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -36,7 +36,6 @@ from backend.app.services.settings import (
     has_cookies_for_url,
     normalize_site_location_selection,
 )
-
 
 STATUS_LABELS = {
     "pending": "Queued",
@@ -402,7 +401,12 @@ def recover_task_path(task_id: str, task: dict[str, Any]) -> tuple[str, str, str
             continue
         path = Path(candidate)
         if is_media_file(path):
-            update_task(task_id, resolved_full_path=str(path), resolved_folder=str(path.parent), resolved_filename=path.name)
+            update_task(
+                task_id,
+                resolved_full_path=str(path),
+                resolved_folder=str(path.parent),
+                resolved_filename=path.name,
+            )
             return str(path), str(path.parent), path.name
 
     return "", str(task.get("resolved_folder") or "").strip(), str(task.get("resolved_filename") or "").strip()
@@ -419,7 +423,7 @@ def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
         "resolved_filename": str(task.get("resolved_filename") or ""),
         "resolved_full_path": str(task.get("resolved_full_path") or ""),
         "save_mode": str(task.get("save_mode") or "nas"),
-        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": datetime.now(UTC).isoformat(),
     }
     save_history(history)
 
@@ -466,8 +470,10 @@ def task_to_api(task_id: str, task: dict[str, Any], meta: dict[str, Any] | None 
         "progress_pct": progress_pct,
         "source_url": source_url,
         "resolved_folder": resolved_folder or str(task.get("resolved_folder") or local.get("resolved_folder") or ""),
-        "resolved_filename": resolved_filename or str(task.get("resolved_filename") or local.get("resolved_filename") or ""),
-        "resolved_full_path": resolved_path or str(task.get("resolved_full_path") or local.get("resolved_full_path") or ""),
+        "resolved_filename": resolved_filename
+        or str(task.get("resolved_filename") or local.get("resolved_filename") or ""),
+        "resolved_full_path": resolved_path
+        or str(task.get("resolved_full_path") or local.get("resolved_full_path") or ""),
         "preview_warning": str(task.get("preview_warning") or local.get("preview_warning") or ""),
         "can_remove": status in {"pending", "failed"},
         "can_hide": can_delete_done_task(task_id, task, meta),
@@ -588,7 +594,7 @@ def queue_task(
         "resolved_filename": "",
         "resolved_full_path": "",
         "preview_warning": "",
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "save_mode": requested_save_mode,
         "error": "",
         "last_log_lines": [],

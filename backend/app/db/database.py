@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from backend.app.core.config import DATA_DIR, DATABASE_PATH, PROJECT_ROOT
-
 
 _DB_LOCK = threading.RLock()
 _INITIALIZED = False
@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS file_blobs (
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def database_path() -> Path:

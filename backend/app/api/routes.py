@@ -27,7 +27,6 @@ from backend.app.services.tasks import (
     resolve_task_file,
 )
 
-
 router = APIRouter()
 
 

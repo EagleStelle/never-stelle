@@ -25,7 +25,6 @@ from backend.app.db.repositories import (
     save_settings_payload,
 )
 
-
 # One cookies.txt per platform. yt-dlp is given the jar that matches the URL
 # being downloaded; an "others" jar acts as a catch-all fallback.
 COOKIE_PLATFORMS = (

@@ -92,6 +92,18 @@ http://127.0.0.1:8840/docs
 http://127.0.0.1:8840/redoc
 ```
 
+## Development
+
+Backend tests and linting:
+
+```powershell
+pip install -r requirements-dev.txt
+ruff check .
+pytest
+```
+
+Continuous integration runs the backend suite and the frontend build on every push and pull request (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
+
 ## Project Layout
 
 ```text
@@ -99,8 +111,10 @@ never-stelle/
   backend/
   frontend/
     src/
-  scripts/
+  tests/
+  .github/workflows/
   docker-compose.yml
   requirements.txt
+  requirements-dev.txt
   run.cmd
 ```
