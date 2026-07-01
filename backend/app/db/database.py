@@ -31,7 +31,6 @@ CREATE TABLE IF NOT EXISTS tasks (
     source_url TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
     site_category TEXT NOT NULL DEFAULT 'others',
-    save_mode TEXT NOT NULL DEFAULT 'nas',
     progress_pct REAL NOT NULL DEFAULT 0,
     payload TEXT NOT NULL,
     created_at TEXT NOT NULL,

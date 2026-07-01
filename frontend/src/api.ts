@@ -77,8 +77,6 @@ export function getTasks(): Promise<TasksResponse> {
 export function addTask(payload: {
   url: string;
   site_locations: SavedSettings["site_locations"];
-  save_mode: SavedSettings["save_mode"];
-  client_tab_id: string;
 }): Promise<AddTaskResponse> {
   return jsonRequest<AddTaskResponse>(
     "/api/tasks",

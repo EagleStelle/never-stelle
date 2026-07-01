@@ -5,7 +5,6 @@ export const PAGE_KEYS = ["downloads", "history", "settings"] as const;
 export type SiteKey = (typeof SITE_KEYS)[number];
 export type MenuKey = (typeof MENU_KEYS)[number];
 export type PageKey = (typeof PAGE_KEYS)[number];
-export type SaveMode = "nas" | "device";
 export type TaskStatus = "pending" | "running" | "completed" | "failed" | string;
 export type TaskFilter = "all" | "active" | "done";
 export type ViewMode = "grid" | "table";
@@ -30,7 +29,6 @@ export type CookiesMap = Record<string, CookiesStatus>;
 
 export interface SavedSettings {
   site_locations: SiteLocations;
-  save_mode: SaveMode;
   template_settings: TemplateSettings;
 }
 
@@ -42,7 +40,6 @@ export interface RuntimeSettings extends SavedSettings {
 export interface UiConfigResponse {
   download_locations?: string[];
   site_default_locations?: Partial<SiteLocations>;
-  save_mode?: SaveMode | string;
   template_settings?: Partial<TemplateSettings>;
   ytdlp_cookies?: Record<string, Partial<CookiesStatus>>;
   default_filename_template?: string;
@@ -67,9 +64,7 @@ export interface TaskItem {
   site_category: SiteKey | string;
   site_label: string;
   error: string;
-  save_mode: SaveMode | string;
   can_download: boolean;
-  device_request_tabs: string[];
 }
 
 export interface TaskCounts {

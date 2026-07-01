@@ -211,7 +211,6 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
     payload = load_saved_settings_file()
     return {
         "site_locations": normalize_site_location_selection(payload.get("site_locations"), cfg),
-        "save_mode": "device" if str(payload.get("save_mode") or "").lower() == "device" else "nas",
         "template_settings": normalize_template_settings(payload.get("template_settings")),
         "ytdlp_cookies": get_ytdlp_cookies_status(),
     }
@@ -220,14 +219,12 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
 def persist_settings(
     cfg: dict[str, Any],
     raw_site_locations: Any,
-    raw_save_mode: Any,
     raw_template_settings: Any = None,
 ) -> dict[str, Any]:
     existing = load_saved_settings_file()
     existing.update(
         {
             "site_locations": normalize_site_location_selection(raw_site_locations, cfg),
-            "save_mode": "device" if str(raw_save_mode or "").lower() == "device" else "nas",
             "template_settings": normalize_template_settings(raw_template_settings),
         }
     )
@@ -244,7 +241,6 @@ def build_settings_response(
     return {
         "download_locations": normalize_download_locations(cfg),
         "site_default_locations": saved.get("site_locations", {}),
-        "save_mode": saved.get("save_mode", "nas"),
         "template_settings": saved.get("template_settings", normalize_template_settings({})),
         "ytdlp_cookies": saved.get("ytdlp_cookies", get_ytdlp_cookies_status()),
         "settings_loaded_at": int(time.time()),

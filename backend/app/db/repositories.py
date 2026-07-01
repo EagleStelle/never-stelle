@@ -148,16 +148,15 @@ def merge_task_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         connection.execute(
             """
             INSERT OR REPLACE INTO tasks (
-                id, source_url, status, site_category, save_mode, progress_pct, payload, created_at, updated_at
+                id, source_url, status, site_category, progress_pct, payload, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task_id,
                 source_url,
                 str(payload.get("status") or "pending"),
                 str(payload.get("site_category") or _site_category(source_url)),
-                str(payload.get("save_mode") or "nas"),
                 _safe_float(payload.get("progress_pct")),
                 _encode(payload),
                 str(payload.get("created_at") or now),

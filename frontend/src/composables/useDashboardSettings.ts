@@ -18,19 +18,16 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   const queryClient = useQueryClient();
   const defaults = reactive<SavedSettings>({
     site_locations: createSiteLocations(),
-    save_mode: "nas",
     template_settings: createTemplateSettings(),
   });
   const settings = reactive<RuntimeSettings>({
     site_locations: createSiteLocations(),
-    save_mode: "nas",
     template_settings: createTemplateSettings(),
     download_locations: [],
     ytdlp_cookies: createCookiesMap(),
   });
   const settingsDraft = reactive<SavedSettings>({
     site_locations: createSiteLocations(),
-    save_mode: "nas",
     template_settings: createTemplateSettings(),
   });
 
@@ -65,7 +62,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         linkedin: settings.site_locations.linkedin || defaults.site_locations.linkedin || "",
         others: settings.site_locations.others || defaults.site_locations.others || "",
       },
-      save_mode: settings.save_mode === "device" ? "device" : defaults.save_mode || "nas",
       template_settings: {
         folder_template: settings.template_settings.folder_template || defaults.template_settings.folder_template || "",
         filename_template: settings.template_settings.filename_template || defaults.template_settings.filename_template || "",
@@ -78,8 +74,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       Object.assign(defaults.site_locations, createSiteLocations({ ...defaults.site_locations, ...data.site_default_locations }));
       Object.assign(settings.site_locations, createSiteLocations({ ...settings.site_locations, ...data.site_default_locations }));
     }
-    settings.save_mode = data.save_mode === "device" ? "device" : "nas";
-    defaults.save_mode = settings.save_mode;
     if (data.template_settings) {
       Object.assign(defaults.template_settings, createTemplateSettings({ ...defaults.template_settings, ...data.template_settings }));
       Object.assign(settings.template_settings, createTemplateSettings({ ...settings.template_settings, ...data.template_settings }));
@@ -101,7 +95,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   function copySettingsToDraft(): void {
     const current = getSavedSettings();
     Object.assign(settingsDraft.site_locations, current.site_locations);
-    settingsDraft.save_mode = current.save_mode;
     Object.assign(settingsDraft.template_settings, current.template_settings);
   }
 
@@ -127,21 +120,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     settingsOpen.value = false;
   }
 
-  async function updateSaveMode(mode: "nas" | "device"): Promise<void> {
-    const payload = getSavedSettings();
-    if (payload.save_mode === mode) return;
-    payload.save_mode = mode;
-    try {
-      await persistSettings(payload, "Save mode updated.");
-    } catch (error) {
-      toast(errorMessage(error, "Could not save save mode."), "error");
-    }
-  }
-
   async function saveSettingsDraft(): Promise<void> {
     const payload: SavedSettings = {
       site_locations: createSiteLocations(settingsDraft.site_locations),
-      save_mode: settingsDraft.save_mode === "device" ? "device" : "nas",
       template_settings: createTemplateSettings(settingsDraft.template_settings),
     };
     try {
@@ -212,6 +193,5 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     settingsDraft,
     settingsOpen,
     settingsSection,
-    updateSaveMode,
   };
 }

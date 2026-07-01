@@ -12,7 +12,6 @@ from backend.app.services.tasks import (
     detect_site_category,
     extract_downloaded_path,
     is_media_file,
-    normalize_tabs,
 )
 
 
@@ -81,11 +80,6 @@ def test_convert_template_empty():
 )
 def test_extract_downloaded_path(line, expected):
     assert extract_downloaded_path(line) == expected
-
-
-def test_normalize_tabs_dedups_and_strips():
-    assert normalize_tabs([" a ", "a", "b", "", None]) == ["a", "b"]
-    assert normalize_tabs("not a list") == []
 
 
 def test_is_media_file(tmp_path: Path):

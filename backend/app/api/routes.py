@@ -28,15 +28,12 @@ router = APIRouter()
 
 class SettingsPayload(BaseModel):
     site_locations: dict[str, str] = Field(default_factory=dict)
-    save_mode: str = "nas"
     template_settings: dict[str, str] = Field(default_factory=dict)
 
 
 class AddTaskPayload(BaseModel):
     url: str = ""
     site_locations: dict[str, str] = Field(default_factory=dict)
-    save_mode: str = "nas"
-    client_tab_id: str = ""
 
 
 @router.get("/health")
@@ -73,7 +70,6 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
     saved = persist_settings(
         cfg,
         payload.site_locations,
-        payload.save_mode,
         payload.template_settings,
     )
     return build_settings_response(cfg, saved)
@@ -114,8 +110,6 @@ def add_task(payload: AddTaskPayload) -> dict[str, Any]:
         created, reused = queue_task(
             payload.url,
             payload.site_locations,
-            payload.save_mode,
-            payload.client_tab_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

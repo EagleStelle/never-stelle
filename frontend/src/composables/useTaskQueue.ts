@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, reactive, ref, watch, type Ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch, type Ref } from "vue";
 import { useMutation, useQuery } from "@tanstack/vue-query";
 import { useEventListener, useIntervalFn } from "@vueuse/core";
 
@@ -11,7 +11,7 @@ import {
 } from "../api";
 import { POLL_PENDING_MS, POLL_RUNNING_MS, SITE_LABELS, TASKS_QUERY_KEY } from "../ui";
 import type { MenuKey, SavedSettings, TaskItem, TasksResponse, ToastType } from "../types";
-import { countTasks, errorMessage, filenameFromContentDisposition, getTabId, readJsonRecord } from "../utils/dashboard";
+import { countTasks, errorMessage, filenameFromContentDisposition } from "../utils/dashboard";
 
 interface UseTaskQueueOptions {
   getSavedSettings: () => SavedSettings;
@@ -20,10 +20,7 @@ interface UseTaskQueueOptions {
 }
 
 export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptions) {
-  const tabId = getTabId();
   const taskCache = new Map<string, Partial<TaskItem>>();
-  const deliveredDeviceDownloads = reactive<Record<string, boolean>>(readJsonRecord("neverstelle.deviceDelivered"));
-  const deviceDownloadsInFlight = new Set<string>();
   const pollingIntervalMs = ref(POLL_PENDING_MS);
 
   const tasksQuery = useQuery<TasksResponse>({
@@ -94,18 +91,13 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
       const data = await addTaskMutation.mutateAsync({
         url: sourceUrl,
         site_locations: currentSettings.site_locations,
-        save_mode: currentSettings.save_mode,
-        client_tab_id: tabId,
       });
       url.value = "";
       const firstTask = Array.isArray(data.created) ? data.created[0] : null;
-      if (firstTask && data.reused && currentSettings.save_mode === "device" && firstTask.status === "completed") {
-        await downloadTaskFile(firstTask.vid);
-        toast("That file was already downloaded.");
-      } else if (data.reused) {
+      if (data.reused) {
         toast(firstTask && firstTask.status === "completed" ? "That file was already downloaded." : "That download is already in your list.");
       } else {
-        toast(currentSettings.save_mode === "device" ? "Device download queued." : "Download added.");
+        toast("Download added.");
       }
       await loadTasks(true);
     } catch (error) {
@@ -113,15 +105,7 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     }
   }
 
-  function deliveredKey(taskId: string): string {
-    return `${taskId}:${tabId}`;
-  }
-
-  function persistDeliveredDeviceDownloads(): void {
-    sessionStorage.setItem("neverstelle.deviceDelivered", JSON.stringify(deliveredDeviceDownloads));
-  }
-
-  async function triggerTaskFileDownload(taskId: string): Promise<void> {
+  async function downloadTaskFile(taskId: string): Promise<void> {
     const response = await fetchTaskFile(taskId);
     const blob = await response.blob();
     const objectUrl = URL.createObjectURL(blob);
@@ -133,16 +117,7 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-  }
-
-  async function downloadTaskFile(taskId: string, options: { skipReload?: boolean } = {}): Promise<void> {
-    await triggerTaskFileDownload(taskId);
-    // Client-side marker prevents a device-mode file from auto-downloading twice
-    // in this browser. Completed downloads are never deleted, so there is no
-    // server-side delivery acknowledgement to make.
-    deliveredDeviceDownloads[deliveredKey(taskId)] = true;
-    persistDeliveredDeviceDownloads();
-    if (!options.skipReload) await loadTasks(true);
+    await loadTasks(true);
   }
 
   async function downloadTask(taskId: string): Promise<void> {
@@ -151,23 +126,6 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     } catch (error) {
       toast(errorMessage(error, "Could not download that file."), "error");
     }
-  }
-
-  function processCompletedDeviceDownloads(tasks: TaskItem[]): void {
-    tasks.forEach((task) => {
-      if (task.save_mode !== "device" || task.status !== "completed" || !task.resolved_full_path) return;
-      const allowedTabs = Array.isArray(task.device_request_tabs) ? task.device_request_tabs : [];
-      if (!allowedTabs.includes(tabId)) return;
-      const key = deliveredKey(task.vid);
-      if (deliveredDeviceDownloads[key] || deviceDownloadsInFlight.has(key)) return;
-      deviceDownloadsInFlight.add(key);
-      downloadTaskFile(task.vid, { skipReload: true })
-        .catch((error) => toast(errorMessage(error, "Could not download that file."), "error"))
-        .finally(() => {
-          deviceDownloadsInFlight.delete(key);
-          persistDeliveredDeviceDownloads();
-        });
-    });
   }
 
   async function removeTask(taskId: string): Promise<void> {
@@ -201,10 +159,7 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
 
   watch(
     rawTasks,
-    (tasks) => {
-      processCompletedDeviceDownloads(tasks);
-      syncPoll(tasks);
-    },
+    (tasks) => syncPoll(tasks),
     { immediate: true },
   );
 

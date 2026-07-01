@@ -32,27 +32,6 @@ export function createCookiesStatus(source: Partial<CookiesStatus> = {}): Cookie
   };
 }
 
-export function getTabId(): string {
-  const key = "neverstelle.tabId";
-  let value = sessionStorage.getItem(key);
-  if (!value) {
-    value =
-      window.crypto && typeof window.crypto.randomUUID === "function"
-        ? window.crypto.randomUUID()
-        : `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    sessionStorage.setItem(key, value);
-  }
-  return value;
-}
-
-export function readJsonRecord(key: string): Record<string, boolean> {
-  try {
-    return JSON.parse(sessionStorage.getItem(key) || "{}") || {};
-  } catch {
-    return {};
-  }
-}
-
 export function isMenuKey(value: string | null): value is MenuKey {
   return MENU_KEYS.includes(value as MenuKey);
 }
