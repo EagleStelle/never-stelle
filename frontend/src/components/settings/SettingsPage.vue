@@ -27,12 +27,17 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   connectCookies: [platform: string, file?: File];
+  connectCookiesSource: [source: string, file?: File];
   removeCookies: [platform: string];
   save: [];
   "update:section": [section: SettingsSection];
 }>();
 
 const cookieFiles = reactive<Record<string, File | null>>({});
+const newCookie = reactive<{ source: string; file: File | null }>({
+  source: "",
+  file: null,
+});
 
 const sectionModel = computed({
   get: () => props.section,
@@ -89,6 +94,20 @@ function openPicker(site: string): void {
 
 function connect(site: string): void {
   emit("connectCookies", site, cookieFiles[site] || undefined);
+}
+
+function onNewCookieFile(event: Event): void {
+  newCookie.file = (event.target as HTMLInputElement).files?.[0] || null;
+}
+
+function openNewPicker(): void {
+  document.getElementById("newSourceCookiesInput")?.click();
+}
+
+function connectNew(): void {
+  emit("connectCookiesSource", newCookie.source, newCookie.file || undefined);
+  newCookie.source = "";
+  newCookie.file = null;
 }
 </script>
 
@@ -151,6 +170,48 @@ function connect(site: string): void {
         </TabsContent>
 
         <TabsContent value="cookies" class="min-h-full focus:outline-none">
+          <div class="mb-4 grid gap-2 text-text">
+            <span
+              class="text-xs font-medium uppercase tracking-wider text-text-muted"
+              >Add cookies for a link</span
+            >
+            <div class="flex items-center gap-2">
+              <input
+                v-model="newCookie.source"
+                type="text"
+                inputmode="url"
+                placeholder="Paste a link or domain (e.g. instagram.com)"
+                class="flex flex-1 items-center min-w-0 h-10 rounded-lg glass-soft px-3 text-sm text-text placeholder:text-text-muted focus:outline-none"
+              />
+              <input
+                id="newSourceCookiesInput"
+                type="file"
+                accept=".txt,.cookies,text/plain"
+                class="hidden"
+                @change="onNewCookieFile"
+              />
+              <button
+                type="button"
+                class="flex items-center min-w-0 h-10 rounded-lg glass-soft glass-hoverable px-3 text-sm text-left transition-all duration-300 ease-glass"
+                @click="openNewPicker"
+              >
+                <span
+                  class="truncate"
+                  :class="newCookie.file ? 'text-text' : 'text-text-muted'"
+                  >{{ newCookie.file?.name || "Choose file" }}</span
+                >
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-xl bg-primary text-text-on-primary transition-all duration-300 ease-glass active:scale-[0.96]"
+                title="Save cookies for link"
+                aria-label="Save cookies for link"
+                @click="connectNew"
+              >
+                <IconUpload class="w-5 h-5" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
           <p
             v-if="sourceProfiles.length === 0"
             class="rounded-xl border border-(--glass-border) bg-white/[0.03] p-4 text-text-muted"

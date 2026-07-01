@@ -121,6 +121,23 @@ def load_task_store_payload() -> dict[str, Any]:
     return {"tasks": {row["id"]: _decode(row["payload"], {}) for row in rows}}
 
 
+def activity_revision() -> tuple[int, str, int, str]:
+    """Cheap fingerprint of tasks + history that changes on every write.
+
+    Lets callers cache activity-derived data without re-decoding whole tables;
+    row counts plus latest timestamps flip whenever anything is added, updated,
+    or removed.
+    """
+    with transaction() as connection:
+        tasks = connection.execute(
+            "SELECT COUNT(*), COALESCE(MAX(updated_at), '') FROM tasks"
+        ).fetchone()
+        history = connection.execute(
+            "SELECT COUNT(*), COALESCE(MAX(updated_at), '') FROM download_history"
+        ).fetchone()
+    return (int(tasks[0]), str(tasks[1]), int(history[0]), str(history[1]))
+
+
 def merge_task_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
     """Atomically merge ``updates`` into a single task row and return it.
 

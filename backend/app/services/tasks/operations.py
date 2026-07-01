@@ -10,7 +10,7 @@ from backend.app.db.repositories import delete_task_meta_row, merge_task_meta_pa
 from backend.app.services.settings import (
     get_effective_saved_settings,
     get_source_profile_for_url,
-    normalize_site_location_selection,
+    normalize_source_location_selection,
 )
 
 from .files import recover_task_path
@@ -54,7 +54,7 @@ def queue_task(
     effective = get_effective_saved_settings(cfg)
     source_profile = get_source_profile_for_url(source_url, cfg)
     source_key = str(source_profile.get("key") or "")
-    selected_locations = normalize_site_location_selection(
+    selected_locations = normalize_source_location_selection(
         site_locations or effective.get("site_locations") or {},
         cfg,
         effective.get("source_profiles") or [source_profile],

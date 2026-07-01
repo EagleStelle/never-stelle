@@ -24,6 +24,7 @@ const {
   addDownloadTask,
   clearPending,
   connectCookies,
+  connectCookiesForSource,
   cookieStatuses,
   countCards,
   downloadTask,
@@ -174,6 +175,7 @@ const {
           :settings-draft="settingsDraft"
           :source-profiles="sourceProfiles"
           @connect-cookies="connectCookies"
+          @connect-cookies-source="connectCookiesForSource"
           @remove-cookies="removeCookies"
           @save="saveSettingsDraft"
         />

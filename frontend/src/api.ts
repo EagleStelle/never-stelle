@@ -49,11 +49,12 @@ export function saveSettings(settings: SavedSettings): Promise<UiConfigResponse>
   );
 }
 
-export function uploadPlatformCookies(platform: string, file: File): Promise<UiConfigResponse> {
+export function uploadPlatformCookies(platform: string, file: File, source = ""): Promise<UiConfigResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  if (source) formData.append("source", source);
   return jsonRequest<UiConfigResponse>(
-    `/api/settings/ytdlp-cookies/${encodeURIComponent(platform)}`,
+    `/api/settings/ytdlp-cookies/${encodeURIComponent(platform || "others")}`,
     {
       method: "POST",
       body: formData,

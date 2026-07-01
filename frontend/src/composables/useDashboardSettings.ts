@@ -81,7 +81,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   });
   const saveSettingsMutation = useMutation({ mutationFn: saveSettings });
   const uploadCookiesMutation = useMutation({
-    mutationFn: ({ platform, file }: { platform: string; file: File }) => uploadPlatformCookies(platform, file),
+    mutationFn: ({ platform, file, source }: { platform: string; file: File; source?: string }) =>
+      uploadPlatformCookies(platform, file, source),
   });
   const deleteCookiesMutation = useMutation({ mutationFn: (platform: string) => deletePlatformCookies(platform) });
 
@@ -213,6 +214,23 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     }
   }
 
+  async function connectCookiesForSource(source: string, file?: File): Promise<void> {
+    if (!source.trim()) {
+      toast("Paste a link or domain first.", "error");
+      return;
+    }
+    if (!file) {
+      toast("Choose a cookies file first.", "error");
+      return;
+    }
+    try {
+      cacheUiConfig(await uploadCookiesMutation.mutateAsync({ platform: "others", file, source: source.trim() }));
+      toast("Cookies connected.");
+    } catch (error) {
+      toast(errorMessage(error, "Could not connect cookies."), "error");
+    }
+  }
+
   async function removeCookies(platform: string): Promise<void> {
     const key = normalizeSourceKey(platform);
     if (!settings.ytdlp_cookies[key]?.configured) return;
@@ -246,6 +264,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
 
   return {
     connectCookies,
+    connectCookiesForSource,
     cookieStatuses,
     getSavedSettings,
     openSettings,

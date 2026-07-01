@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
@@ -10,6 +10,7 @@ from backend.app.core.config import load_app_config
 from backend.app.services.settings import (
     build_settings_response,
     clear_ytdlp_cookies_upload,
+    ensure_source_profile_for_url,
     get_effective_saved_settings,
     save_ytdlp_cookies_upload,
 )
@@ -80,9 +81,16 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
 
 
 @router.post("/settings/ytdlp-cookies/{platform}")
-async def upload_ytdlp_cookies(platform: str, file: UploadFile = File(...)) -> dict[str, Any]:
+async def upload_ytdlp_cookies(
+    platform: str,
+    file: UploadFile = File(...),
+    source: str = Form(""),
+) -> dict[str, Any]:
+    # `source` (a pasted link/host) lets the user attach cookies to any site
+    # with no predefined profile; it wins over the path param when present.
+    target = ensure_source_profile_for_url(source) if source.strip() else platform
     try:
-        await save_ytdlp_cookies_upload(file, platform)
+        await save_ytdlp_cookies_upload(file, target)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
