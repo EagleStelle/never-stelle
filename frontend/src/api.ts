@@ -1,6 +1,5 @@
 import type {
   AddTaskResponse,
-  CleanupNfoResponse,
   ClearTasksResponse,
   SavedSettings,
   TasksResponse,
@@ -129,10 +128,6 @@ export function clearCompletedTasks(): Promise<ClearTasksResponse> {
     { method: "POST" },
     "Could not clear done.",
   );
-}
-
-export function cleanupNfoFiles(): Promise<CleanupNfoResponse> {
-  return jsonRequest<CleanupNfoResponse>("/api/cleanup-nfo", { method: "POST" }, "Could not delete .nfo files.");
 }
 
 export async function fetchTaskFile(taskId: string): Promise<Response> {

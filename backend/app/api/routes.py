@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from backend.app.core.config import discover_volume_roots, load_app_config
+from backend.app.core.config import load_app_config
 from backend.app.services.settings import (
     build_settings_response,
     clear_ytdlp_cookies_upload,
@@ -177,23 +176,3 @@ def clear_pending() -> dict[str, Any]:
 @router.post("/tasks/clear-completed")
 def clear_completed() -> dict[str, Any]:
     return clear_completed_tasks()
-
-
-@router.post("/cleanup-nfo")
-def cleanup_nfo() -> dict[str, Any]:
-    roots = discover_volume_roots()
-    if not roots:
-        raise HTTPException(status_code=500, detail="No accessible volume roots are configured.")
-    deleted = 0
-    errors: list[dict[str, str]] = []
-    for root_value in roots:
-        root = Path(root_value)
-        if not root.exists():
-            continue
-        for path in root.rglob("*.nfo"):
-            try:
-                path.unlink()
-                deleted += 1
-            except Exception as exc:
-                errors.append({"file": str(path), "error": str(exc)})
-    return {"deleted": deleted, "errors": errors}

@@ -1,7 +1,7 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 
-import { cleanupNfoFiles, deletePlatformCookies, getUiConfig, saveSettings, uploadPlatformCookies } from "../api";
+import { deletePlatformCookies, getUiConfig, saveSettings, uploadPlatformCookies } from "../api";
 import { UI_CONFIG_QUERY_KEY } from "../ui";
 import { SITE_KEYS, type CookiesMap, type CookiesStatus, type RuntimeSettings, type SavedSettings, type SettingsSection, type ToastType, type UiConfigResponse } from "../types";
 import { createCookiesStatus, createSiteLocations, createTemplateSettings, errorMessage } from "../utils/dashboard";
@@ -36,7 +36,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
 
   const settingsOpen = ref(false);
   const settingsSection = ref<SettingsSection>("downloads");
-  const cleanupBusy = ref(false);
   const lastFocusedTrigger = ref<HTMLElement | null>(null);
 
   const uiConfigQuery = useQuery<UiConfigResponse>({
@@ -177,22 +176,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     }
   }
 
-  async function cleanNfo(): Promise<void> {
-    cleanupBusy.value = true;
-    try {
-      const data = await cleanupNfoFiles();
-      if (data.errors && data.errors.length) {
-        toast(`Deleted ${data.deleted} .nfo file${data.deleted === 1 ? "" : "s"}, ${data.errors.length} could not be removed.`, "error");
-      } else {
-        toast(data.deleted === 0 ? "No .nfo files found." : `Deleted ${data.deleted} .nfo file${data.deleted === 1 ? "" : "s"}.`);
-      }
-    } catch (error) {
-      toast(errorMessage(error, "Could not delete .nfo files."), "error");
-    } finally {
-      cleanupBusy.value = false;
-    }
-  }
-
   let draftSeeded = false;
   watch(
     () => uiConfigQuery.data.value,
@@ -217,8 +200,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   onBeforeUnmount(() => document.body.classList.remove("dialog-open"));
 
   return {
-    cleanNfo,
-    cleanupBusy,
     connectCookies,
     cookieStatuses,
     getSavedSettings,

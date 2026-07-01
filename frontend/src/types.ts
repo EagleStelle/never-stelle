@@ -98,11 +98,6 @@ export interface ClearTasksResponse {
   failed?: string[];
 }
 
-export interface CleanupNfoResponse {
-  deleted: number;
-  errors: Array<{ file: string; error: string }>;
-}
-
 export interface ToastMessage {
   id: number;
   message: string;
