@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import os
 import re
-import shlex
 import shutil
 import subprocess
-import tempfile
 import threading
 import time
 import uuid
@@ -22,12 +20,15 @@ from backend.app.core.config import (
     load_app_config,
 )
 from backend.app.db.repositories import (
+    delete_task_meta_row,
+    delete_task_row,
     load_history_payload,
     load_task_meta_payload,
+    load_task_meta_row,
     load_task_store_payload,
+    merge_task_meta_payload,
+    merge_task_payload,
     save_history_payload,
-    save_task_meta_payload,
-    save_task_store_payload,
 )
 from backend.app.services.settings import (
     find_cookies_file_for_url,
@@ -103,16 +104,8 @@ def load_task_store() -> dict[str, Any]:
     return _normalize_task_store(load_task_store_payload())
 
 
-def save_task_store(data: dict[str, Any]) -> None:
-    save_task_store_payload(_normalize_task_store(data))
-
-
 def load_meta() -> dict[str, Any]:
     return _normalize_meta(load_task_meta_payload())
-
-
-def save_meta(data: dict[str, Any]) -> None:
-    save_task_meta_payload(_normalize_meta(data))
 
 
 def load_history() -> dict[str, Any]:
@@ -124,11 +117,7 @@ def save_history(data: dict[str, Any]) -> None:
 
 
 def update_task(task_id: str, **updates: Any) -> dict[str, Any]:
-    data = load_task_store()
-    task = data.setdefault("tasks", {}).setdefault(task_id, {})
-    task.update(updates)
-    data["tasks"][task_id] = task
-    save_task_store(data)
+    task = merge_task_payload(task_id, updates)
 
     mirrored = {
         key: value
@@ -144,16 +133,12 @@ def update_task(task_id: str, **updates: Any) -> dict[str, Any]:
         }
     }
     if mirrored:
-        meta = load_meta()
-        meta.setdefault("tasks", {}).setdefault(task_id, {}).update(mirrored)
-        save_meta(meta)
+        merge_task_meta_payload(task_id, mirrored)
     return task
 
 
 def remove_task_record(task_id: str) -> None:
-    data = load_task_store()
-    data.setdefault("tasks", {}).pop(task_id, None)
-    save_task_store(data)
+    delete_task_row(task_id)
 
 
 def normalize_tabs(raw: Any) -> list[str]:
@@ -169,45 +154,20 @@ def normalize_tabs(raw: Any) -> list[str]:
     return out
 
 
-def add_download_request_tab(meta: dict[str, Any], task_id: str, client_tab_id: str) -> None:
+def _append_meta_tab(task_id: str, field: str, client_tab_id: str) -> None:
     client_tab_id = str(client_tab_id or "").strip()
     if not client_tab_id:
         return
-    task_meta = meta.setdefault("tasks", {}).setdefault(task_id, {})
-    tabs = normalize_tabs(task_meta.get("device_request_tabs"))
-    if client_tab_id not in tabs:
-        tabs.append(client_tab_id)
-    task_meta["device_request_tabs"] = tabs
-
-
-def mark_download_delivered(meta: dict[str, Any], task_id: str, client_tab_id: str) -> None:
-    client_tab_id = str(client_tab_id or "").strip()
-    if not client_tab_id:
+    current = load_task_meta_row(task_id)
+    tabs = normalize_tabs(current.get(field))
+    if client_tab_id in tabs:
         return
-    task_meta = meta.setdefault("tasks", {}).setdefault(task_id, {})
-    tabs = normalize_tabs(task_meta.get("delivered_device_tabs"))
-    if client_tab_id not in tabs:
-        tabs.append(client_tab_id)
-    task_meta["delivered_device_tabs"] = tabs
+    tabs.append(client_tab_id)
+    merge_task_meta_payload(task_id, {field: tabs})
 
 
-def can_delete_done_task(task_id: str, task: dict[str, Any] | None, meta: dict[str, Any] | None = None) -> bool:
-    task = task or {}
-    status = str(task.get("status") or "")
-    if status == "failed":
-        return True
-    if status != "completed":
-        return False
-    meta = meta or load_meta()
-    local = meta.setdefault("tasks", {}).setdefault(task_id, {})
-    save_mode = str(task.get("save_mode") or local.get("save_mode") or "nas")
-    if save_mode != "device":
-        return True
-    requested_tabs = normalize_tabs(local.get("device_request_tabs"))
-    if not requested_tabs:
-        return True
-    delivered_tabs = set(normalize_tabs(local.get("delivered_device_tabs")))
-    return all(tab in delivered_tabs for tab in requested_tabs)
+def add_download_request_tab(task_id: str, client_tab_id: str) -> None:
+    _append_meta_tab(task_id, "device_request_tabs", client_tab_id)
 
 
 def canonicalize_source_url(source_url: str) -> str:
@@ -319,11 +279,6 @@ def build_ytdlp_command(
         "--merge-output-format",
         "mp4",
     ]
-    # First pass runs fast and anonymous. Cookies are only attached on a retry
-    # after the anonymous attempt fails, so most downloads never touch them.
-    # When we do authenticate, add anti-ban pacing (randomized request/item
-    # delays + polite retries) so the logged-in account is not hammered into a
-    # ban. No throttle on the cookie-less path.
     if with_cookies:
         cookies_file = find_cookies_file_for_url(source_url)
         if cookies_file:
@@ -476,8 +431,6 @@ def task_to_api(task_id: str, task: dict[str, Any], meta: dict[str, Any] | None 
         or str(task.get("resolved_full_path") or local.get("resolved_full_path") or ""),
         "preview_warning": str(task.get("preview_warning") or local.get("preview_warning") or ""),
         "can_remove": status in {"pending", "failed"},
-        "can_hide": can_delete_done_task(task_id, task, meta),
-        "hidden": False,
         "task_type": "ytdlp",
         "site_category": category,
         "site_label": SITE_LABELS.get(category, "Others"),
@@ -501,14 +454,12 @@ def history_to_api(task_id: str, entry: dict[str, Any], meta: dict[str, Any] | N
     return task_to_api(task_id, task, meta)
 
 
-def fetch_tasks(include_hidden: bool = False) -> list[dict[str, Any]]:
+def fetch_tasks() -> list[dict[str, Any]]:
     meta = load_meta()
     tasks = [
         task_to_api(task_id, task, meta)
         for task_id, task in (load_task_store().get("tasks") or {}).items()
     ]
-    if not include_hidden:
-        tasks = [task for task in tasks if not task.get("hidden")]
     tasks.sort(key=lambda task: (STATUS_ORDER.get(task["status"], 99), task["vid"]))
     return tasks
 
@@ -541,33 +492,30 @@ def queue_task(
         raise ValueError("Paste a URL first.")
 
     active_id, active_task = find_active_by_source(source_url)
-    meta = load_meta()
     requested_save_mode = "device" if str(save_mode or "").lower() == "device" else "nas"
     if active_id and active_task:
-        local = meta.setdefault("tasks", {}).setdefault(active_id, {})
-        local["save_mode"] = requested_save_mode
-        if requested_save_mode == "device":
-            add_download_request_tab(meta, active_id, client_tab_id)
-        save_meta(meta)
+        # update_task mirrors save_mode into the meta row atomically.
         update_task(active_id, save_mode=requested_save_mode)
-        return [task_to_api(active_id, active_task, meta)], True
+        if requested_save_mode == "device":
+            add_download_request_tab(active_id, client_tab_id)
+        return [task_to_api(active_id, active_task)], True
 
     history_id, history_entry = find_history_by_source(source_url)
     if history_id and history_entry:
-        local = meta.setdefault("tasks", {}).setdefault(history_id, {})
-        local.update(
+        # History entries have no task-store row; only the meta row is written.
+        merge_task_meta_payload(
+            history_id,
             {
                 "source_url": source_url,
                 "resolved_folder": str(history_entry.get("resolved_folder") or ""),
                 "resolved_filename": str(history_entry.get("resolved_filename") or ""),
                 "resolved_full_path": str(history_entry.get("resolved_full_path") or ""),
                 "save_mode": requested_save_mode,
-            }
+            },
         )
         if requested_save_mode == "device":
-            add_download_request_tab(meta, history_id, client_tab_id)
-        save_meta(meta)
-        return [history_to_api(history_id, history_entry, meta)], True
+            add_download_request_tab(history_id, client_tab_id)
+        return [history_to_api(history_id, history_entry)], True
 
     cfg = load_app_config()
     effective = get_effective_saved_settings(cfg)
@@ -584,7 +532,6 @@ def queue_task(
     task_id = f"ytdlp:{uuid.uuid4().hex[:12]}"
     output_template = build_output_template(source_url, output_dir)
     task = {
-        "type": "ytdlp",
         "source_url": source_url,
         "status": "pending",
         "progress_pct": 0,
@@ -599,23 +546,12 @@ def queue_task(
         "error": "",
         "last_log_lines": [],
     }
+    # update_task mirrors source_url/resolved_*/save_mode into the meta row.
     update_task(task_id, **task)
-    meta = load_meta()
-    local = meta.setdefault("tasks", {}).setdefault(task_id, {})
-    local.update(
-        {
-            "source_url": source_url,
-            "resolved_folder": output_dir,
-            "resolved_filename": "",
-            "resolved_full_path": "",
-            "save_mode": requested_save_mode,
-        }
-    )
     if requested_save_mode == "device":
-        add_download_request_tab(meta, task_id, client_tab_id)
-    save_meta(meta)
+        add_download_request_tab(task_id, client_tab_id)
     _worker_wakeup.set()
-    return [task_to_api(task_id, task, meta)], False
+    return [task_to_api(task_id, task)], False
 
 
 def remove_pending_task(task_id: str) -> None:
@@ -625,80 +561,20 @@ def remove_pending_task(task_id: str) -> None:
     if task.get("status") not in {"pending", "failed"}:
         raise PermissionError("Only queued or failed tasks can be removed right now.")
     remove_task_record(task_id)
-    meta = load_meta()
-    meta.setdefault("tasks", {}).pop(task_id, None)
-    save_meta(meta)
-
-
-def hide_done_task(task_id: str) -> None:
-    task = (load_task_store().get("tasks") or {}).get(task_id)
-    history_entry = find_history_by_id(task_id)
-    if not task and history_entry:
-        task = {"status": "completed", "save_mode": history_entry.get("save_mode", "nas")}
-    if not task:
-        return
-    if task.get("status") not in {"completed", "failed"}:
-        raise PermissionError("Only done tasks can be cleared.")
-    meta = load_meta()
-    if not can_delete_done_task(task_id, task, meta):
-        raise PermissionError("This device download is still waiting to be delivered before it can be cleared.")
-    remove_task_record(task_id)
-    meta.setdefault("tasks", {}).pop(task_id, None)
-    save_meta(meta)
-
-
-def mark_task_delivered(task_id: str, client_tab_id: str) -> dict[str, Any]:
-    if not client_tab_id:
-        raise ValueError("Missing client tab id.")
-    meta = load_meta()
-    history_entry = find_history_by_id(task_id)
-    if history_entry:
-        local = meta.setdefault("tasks", {}).setdefault(task_id, {})
-        local.setdefault("source_url", str(history_entry.get("source_url") or ""))
-        local.setdefault("resolved_folder", str(history_entry.get("resolved_folder") or ""))
-        local.setdefault("resolved_filename", str(history_entry.get("resolved_filename") or ""))
-        local.setdefault("resolved_full_path", str(history_entry.get("resolved_full_path") or ""))
-    mark_download_delivered(meta, task_id, client_tab_id)
-    save_meta(meta)
-    task = (load_task_store().get("tasks") or {}).get(task_id) or {"status": "completed"}
-    return {"delivered": True, "clear_ready": can_delete_done_task(task_id, task, meta)}
+    delete_task_meta_row(task_id)
 
 
 def clear_pending_tasks() -> dict[str, Any]:
-    tasks = fetch_tasks(include_hidden=True)
+    # Only queued/failed tasks are clearable. Completed downloads are permanent.
+    tasks = fetch_tasks()
     cleared = 0
     for task in tasks:
         if task["status"] not in {"pending", "failed"}:
             continue
         remove_task_record(task["vid"])
+        delete_task_meta_row(task["vid"])
         cleared += 1
-    if cleared:
-        meta = load_meta()
-        for task in tasks:
-            if task["status"] in {"pending", "failed"}:
-                meta.setdefault("tasks", {}).pop(task["vid"], None)
-        save_meta(meta)
     return {"cleared": cleared, "failed": []}
-
-
-def clear_completed_tasks() -> dict[str, Any]:
-    tasks = fetch_tasks(include_hidden=True)
-    meta = load_meta()
-    cleared = 0
-    skipped = 0
-    for item in tasks:
-        if item["status"] not in {"completed", "failed"}:
-            continue
-        task_id = item["vid"]
-        raw_task = (load_task_store().get("tasks") or {}).get(task_id, item)
-        if not can_delete_done_task(task_id, raw_task, meta):
-            skipped += 1
-            continue
-        remove_task_record(task_id)
-        meta.setdefault("tasks", {}).pop(task_id, None)
-        cleared += 1
-    save_meta(meta)
-    return {"cleared": cleared, "skipped": skipped}
 
 
 def resolve_task_file(task_id: str) -> tuple[Path, str]:
@@ -778,7 +654,6 @@ def _run_ytdlp_to_task(task_id: str, cmd: list[str]) -> tuple[int, str]:
             errors="replace",
             bufsize=1,
         )
-        update_task(task_id, pid=process.pid)
         if process.stdout is not None:
             for raw_line in process.stdout:
                 line = raw_line.strip()
@@ -851,7 +726,6 @@ def run_task(task_id: str, task: dict[str, Any]) -> None:
                 log_lines.append("[never-stelle] Anonymous attempt failed; retrying with cookies...")
                 update_task(task_id, progress_pct=0, last_log_lines=log_lines[-30:])
             cmd = build_ytdlp_command(source_url, ffmpeg_location, output_template, with_cookies=with_cookies)
-            update_task(task_id, command=" ".join(shlex.quote(part) for part in cmd))
             rc, last_dest = _run_ytdlp_to_task(task_id, cmd)
             if rc == 0:
                 break
@@ -875,7 +749,12 @@ def run_task(task_id: str, task: dict[str, Any]) -> None:
                 resolved_full_path=str(final_path),
                 resolved_folder=str(final_path.parent),
                 resolved_filename=final_path.name,
-                output_template=output_template,
+                # Completed rows are kept forever; drop the runtime-only fields
+                # nothing reads once the file path is resolved. Saves the bulk of
+                # the row (30 lines of yt-dlp log) plus the download templates.
+                last_log_lines=[],
+                output_dir="",
+                output_template="",
             )
             save_history_entry(task_id, completed_task)
             return
@@ -888,67 +767,3 @@ def run_task(task_id: str, task: dict[str, Any]) -> None:
         update_task(task_id, status="failed", error=detail, output_template=output_template)
     except Exception as exc:
         update_task(task_id, status="failed", error=str(exc), output_template=output_template)
-
-
-def download_url_to_temp(source_url: str) -> tuple[Path, str]:
-    source_url = canonicalize_source_url(source_url)
-    ffmpeg_location = detect_ffmpeg_location()
-    if not ffmpeg_location:
-        raise RuntimeError("ffmpeg was not found for device downloads.")
-    temp_dir = tempfile.mkdtemp(prefix="neverstelle-device-")
-    temp_root = Path(temp_dir)
-    output_template = str(temp_root / "download.%(ext)s")
-
-    def _attempt(with_cookies: bool) -> tuple[int, str, list[str]]:
-        cmd = build_ytdlp_command(source_url, ffmpeg_location, output_template, with_cookies=with_cookies)
-        process: subprocess.Popen[str] | None = None
-        last_dest = ""
-        log_lines: list[str] = []
-        try:
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-            )
-            if process.stdout is not None:
-                for raw_line in process.stdout:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    log_lines.append(line)
-                    log_lines = log_lines[-40:]
-                    downloaded_path = extract_downloaded_path(line)
-                    if downloaded_path:
-                        last_dest = downloaded_path
-            return process.wait(), last_dest, log_lines
-        finally:
-            if process and process.poll() is None:
-                try:
-                    process.kill()
-                except Exception:
-                    pass
-
-    try:
-        # Anonymous first; retry with cookies only if it fails and a jar exists.
-        attempts = [False]
-        if has_cookies_for_url(source_url):
-            attempts.append(True)
-
-        rc, last_dest, log_lines = 1, "", []
-        for with_cookies in attempts:
-            rc, last_dest, log_lines = _attempt(with_cookies)
-            if rc == 0:
-                break
-        if rc != 0:
-            raise RuntimeError("yt-dlp failed for device download.\n" + "\n".join(log_lines[-12:]))
-        final_path = Path(last_dest) if last_dest else find_newest_media_file(temp_root, time.time() - 3600)
-        if not final_path or not final_path.exists():
-            raise RuntimeError("yt-dlp finished but no downloadable file was produced.")
-        return final_path, temp_dir
-    except Exception:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        raise

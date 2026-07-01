@@ -97,36 +97,11 @@ export async function removeTask(taskId: string): Promise<void> {
   throw new Error(await readError(response, "Could not remove task."));
 }
 
-export async function hideTask(taskId: string): Promise<void> {
-  const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/hide`, { method: "POST" });
-  if (response.status === 204) return;
-  throw new Error(await readError(response, "Could not hide task."));
-}
-
-export async function markTaskDelivered(taskId: string, clientTabId: string): Promise<void> {
-  const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/delivered`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ client_tab_id: clientTabId }),
-  });
-  if (!response.ok) {
-    throw new Error(await readError(response, "Could not mark task delivered."));
-  }
-}
-
 export function clearPendingTasks(): Promise<ClearTasksResponse> {
   return jsonRequest<ClearTasksResponse>(
     "/api/tasks/clear-pending",
     { method: "POST" },
     "Could not clear queue.",
-  );
-}
-
-export function clearCompletedTasks(): Promise<ClearTasksResponse> {
-  return jsonRequest<ClearTasksResponse>(
-    "/api/tasks/clear-completed",
-    { method: "POST" },
-    "Could not clear done.",
   );
 }
 

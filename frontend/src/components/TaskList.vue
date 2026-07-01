@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import IconDownload from"~icons/material-symbols/download";
 import IconSpinner from"~icons/material-symbols/sync";
-import IconTrash from"~icons/material-symbols/delete";
 import IconX from"~icons/material-symbols/close";
 
 import type { MenuKey, TaskItem, ViewMode } from"../types";
@@ -18,7 +17,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
  download: [taskId: string];
- hide: [taskId: string];
  remove: [taskId: string];
 }>();
 
@@ -40,10 +38,6 @@ function cardDetail(task: TaskItem): string {
 
 function canShowCardCancel(task: TaskItem): boolean {
  return props.pageKind ==="downloads" && task.can_remove && task.status !=="running";
-}
-
-function canShowHistoryDelete(task: TaskItem): boolean {
- return props.pageKind ==="history" && task.can_hide;
 }
 
 function canShowHistoryDownload(task: TaskItem): boolean {
@@ -112,17 +106,6 @@ function getSiteBadgeClass(siteCategory: string): string {
  <td>
  <div class="flex items-center gap-1.5">
  <button
- v-if="props.pageKind ==='history'&& task.can_hide"
- class="inline-flex items-center justify-center gap-1.5 min-h-8 rounded-lg glass-soft glass-hoverable text-text-muted leading-none transition-all duration-300 ease-glass active:scale-[0.97] h-8 px-2.5 hover:text-text"
- type="button"
- aria-label="Delete from history"
- title="Delete from history"
- @click="emit('hide', task.vid)"
- >
- <IconTrash aria-hidden="true" />
- <span>Delete</span>
- </button>
- <button
  v-if="task.can_download && task.status !=='failed'"
  class="inline-flex items-center justify-center gap-1.5 min-h-8 rounded-lg leading-none transition-all duration-300 ease-glass active:scale-[0.96] w-8 h-8 bg-primary text-text-on-primary shadow-[0_8px_22px_-10px_rgba(237,158,89,0.7)] hover:shadow-[0_12px_28px_-8px_rgba(237,158,89,0.9)]"
  type="button"
@@ -170,17 +153,6 @@ function getSiteBadgeClass(siteCategory: string): string {
  @click="emit('download', task.vid)"
  >
  <IconDownload aria-hidden="true" />
- </button>
- <button
- v-if="canShowHistoryDelete(task)"
- class="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-lg glass-soft glass-hoverable text-text-muted leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-text"
- type="button"
- aria-label="Delete from history"
- title="Delete from history"
- @click="emit('hide', task.vid)"
- >
- <IconTrash aria-hidden="true" />
- <span>Delete</span>
  </button>
  <button
  v-if="canShowCardCancel(task)"

@@ -22,7 +22,6 @@ const {
  activeMenuLabel,
  activePage,
  addDownloadTask,
- clearCompleted,
  clearPending,
  connectCookies,
  cookieStatuses,
@@ -30,7 +29,6 @@ const {
  downloadTask,
  activeTasks,
  completedTasks,
- hideTask,
  isLightMode,
  navigationItems,
  openSettings,
@@ -133,7 +131,6 @@ const {
  :view-mode="viewMode"
  @clear-pending="clearPending"
  @download="downloadTask"
- @hide="hideTask"
  @remove="removeTask"
  @set-view-mode="setViewMode"
  />
@@ -150,7 +147,6 @@ const {
  :view-mode="viewMode"
  @clear-pending="clearPending"
  @download="downloadTask"
- @hide="hideTask"
  @remove="removeTask"
  @set-view-mode="setViewMode"
  />

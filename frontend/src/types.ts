@@ -63,8 +63,6 @@ export interface TaskItem {
   resolved_full_path: string;
   preview_warning: string;
   can_remove: boolean;
-  can_hide: boolean;
-  hidden: boolean;
   task_type: string;
   site_category: SiteKey | string;
   site_label: string;
@@ -94,7 +92,6 @@ export interface AddTaskResponse {
 
 export interface ClearTasksResponse {
   cleared: number;
-  skipped?: number;
   failed?: string[];
 }
 

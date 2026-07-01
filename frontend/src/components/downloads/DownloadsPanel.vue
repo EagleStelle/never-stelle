@@ -14,7 +14,6 @@ defineProps<{
 
 const emit = defineEmits<{
  download: [taskId: string];
- hide: [taskId: string];
  remove: [taskId: string];
 }>();
 </script>
@@ -32,7 +31,6 @@ const emit = defineEmits<{
  :page-kind="pageKind"
  :error-message="errorMessage"
  @download="emit('download', $event)"
- @hide="emit('hide', $event)"
  @remove="emit('remove', $event)"
  />
  </section>

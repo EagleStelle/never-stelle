@@ -4,12 +4,9 @@ import { useEventListener, useIntervalFn } from "@vueuse/core";
 
 import {
   addTask as createTask,
-  clearCompletedTasks,
   clearPendingTasks,
   fetchTaskFile,
   getTasks,
-  hideTask as hideTaskRequest,
-  markTaskDelivered,
   removeTask as removeTaskRequest,
 } from "../api";
 import { POLL_PENDING_MS, POLL_RUNNING_MS, SITE_LABELS, TASKS_QUERY_KEY } from "../ui";
@@ -138,17 +135,11 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
   }
 
-  async function acknowledgeDeliveredTask(taskId: string): Promise<void> {
-    try {
-      await markTaskDelivered(taskId, tabId);
-    } catch {
-      // The browser download has already started, so this acknowledgement is best effort.
-    }
-  }
-
   async function downloadTaskFile(taskId: string, options: { skipReload?: boolean } = {}): Promise<void> {
     await triggerTaskFileDownload(taskId);
-    await acknowledgeDeliveredTask(taskId);
+    // Client-side marker prevents a device-mode file from auto-downloading twice
+    // in this browser. Completed downloads are never deleted, so there is no
+    // server-side delivery acknowledgement to make.
     deliveredDeviceDownloads[deliveredKey(taskId)] = true;
     persistDeliveredDeviceDownloads();
     if (!options.skipReload) await loadTasks(true);
@@ -189,16 +180,6 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     }
   }
 
-  async function hideTask(taskId: string): Promise<void> {
-    try {
-      await hideTaskRequest(taskId);
-      toast("Task cleared.");
-      await loadTasks(true);
-    } catch (error) {
-      toast(errorMessage(error, "Could not hide task."), "error");
-    }
-  }
-
   async function clearPending(): Promise<void> {
     try {
       const data = await clearPendingTasks();
@@ -206,26 +187,6 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
       await loadTasks(true);
     } catch (error) {
       toast(errorMessage(error, "Could not clear queue."), "error");
-    }
-  }
-
-  async function clearCompleted(): Promise<void> {
-    try {
-      const data = await clearCompletedTasks();
-      if ((data.cleared || 0) === 0 && (data.skipped || 0) === 0) {
-        toast("No done tasks to clear.");
-      } else if ((data.skipped || 0) > 0) {
-        toast(
-          `Cleared ${data.cleared || 0} done task${(data.cleared || 0) === 1 ? "" : "s"}. ${data.skipped} device download${
-            data.skipped === 1 ? " is" : "s are"
-          } still waiting to finish delivery.`,
-        );
-      } else {
-        toast(`Cleared ${data.cleared} done task${data.cleared === 1 ? "" : "s"}.`);
-      }
-      await loadTasks(true);
-    } catch (error) {
-      toast(errorMessage(error, "Could not clear done."), "error");
     }
   }
 
@@ -252,10 +213,8 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
 
   return {
     addDownloadTask,
-    clearCompleted,
     clearPending,
     downloadTask,
-    hideTask,
     removeTask,
     taskItems,
     tasksErrorMessage,

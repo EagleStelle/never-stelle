@@ -14,13 +14,10 @@ from backend.app.services.settings import (
     save_ytdlp_cookies_upload,
 )
 from backend.app.services.tasks import (
-    clear_completed_tasks,
     clear_pending_tasks,
     count_tasks,
     counts_by_menu,
     fetch_tasks,
-    hide_done_task,
-    mark_task_delivered,
     queue_task,
     remove_pending_task,
     resolve_task_file,
@@ -39,10 +36,6 @@ class AddTaskPayload(BaseModel):
     url: str = ""
     site_locations: dict[str, str] = Field(default_factory=dict)
     save_mode: str = "nas"
-    client_tab_id: str = ""
-
-
-class DeliveredPayload(BaseModel):
     client_tab_id: str = ""
 
 
@@ -140,23 +133,6 @@ def delete_task(task_id: str) -> Response:
     return Response(status_code=204)
 
 
-@router.post("/tasks/{task_id}/hide", status_code=204, response_class=Response)
-def hide_task(task_id: str) -> Response:
-    try:
-        hide_done_task(task_id)
-    except PermissionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return Response(status_code=204)
-
-
-@router.post("/tasks/{task_id}/delivered")
-def mark_delivered(task_id: str, payload: DeliveredPayload) -> dict[str, Any]:
-    try:
-        return mark_task_delivered(task_id, payload.client_tab_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
 @router.get("/tasks/{task_id}/file")
 def download_task_file(task_id: str) -> FileResponse:
     try:
@@ -171,8 +147,3 @@ def download_task_file(task_id: str) -> FileResponse:
 @router.post("/tasks/clear-pending")
 def clear_pending() -> dict[str, Any]:
     return clear_pending_tasks()
-
-
-@router.post("/tasks/clear-completed")
-def clear_completed() -> dict[str, Any]:
-    return clear_completed_tasks()

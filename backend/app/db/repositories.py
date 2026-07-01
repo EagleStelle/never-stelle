@@ -129,34 +129,47 @@ def load_task_store_payload() -> dict[str, Any]:
     return {"tasks": {row["id"]: _decode(row["payload"], {}) for row in rows}}
 
 
-def save_task_store_payload(data: dict[str, Any]) -> None:
-    tasks = data.get("tasks") if isinstance(data, dict) else {}
-    tasks = tasks if isinstance(tasks, dict) else {}
+def merge_task_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+    """Atomically merge ``updates`` into a single task row and return it.
+
+    The read and write happen inside one transaction while the process-wide DB
+    lock is held, so concurrent writers (the worker streaming progress while an
+    API request mutates the same task) can no longer clobber each other. Only
+    the one affected row is rewritten, not the whole table.
+    """
+    task_id = str(task_id)
     now = utc_now()
     with transaction() as connection:
-        connection.execute("DELETE FROM tasks")
-        for task_id, payload in tasks.items():
-            payload = payload if isinstance(payload, dict) else {}
-            source_url = str(payload.get("source_url") or "")
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO tasks (
-                    id, source_url, status, site_category, save_mode, progress_pct, payload, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(task_id),
-                    source_url,
-                    str(payload.get("status") or "pending"),
-                    str(payload.get("site_category") or _site_category(source_url)),
-                    str(payload.get("save_mode") or "nas"),
-                    _safe_float(payload.get("progress_pct")),
-                    _encode(payload),
-                    str(payload.get("created_at") or now),
-                    now,
-                ),
+        row = connection.execute("SELECT payload FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        payload = _decode(row["payload"] if row else None, {})
+        payload = payload if isinstance(payload, dict) else {}
+        payload.update(updates)
+        source_url = str(payload.get("source_url") or "")
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO tasks (
+                id, source_url, status, site_category, save_mode, progress_pct, payload, created_at, updated_at
             )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                task_id,
+                source_url,
+                str(payload.get("status") or "pending"),
+                str(payload.get("site_category") or _site_category(source_url)),
+                str(payload.get("save_mode") or "nas"),
+                _safe_float(payload.get("progress_pct")),
+                _encode(payload),
+                str(payload.get("created_at") or now),
+                now,
+            ),
+        )
+    return payload
+
+
+def delete_task_row(task_id: str) -> None:
+    with transaction() as connection:
+        connection.execute("DELETE FROM tasks WHERE id = ?", (str(task_id),))
 
 
 def load_task_meta_payload() -> dict[str, Any]:
@@ -165,20 +178,37 @@ def load_task_meta_payload() -> dict[str, Any]:
     return {"tasks": {row["task_id"]: _decode(row["payload"], {}) for row in rows}}
 
 
-def save_task_meta_payload(data: dict[str, Any]) -> None:
-    tasks = data.get("tasks") if isinstance(data, dict) else {}
-    tasks = tasks if isinstance(tasks, dict) else {}
+def load_task_meta_row(task_id: str) -> dict[str, Any]:
+    with transaction() as connection:
+        row = connection.execute(
+            "SELECT payload FROM task_meta WHERE task_id = ?", (str(task_id),)
+        ).fetchone()
+    payload = _decode(row["payload"] if row else None, {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def merge_task_meta_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+    """Atomically merge ``updates`` into one task_meta row and return it."""
+    task_id = str(task_id)
     now = utc_now()
     with transaction() as connection:
-        connection.execute("DELETE FROM task_meta")
-        for task_id, payload in tasks.items():
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO task_meta (task_id, payload, updated_at)
-                VALUES (?, ?, ?)
-                """,
-                (str(task_id), _encode(payload if isinstance(payload, dict) else {}), now),
-            )
+        row = connection.execute("SELECT payload FROM task_meta WHERE task_id = ?", (task_id,)).fetchone()
+        payload = _decode(row["payload"] if row else None, {})
+        payload = payload if isinstance(payload, dict) else {}
+        payload.update(updates)
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO task_meta (task_id, payload, updated_at)
+            VALUES (?, ?, ?)
+            """,
+            (task_id, _encode(payload), now),
+        )
+    return payload
+
+
+def delete_task_meta_row(task_id: str) -> None:
+    with transaction() as connection:
+        connection.execute("DELETE FROM task_meta WHERE task_id = ?", (str(task_id),))
 
 
 def load_history_payload() -> dict[str, Any]:

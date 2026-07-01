@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from backend.app.services.tasks import (
-    can_delete_done_task,
     canonicalize_source_url,
     convert_template_to_ytdlp,
     count_tasks,
@@ -97,26 +96,6 @@ def test_is_media_file(tmp_path: Path):
     assert is_media_file(good) is True
     assert is_media_file(bad) is False
     assert is_media_file(tmp_path / "missing.mp4") is False
-
-
-def test_can_delete_failed_task():
-    assert can_delete_done_task("t", {"status": "failed"}, {"tasks": {}}) is True
-
-
-def test_can_delete_pending_task_is_false():
-    assert can_delete_done_task("t", {"status": "pending"}, {"tasks": {}}) is False
-
-
-def test_can_delete_completed_nas_task():
-    assert can_delete_done_task("t", {"status": "completed", "save_mode": "nas"}, {"tasks": {}}) is True
-
-
-def test_can_delete_device_task_waits_for_delivery():
-    meta = {"tasks": {"t": {"device_request_tabs": ["tab1"], "delivered_device_tabs": []}}}
-    task = {"status": "completed", "save_mode": "device"}
-    assert can_delete_done_task("t", task, meta) is False
-    meta["tasks"]["t"]["delivered_device_tabs"] = ["tab1"]
-    assert can_delete_done_task("t", task, meta) is True
 
 
 def test_count_tasks_and_by_menu():

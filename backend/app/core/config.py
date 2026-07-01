@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import sys
 import tempfile
 from copy import deepcopy
@@ -97,56 +96,8 @@ APP_CONFIG_PATH = _resolve_existing_path(
 )
 
 
-def _migrate_legacy_layout() -> None:
-    """Move pre-split flat ``.local`` files into the new data/media dirs.
-
-    Only runs locally and only when the destination does not already exist,
-    so it is safe to call on every startup. No-op in containers.
-    """
-    if _running_in_container():
-        return
-    legacy_local = PROJECT_ROOT / ".local"
-    if not legacy_local.exists():
-        return
-
-    # sqlite db (+ WAL/SHM sidecars)
-    legacy_db = legacy_local / "never-stelle.sqlite3"
-    if legacy_db.exists() and not DATABASE_PATH.exists() and not os.environ.get("APP_DATABASE_PATH"):
-        try:
-            DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(legacy_db), str(DATABASE_PATH))
-            for suffix in ("-wal", "-shm"):
-                side = legacy_db.with_name(legacy_db.name + suffix)
-                if side.exists():
-                    shutil.move(str(side), str(DATABASE_PATH.parent / (DATABASE_PATH.name + suffix)))
-        except Exception:
-            pass
-
-    # config.yaml
-    legacy_cfg = legacy_local / "config.yaml"
-    if legacy_cfg.exists() and not (DATA_DIR / "config.yaml").exists():
-        try:
-            DATA_DIR.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(legacy_cfg), str(DATA_DIR / "config.yaml"))
-        except Exception:
-            pass
-
-    # library -> media (only when media is absent or empty, never clobber)
-    legacy_lib = legacy_local / "library"
-    media_empty = (not MEDIA_DIR.exists()) or not any(MEDIA_DIR.iterdir())
-    if legacy_lib.is_dir() and legacy_lib.resolve() != MEDIA_DIR and media_empty:
-        try:
-            if MEDIA_DIR.exists():
-                MEDIA_DIR.rmdir()
-            MEDIA_DIR.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(legacy_lib), str(MEDIA_DIR))
-        except Exception:
-            pass
-
-
 for _dir in (DATA_DIR, MEDIA_DIR, SCRATCH_DIR):
     _dir.mkdir(parents=True, exist_ok=True)
-_migrate_legacy_layout()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 DEFAULT_LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
