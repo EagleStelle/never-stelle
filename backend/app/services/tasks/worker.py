@@ -11,7 +11,7 @@ from backend.app.services.settings import has_cookies_for_url
 from .constants import PROGRESS_RE
 from .files import extract_downloaded_path, find_newest_media_file, recover_task_path
 from .history import save_history_entry
-from .store import load_task_store, update_task
+from .store import claim_pending_task, load_task_store, update_task
 from .urls import canonicalize_source_url
 from .ytdlp import build_output_template, build_ytdlp_command, detect_ffmpeg_location
 
@@ -43,7 +43,9 @@ def _worker_loop() -> None:
         try:
             task_id, task = _next_pending_task()
             if task_id and task:
-                run_task(task_id, task)
+                claimed_task = claim_pending_task(task_id)
+                if claimed_task:
+                    run_task(task_id, claimed_task, mark_running=False)
                 continue
             _worker_wakeup.clear()
             task_id, task = _next_pending_task()
@@ -106,7 +108,7 @@ def _run_ytdlp_to_task(task_id: str, cmd: list[str]) -> tuple[int, str]:
                 pass
 
 
-def run_task(task_id: str, task: dict[str, Any]) -> None:
+def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
     source_url = canonicalize_source_url(str(task.get("source_url") or ""))
     output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
     if not source_url or not output_dir:
@@ -136,7 +138,8 @@ def run_task(task_id: str, task: dict[str, Any]) -> None:
     rc = 1
     last_dest = ""
     try:
-        update_task(task_id, status="running", progress_pct=0, error="", last_log_lines=[])
+        if mark_running:
+            update_task(task_id, status="running", progress_pct=0, error="", last_log_lines=[])
         for with_cookies in attempts:
             if with_cookies:
                 current = (load_task_store().get("tasks") or {}).get(task_id, {})

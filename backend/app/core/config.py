@@ -4,11 +4,14 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Iterable
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from backend.app.core.sources import FALLBACK_SOURCE_KEY, merge_source_profiles, normalize_source_key
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -107,33 +110,8 @@ for _tmp_var in ("TMPDIR", "TEMP", "TMP"):
     os.environ[_tmp_var] = str(SCRATCH_DIR)
 tempfile.tempdir = str(SCRATCH_DIR)
 
-SITE_KEYS = (
-    "youtube",
-    "tiktok",
-    "instagram",
-    "twitter",
-    "facebook",
-    "reddit",
-    "twitch",
-    "pinterest",
-    "bluesky",
-    "linkedin",
-    "others",
-)
-SITE_LABELS = {
-    "all": "All",
-    "youtube": "YouTube",
-    "tiktok": "TikTok",
-    "instagram": "Instagram",
-    "twitter": "X (Twitter)",
-    "facebook": "Facebook",
-    "reddit": "Reddit",
-    "twitch": "Twitch",
-    "pinterest": "Pinterest",
-    "bluesky": "Bluesky",
-    "linkedin": "LinkedIn",
-    "others": "Others",
-}
+SITE_KEYS: tuple[str, ...] = ()
+SITE_LABELS = {"all": "All"}
 
 
 def parse_env_locations(raw: str) -> list[str]:
@@ -265,21 +243,24 @@ def get_default_general_location(cfg: dict[str, Any]) -> str:
     return locations[0] if locations else ""
 
 
-SITE_DEFAULT_LOCATION_KEYS = {
-    "youtube": "defaultYoutubeDownloadLocation",
-    "facebook": "defaultFacebookDownloadLocation",
-    "instagram": "defaultInstagramDownloadLocation",
-    "tiktok": "defaultTiktokDownloadLocation",
-    "others": "defaultOthersDownloadLocation",
-}
+def get_config_source_profiles(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    return merge_source_profiles(cfg.get("sourceProfiles") or cfg.get("sources") or {})
 
 
 def get_default_site_location(cfg: dict[str, Any], site: str) -> str:
-    site = (site or "others").lower()
-    key = SITE_DEFAULT_LOCATION_KEYS.get(site, "")
-    value = normalize_allowed_location(str(cfg.get(key) or "").strip()) if key else ""
-    return value or get_default_general_location(cfg)
+    site = normalize_source_key(site or FALLBACK_SOURCE_KEY)
+    profile = next((item for item in get_config_source_profiles(cfg) if item.get("key") == site), {})
+    profile_default = str(profile.get("default_download_location") or "").strip()
+    if profile_default:
+        normalized_profile_default = normalize_allowed_location(profile_default)
+        if normalized_profile_default:
+            return normalized_profile_default
+    return get_default_general_location(cfg)
 
 
-def get_site_default_locations(cfg: dict[str, Any]) -> dict[str, str]:
-    return {site: get_default_site_location(cfg, site) for site in SITE_KEYS}
+def get_site_default_locations(cfg: dict[str, Any], source_keys: Iterable[str] | None = None) -> dict[str, str]:
+    raw_keys = source_keys or [profile["key"] for profile in get_config_source_profiles(cfg)]
+    keys = [normalize_source_key(key) for key in raw_keys]
+    if FALLBACK_SOURCE_KEY not in keys:
+        keys.append(FALLBACK_SOURCE_KEY)
+    return {site: get_default_site_location(cfg, site) for site in dict.fromkeys(keys)}

@@ -56,7 +56,7 @@ from .store import (
     save_history,
     update_task,
 )
-from .urls import canonicalize_source_url, detect_site_category
+from .urls import canonicalize_source_url, detect_source_key
 from .worker import ensure_worker, run_task
 from .ytdlp import (
     build_output_template,
@@ -79,7 +79,7 @@ __all__ = [
     "count_tasks",
     "counts_by_menu",
     "detect_ffmpeg_location",
-    "detect_site_category",
+    "detect_source_key",
     "ensure_worker",
     "extract_downloaded_path",
     "fetch_tasks",

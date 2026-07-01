@@ -3,7 +3,12 @@ import IconDownload from "~icons/material-symbols/download";
 import IconSpinner from "~icons/material-symbols/sync";
 import IconX from "~icons/material-symbols/close";
 
-import type { MenuKey, TaskItem, ViewMode } from "../types";
+import type { MenuKey, SourceProfile, TaskItem, ViewMode } from "../types";
+import {
+  faviconUrlForHost,
+  hostFromUrl,
+  sourceLabelFromKey,
+} from "../utils/dashboard";
 
 const props = defineProps<{
   tasks: TaskItem[];
@@ -11,6 +16,7 @@ const props = defineProps<{
   activeMenu: MenuKey;
   activeMenuLabel: string;
   pageKind: "downloads" | "history";
+  sourceProfiles?: SourceProfile[];
   loading?: boolean;
   errorMessage?: string;
 }>();
@@ -27,7 +33,7 @@ function progressPct(task: TaskItem): number {
 function cardTitle(task: TaskItem): string {
   const filename = String(task.resolved_filename || "").trim();
   if (filename) return filename;
-  const siteLabel = String(task.site_label || "").trim();
+  const siteLabel = sourceLabel(task);
   const statusLabel = String(task.status_label || "Download")
     .trim()
     .toLowerCase();
@@ -36,6 +42,24 @@ function cardTitle(task: TaskItem): string {
 
 function cardDetail(task: TaskItem): string {
   return String(task.source_url || task.vid || "").trim();
+}
+
+function sourceProfileFor(task: TaskItem): SourceProfile | undefined {
+  const key = task.source_key || "others";
+  return (props.sourceProfiles || []).find((profile) => profile.key === key);
+}
+
+function sourceLabel(task: TaskItem): string {
+  return String(
+    sourceProfileFor(task)?.label ||
+      sourceLabelFromKey(task.source_key || "others"),
+  ).trim();
+}
+
+function sourceIconUrl(task: TaskItem): string {
+  const profile = sourceProfileFor(task);
+  if (profile?.icon_url) return profile.icon_url;
+  return faviconUrlForHost(hostFromUrl(String(task.source_url || ""))).trim();
 }
 
 function canShowCardCancel(task: TaskItem): boolean {
@@ -63,11 +87,7 @@ function getStatusBadgeClass(status: string): string {
   return " bg-secondary-muted text-text-muted";
 }
 
-function getSiteBadgeClass(siteCategory: string): string {
-  if (siteCategory === "youtube") return " bg-primary/20 text-text";
-  if (siteCategory === "facebook") return " bg-primary-subtle/30 text-text";
-  if (siteCategory === "instagram") return " bg-primary/20 text-text";
-  if (siteCategory === "tiktok") return " bg-primary-subtle/30 text-text";
+function getSiteBadgeClass(): string {
   return " bg-secondary-muted text-text-muted";
 }
 </script>
@@ -115,10 +135,17 @@ function getSiteBadgeClass(siteCategory: string): string {
           <tr v-for="task in props.tasks" :key="task.vid">
             <td>
               <span
-                class="inline-flex max-w-full items-center rounded-full px-2 py-1 tracking-wide leading-none uppercase"
-                :class="getSiteBadgeClass(task.site_category)"
+                class="inline-flex max-w-full items-center gap-1.5 rounded-full px-2 py-1 tracking-wide leading-none uppercase"
+                :class="getSiteBadgeClass()"
               >
-                {{ task.site_label }}
+                <img
+                  v-if="sourceIconUrl(task)"
+                  :src="sourceIconUrl(task)"
+                  class="h-3.5 w-3.5 rounded-sm"
+                  alt=""
+                  aria-hidden="true"
+                />
+                {{ sourceLabel(task) }}
               </span>
             </td>
             <td>
@@ -177,6 +204,13 @@ function getSiteBadgeClass(siteCategory: string): string {
             <h3
               class="wrap-break-word leading-snug text-text font-display font-semibold text-base tracking-tight"
             >
+              <img
+                v-if="sourceIconUrl(task)"
+                :src="sourceIconUrl(task)"
+                class="mr-1.5 inline h-4 w-4 rounded-sm align-[-2px]"
+                alt=""
+                aria-hidden="true"
+              />
               {{ cardTitle(task) }}
             </h3>
             <div class="mt-2 break-all text-text-muted text-[0.8rem] font-mono">

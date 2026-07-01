@@ -43,6 +43,7 @@ const {
   settings,
   settingsDraft,
   settingsSection,
+  sourceProfiles,
   srStatus,
   tasksErrorMessage,
   tasksLoading,
@@ -138,6 +139,7 @@ const {
             :error-message="tasksErrorMessage"
             :loading="tasksLoading"
             page-kind="downloads"
+            :source-profiles="sourceProfiles"
             :tasks="activeTasks"
             :view-mode="viewMode"
             @clear-pending="clearPending"
@@ -154,6 +156,7 @@ const {
             :error-message="tasksErrorMessage"
             :loading="tasksLoading"
             page-kind="history"
+            :source-profiles="sourceProfiles"
             :tasks="completedTasks"
             :view-mode="viewMode"
             @clear-pending="clearPending"
@@ -169,6 +172,7 @@ const {
           :cookie-statuses="cookieStatuses"
           :settings="settings"
           :settings-draft="settingsDraft"
+          :source-profiles="sourceProfiles"
           @connect-cookies="connectCookies"
           @remove-cookies="removeCookies"
           @save="saveSettingsDraft"

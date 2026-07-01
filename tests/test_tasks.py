@@ -9,7 +9,7 @@ from backend.app.services.tasks import (
     convert_template_to_ytdlp,
     count_tasks,
     counts_by_menu,
-    detect_site_category,
+    detect_source_key,
     extract_downloaded_path,
     is_media_file,
 )
@@ -20,9 +20,9 @@ from backend.app.services.tasks import (
     [
         ("", ""),
         ("   ", ""),
-        ("instagram.com/reel/abc", "https://instagram.com/reel/abc/"),
-        ("https://www.instagram.com/reel/abc", "https://www.instagram.com/reel/abc/"),
-        ("https://tiktok.com/@x/video/1", "https://tiktok.com/@x/video/1/"),
+        ("instagram.com/reel/abc", "https://instagram.com/reel/abc"),
+        ("https://www.instagram.com/reel/abc", "https://www.instagram.com/reel/abc"),
+        ("https://tiktok.com/@x/video/1", "https://tiktok.com/@x/video/1"),
         ("https://youtube.com/watch?v=1", "https://youtube.com/watch?v=1"),
     ],
 )
@@ -39,17 +39,19 @@ def test_canonicalize_trailing_slash_idempotent():
     "url,expected",
     [
         ("https://www.youtube.com/watch?v=1", "youtube"),
-        ("https://youtu.be/abc", "youtube"),
+        ("https://youtu.be/abc", "youtu"),
         ("https://facebook.com/x", "facebook"),
-        ("https://fb.watch/x", "facebook"),
+        ("https://fb.watch/x", "fb"),
         ("https://www.instagram.com/reel/x", "instagram"),
         ("https://tiktok.com/@x/video/1", "tiktok"),
-        ("https://example.com/video", "others"),
+        ("https://example.com/video", "example"),
+        ("https://www.pornhub.com/view_video.php?viewkey=1", "pornhub"),
+        ("https://rule34video.com/video/1", "rule34video"),
         ("not a url", "others"),
     ],
 )
-def test_detect_site_category(url, expected):
-    assert detect_site_category(url) == expected
+def test_detect_source_key(url, expected):
+    assert detect_source_key(url) == expected
 
 
 def test_convert_template_to_ytdlp_maps_placeholders():
@@ -94,10 +96,10 @@ def test_is_media_file(tmp_path: Path):
 
 def test_count_tasks_and_by_menu():
     tasks = [
-        {"status": "pending", "site_category": "youtube"},
-        {"status": "running", "site_category": "youtube"},
-        {"status": "completed", "site_category": "tiktok"},
-        {"status": "failed", "site_category": "others"},
+        {"status": "pending", "source_key": "youtube"},
+        {"status": "running", "source_key": "youtube"},
+        {"status": "completed", "source_key": "tiktok"},
+        {"status": "failed", "source_key": "others"},
     ]
     counts = count_tasks(tasks)
     assert counts == {"queued": 1, "running": 1, "completed": 1, "failed": 1}

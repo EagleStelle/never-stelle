@@ -3,17 +3,25 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from backend.app.core.sources import normalize_source_key
+
 from .store import load_history, load_task_store, save_history
-from .urls import canonicalize_source_url, detect_site_category
+from .urls import canonicalize_source_url, detect_source_key
 
 
 def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
     history = load_history()
+    source_url = str(task.get("source_url") or "")
+    source_key = normalize_source_key(
+        task.get("source_key")
+        or task.get("site_category")
+        or detect_source_key(source_url)
+    )
     history.setdefault("entries", {})[task_id] = {
         "task_id": task_id,
-        "source_url": str(task.get("source_url") or ""),
+        "source_url": source_url,
         "task_type": "ytdlp",
-        "site_category": detect_site_category(str(task.get("source_url") or "")),
+        "source_key": source_key,
         "resolved_folder": str(task.get("resolved_folder") or ""),
         "resolved_filename": str(task.get("resolved_filename") or ""),
         "resolved_full_path": str(task.get("resolved_full_path") or ""),
@@ -38,6 +46,7 @@ def find_history_by_id(task_id: str) -> dict[str, Any] | None:
 def find_active_by_source(source_url: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
     normalized = canonicalize_source_url(source_url)
     for task_id, task in (load_task_store().get("tasks") or {}).items():
-        if canonicalize_source_url(str(task.get("source_url") or "")) == normalized:
+        task_source = canonicalize_source_url(str(task.get("source_url") or ""))
+        if task.get("status") in {"pending", "running"} and task_source == normalized:
             return str(task_id), task
     return None, None

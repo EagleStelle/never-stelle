@@ -5,23 +5,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from backend.app.core.config import (
-    SITE_LABELS,
-    get_site_default_locations,
-    is_allowed_location,
-    load_app_config,
-)
+from backend.app.core.config import is_allowed_location, load_app_config
 from backend.app.db.repositories import delete_task_meta_row, merge_task_meta_payload
 from backend.app.services.settings import (
     get_effective_saved_settings,
+    get_source_profile_for_url,
     normalize_site_location_selection,
 )
 
 from .files import recover_task_path
 from .history import find_active_by_source, find_history_by_id, find_history_by_source
 from .serializers import fetch_tasks, history_to_api, task_to_api
-from .store import load_task_store, remove_task_record, update_task
-from .urls import canonicalize_source_url, detect_site_category
+from .store import load_task_store, remove_task_record_if_status, update_task
+from .urls import canonicalize_source_url
 from .worker import _worker_wakeup, ensure_worker
 from .ytdlp import build_output_template
 
@@ -49,26 +45,30 @@ def queue_task(
                 "resolved_folder": str(history_entry.get("resolved_folder") or ""),
                 "resolved_filename": str(history_entry.get("resolved_filename") or ""),
                 "resolved_full_path": str(history_entry.get("resolved_full_path") or ""),
+                "source_key": str(history_entry.get("source_key") or history_entry.get("site_category") or ""),
             },
         )
         return [history_to_api(history_id, history_entry)], True
 
     cfg = load_app_config()
     effective = get_effective_saved_settings(cfg)
+    source_profile = get_source_profile_for_url(source_url, cfg)
+    source_key = str(source_profile.get("key") or "")
     selected_locations = normalize_site_location_selection(
-        site_locations or effective.get("site_locations") or get_site_default_locations(cfg),
+        site_locations or effective.get("site_locations") or {},
         cfg,
+        effective.get("source_profiles") or [source_profile],
     )
-    category = detect_site_category(source_url)
-    output_dir = selected_locations.get(category) or selected_locations.get("others") or ""
+    output_dir = selected_locations.get(source_key) or selected_locations.get("others") or ""
     if not is_allowed_location(output_dir):
-        label = SITE_LABELS.get(category, "selected")
+        label = str(source_profile.get("label") or "selected")
         raise ValueError(f"Choose a valid {label} download location from Settings.")
 
     task_id = f"ytdlp:{uuid.uuid4().hex[:12]}"
     output_template = build_output_template(source_url, output_dir)
     task = {
         "source_url": source_url,
+        "source_key": source_key,
         "status": "pending",
         "progress_pct": 0,
         "output_dir": output_dir,
@@ -93,7 +93,8 @@ def remove_pending_task(task_id: str) -> None:
         return
     if task.get("status") not in {"pending", "failed"}:
         raise PermissionError("Only queued or failed tasks can be removed right now.")
-    remove_task_record(task_id)
+    if not remove_task_record_if_status(task_id, {"pending", "failed"}):
+        raise PermissionError("Only queued or failed tasks can be removed right now.")
     delete_task_meta_row(task_id)
 
 
@@ -104,9 +105,9 @@ def clear_pending_tasks() -> dict[str, Any]:
     for task in tasks:
         if task["status"] not in {"pending", "failed"}:
             continue
-        remove_task_record(task["vid"])
-        delete_task_meta_row(task["vid"])
-        cleared += 1
+        if remove_task_record_if_status(task["vid"], {"pending", "failed"}):
+            delete_task_meta_row(task["vid"])
+            cleared += 1
     return {"cleared": cleared, "failed": []}
 
 

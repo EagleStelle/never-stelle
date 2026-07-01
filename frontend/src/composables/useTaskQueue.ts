@@ -9,8 +9,8 @@ import {
   getTasks,
   removeTask as removeTaskRequest,
 } from "../api";
-import { POLL_PENDING_MS, POLL_RUNNING_MS, SITE_LABELS, TASKS_QUERY_KEY } from "../ui";
-import type { MenuKey, SavedSettings, TaskItem, TasksResponse, ToastType } from "../types";
+import { POLL_PENDING_MS, POLL_RUNNING_MS, TASKS_QUERY_KEY } from "../ui";
+import type { SavedSettings, TaskItem, TasksResponse, ToastType } from "../types";
 import { countTasks, errorMessage, filenameFromContentDisposition } from "../utils/dashboard";
 
 interface UseTaskQueueOptions {
@@ -49,14 +49,13 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
         resolved_folder: task.resolved_folder || cached.resolved_folder || "",
         resolved_filename: task.resolved_filename || cached.resolved_filename || "",
         resolved_full_path: task.resolved_full_path || cached.resolved_full_path || "",
-        site_category: task.site_category || cached.site_category || "others",
-        site_label: task.site_label || SITE_LABELS[(task.site_category as MenuKey) || "others"] || "Others",
+        source_key: task.source_key || cached.source_key || "others",
       };
       taskCache.set(task.vid, {
         resolved_folder: merged.resolved_folder,
         resolved_filename: merged.resolved_filename,
         resolved_full_path: merged.resolved_full_path,
-        site_category: merged.site_category,
+        source_key: merged.source_key,
       });
       return merged;
     });

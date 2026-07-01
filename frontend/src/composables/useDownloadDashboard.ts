@@ -1,14 +1,50 @@
-import { computed, ref, watch } from "vue";
-import { useLocalStorage } from "@vueuse/core";
+import { computed, nextTick, ref, watch } from "vue";
+import { useEventListener, useLocalStorage } from "@vueuse/core";
 import IconHistory from "~icons/material-symbols/schedule";
 import IconTray from "~icons/material-symbols/inbox";
 
 import { useDashboardSettings } from "./useDashboardSettings";
 import { useTaskQueue } from "./useTaskQueue";
 import { useToastStack } from "./useToastStack";
-import { COUNT_ICONS, MENU_ICONS, SITE_LABELS } from "../ui";
-import { MENU_KEYS, type MenuKey, type PageKey, type TaskFilter, type ViewMode, type SettingsSection } from "../types";
-import { countTasks, isFilterKey, isMenuKey, isPageKey, isViewMode } from "../utils/dashboard";
+import {
+  COUNT_ICONS,
+  FALLBACK_SOURCE_ICON,
+  PAGE_ROUTES,
+  SOURCE_ICON_COMPONENTS,
+  SITE_LABELS,
+} from "../ui";
+import type { MenuKey, PageKey, SettingsSection, SourceProfile, TaskFilter, ViewMode } from "../types";
+import {
+  countTasks,
+  isFilterKey,
+  isMenuKey,
+  isPageKey,
+  isSettingsSection,
+  isViewMode,
+  faviconUrlForHost,
+  hostFromUrl,
+  mergeSourceProfiles,
+  sourceLabelFromKey,
+} from "../utils/dashboard";
+
+const SETTINGS_ROUTE_BY_SECTION: Record<SettingsSection, string> = {
+  downloads: "/settings/locations",
+  cookies: "/settings/cookies",
+  "folder-template": "/settings/folder-template",
+  "filename-template": "/settings/filename-template",
+};
+
+function settingsSectionFromPath(path: string): SettingsSection {
+  const last = path.split("/").filter(Boolean).at(-1) || "";
+  if (last === "locations") return "downloads";
+  return isSettingsSection(last) ? last : "downloads";
+}
+
+function sourceInitials(label: string): string {
+  const parts = label.trim().split(/\s+/).filter(Boolean);
+  const value = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : label.slice(0, 2);
+  return value.toUpperCase() || "?";
+}
 
 export function useDownloadDashboard() {
   const toastStack = useToastStack();
@@ -27,29 +63,54 @@ export function useDownloadDashboard() {
   const themeMode = useLocalStorage<"light" | "dark">("neverstelle.themeMode", "dark");
 
   if (!isPageKey(activePage.value)) activePage.value = "downloads";
-  if (!isMenuKey(activeMenu.value)) activeMenu.value = "all";
   if (!isFilterKey(activeFilter.value)) activeFilter.value = "all";
   if (!isViewMode(viewMode.value)) viewMode.value = "grid";
   if (themeMode.value !== "light") themeMode.value = "dark";
 
+  const taskSourceProfiles = computed<SourceProfile[]>(() =>
+    taskQueue.taskItems.value
+      .map((task) => {
+        const key = task.source_key || "others";
+        return {
+          key,
+          label: sourceLabelFromKey(key),
+          hosts: [],
+          icon: "",
+          icon_url: faviconUrlForHost(hostFromUrl(String(task.source_url || ""))),
+        };
+      })
+      .filter((profile) => profile.key),
+  );
+  const sourceProfiles = computed<SourceProfile[]>(() =>
+    mergeSourceProfiles(settingsState.sourceProfiles.value, taskSourceProfiles.value),
+  );
+
   const isLightMode = computed(() => themeMode.value === "light");
-  const navigationItems = computed(() => MENU_KEYS.map((key) => ({ key, label: SITE_LABELS[key], icon: MENU_ICONS[key] })));
+  const navigationItems = computed(() => [
+    { key: "all", label: SITE_LABELS.all, icon: IconTray },
+    ...sourceProfiles.value.map((profile) => ({
+      key: profile.key,
+      label: profile.label,
+      icon: SOURCE_ICON_COMPONENTS[profile.icon || profile.key] || FALLBACK_SOURCE_ICON,
+      iconUrl: profile.icon_url || "",
+      initials: sourceInitials(profile.label),
+    })),
+  ]);
   const pageItems = computed(() => [
     { key: "downloads" as PageKey, label: "Downloads", icon: IconTray },
     { key: "history" as PageKey, label: "History", icon: IconHistory },
   ]);
   const menuTasks = computed(() => {
     const tasks = taskQueue.taskItems.value;
-    return activeMenu.value === "all" ? tasks : tasks.filter((task) => (task.site_category || "others") === activeMenu.value);
+    return activeMenu.value === "all" ? tasks : tasks.filter((task) => (task.source_key || "others") === activeMenu.value);
   });
-  const activeTasks = computed(() => {
-    return menuTasks.value.filter((task) => ["pending", "running", "failed"].includes(task.status));
-  });
-  const completedTasks = computed(() => {
-    return menuTasks.value.filter((task) => ["completed"].includes(task.status));
-  });
+  const activeTasks = computed(() => menuTasks.value.filter((task) => ["pending", "running", "failed"].includes(task.status)));
+  const completedTasks = computed(() => menuTasks.value.filter((task) => ["completed"].includes(task.status)));
   const countsForActiveMenu = computed(() => countTasks(menuTasks.value));
-  const activeMenuLabel = computed(() => SITE_LABELS[activeMenu.value] || "matching");
+  const activeMenuLabel = computed(() => {
+    if (activeMenu.value === "all") return "All";
+    return sourceProfiles.value.find((profile) => profile.key === activeMenu.value)?.label || "matching";
+  });
   const countCards = computed(() => [
     { label: "Queued", value: countsForActiveMenu.value.queued, icon: COUNT_ICONS.queued },
     { label: "Active", value: countsForActiveMenu.value.running, icon: COUNT_ICONS.running },
@@ -57,12 +118,43 @@ export function useDownloadDashboard() {
     { label: "Failed", value: countsForActiveMenu.value.failed, icon: COUNT_ICONS.failed },
   ]);
 
+  let applyingRoute = false;
+
+  function routeFor(page: PageKey = activePage.value, section: SettingsSection = settingsState.settingsSection.value): string {
+    if (page === "settings") return SETTINGS_ROUTE_BY_SECTION[section] || PAGE_ROUTES.settings;
+    return PAGE_ROUTES[page];
+  }
+
+  function applyCurrentRoute(): void {
+    const path = window.location.pathname || "/";
+    applyingRoute = true;
+    if (path.startsWith("/history")) {
+      activePage.value = "history";
+    } else if (path.startsWith("/settings")) {
+      activePage.value = "settings";
+      settingsState.setSettingsSection(settingsSectionFromPath(path));
+    } else {
+      activePage.value = "downloads";
+    }
+    void nextTick(() => {
+      applyingRoute = false;
+      const canonical = routeFor();
+      if (window.location.pathname !== canonical) window.history.replaceState({}, "", canonical);
+    });
+  }
+
+  function syncRoute(): void {
+    if (applyingRoute) return;
+    const route = routeFor();
+    if (window.location.pathname !== route) window.history.pushState({}, "", route);
+  }
+
   function setActivePage(page: PageKey): void {
     activePage.value = isPageKey(page) ? page : "downloads";
   }
 
   function setActiveMenu(menu: MenuKey): void {
-    activeMenu.value = isMenuKey(menu) ? menu : "all";
+    activeMenu.value = isMenuKey(menu, sourceProfiles.value) ? menu : "all";
   }
 
   function setActiveFilter(filter: TaskFilter): void {
@@ -71,6 +163,10 @@ export function useDownloadDashboard() {
 
   function setViewMode(mode: ViewMode): void {
     viewMode.value = mode;
+  }
+
+  function setSettingsSection(section: SettingsSection, shouldFocus = false): void {
+    settingsState.setSettingsSection(section, shouldFocus);
   }
 
   function toggleThemeMode(): void {
@@ -82,11 +178,26 @@ export function useDownloadDashboard() {
     setActivePage("settings");
   }
 
+  applyCurrentRoute();
+
+  watch(
+    [activePage, settingsState.settingsSection],
+    () => syncRoute(),
+    { flush: "post" },
+  );
+  watch(
+    sourceProfiles,
+    (profiles) => {
+      if (!isMenuKey(activeMenu.value, profiles)) activeMenu.value = "all";
+    },
+    { immediate: true },
+  );
   watch(
     themeMode,
     (mode) => document.documentElement.classList.toggle("light-mode", mode === "light"),
     { immediate: true },
   );
+  useEventListener(window, "popstate", applyCurrentRoute);
 
   return {
     activePage,
@@ -107,6 +218,8 @@ export function useDownloadDashboard() {
     url,
     viewMode,
     ...settingsState,
+    sourceProfiles,
+    setSettingsSection,
     openSettings,
     ...taskQueue,
     ...toastStack,

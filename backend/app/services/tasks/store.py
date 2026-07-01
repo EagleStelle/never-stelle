@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from backend.app.db.repositories import (
+    claim_pending_task_payload,
     delete_task_row,
+    delete_task_row_if_status,
     load_history_payload,
     load_task_meta_payload,
     load_task_store_payload,
@@ -19,6 +21,7 @@ _MIRRORED_FIELDS = {
     "resolved_filename",
     "resolved_full_path",
     "preview_warning",
+    "source_key",
 }
 
 
@@ -66,5 +69,13 @@ def update_task(task_id: str, **updates: Any) -> dict[str, Any]:
     return task
 
 
+def claim_pending_task(task_id: str) -> dict[str, Any] | None:
+    return claim_pending_task_payload(task_id)
+
+
 def remove_task_record(task_id: str) -> None:
     delete_task_row(task_id)
+
+
+def remove_task_record_if_status(task_id: str, statuses: set[str]) -> bool:
+    return delete_task_row_if_status(task_id, statuses)

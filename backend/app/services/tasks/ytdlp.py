@@ -10,7 +10,6 @@ from backend.app.services.settings import (
 )
 
 from .constants import TEMPLATE_RE
-from .urls import detect_site_category
 
 
 def _yt_dlp_field(name: str) -> str:
@@ -35,7 +34,7 @@ def convert_template_to_ytdlp(template: str) -> str:
 
 
 def build_output_template(source_url: str, output_dir: str) -> str:
-    settings = get_effective_template_settings()
+    settings = get_effective_template_settings(source_url)
     folder_template = convert_template_to_ytdlp(settings["folder_template"])
     filename_template = convert_template_to_ytdlp(settings["filename_template"])
     if "%(ext" not in filename_template:
@@ -69,12 +68,7 @@ def build_ytdlp_command(
     *,
     with_cookies: bool = False,
 ) -> list[str]:
-    category = detect_site_category(source_url)
-    selected_format = (
-        "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
-        if category == "youtube"
-        else "bestvideo*+bestaudio/best"
-    )
+    selected_format = "bestvideo*+bestaudio/best"
     cmd = [
         "yt-dlp",
         "--newline",

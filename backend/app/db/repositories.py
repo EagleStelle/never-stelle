@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from backend.app.core.sources import source_key_from_url
 from backend.app.db.database import transaction, utc_now
 
 
@@ -26,17 +27,8 @@ def _safe_float(value: Any, fallback: float = 0.0) -> float:
         return fallback
 
 
-def _site_category(source_url: str) -> str:
-    source_url = str(source_url or "").lower()
-    if "youtube.com" in source_url or "youtu.be" in source_url:
-        return "youtube"
-    if "facebook.com" in source_url or "fb.com" in source_url or "fb.watch" in source_url:
-        return "facebook"
-    if "instagram.com" in source_url:
-        return "instagram"
-    if "tiktok.com" in source_url:
-        return "tiktok"
-    return "others"
+def _source_key(source_url: str) -> str:
+    return source_key_from_url(source_url)
 
 
 def load_settings_payload() -> dict[str, Any]:
@@ -156,7 +148,42 @@ def merge_task_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
                 task_id,
                 source_url,
                 str(payload.get("status") or "pending"),
-                str(payload.get("site_category") or _site_category(source_url)),
+                str(payload.get("source_key") or payload.get("site_category") or _source_key(source_url)),
+                _safe_float(payload.get("progress_pct")),
+                _encode(payload),
+                str(payload.get("created_at") or now),
+                now,
+            ),
+        )
+    return payload
+
+
+def claim_pending_task_payload(task_id: str) -> dict[str, Any] | None:
+    """Atomically flip one pending task to running and return the updated payload."""
+    task_id = str(task_id)
+    now = utc_now()
+    with transaction() as connection:
+        row = connection.execute("SELECT payload FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if not row:
+            return None
+        payload = _decode(row["payload"], {})
+        payload = payload if isinstance(payload, dict) else {}
+        if payload.get("status") != "pending":
+            return None
+        payload.update({"status": "running", "progress_pct": 0, "error": "", "last_log_lines": []})
+        source_url = str(payload.get("source_url") or "")
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO tasks (
+                id, source_url, status, site_category, progress_pct, payload, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                task_id,
+                source_url,
+                "running",
+                str(payload.get("source_key") or payload.get("site_category") or _source_key(source_url)),
                 _safe_float(payload.get("progress_pct")),
                 _encode(payload),
                 str(payload.get("created_at") or now),
@@ -169,6 +196,19 @@ def merge_task_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
 def delete_task_row(task_id: str) -> None:
     with transaction() as connection:
         connection.execute("DELETE FROM tasks WHERE id = ?", (str(task_id),))
+
+
+def delete_task_row_if_status(task_id: str, statuses: set[str]) -> bool:
+    normalized = {str(status) for status in statuses}
+    if not normalized:
+        return False
+    placeholders = ",".join("?" for _ in normalized)
+    with transaction() as connection:
+        cursor = connection.execute(
+            f"DELETE FROM tasks WHERE id = ? AND status IN ({placeholders})",
+            (str(task_id), *sorted(normalized)),
+        )
+    return bool(cursor.rowcount)
 
 
 def load_task_meta_payload() -> dict[str, Any]:
@@ -237,7 +277,7 @@ def save_history_payload(data: dict[str, Any]) -> None:
                 (
                     str(task_id),
                     source_url,
-                    str(payload.get("site_category") or _site_category(source_url)),
+                    str(payload.get("source_key") or payload.get("site_category") or _source_key(source_url)),
                     _encode(payload),
                     str(payload.get("completed_at") or now),
                     now,

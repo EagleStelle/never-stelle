@@ -47,7 +47,7 @@ def find_newest_media_file(root: Path, started_at: float) -> Path | None:
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
-def recover_task_path(task_id: str, task: dict[str, Any]) -> tuple[str, str, str]:
+def recover_task_path(task_id: str, task: dict[str, Any], *, persist: bool = True) -> tuple[str, str, str]:
     resolved_full_path = str(task.get("resolved_full_path") or "").strip()
     if resolved_full_path:
         path = Path(resolved_full_path)
@@ -60,12 +60,13 @@ def recover_task_path(task_id: str, task: dict[str, Any]) -> tuple[str, str, str
             continue
         path = Path(candidate)
         if is_media_file(path):
-            update_task(
-                task_id,
-                resolved_full_path=str(path),
-                resolved_folder=str(path.parent),
-                resolved_filename=path.name,
-            )
+            if persist:
+                update_task(
+                    task_id,
+                    resolved_full_path=str(path),
+                    resolved_folder=str(path.parent),
+                    resolved_filename=path.name,
+                )
             return str(path), str(path.parent), path.name
 
     return "", str(task.get("resolved_folder") or "").strip(), str(task.get("resolved_filename") or "").strip()

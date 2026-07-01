@@ -3,12 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from backend.app.core.config import SITE_KEYS, SITE_LABELS
+from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key
+from backend.app.services.settings import get_effective_source_profiles
 
 from .constants import STATUS_LABELS, STATUS_ORDER
 from .files import recover_task_path
 from .store import load_meta, load_task_store
-from .urls import detect_site_category
+from .urls import detect_source_key
 
 
 def task_to_api(task_id: str, task: dict[str, Any], meta: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -20,9 +21,15 @@ def task_to_api(task_id: str, task: dict[str, Any], meta: dict[str, Any] | None 
         progress_pct = max(0, min(100, round(float(task.get("progress_pct") or 0))))
     except Exception:
         progress_pct = 0
-    resolved_path, resolved_folder, resolved_filename = recover_task_path(task_id, task)
+    resolved_path, resolved_folder, resolved_filename = recover_task_path(task_id, task, persist=False)
     source_url = str(task.get("source_url") or local.get("source_url") or "")
-    category = detect_site_category(source_url)
+    source_key = normalize_source_key(
+        task.get("source_key")
+        or local.get("source_key")
+        or task.get("site_category")
+        or local.get("site_category")
+        or detect_source_key(source_url)
+    )
     can_download = bool(status == "completed" and resolved_path and Path(resolved_path).is_file())
     return {
         "vid": task_id,
@@ -39,8 +46,7 @@ def task_to_api(task_id: str, task: dict[str, Any], meta: dict[str, Any] | None 
         "preview_warning": str(task.get("preview_warning") or local.get("preview_warning") or ""),
         "can_remove": status in {"pending", "failed"},
         "task_type": "ytdlp",
-        "site_category": category,
-        "site_label": SITE_LABELS.get(category, "Others"),
+        "source_key": source_key,
         "error": str(task.get("error") or ""),
         "can_download": can_download,
     }
@@ -51,6 +57,7 @@ def history_to_api(task_id: str, entry: dict[str, Any], meta: dict[str, Any] | N
         "source_url": entry.get("source_url", ""),
         "status": "completed",
         "progress_pct": 100,
+        "source_key": entry.get("source_key", "") or entry.get("site_category", ""),
         "resolved_folder": entry.get("resolved_folder", ""),
         "resolved_filename": entry.get("resolved_filename", ""),
         "resolved_full_path": entry.get("resolved_full_path", ""),
@@ -79,6 +86,11 @@ def count_tasks(tasks: list[dict[str, Any]]) -> dict[str, int]:
 
 def counts_by_menu(tasks: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
     result = {"all": count_tasks(tasks)}
-    for site in SITE_KEYS:
-        result[site] = count_tasks([task for task in tasks if task.get("site_category") == site])
+    source_keys = [normalize_source_key(profile.get("key")) for profile in get_effective_source_profiles()]
+    for task in tasks:
+        key = normalize_source_key(task.get("source_key") or FALLBACK_SOURCE_KEY)
+        if key not in source_keys:
+            source_keys.append(key)
+    for site in source_keys:
+        result[site] = count_tasks([task for task in tasks if task.get("source_key") == site])
     return result

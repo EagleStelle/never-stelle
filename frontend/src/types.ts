@@ -1,22 +1,31 @@
-export const SITE_KEYS = ["youtube", "tiktok", "instagram", "twitter", "facebook", "reddit", "twitch", "pinterest", "bluesky", "linkedin", "others"] as const;
-export const MENU_KEYS = ["all", ...SITE_KEYS] as const;
+export const FALLBACK_SOURCE_KEY = "others";
 export const PAGE_KEYS = ["downloads", "history", "settings"] as const;
 
-export type SiteKey = (typeof SITE_KEYS)[number];
-export type MenuKey = (typeof MENU_KEYS)[number];
+export type SourceKey = string;
+export type MenuKey = "all" | SourceKey;
 export type PageKey = (typeof PAGE_KEYS)[number];
 export type TaskStatus = "pending" | "running" | "completed" | "failed" | string;
 export type TaskFilter = "all" | "active" | "done";
 export type ViewMode = "grid" | "table";
-export type SettingsSection = "downloads" | "instagram" | "advanced";
+export type SettingsSection = "downloads" | "cookies" | "folder-template" | "filename-template";
 export type ToastType = "success" | "error";
 
-export type SiteLocations = Record<SiteKey, string>;
+export type SourceLocations = Record<string, string>;
 
 export interface TemplateSettings {
   folder_template: string;
   filename_template: string;
 }
+
+export interface SourceProfile {
+  key: string;
+  label: string;
+  hosts: string[];
+  icon?: string;
+  icon_url?: string;
+}
+
+export type SourceTemplates = Record<string, TemplateSettings>;
 
 export interface CookiesStatus {
   configured: boolean;
@@ -28,8 +37,10 @@ export interface CookiesStatus {
 export type CookiesMap = Record<string, CookiesStatus>;
 
 export interface SavedSettings {
-  site_locations: SiteLocations;
+  source_profiles: SourceProfile[];
+  site_locations: SourceLocations;
   template_settings: TemplateSettings;
+  source_templates: SourceTemplates;
 }
 
 export interface RuntimeSettings extends SavedSettings {
@@ -39,8 +50,11 @@ export interface RuntimeSettings extends SavedSettings {
 
 export interface UiConfigResponse {
   download_locations?: string[];
-  site_default_locations?: Partial<SiteLocations>;
+  source_profiles?: Array<Partial<SourceProfile>>;
+  source_default_locations?: SourceLocations;
+  site_default_locations?: SourceLocations;
   template_settings?: Partial<TemplateSettings>;
+  source_templates?: Record<string, Partial<TemplateSettings>>;
   ytdlp_cookies?: Record<string, Partial<CookiesStatus>>;
   default_filename_template?: string;
   default_folder_template?: string;
@@ -61,8 +75,7 @@ export interface TaskItem {
   preview_warning: string;
   can_remove: boolean;
   task_type: string;
-  site_category: SiteKey | string;
-  site_label: string;
+  source_key: string;
   error: string;
   can_download: boolean;
 }
@@ -77,7 +90,7 @@ export interface TaskCounts {
 export interface TasksResponse {
   tasks: TaskItem[];
   counts?: TaskCounts;
-  counts_by_menu?: Partial<Record<MenuKey, TaskCounts>>;
+  counts_by_menu?: Partial<Record<string, TaskCounts>>;
 }
 
 export interface AddTaskResponse {
