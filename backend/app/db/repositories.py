@@ -55,7 +55,7 @@ def get_file_blob(key: str) -> dict[str, Any] | None:
         row = connection.execute(
             """
             SELECT key, filename, content_type, content, created_at, updated_at
-            FROM file_blobs
+            FROM cookies
             WHERE key = ?
             """,
             (key,),
@@ -77,7 +77,7 @@ def get_file_blob_metadata(key: str) -> dict[str, Any] | None:
         row = connection.execute(
             """
             SELECT key, filename, content_type, length(content) AS size, created_at, updated_at
-            FROM file_blobs
+            FROM cookies
             WHERE key = ?
             """,
             (key,),
@@ -101,7 +101,7 @@ def save_file_blob(key: str, filename: str, content: bytes, content_type: str = 
     with transaction() as connection:
         connection.execute(
             """
-            INSERT OR REPLACE INTO file_blobs (
+            INSERT OR REPLACE INTO cookies (
                 key, filename, content_type, content, created_at, updated_at
             )
             VALUES (?, ?, ?, ?, ?, ?)
@@ -112,12 +112,12 @@ def save_file_blob(key: str, filename: str, content: bytes, content_type: str = 
 
 def delete_file_blob(key: str) -> None:
     with transaction() as connection:
-        connection.execute("DELETE FROM file_blobs WHERE key = ?", (key,))
+        connection.execute("DELETE FROM cookies WHERE key = ?", (key,))
 
 
 def load_task_store_payload() -> dict[str, Any]:
     with transaction() as connection:
-        rows = connection.execute("SELECT id, payload FROM tasks ORDER BY created_at, id").fetchall()
+        rows = connection.execute("SELECT id, payload FROM queue ORDER BY created_at, id").fetchall()
     return {"tasks": {row["id"]: _decode(row["payload"], {}) for row in rows}}
 
 
@@ -130,10 +130,10 @@ def activity_revision() -> tuple[int, str, int, str]:
     """
     with transaction() as connection:
         tasks = connection.execute(
-            "SELECT COUNT(*), COALESCE(MAX(updated_at), '') FROM tasks"
+            "SELECT COUNT(*), COALESCE(MAX(updated_at), '') FROM queue"
         ).fetchone()
         history = connection.execute(
-            "SELECT COUNT(*), COALESCE(MAX(updated_at), '') FROM download_history"
+            "SELECT COUNT(*), COALESCE(MAX(updated_at), '') FROM history"
         ).fetchone()
     return (int(tasks[0]), str(tasks[1]), int(history[0]), str(history[1]))
 
@@ -149,15 +149,15 @@ def merge_task_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
     task_id = str(task_id)
     now = utc_now()
     with transaction() as connection:
-        row = connection.execute("SELECT payload FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        row = connection.execute("SELECT payload FROM queue WHERE id = ?", (task_id,)).fetchone()
         payload = _decode(row["payload"] if row else None, {})
         payload = payload if isinstance(payload, dict) else {}
         payload.update(updates)
         source_url = str(payload.get("source_url") or "")
         connection.execute(
             """
-            INSERT OR REPLACE INTO tasks (
-                id, source_url, status, site_category, progress_pct, payload, created_at, updated_at
+            INSERT OR REPLACE INTO queue (
+                id, source_url, status, source_key, progress_pct, payload, created_at, updated_at
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -165,7 +165,7 @@ def merge_task_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
                 task_id,
                 source_url,
                 str(payload.get("status") or "pending"),
-                str(payload.get("source_key") or payload.get("site_category") or _source_key(source_url)),
+                str(payload.get("source_key") or _source_key(source_url)),
                 _safe_float(payload.get("progress_pct")),
                 _encode(payload),
                 str(payload.get("created_at") or now),
@@ -180,7 +180,7 @@ def claim_pending_task_payload(task_id: str) -> dict[str, Any] | None:
     task_id = str(task_id)
     now = utc_now()
     with transaction() as connection:
-        row = connection.execute("SELECT payload FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        row = connection.execute("SELECT payload FROM queue WHERE id = ?", (task_id,)).fetchone()
         if not row:
             return None
         payload = _decode(row["payload"], {})
@@ -191,8 +191,8 @@ def claim_pending_task_payload(task_id: str) -> dict[str, Any] | None:
         source_url = str(payload.get("source_url") or "")
         connection.execute(
             """
-            INSERT OR REPLACE INTO tasks (
-                id, source_url, status, site_category, progress_pct, payload, created_at, updated_at
+            INSERT OR REPLACE INTO queue (
+                id, source_url, status, source_key, progress_pct, payload, created_at, updated_at
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -200,7 +200,7 @@ def claim_pending_task_payload(task_id: str) -> dict[str, Any] | None:
                 task_id,
                 source_url,
                 "running",
-                str(payload.get("source_key") or payload.get("site_category") or _source_key(source_url)),
+                str(payload.get("source_key") or _source_key(source_url)),
                 _safe_float(payload.get("progress_pct")),
                 _encode(payload),
                 str(payload.get("created_at") or now),
@@ -212,7 +212,7 @@ def claim_pending_task_payload(task_id: str) -> dict[str, Any] | None:
 
 def delete_task_row(task_id: str) -> None:
     with transaction() as connection:
-        connection.execute("DELETE FROM tasks WHERE id = ?", (str(task_id),))
+        connection.execute("DELETE FROM queue WHERE id = ?", (str(task_id),))
 
 
 def delete_task_row_if_status(task_id: str, statuses: set[str]) -> bool:
@@ -222,81 +222,39 @@ def delete_task_row_if_status(task_id: str, statuses: set[str]) -> bool:
     placeholders = ",".join("?" for _ in normalized)
     with transaction() as connection:
         cursor = connection.execute(
-            f"DELETE FROM tasks WHERE id = ? AND status IN ({placeholders})",
+            f"DELETE FROM queue WHERE id = ? AND status IN ({placeholders})",
             (str(task_id), *sorted(normalized)),
         )
     return bool(cursor.rowcount)
 
 
-def load_task_meta_payload() -> dict[str, Any]:
-    with transaction() as connection:
-        rows = connection.execute("SELECT task_id, payload FROM task_meta ORDER BY task_id").fetchall()
-    return {"tasks": {row["task_id"]: _decode(row["payload"], {}) for row in rows}}
-
-
-def load_task_meta_row(task_id: str) -> dict[str, Any]:
-    with transaction() as connection:
-        row = connection.execute(
-            "SELECT payload FROM task_meta WHERE task_id = ?", (str(task_id),)
-        ).fetchone()
-    payload = _decode(row["payload"] if row else None, {})
-    return payload if isinstance(payload, dict) else {}
-
-
-def merge_task_meta_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
-    """Atomically merge ``updates`` into one task_meta row and return it."""
-    task_id = str(task_id)
-    now = utc_now()
-    with transaction() as connection:
-        row = connection.execute("SELECT payload FROM task_meta WHERE task_id = ?", (task_id,)).fetchone()
-        payload = _decode(row["payload"] if row else None, {})
-        payload = payload if isinstance(payload, dict) else {}
-        payload.update(updates)
-        connection.execute(
-            """
-            INSERT OR REPLACE INTO task_meta (task_id, payload, updated_at)
-            VALUES (?, ?, ?)
-            """,
-            (task_id, _encode(payload), now),
-        )
-    return payload
-
-
-def delete_task_meta_row(task_id: str) -> None:
-    with transaction() as connection:
-        connection.execute("DELETE FROM task_meta WHERE task_id = ?", (str(task_id),))
-
-
 def load_history_payload() -> dict[str, Any]:
     with transaction() as connection:
         rows = connection.execute(
-            "SELECT task_id, payload FROM download_history ORDER BY completed_at DESC, updated_at DESC, task_id"
+            "SELECT task_id, payload FROM history ORDER BY completed_at DESC, updated_at DESC, task_id"
         ).fetchall()
     return {"entries": {row["task_id"]: _decode(row["payload"], {}) for row in rows}}
 
 
-def save_history_payload(data: dict[str, Any]) -> None:
-    entries = data.get("entries") if isinstance(data, dict) else {}
-    entries = entries if isinstance(entries, dict) else {}
+def save_history_row(task_id: str, payload: dict[str, Any]) -> None:
+    """Upsert one completed-download record without rewriting the whole table."""
+    payload = payload if isinstance(payload, dict) else {}
     now = utc_now()
+    source_url = str(payload.get("source_url") or "")
     with transaction() as connection:
-        connection.execute("DELETE FROM download_history")
-        for task_id, payload in entries.items():
-            payload = payload if isinstance(payload, dict) else {}
-            source_url = str(payload.get("source_url") or "")
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO download_history (
-                    task_id, source_url, site_category, payload, completed_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(task_id),
-                    source_url,
-                    str(payload.get("source_key") or payload.get("site_category") or _source_key(source_url)),
-                    _encode(payload),
-                    str(payload.get("completed_at") or now),
-                    now,
-                ),
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO history (
+                task_id, source_url, source_key, payload, completed_at, updated_at
             )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(task_id),
+                source_url,
+                str(payload.get("source_key") or _source_key(source_url)),
+                _encode(payload),
+                str(payload.get("completed_at") or now),
+                now,
+            ),
+        )

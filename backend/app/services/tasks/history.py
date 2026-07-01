@@ -5,29 +5,29 @@ from typing import Any
 
 from backend.app.core.sources import normalize_source_key
 
-from .store import load_history, load_task_store, save_history
+from .store import load_history, load_task_store, save_history_entry_row
 from .urls import canonicalize_source_url, detect_source_key
 
 
 def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
-    history = load_history()
     source_url = str(task.get("source_url") or "")
     source_key = normalize_source_key(
         task.get("source_key")
-        or task.get("site_category")
         or detect_source_key(source_url)
     )
-    history.setdefault("entries", {})[task_id] = {
-        "task_id": task_id,
-        "source_url": source_url,
-        "task_type": "ytdlp",
-        "source_key": source_key,
-        "resolved_folder": str(task.get("resolved_folder") or ""),
-        "resolved_filename": str(task.get("resolved_filename") or ""),
-        "resolved_full_path": str(task.get("resolved_full_path") or ""),
-        "completed_at": datetime.now(UTC).isoformat(),
-    }
-    save_history(history)
+    save_history_entry_row(
+        task_id,
+        {
+            "task_id": task_id,
+            "source_url": source_url,
+            "task_type": "ytdlp",
+            "source_key": source_key,
+            "resolved_folder": str(task.get("resolved_folder") or ""),
+            "resolved_filename": str(task.get("resolved_filename") or ""),
+            "resolved_full_path": str(task.get("resolved_full_path") or ""),
+            "completed_at": datetime.now(UTC).isoformat(),
+        },
+    )
 
 
 def find_history_by_source(source_url: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:

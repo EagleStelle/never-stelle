@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import is_allowed_location, load_app_config
-from backend.app.db.repositories import delete_task_meta_row, merge_task_meta_payload
 from backend.app.services.settings import (
     get_effective_saved_settings,
     get_source_profile_for_url,
@@ -37,17 +36,6 @@ def queue_task(
 
     history_id, history_entry = find_history_by_source(source_url)
     if history_id and history_entry:
-        # History entries have no task-store row; only the meta row is written.
-        merge_task_meta_payload(
-            history_id,
-            {
-                "source_url": source_url,
-                "resolved_folder": str(history_entry.get("resolved_folder") or ""),
-                "resolved_filename": str(history_entry.get("resolved_filename") or ""),
-                "resolved_full_path": str(history_entry.get("resolved_full_path") or ""),
-                "source_key": str(history_entry.get("source_key") or history_entry.get("site_category") or ""),
-            },
-        )
         return [history_to_api(history_id, history_entry)], True
 
     cfg = load_app_config()
@@ -81,7 +69,6 @@ def queue_task(
         "error": "",
         "last_log_lines": [],
     }
-    # update_task mirrors source_url/resolved_* into the meta row.
     update_task(task_id, **task)
     _worker_wakeup.set()
     return [task_to_api(task_id, task)], False
@@ -95,7 +82,6 @@ def remove_pending_task(task_id: str) -> None:
         raise PermissionError("Only queued or failed tasks can be removed right now.")
     if not remove_task_record_if_status(task_id, {"pending", "failed"}):
         raise PermissionError("Only queued or failed tasks can be removed right now.")
-    delete_task_meta_row(task_id)
 
 
 def clear_pending_tasks() -> dict[str, Any]:
@@ -106,7 +92,6 @@ def clear_pending_tasks() -> dict[str, Any]:
         if task["status"] not in {"pending", "failed"}:
             continue
         if remove_task_record_if_status(task["vid"], {"pending", "failed"}):
-            delete_task_meta_row(task["vid"])
             cleared += 1
     return {"cleared": cleared, "failed": []}
 

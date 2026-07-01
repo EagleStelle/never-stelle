@@ -5,7 +5,7 @@ callers keep importing from ``backend.app.services.tasks``.
 
 - constants   : status labels/order, media extensions, regexes
 - urls        : source-url canonicalization + site detection
-- store       : task/meta/history persistence + normalization
+- store       : queue/history persistence + normalization
 - ytdlp       : output templates + yt-dlp command building
 - files       : path extraction, media scanning, path recovery
 - history     : download-history entries + lookups
@@ -50,10 +50,8 @@ from .serializers import (
 )
 from .store import (
     load_history,
-    load_meta,
     load_task_store,
     remove_task_record,
-    save_history,
     update_task,
 )
 from .urls import canonicalize_source_url, detect_source_key
@@ -90,7 +88,6 @@ __all__ = [
     "history_to_api",
     "is_media_file",
     "load_history",
-    "load_meta",
     "load_task_store",
     "queue_task",
     "recover_task_path",
@@ -98,7 +95,6 @@ __all__ = [
     "remove_task_record",
     "resolve_task_file",
     "run_task",
-    "save_history",
     "save_history_entry",
     "task_to_api",
     "update_task",

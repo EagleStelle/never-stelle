@@ -8,13 +8,11 @@ from backend.app.services.settings import get_effective_source_profiles
 
 from .constants import STATUS_LABELS, STATUS_ORDER
 from .files import recover_task_path
-from .store import load_meta, load_task_store
+from .store import load_task_store
 from .urls import detect_source_key
 
 
-def task_to_api(task_id: str, task: dict[str, Any], meta: dict[str, Any] | None = None) -> dict[str, Any]:
-    meta = meta or load_meta()
-    local = meta.setdefault("tasks", {}).setdefault(task_id, {})
+def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
     task = dict(task or {})
     status = str(task.get("status") or "pending")
     try:
@@ -22,12 +20,9 @@ def task_to_api(task_id: str, task: dict[str, Any], meta: dict[str, Any] | None 
     except Exception:
         progress_pct = 0
     resolved_path, resolved_folder, resolved_filename = recover_task_path(task_id, task, persist=False)
-    source_url = str(task.get("source_url") or local.get("source_url") or "")
+    source_url = str(task.get("source_url") or "")
     source_key = normalize_source_key(
         task.get("source_key")
-        or local.get("source_key")
-        or task.get("site_category")
-        or local.get("site_category")
         or detect_source_key(source_url)
     )
     can_download = bool(status == "completed" and resolved_path and Path(resolved_path).is_file())
@@ -38,12 +33,10 @@ def task_to_api(task_id: str, task: dict[str, Any], meta: dict[str, Any] | None 
         "progress": progress_pct / 100,
         "progress_pct": progress_pct,
         "source_url": source_url,
-        "resolved_folder": resolved_folder or str(task.get("resolved_folder") or local.get("resolved_folder") or ""),
-        "resolved_filename": resolved_filename
-        or str(task.get("resolved_filename") or local.get("resolved_filename") or ""),
-        "resolved_full_path": resolved_path
-        or str(task.get("resolved_full_path") or local.get("resolved_full_path") or ""),
-        "preview_warning": str(task.get("preview_warning") or local.get("preview_warning") or ""),
+        "resolved_folder": resolved_folder or str(task.get("resolved_folder") or ""),
+        "resolved_filename": resolved_filename or str(task.get("resolved_filename") or ""),
+        "resolved_full_path": resolved_path or str(task.get("resolved_full_path") or ""),
+        "preview_warning": str(task.get("preview_warning") or ""),
         "can_remove": status in {"pending", "failed"},
         "task_type": "ytdlp",
         "source_key": source_key,
@@ -52,23 +45,22 @@ def task_to_api(task_id: str, task: dict[str, Any], meta: dict[str, Any] | None 
     }
 
 
-def history_to_api(task_id: str, entry: dict[str, Any], meta: dict[str, Any] | None = None) -> dict[str, Any]:
+def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
     task = {
         "source_url": entry.get("source_url", ""),
         "status": "completed",
         "progress_pct": 100,
-        "source_key": entry.get("source_key", "") or entry.get("site_category", ""),
+        "source_key": entry.get("source_key", ""),
         "resolved_folder": entry.get("resolved_folder", ""),
         "resolved_filename": entry.get("resolved_filename", ""),
         "resolved_full_path": entry.get("resolved_full_path", ""),
     }
-    return task_to_api(task_id, task, meta)
+    return task_to_api(task_id, task)
 
 
 def fetch_tasks() -> list[dict[str, Any]]:
-    meta = load_meta()
     tasks = [
-        task_to_api(task_id, task, meta)
+        task_to_api(task_id, task)
         for task_id, task in (load_task_store().get("tasks") or {}).items()
     ]
     tasks.sort(key=lambda task: (STATUS_ORDER.get(task["status"], 99), task["vid"]))
