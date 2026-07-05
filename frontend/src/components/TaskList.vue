@@ -272,9 +272,10 @@ function rowBackgroundStyle(task: TaskItem) {
       <article
         v-for="task in props.tasks"
         :key="task.vid"
-        class="glass-rise glass glass-hoverable rounded-lg p-4 hover:-translate-y-0.5"
+        class="glass-rise glass glass-hoverable rounded-lg p-4 hover:-translate-y-0.5 relative overflow-hidden"
       >
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-4">
+        <div class="absolute inset-0 pointer-events-none z-0" :style="rowBackgroundStyle(task)"></div>
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-4 relative z-10">
           <div class="min-w-0">
             <h3
               class="wrap-break-word leading-snug text-white [.light-mode_&]:text-black font-display font-semibold text-base tracking-tight"
@@ -387,20 +388,7 @@ function rowBackgroundStyle(task: TaskItem) {
             </div>
           </div>
 
-          <div
-            class="col-span-full grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-4"
-          >
-            <div class="h-1.5 overflow-hidden rounded-lg bg-secondary">
-              <div
-                class="h-full rounded-lg bg-accent transition-all duration-500 ease-glass"
-                :style="{ width: `${progressPct(task)}%` }"
-              ></div>
-            </div>
-            <span
-              class="text-right tabular-nums text-white [.light-mode_&]:text-black"
-              >{{ progressPct(task) }}%</span
-            >
-          </div>
+
         </div>
       </article>
     </template>
