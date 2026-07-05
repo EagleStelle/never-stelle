@@ -80,15 +80,15 @@ function canShowHistoryDownload(task: TaskItem): boolean {
 
 function getStatusBadgeClass(status: string): string {
   if (status === "pending")
-    return " bg-amber-500/20 text-amber-500 dark:bg-amber-400/20 dark:text-amber-400";
-  if (status === "running") return " bg-primary/20 text-text";
-  if (status === "completed") return " bg-primary-subtle/30 text-text";
-  if (status === "failed") return " bg-red-600 text-white dark:bg-red-500";
-  return " bg-secondary-muted text-text-muted";
+    return " bg-amber-600 text-white [.light-mode_&]:bg-amber-400 [.light-mode_&]:text-black";
+  if (status === "running") return " bg-accent text-black";
+  if (status === "completed") return " bg-accent text-black";
+  if (status === "failed") return " bg-red-600 text-white [.light-mode_&]:bg-red-500 [.light-mode_&]:text-black";
+  return " bg-secondary text-white [.light-mode_&]:text-black";
 }
 
 function getSiteBadgeClass(): string {
-  return " bg-secondary-muted text-text-muted";
+  return " bg-secondary text-white [.light-mode_&]:text-black";
 }
 </script>
 
@@ -100,15 +100,15 @@ function getSiteBadgeClass(): string {
   >
     <div
       v-if="props.loading"
-      class="rounded-2xl glass flex min-h-32 items-center justify-center gap-2 text-text-muted text-center"
+      class="rounded-2xl glass flex min-h-32 items-center justify-center gap-2 text-white [.light-mode_&]:text-black text-center"
     >
-      <IconSpinner class="animate-spin text-primary" aria-hidden="true" />
+      <IconSpinner class="animate-spin text-accent" aria-hidden="true" />
       <span>Loading downloads...</span>
     </div>
 
     <div
       v-else-if="props.errorMessage"
-      class="rounded-2xl glass flex min-h-32 items-center justify-center gap-2 text-center text-text"
+      class="rounded-2xl glass flex min-h-32 items-center justify-center gap-2 text-center text-white [.light-mode_&]:text-black"
     >
       {{ props.errorMessage }}
     </div>
@@ -153,7 +153,7 @@ function getSiteBadgeClass(): string {
                 {{ task.source_url || task.vid }}
               </div>
             </td>
-            <td class="text-text">{{ task.resolved_folder }}</td>
+            <td class="text-white [.light-mode_&]:text-black">{{ task.resolved_folder }}</td>
             <td>{{ task.resolved_filename }}</td>
             <td>
               <span
@@ -168,7 +168,7 @@ function getSiteBadgeClass(): string {
               <div class="flex items-center gap-1.5">
                 <button
                   v-if="task.can_download && task.status !== 'failed'"
-                  class="inline-flex items-center justify-center gap-1.5 min-h-8 rounded-lg leading-none transition-all duration-300 ease-glass active:scale-[0.96] w-8 h-8 bg-primary text-text-on-primary shadow-[0_8px_22px_-10px_rgba(237,158,89,0.7)] hover:shadow-[0_12px_28px_-8px_rgba(237,158,89,0.9)]"
+                  class="inline-flex items-center justify-center gap-1.5 min-h-8 rounded-lg leading-none transition-all duration-300 ease-glass active:scale-[0.96] w-8 h-8 glass-primary"
                   type="button"
                   aria-label="Download file"
                   title="Download file"
@@ -178,7 +178,7 @@ function getSiteBadgeClass(): string {
                 </button>
                 <button
                   v-if="task.can_remove && task.status !== 'running'"
-                  class="inline-flex items-center justify-center gap-1.5 min-h-8 rounded-lg leading-none transition-all duration-300 ease-glass active:scale-[0.96] w-8 h-8 bg-red-500/90 text-white hover:bg-red-500"
+                  class="inline-flex items-center justify-center gap-1.5 min-h-8 rounded-lg leading-none transition-all duration-300 ease-glass active:scale-[0.96] w-8 h-8 glass-danger"
                   type="button"
                   aria-label="Remove task from the list"
                   title="Remove task from the list"
@@ -202,7 +202,7 @@ function getSiteBadgeClass(): string {
         <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-4">
           <div class="min-w-0">
             <h3
-              class="wrap-break-word leading-snug text-text font-display font-semibold text-base tracking-tight"
+              class="wrap-break-word leading-snug text-white [.light-mode_&]:text-black font-display font-semibold text-base tracking-tight"
             >
               <img
                 v-if="sourceIconUrl(task)"
@@ -213,12 +213,12 @@ function getSiteBadgeClass(): string {
               />
               {{ cardTitle(task) }}
             </h3>
-            <div class="mt-2 break-all text-text-muted text-[0.8rem] font-mono">
+            <div class="mt-2 break-all text-white [.light-mode_&]:text-black text-[0.8rem] font-mono">
               {{ cardDetail(task) }}
             </div>
             <div
               v-if="task.status === 'failed' && task.error"
-              class="mt-2 wrap-break-word whitespace-pre-line text-text-muted"
+              class="mt-2 wrap-break-word whitespace-pre-line text-white [.light-mode_&]:text-black"
             >
               {{ task.error }}
             </div>
@@ -227,7 +227,7 @@ function getSiteBadgeClass(): string {
           <div class="flex items-start justify-end gap-1.5">
             <button
               v-if="canShowHistoryDownload(task)"
-              class="inline-flex items-center justify-center gap-1.5 h-8 w-8 rounded-lg glass-soft glass-hoverable text-text-muted leading-none transition-all duration-300 ease-glass active:scale-[0.96] hover:text-text"
+              class="inline-flex items-center justify-center gap-1.5 h-8 w-8 rounded-lg glass-soft glass-hoverable text-white [.light-mode_&]:text-black leading-none transition-all duration-300 ease-glass active:scale-[0.96] hover:text-white [.light-mode_&]:hover:text-black"
               type="button"
               aria-label="Download file"
               title="Download file"
@@ -237,7 +237,7 @@ function getSiteBadgeClass(): string {
             </button>
             <button
               v-if="canShowCardCancel(task)"
-              class="inline-flex items-center justify-center h-8 w-8 rounded-lg text-text-muted transition-all duration-300 ease-glass active:scale-[0.96] hover:bg-white/10 hover:text-text"
+              class="inline-flex items-center justify-center h-8 w-8 rounded-lg glass-soft glass-hoverable text-white [.light-mode_&]:text-black transition-all duration-300 ease-glass active:scale-[0.96] hover:text-white [.light-mode_&]:hover:text-black"
               type="button"
               aria-label="Cancel download"
               title="Cancel download"
@@ -250,13 +250,13 @@ function getSiteBadgeClass(): string {
           <div
             class="col-span-full grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-4"
           >
-            <div class="h-1.5 overflow-hidden rounded-full bg-white/10">
+            <div class="h-1.5 overflow-hidden rounded-full bg-secondary">
               <div
-                class="h-full rounded-full bg-primary shadow-[0_0_12px_0_rgba(237,158,89,0.6)] transition-all duration-500 ease-glass"
+                class="h-full rounded-full bg-accent transition-all duration-500 ease-glass"
                 :style="{ width: `${progressPct(task)}%` }"
               ></div>
             </div>
-            <span class="text-right tabular-nums text-text-muted"
+            <span class="text-right tabular-nums text-white [.light-mode_&]:text-black"
               >{{ progressPct(task) }}%</span
             >
           </div>

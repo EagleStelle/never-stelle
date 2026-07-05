@@ -20,12 +20,12 @@ const emit = defineEmits<{
 </script>
 
 <template>
- <nav class="fixed z-50 inset-x-0 bottom-0 flex w-screen gap-1 overflow-hidden glass-chrome border-x-0 border-b-0 pt-1.5 px-1.5 pb-2 lg:hidden" aria-label="App navigation">
+ <nav class="fixed z-50 inset-x-0 bottom-0 flex w-screen gap-1 overflow-hidden glass-chrome pt-1.5 px-1.5 pb-2 lg:hidden" aria-label="App navigation">
  <button
  v-for="item in pageItems"
  :key="item.key"
  type="button"
- class="inline-flex flex-col items-center justify-center flex-1 w-full min-w-0 h-9 px-0 rounded-xl bg-transparent text-text-muted leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:bg-white/10 hover:text-text aria-pressed:bg-primary aria-pressed:text-text-on-primary"
+ class="inline-flex flex-col items-center justify-center flex-1 w-full min-w-0 h-9 px-0 rounded-xl bg-transparent text-white [.light-mode_&]:text-black leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white [.light-mode_&]:hover:text-black aria-pressed:bg-accent aria-pressed:text-black"
  :aria-pressed="activePage === item.key"
  @click="emit('selectPage', item.key)"
  >
@@ -34,7 +34,7 @@ const emit = defineEmits<{
  </button>
  <button
  type="button"
- class="inline-flex flex-col items-center justify-center flex-1 w-full min-w-0 h-9 px-0 rounded-xl bg-transparent text-text-muted leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:bg-white/10 hover:text-text"
+ class="inline-flex flex-col items-center justify-center flex-1 w-full min-w-0 h-9 px-0 rounded-xl bg-transparent text-white [.light-mode_&]:text-black leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white [.light-mode_&]:hover:text-black"
  @click="emit('toggleTheme')"
  >
  <IconSun v-if="isLightMode" class="w-4 h-4 mb-1" aria-hidden="true" />
@@ -43,7 +43,7 @@ const emit = defineEmits<{
  </button>
  <button
  type="button"
- class="inline-flex flex-col items-center justify-center flex-1 w-full min-w-0 h-9 px-0 rounded-xl bg-transparent text-text-muted leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:bg-white/10 hover:text-text aria-pressed:bg-primary aria-pressed:text-text-on-primary"
+ class="inline-flex flex-col items-center justify-center flex-1 w-full min-w-0 h-9 px-0 rounded-xl bg-transparent text-white [.light-mode_&]:text-black leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white [.light-mode_&]:hover:text-black aria-pressed:bg-accent aria-pressed:text-black"
  :aria-pressed="activePage ==='settings'"
  @click="emit('openSettings', $event)"
  >

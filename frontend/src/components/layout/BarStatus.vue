@@ -12,10 +12,10 @@ const emit = defineEmits<{
 </script>
 
 <template>
- <footer class="z-40 glass-chrome border-x-0 border-b-0 py-2 px-3 flex items-center justify-between text-text-muted mb-14 lg:mb-0 gap-3" aria-label="Task counts">
+ <footer class="z-40 glass-chrome glass-border-top py-2 px-3 flex items-center justify-between text-white [.light-mode_&]:text-black mb-14 lg:mb-0 gap-3" aria-label="Task counts">
  <button
  type="button"
- class="inline-flex items-center justify-center gap-1.5 h-7 px-2.5 rounded-lg glass-soft glass-hoverable text-text-muted transition-all duration-300 ease-glass hover:text-text active:scale-[0.97] shrink-0"
+ class="inline-flex items-center justify-center gap-1.5 h-7 px-2.5 rounded-lg glass-primary transition-all duration-300 ease-glass active:scale-[0.97] shrink-0"
  title="Clear Queue"
  aria-label="Clear Queue"
  @click="emit('clearQueue')"
@@ -27,7 +27,7 @@ const emit = defineEmits<{
  <div v-for="item in countCards" :key="item.label" class="flex items-center gap-1.5 whitespace-nowrap text-sm" :title="item.label">
  <component :is="item.icon" class="w-4 h-4" aria-hidden="true" />
  <span class="hidden sm:inline tracking-wider uppercase text-xs">{{ item.label }}:</span>
- <strong class="text-text">{{ item.value }}</strong>
+ <strong class="text-white [.light-mode_&]:text-black">{{ item.value }}</strong>
  </div>
  </div>
  </footer>

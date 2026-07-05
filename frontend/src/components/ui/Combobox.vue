@@ -94,11 +94,11 @@ const handleOpenChange = (isOpen: boolean) => {
   >
     <ComboboxAnchor
       :class="[
-        'relative inline-flex items-center rounded-xl glass-soft focus-within:ring-2 focus-within:ring-primary/70 focus-within:border-primary/50 h-10 transition-all duration-300 ease-glass',
+        'relative inline-flex items-center rounded-xl glass-soft focus-within:ring-2 focus-within:ring-accent h-10 transition-all duration-300 ease-glass',
         props.class,
       ]"
     >
-      <div class="pl-3 pr-2 flex items-center justify-center text-text-muted">
+      <div class="pl-3 pr-2 flex items-center justify-center text-white [.light-mode_&]:text-black">
         <img
           v-if="activeItem?.iconUrl"
           :src="activeItem.iconUrl"
@@ -109,22 +109,22 @@ const handleOpenChange = (isOpen: boolean) => {
         <component
           v-else-if="activeItem?.icon"
           :is="activeItem.icon"
-          class="w-4 h-4 shrink-0 text-text"
+          class="w-4 h-4 shrink-0 text-white [.light-mode_&]:text-black"
           aria-hidden="true"
         />
         <span
           v-else-if="activeItem?.initials"
-          class="inline-flex h-5 min-w-5 items-center justify-center rounded bg-white/10 px-1 text-[0.65rem] font-semibold text-text"
+          class="inline-flex h-5 min-w-5 items-center justify-center rounded glass-soft px-1 text-[0.65rem] font-semibold text-white [.light-mode_&]:text-black"
         >
           {{ activeItem.initials }}
         </span>
       </div>
       <ComboboxInput
-        class="flex-1 bg-transparent outline-none min-w-0 text-text placeholder:text-text-muted"
+        class="flex-1 bg-transparent outline-none min-w-0 text-white [.light-mode_&]:text-black placeholder:text-white [.light-mode_&]:placeholder:text-black"
         :placeholder="activeLabel || props.placeholder || 'Search...'"
       />
       <ComboboxTrigger
-        class="pr-3 pl-1 flex items-center justify-center text-text-muted hover:text-text cursor-pointer outline-none"
+        class="pr-3 pl-1 flex items-center justify-center text-white [.light-mode_&]:text-black hover:text-white [.light-mode_&]:hover:text-black cursor-pointer outline-none"
       >
         <IconChevronDown class="w-5 h-5 shrink-0" aria-hidden="true" />
       </ComboboxTrigger>
@@ -132,12 +132,12 @@ const handleOpenChange = (isOpen: boolean) => {
 
     <ComboboxPortal>
       <ComboboxContent
-        class="z-50 min-w-[160px] glass-chrome rounded-xl shadow-[0_18px_50px_-18px_rgba(0,0,0,0.75)] overflow-hidden"
+        class="z-50 min-w-[160px] glass-chrome rounded-xl overflow-hidden"
         position="popper"
         :side-offset="6"
       >
         <ComboboxViewport class="p-1">
-          <ComboboxEmpty class="py-3 text-center text-sm text-text-muted">
+          <ComboboxEmpty class="py-3 text-center text-sm text-white [.light-mode_&]:text-black">
             {{ props.emptyText || "No items found." }}
           </ComboboxEmpty>
 
@@ -145,7 +145,7 @@ const handleOpenChange = (isOpen: boolean) => {
             v-for="item in filteredItems"
             :key="item.key"
             :value="item"
-            class="relative flex w-full cursor-pointer select-none items-center rounded-md py-2 pl-8 pr-2 text-sm outline-none focus:bg-primary focus:text-text-on-primary text-text-muted data-[highlighted]:bg-primary data-[highlighted]:text-text-on-primary transition-colors"
+            class="glass-option relative flex w-full cursor-pointer select-none items-center rounded-md py-2 pl-8 pr-2 text-sm outline-none text-white [.light-mode_&]:text-black transition-all duration-300 ease-glass"
           >
             <ComboboxItemIndicator
               class="absolute left-2 flex h-4 w-4 items-center justify-center"
@@ -169,7 +169,7 @@ const handleOpenChange = (isOpen: boolean) => {
               />
               <span
                 v-else-if="item.initials"
-                class="inline-flex h-5 min-w-5 items-center justify-center rounded bg-white/10 px-1 text-[0.65rem] font-semibold"
+                class="inline-flex h-5 min-w-5 items-center justify-center rounded glass-soft px-1 text-[0.65rem] font-semibold"
               >
                 {{ item.initials }}
               </span>

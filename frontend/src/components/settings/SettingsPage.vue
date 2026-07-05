@@ -133,7 +133,7 @@ function connectNew(): void {
         <TabsTrigger
           v-for="item in SETTINGS_SECTIONS"
           :key="item.key"
-          class="settings-tab-trigger inline-flex items-center justify-center gap-1.5 min-h-9 px-3.5 flex-none rounded-xl bg-transparent text-text-muted leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:bg-white/10 hover:text-text md:w-full md:justify-start"
+          class="settings-tab-trigger glass-selected inline-flex items-center justify-center gap-1.5 min-h-9 px-3.5 flex-none rounded-xl glass-soft glass-hoverable text-white [.light-mode_&]:text-black leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white [.light-mode_&]:hover:text-black md:w-full md:justify-start"
           :value="item.key"
           @click="selectSection(item.key)"
         >
@@ -145,7 +145,7 @@ function connectNew(): void {
         <TabsContent value="downloads" class="min-h-full focus:outline-none">
           <p
             v-if="sourceProfiles.length === 0"
-            class="rounded-xl border border-(--glass-border) bg-white/[0.03] p-4 text-text-muted"
+            class="rounded-xl glass p-4 text-white [.light-mode_&]:text-black"
           >
             No sources yet.
           </p>
@@ -153,10 +153,10 @@ function connectNew(): void {
             <label
               v-for="site in sourceProfiles"
               :key="site.key"
-              class="grid min-w-0 gap-2 text-text"
+              class="grid min-w-0 gap-2 text-white [.light-mode_&]:text-black"
             >
               <span
-                class="text-xs font-medium uppercase tracking-wider text-text-muted"
+                class="text-xs font-medium uppercase tracking-wider text-white [.light-mode_&]:text-black"
                 >{{ site.label }}</span
               >
               <input
@@ -170,9 +170,9 @@ function connectNew(): void {
         </TabsContent>
 
         <TabsContent value="cookies" class="min-h-full focus:outline-none">
-          <div class="mb-4 grid gap-2 text-text">
+          <div class="mb-4 grid gap-2 text-white [.light-mode_&]:text-black">
             <span
-              class="text-xs font-medium uppercase tracking-wider text-text-muted"
+              class="text-xs font-medium uppercase tracking-wider text-white [.light-mode_&]:text-black"
               >Add cookies for a link</span
             >
             <div class="flex items-center gap-2">
@@ -181,7 +181,7 @@ function connectNew(): void {
                 type="text"
                 inputmode="url"
                 placeholder="Paste a link or domain (e.g. instagram.com)"
-                class="flex flex-1 items-center min-w-0 h-10 rounded-lg glass-soft px-3 text-sm text-text placeholder:text-text-muted focus:outline-none"
+                class="flex flex-1 items-center min-w-0 h-10 rounded-lg glass-soft px-3 text-sm text-white [.light-mode_&]:text-black placeholder:text-white [.light-mode_&]:placeholder:text-black focus:outline-none"
               />
               <input
                 id="newSourceCookiesInput"
@@ -195,15 +195,13 @@ function connectNew(): void {
                 class="flex items-center min-w-0 h-10 rounded-lg glass-soft glass-hoverable px-3 text-sm text-left transition-all duration-300 ease-glass"
                 @click="openNewPicker"
               >
-                <span
-                  class="truncate"
-                  :class="newCookie.file ? 'text-text' : 'text-text-muted'"
+                <span class="truncate text-white [.light-mode_&]:text-black"
                   >{{ newCookie.file?.name || "Choose file" }}</span
                 >
               </button>
               <button
                 type="button"
-                class="inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-xl bg-primary text-text-on-primary transition-all duration-300 ease-glass active:scale-[0.96]"
+                class="inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-xl glass-primary transition-all duration-300 ease-glass active:scale-[0.96]"
                 title="Save cookies for link"
                 aria-label="Save cookies for link"
                 @click="connectNew"
@@ -214,7 +212,7 @@ function connectNew(): void {
           </div>
           <p
             v-if="sourceProfiles.length === 0"
-            class="rounded-xl border border-(--glass-border) bg-white/[0.03] p-4 text-text-muted"
+            class="rounded-xl glass p-4 text-white [.light-mode_&]:text-black"
           >
             No sources yet.
           </p>
@@ -222,10 +220,10 @@ function connectNew(): void {
             <div
               v-for="site in sourceProfiles"
               :key="site.key"
-              class="grid min-w-0 gap-2 text-text"
+              class="grid min-w-0 gap-2 text-white [.light-mode_&]:text-black"
             >
               <span
-                class="text-xs font-medium uppercase tracking-wider text-text-muted"
+                class="text-xs font-medium uppercase tracking-wider text-white [.light-mode_&]:text-black"
                 >{{ site.label }}</span
               >
               <div class="flex items-center gap-2">
@@ -243,10 +241,7 @@ function connectNew(): void {
                     @click="openPicker(site.key)"
                   >
                     <span
-                      class="truncate"
-                      :class="
-                        cookieFiles[site.key] ? 'text-text' : 'text-text-muted'
-                      "
+                      class="truncate text-white [.light-mode_&]:text-black"
                       >{{
                         cookieFiles[site.key]?.name || "Choose a cookies file"
                       }}</span
@@ -254,7 +249,7 @@ function connectNew(): void {
                   </button>
                   <button
                     type="button"
-                    class="inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-xl bg-primary text-text-on-primary transition-all duration-300 ease-glass active:scale-[0.96]"
+                    class="inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-xl glass-primary transition-all duration-300 ease-glass active:scale-[0.96]"
                     :title="`Save ${site.label} cookies`"
                     :aria-label="`Save ${site.label} cookies`"
                     @click="connect(site.key)"
@@ -266,13 +261,13 @@ function connectNew(): void {
                   <div
                     class="flex flex-1 items-center min-w-0 h-10 rounded-lg glass-soft px-3 text-sm"
                   >
-                    <span class="truncate text-text">{{
+                    <span class="truncate text-white [.light-mode_&]:text-black">{{
                       cookieStatuses[site.key].filename || "cookies.txt"
                     }}</span>
                   </div>
                   <button
                     type="button"
-                    class="inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-xl glass-soft glass-hoverable text-text-muted transition-all duration-300 ease-glass active:scale-[0.96] hover:text-text"
+                    class="inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-xl glass-soft glass-hoverable text-white [.light-mode_&]:text-black transition-all duration-300 ease-glass active:scale-[0.96] hover:text-white [.light-mode_&]:hover:text-black"
                     :title="`Delete ${site.label} cookies`"
                     :aria-label="`Delete ${site.label} cookies`"
                     @click="emit('removeCookies', site.key)"
@@ -291,7 +286,7 @@ function connectNew(): void {
         >
           <p
             v-if="sourceProfiles.length === 0"
-            class="rounded-xl border border-(--glass-border) bg-white/[0.03] p-4 text-text-muted"
+            class="rounded-xl glass p-4 text-white [.light-mode_&]:text-black"
           >
             No sources yet.
           </p>
@@ -299,10 +294,10 @@ function connectNew(): void {
             <label
               v-for="site in sourceProfiles"
               :key="site.key"
-              class="grid min-w-0 gap-2 text-text"
+              class="grid min-w-0 gap-2 text-white [.light-mode_&]:text-black"
             >
               <span
-                class="text-xs font-medium uppercase tracking-wider text-text-muted"
+                class="text-xs font-medium uppercase tracking-wider text-white [.light-mode_&]:text-black"
                 >{{ site.label }}</span
               >
               <input
@@ -322,7 +317,7 @@ function connectNew(): void {
         >
           <p
             v-if="sourceProfiles.length === 0"
-            class="rounded-xl border border-(--glass-border) bg-white/[0.03] p-4 text-text-muted"
+            class="rounded-xl glass p-4 text-white [.light-mode_&]:text-black"
           >
             No sources yet.
           </p>
@@ -330,10 +325,10 @@ function connectNew(): void {
             <label
               v-for="site in sourceProfiles"
               :key="site.key"
-              class="grid min-w-0 gap-2 text-text"
+              class="grid min-w-0 gap-2 text-white [.light-mode_&]:text-black"
             >
               <span
-                class="text-xs font-medium uppercase tracking-wider text-text-muted"
+                class="text-xs font-medium uppercase tracking-wider text-white [.light-mode_&]:text-black"
                 >{{ site.label }}</span
               >
               <textarea
@@ -351,11 +346,11 @@ function connectNew(): void {
     </TabsRoot>
 
     <footer
-      class="shrink-0 mt-6 flex items-center justify-end gap-2 pt-4 border-t border-(--glass-border)"
+      class="shrink-0 mt-6 flex items-center justify-end gap-2 rounded-xl glass p-3"
     >
       <button
         type="button"
-        class="inline-flex items-center justify-center gap-1.5 min-h-9 px-5 rounded-xl bg-primary text-text-on-primary leading-none transition-all duration-300 ease-glass active:scale-[0.97]"
+        class="inline-flex items-center justify-center gap-1.5 min-h-9 px-5 rounded-xl glass-primary leading-none transition-all duration-300 ease-glass active:scale-[0.97]"
         @click="emit('save')"
       >
         Save Settings
@@ -364,10 +359,3 @@ function connectNew(): void {
   </section>
 </template>
 
-<style scoped>
-.settings-tab-trigger[data-state="active"] {
-  background: var(--primary);
-  color: var(--text-on-primary);
-  box-shadow: 0 8px 24px -8px rgba(237, 158, 89, 0.6);
-}
-</style>
