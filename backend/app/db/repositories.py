@@ -258,3 +258,8 @@ def save_history_row(task_id: str, payload: dict[str, Any]) -> None:
                 now,
             ),
         )
+
+
+def delete_history_row(task_id: str) -> None:
+    with transaction() as connection:
+        connection.execute("DELETE FROM history WHERE task_id = ?", (str(task_id),))

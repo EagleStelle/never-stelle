@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import backend.app.services.tasks.scan as scan_module
 from backend.app.services.tasks import (
     canonicalize_source_url,
     convert_template_to_ytdlp,
@@ -12,6 +13,7 @@ from backend.app.services.tasks import (
     detect_source_key,
     extract_downloaded_path,
     is_media_file,
+    parse_filename_media_id,
 )
 
 
@@ -92,6 +94,65 @@ def test_is_media_file(tmp_path: Path):
     assert is_media_file(good) is True
     assert is_media_file(bad) is False
     assert is_media_file(tmp_path / "missing.mp4") is False
+
+
+def test_parse_filename_media_id_uses_last_bracketed_id():
+    assert parse_filename_media_id("Creator - Soft Light [Abc_123-xy].mp4") == (
+        "Abc_123-xy",
+        "Creator - Soft Light",
+    )
+
+
+def test_parse_filename_media_id_rejects_unrecoverable_names():
+    assert parse_filename_media_id("Creator - Soft Light.mp4") == ("", "Creator - Soft Light")
+    assert parse_filename_media_id("Creator - Soft Light [NA].mp4")[0] == ""
+
+
+def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media_root = tmp_path / "media"
+    artist_dir = media_root / "Trace Artist"
+    artist_dir.mkdir(parents=True)
+    media_file = artist_dir / "Trace Artist - Soft Light [abc123].mp4"
+    media_file.write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    result = scan_module.scan_media_library([media_root])
+
+    assert result == {"checked": 0, "missing": 0, "added": 1}
+    assert saved["disk:abc123"]["resolved_full_path"] == str(media_file)
+    assert saved["disk:abc123"]["resolved_filename"] == media_file.name
+    assert saved["disk:abc123"]["source_key"] == "others"
+
+
+def test_scan_media_library_removes_missing_completed_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    missing_file = tmp_path / "missing [gone123].mp4"
+    removed_tasks: list[str] = []
+    removed_history: list[str] = []
+    monkeypatch.setattr(
+        scan_module,
+        "load_task_store",
+        lambda: {"tasks": {"task-1": {"status": "completed", "resolved_full_path": str(missing_file)}}},
+    )
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "save_history_entry_row", lambda task_id, payload: None)
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: removed_tasks.append(task_id))
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: removed_history.append(task_id))
+
+    result = scan_module.scan_media_library([tmp_path])
+
+    assert result == {"checked": 1, "missing": 1, "added": 0}
+    assert removed_tasks == ["task-1"]
+    assert removed_history == ["task-1"]
 
 
 def test_count_tasks_and_by_menu():

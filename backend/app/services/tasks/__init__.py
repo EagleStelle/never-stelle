@@ -12,6 +12,7 @@ callers keep importing from ``backend.app.services.tasks``.
 - serializers : task/history -> API payloads + counts
 - worker      : background thread + yt-dlp runner
 - operations  : queue/remove/clear/resolve actions
+- scan        : media-folder reconciliation for history refresh
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ from .operations import (
     remove_pending_task,
     resolve_task_file,
 )
+from .scan import parse_filename_media_id, scan_media_library
 from .serializers import (
     count_tasks,
     counts_by_menu,
@@ -51,6 +53,7 @@ from .serializers import (
 from .store import (
     load_history,
     load_task_store,
+    remove_history_record,
     remove_task_record,
     update_task,
 )
@@ -89,13 +92,16 @@ __all__ = [
     "is_media_file",
     "load_history",
     "load_task_store",
+    "parse_filename_media_id",
     "queue_task",
     "recover_task_path",
+    "remove_history_record",
     "remove_pending_task",
     "remove_task_record",
     "resolve_task_file",
     "run_task",
     "save_history_entry",
+    "scan_media_library",
     "task_to_api",
     "update_task",
 ]

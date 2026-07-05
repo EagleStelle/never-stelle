@@ -103,6 +103,12 @@ export interface ClearTasksResponse {
   failed?: string[];
 }
 
+export interface ScanMediaResponse {
+  checked: number;
+  missing: number;
+  added: number;
+}
+
 export interface ToastMessage {
   id: number;
   message: string;

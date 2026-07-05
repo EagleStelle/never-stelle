@@ -4,6 +4,7 @@ from typing import Any
 
 from backend.app.db.repositories import (
     claim_pending_task_payload,
+    delete_history_row,
     delete_task_row,
     delete_task_row_if_status,
     load_history_payload,
@@ -51,3 +52,7 @@ def remove_task_record(task_id: str) -> None:
 
 def remove_task_record_if_status(task_id: str, statuses: set[str]) -> bool:
     return delete_task_row_if_status(task_id, statuses)
+
+
+def remove_history_record(task_id: str) -> None:
+    delete_history_row(task_id)

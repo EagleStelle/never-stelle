@@ -131,7 +131,13 @@ def get_effective_source_profiles(
     extra_profiles = _profiles_from_keys(normalize_source_key(key) for key in (extra_keys or []))
     visible_keys = _profile_keys(config_profiles) | _profile_keys(activity_profiles) | _profile_keys(extra_profiles)
     saved_profiles = _filter_profiles(_configured_source_profiles(payload), visible_keys)
-    return merge_source_profiles(config_profiles, activity_profiles, saved_profiles, extra_profiles)
+    return merge_source_profiles(
+        config_profiles,
+        activity_profiles,
+        saved_profiles,
+        extra_profiles,
+        include_fallback=True,
+    )
 
 
 def get_source_profile_for_url(
@@ -236,6 +242,8 @@ def normalize_source_location_selection(
 ) -> dict[str, str]:
     source_profiles = source_profiles or get_effective_source_profiles(cfg)
     source_keys = [normalize_source_key(profile.get("key")) for profile in source_profiles]
+    if FALLBACK_SOURCE_KEY not in source_keys:
+        source_keys.append(FALLBACK_SOURCE_KEY)
     defaults = get_site_default_locations(cfg, source_keys)
     source = raw if isinstance(raw, dict) else {}
     out: dict[str, str] = {}

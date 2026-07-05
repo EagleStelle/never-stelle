@@ -8,6 +8,7 @@ import {
   fetchTaskFile,
   getTasks,
   removeTask as removeTaskRequest,
+  scanMediaLibrary,
 } from "../api";
 import { POLL_PENDING_MS, POLL_RUNNING_MS, TASKS_QUERY_KEY } from "../ui";
 import type { SavedSettings, TaskItem, TasksResponse, ToastType } from "../types";
@@ -29,11 +30,13 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     staleTime: 1000,
   });
   const addTaskMutation = useMutation({ mutationFn: createTask });
+  const scanMediaMutation = useMutation({ mutationFn: scanMediaLibrary });
 
   const rawTasks = computed(() => tasksQuery.data.value?.tasks || []);
   const taskItems = computed(() => mergeTaskData(rawTasks.value));
   const tasksLoading = computed(() => tasksQuery.isPending.value);
   const tasksErrorMessage = computed(() => (tasksQuery.error.value ? errorMessage(tasksQuery.error.value, "Could not load tasks.") : ""));
+  const historyRefreshing = computed(() => scanMediaMutation.isPending.value);
 
   const { pause: pausePolling, resume: resumePolling, isActive: pollingActive } = useIntervalFn(
     () => void loadTasks(true),
@@ -147,6 +150,23 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     }
   }
 
+  async function refreshHistory(): Promise<void> {
+    try {
+      const result = await scanMediaMutation.mutateAsync();
+      await loadTasks(true);
+      const changes = result.added + result.missing;
+      if (changes === 0) {
+        toast(`History refreshed. Checked ${result.checked} file${result.checked === 1 ? "" : "s"}.`);
+        return;
+      }
+      toast(
+        `History refreshed. Added ${result.added} file${result.added === 1 ? "" : "s"} and removed ${result.missing} missing item${result.missing === 1 ? "" : "s"}.`,
+      );
+    } catch (error) {
+      toast(errorMessage(error, "Could not refresh history."), "error");
+    }
+  }
+
   function handleVisibilityChange(): void {
     if (document.hidden) {
       pausePolling();
@@ -169,6 +189,8 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     addDownloadTask,
     clearPending,
     downloadTask,
+    historyRefreshing,
+    refreshHistory,
     removeTask,
     taskItems,
     tasksErrorMessage,

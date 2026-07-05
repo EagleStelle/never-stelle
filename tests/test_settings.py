@@ -3,6 +3,7 @@ from __future__ import annotations
 from backend.app.services.settings import (
     BUILTIN_FILENAME_TEMPLATE,
     BUILTIN_FOLDER_TEMPLATE,
+    normalize_source_location_selection,
     normalize_source_template_selection,
     normalize_template_settings,
 )
@@ -49,3 +50,9 @@ def test_normalize_source_templates_keeps_per_source_values():
     assert result["youtube"]["folder_template"] == BUILTIN_FOLDER_TEMPLATE
     assert result["rule34video"]["folder_template"] == "{{id}}"
     assert result["rule34video"]["filename_template"] == "{{title}}"
+
+
+def test_normalize_source_locations_defaults_to_fallback_media_location():
+    result = normalize_source_location_selection({}, {"downloadLocations": ["/media"]}, [])
+
+    assert result["others"] == "/media"

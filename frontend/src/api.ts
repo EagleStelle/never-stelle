@@ -2,6 +2,7 @@ import type {
   AddTaskResponse,
   ClearTasksResponse,
   SavedSettings,
+  ScanMediaResponse,
   TasksResponse,
   UiConfigResponse,
 } from "./types";
@@ -101,6 +102,14 @@ export function clearPendingTasks(): Promise<ClearTasksResponse> {
     "/api/tasks/clear-pending",
     { method: "POST" },
     "Could not clear queue.",
+  );
+}
+
+export function scanMediaLibrary(): Promise<ScanMediaResponse> {
+  return jsonRequest<ScanMediaResponse>(
+    "/api/scan",
+    { method: "POST" },
+    "Could not refresh history.",
   );
 }
 

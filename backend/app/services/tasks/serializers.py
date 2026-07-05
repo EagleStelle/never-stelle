@@ -8,7 +8,7 @@ from backend.app.services.settings import get_effective_source_profiles
 
 from .constants import STATUS_LABELS, STATUS_ORDER
 from .files import recover_task_path
-from .store import load_task_store
+from .store import load_history, load_task_store
 from .urls import detect_source_key
 
 
@@ -59,10 +59,15 @@ def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def fetch_tasks() -> list[dict[str, Any]]:
-    tasks = [
-        task_to_api(task_id, task)
-        for task_id, task in (load_task_store().get("tasks") or {}).items()
-    ]
+    tasks = []
+    seen: set[str] = set()
+    for task_id, task in (load_task_store().get("tasks") or {}).items():
+        tasks.append(task_to_api(task_id, task))
+        seen.add(str(task_id))
+    for task_id, entry in (load_history().get("entries") or {}).items():
+        if str(task_id) in seen:
+            continue
+        tasks.append(history_to_api(task_id, entry))
     tasks.sort(key=lambda task: (STATUS_ORDER.get(task["status"], 99), task["vid"]))
     return tasks
 

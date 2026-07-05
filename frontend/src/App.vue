@@ -12,8 +12,8 @@ import SegmentedControl from "./components/ui/SegmentedControl.vue";
 import SegmentedControlItem from "./components/ui/SegmentedControlItem.vue";
 import IconGrid from "~icons/material-symbols/grid-view";
 import IconList from "~icons/material-symbols/list";
+import IconRefresh from "~icons/material-symbols/sync";
 import IconSearch from "~icons/material-symbols/search";
-import IconTrash from "~icons/material-symbols/delete";
 
 import { useDownloadDashboard } from "./composables/useDownloadDashboard";
 
@@ -28,6 +28,7 @@ const {
   cookieStatuses,
   countCards,
   downloadTask,
+  historyRefreshing,
   activeTasks,
   completedTasks,
   isLightMode,
@@ -36,6 +37,7 @@ const {
   pageItems,
   removeCookies,
   removeTask,
+  refreshHistory,
   saveSettingsDraft,
   savedSettings,
   setActiveMenu,
@@ -90,11 +92,27 @@ const {
 
         <template v-else-if="activePage === 'history'">
           <section aria-label="Search history" class="mb-2">
-            <InputBar type="text" placeholder="Search history...">
+            <div class="flex items-center gap-2">
+              <InputBar class="flex-1 min-w-0" type="text" placeholder="Search history...">
               <template #icon>
                 <IconSearch class="w-5 h-5" aria-hidden="true" />
               </template>
-            </InputBar>
+              </InputBar>
+              <button
+                type="button"
+                class="group inline-flex items-center justify-center rounded-xl glass-primary leading-none transition-all duration-300 ease-glass active:scale-[0.96] disabled:opacity-60 disabled:active:scale-100 w-10 h-10 shrink-0"
+                aria-label="Refresh history"
+                title="Refresh history"
+                :disabled="historyRefreshing"
+                @click="refreshHistory"
+              >
+                <IconRefresh
+                  aria-hidden="true"
+                  class="w-6 h-6 transition-transform duration-300 ease-glass group-hover:rotate-45"
+                  :class="{ 'animate-spin': historyRefreshing }"
+                />
+              </button>
+            </div>
           </section>
         </template>
 

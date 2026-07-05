@@ -22,6 +22,7 @@ from backend.app.services.tasks import (
     queue_task,
     remove_pending_task,
     resolve_task_file,
+    scan_media_library,
 )
 
 router = APIRouter()
@@ -114,6 +115,14 @@ def list_tasks() -> dict[str, Any]:
         "counts": count_tasks(tasks),
         "counts_by_menu": counts_by_menu(tasks),
     }
+
+
+@router.post("/scan")
+def scan_media() -> dict[str, int]:
+    try:
+        return scan_media_library()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/tasks")
