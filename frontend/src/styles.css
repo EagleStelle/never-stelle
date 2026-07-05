@@ -6,16 +6,17 @@
   --color-accent: var(--accent);
 
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Space Grotesk", "Plus Jakarta Sans", ui-sans-serif, sans-serif;
+  --font-display:
+    "Space Grotesk", "Plus Jakarta Sans", ui-sans-serif, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
   --ease-glass: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 :root {
-  --primary: #0A0711;
-  --secondary: #2A2640;
-  --accent: #ED9E59;
+  --primary: #0a0711;
+  --secondary: #2a2640;
+  --accent: #ed9e59;
   color-scheme: dark;
 
   /* Glassmorphism surface tokens */
@@ -27,13 +28,14 @@
   --glass-border: rgba(255, 255, 255, 0.16);
   --glass-border-rule: 1px solid var(--glass-border);
   --glass-shadow: none;
+  --glass-shadow-solid: none;
   --glass-blur: 30px;
 }
 
 :root.light-mode {
-  --primary: #F3F4F6;
-  --secondary: #E5E7EB;
-  --accent: #ED9E59;
+  --primary: #f3f4f6;
+  --secondary: #e5e7eb;
+  --accent: #ed9e59;
   color-scheme: light;
 
   --glass-surface: rgba(255, 255, 255, 0.82);
@@ -44,11 +46,17 @@
   --glass-border: rgba(17, 24, 39, 0.16);
   --glass-border-rule: 1px solid var(--glass-border);
   --glass-highlight: rgba(255, 255, 255, 0.95);
-  --glass-shadow: 0 24px 80px -34px rgba(31, 41, 55, 0.34), 0 8px 24px -18px rgba(31, 41, 55, 0.18), inset 0 1px 0 0 var(--glass-highlight), inset 0 -1px 0 0 rgba(31, 41, 55, 0.06);
+  --glass-shadow:
+    0 24px 80px -34px rgba(31, 41, 55, 0.34),
+    0 8px 24px -18px rgba(31, 41, 55, 0.18),
+    inset 0 1px 0 0 var(--glass-highlight),
+    inset 0 -1px 0 0 rgba(31, 41, 55, 0.06);
+  --glass-shadow-solid:
+    0 24px 80px -34px rgba(31, 41, 55, 0.34),
+    0 8px 24px -18px rgba(31, 41, 55, 0.18);
 }
 
 @layer base {
-
   *,
   *::before,
   *::after {
@@ -71,7 +79,7 @@
     min-height: 100dvh;
     overflow-x: hidden;
     background: var(--primary);
-    color: #F8F4F5;
+    color: #f8f4f5;
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -97,7 +105,9 @@
     font: inherit;
   }
 
-  h1, h2, h3 {
+  h1,
+  h2,
+  h3 {
     font-family: var(--font-display);
     letter-spacing: -0.01em;
   }
@@ -123,22 +133,33 @@
     min-width: 0;
     padding: 0.55rem 0.75rem;
     border-radius: 0.65rem;
-    background: linear-gradient(135deg, var(--glass-surface), var(--glass-surface-2));
+    background: linear-gradient(
+      135deg,
+      var(--glass-surface),
+      var(--glass-surface-2)
+    );
     border: var(--glass-border-rule);
     color: inherit;
     outline: none;
     backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
+      contrast(1.04);
     background-clip: padding-box;
     box-shadow: var(--glass-shadow);
-    transition: border-color 220ms var(--ease-glass), background 220ms var(--ease-glass);
+    transition:
+      border-color 220ms var(--ease-glass),
+      background 220ms var(--ease-glass);
   }
 
   input:not([type="file"]):not(.bg-transparent):focus,
   textarea:focus,
   select:focus {
     border-color: var(--glass-border);
-    background: linear-gradient(135deg, var(--glass-surface-2), var(--glass-surface));
+    background: linear-gradient(
+      135deg,
+      var(--glass-surface-2),
+      var(--glass-surface)
+    );
   }
 
   input[type="file"] {
@@ -204,20 +225,30 @@
 @layer components {
   /* Core glass surface */
   .glass {
-    background: linear-gradient(135deg, var(--glass-surface), var(--glass-surface-2));
+    background: linear-gradient(
+      135deg,
+      var(--glass-surface),
+      var(--glass-surface-2)
+    );
     border: var(--glass-border-rule);
     backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
+      contrast(1.04);
     background-clip: padding-box;
     box-shadow: var(--glass-shadow);
   }
 
   /* Heavier glass for fixed/sticky chrome (nav, status, toasts) */
   .glass-chrome {
-    background: linear-gradient(135deg, var(--glass-strong), var(--glass-strong-2));
+    background: linear-gradient(
+      135deg,
+      var(--glass-strong),
+      var(--glass-strong-2)
+    );
     border: var(--glass-border-rule);
     backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
+      contrast(1.04);
     background-clip: padding-box;
     box-shadow: var(--glass-shadow);
   }
@@ -234,10 +265,15 @@
 
   /* Subtle interactive fill for inline chips/buttons */
   .glass-soft {
-    background: linear-gradient(135deg, var(--glass-surface), var(--glass-surface-2));
+    background: linear-gradient(
+      135deg,
+      var(--glass-surface),
+      var(--glass-surface-2)
+    );
     border: var(--glass-border-rule);
     backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
+      contrast(1.04);
     background-clip: padding-box;
     box-shadow: var(--glass-shadow);
   }
@@ -246,20 +282,22 @@
     background: var(--accent);
     border: var(--glass-border-rule);
     backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
+      contrast(1.04);
     background-clip: padding-box;
-    box-shadow: var(--glass-shadow);
-    color: #1B1931;
+    box-shadow: var(--glass-shadow-solid);
+    color: #1b1931;
   }
 
   .glass-danger {
-    background: #EF4444;
+    background: #ef4444;
     border: var(--glass-border-rule);
     backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
+      contrast(1.04);
     background-clip: padding-box;
-    box-shadow: var(--glass-shadow);
-    color: #F8F4F5;
+    box-shadow: var(--glass-shadow-solid);
+    color: #f8f4f5;
   }
 
   :root.light-mode .glass-danger {
@@ -272,15 +310,16 @@
     background: var(--accent);
     border: var(--glass-border-rule);
     backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
+      contrast(1.04);
     background-clip: padding-box;
-    box-shadow: var(--glass-shadow);
-    color: #1B1931;
+    box-shadow: var(--glass-shadow-solid);
+    color: #1b1931;
   }
 
   .glass-option[data-highlighted] {
     background: none;
-    color: #F8F4F5;
+    color: #f8f4f5;
   }
 
   :root.light-mode .glass-option[data-highlighted] {
@@ -288,12 +327,19 @@
   }
 
   .glass-hoverable {
-    transition: background 260ms var(--ease-glass), border-color 260ms var(--ease-glass),
-      transform 260ms var(--ease-glass), box-shadow 260ms var(--ease-glass);
+    transition:
+      background 260ms var(--ease-glass),
+      border-color 260ms var(--ease-glass),
+      transform 260ms var(--ease-glass),
+      box-shadow 260ms var(--ease-glass);
   }
 
   .glass-hoverable:hover {
-    background: linear-gradient(135deg, var(--glass-hover), var(--glass-surface-2));
+    background: linear-gradient(
+      135deg,
+      var(--glass-hover),
+      var(--glass-surface-2)
+    );
     border-color: var(--glass-border);
   }
 
@@ -301,7 +347,7 @@
   .glass-hoverable.glass-selected[data-state="active"]:hover,
   .glass-hoverable.glass-selected[data-state="on"]:hover {
     background: var(--accent);
-    color: #1B1931;
+    color: #1b1931;
   }
 
   /* Staggered scroll-in for list items / cards */
@@ -309,11 +355,21 @@
     animation: glass-rise 640ms var(--ease-glass) both;
   }
 
-  .glass-rise:nth-child(2) { animation-delay: 60ms; }
-  .glass-rise:nth-child(3) { animation-delay: 120ms; }
-  .glass-rise:nth-child(4) { animation-delay: 180ms; }
-  .glass-rise:nth-child(5) { animation-delay: 240ms; }
-  .glass-rise:nth-child(n+6) { animation-delay: 300ms; }
+  .glass-rise:nth-child(2) {
+    animation-delay: 60ms;
+  }
+  .glass-rise:nth-child(3) {
+    animation-delay: 120ms;
+  }
+  .glass-rise:nth-child(4) {
+    animation-delay: 180ms;
+  }
+  .glass-rise:nth-child(5) {
+    animation-delay: 240ms;
+  }
+  .glass-rise:nth-child(n + 6) {
+    animation-delay: 300ms;
+  }
 }
 
 @keyframes glass-rise {
