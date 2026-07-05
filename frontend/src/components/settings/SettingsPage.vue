@@ -4,6 +4,7 @@ import IconTrash from "~icons/material-symbols/delete";
 import IconUpload from "~icons/material-symbols/upload";
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from "reka-ui";
 
+import Button from "../ui/Button.vue";
 import { SETTINGS_SECTIONS } from "../../ui";
 import type {
   CookiesMap,
@@ -190,24 +191,30 @@ function connectNew(): void {
                 class="hidden"
                 @change="onNewCookieFile"
               />
-              <button
+              <Button
+                variant="soft"
+                size="lg"
                 type="button"
-                class="flex items-center min-w-0 h-10 rounded-lg glass-soft glass-hoverable px-3 text-sm text-left transition-all duration-300 ease-glass"
+                class="min-w-0 justify-start"
                 @click="openNewPicker"
               >
-                <span class="truncate text-white [.light-mode_&]:text-black"
-                  >{{ newCookie.file?.name || "Choose file" }}</span
-                >
-              </button>
-              <button
+                <span class="truncate">{{
+                  newCookie.file?.name || "Choose file"
+                }}</span>
+              </Button>
+              <Button
+                variant="primary"
+                size="lg"
                 type="button"
-                class="inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-xl glass-primary transition-all duration-300 ease-glass active:scale-[0.96]"
+                class="shrink-0"
                 title="Save cookies for link"
                 aria-label="Save cookies for link"
                 @click="connectNew"
               >
-                <IconUpload class="w-5 h-5" aria-hidden="true" />
-              </button>
+                <template #icon>
+                  <IconUpload class="w-5 h-5" aria-hidden="true" />
+                </template>
+              </Button>
             </div>
           </div>
           <p
@@ -235,27 +242,30 @@ function connectNew(): void {
                   @change="onCookieFile(site.key, $event)"
                 />
                 <template v-if="!cookieStatuses[site.key]?.configured">
-                  <button
+                  <Button
+                    variant="soft"
+                    size="lg"
                     type="button"
-                    class="flex flex-1 items-center min-w-0 h-10 rounded-lg glass-soft glass-hoverable px-3 text-sm text-left transition-all duration-300 ease-glass"
+                    class="flex-1 min-w-0 justify-start"
                     @click="openPicker(site.key)"
                   >
-                    <span
-                      class="truncate text-white [.light-mode_&]:text-black"
-                      >{{
-                        cookieFiles[site.key]?.name || "Choose a cookies file"
-                      }}</span
-                    >
-                  </button>
-                  <button
+                    <span class="truncate">{{
+                      cookieFiles[site.key]?.name || "Choose a cookies file"
+                    }}</span>
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="lg"
                     type="button"
-                    class="inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-xl glass-primary transition-all duration-300 ease-glass active:scale-[0.96]"
+                    class="shrink-0"
                     :title="`Save ${site.label} cookies`"
                     :aria-label="`Save ${site.label} cookies`"
                     @click="connect(site.key)"
                   >
-                    <IconUpload class="w-5 h-5" aria-hidden="true" />
-                  </button>
+                    <template #icon>
+                      <IconUpload class="w-5 h-5" aria-hidden="true" />
+                    </template>
+                  </Button>
                 </template>
                 <template v-else>
                   <div
@@ -265,15 +275,19 @@ function connectNew(): void {
                       cookieStatuses[site.key].filename || "cookies.txt"
                     }}</span>
                   </div>
-                  <button
+                  <Button
+                    variant="soft"
+                    size="lg"
                     type="button"
-                    class="inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-xl glass-soft glass-hoverable text-white [.light-mode_&]:text-black transition-all duration-300 ease-glass active:scale-[0.96] hover:text-white [.light-mode_&]:hover:text-black"
+                    class="shrink-0"
                     :title="`Delete ${site.label} cookies`"
                     :aria-label="`Delete ${site.label} cookies`"
                     @click="emit('removeCookies', site.key)"
                   >
-                    <IconTrash class="w-5 h-5" aria-hidden="true" />
-                  </button>
+                    <template #icon>
+                      <IconTrash class="w-5 h-5" aria-hidden="true" />
+                    </template>
+                  </Button>
                 </template>
               </div>
             </div>
@@ -348,13 +362,9 @@ function connectNew(): void {
     <footer
       class="shrink-0 mt-6 flex items-center justify-end gap-2 rounded-xl glass p-3"
     >
-      <button
-        type="button"
-        class="inline-flex items-center justify-center gap-1.5 min-h-9 px-5 rounded-xl glass-primary leading-none transition-all duration-300 ease-glass active:scale-[0.97]"
-        @click="emit('save')"
-      >
+      <Button variant="primary" size="md" type="button" @click="emit('save')">
         Save Settings
-      </button>
+      </Button>
     </footer>
   </section>
 </template>

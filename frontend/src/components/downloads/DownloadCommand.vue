@@ -3,6 +3,7 @@ import IconDownload from"~icons/material-symbols/download";
 import IconLink from"~icons/material-symbols/link";
 import IconPaste from"~icons/material-symbols/content-paste-rounded";
 import InputBar from"../ui/InputBar.vue";
+import Button from"../ui/Button.vue";
 
 import type { SavedSettings } from"../../types";
 
@@ -43,19 +44,25 @@ const pasteFromClipboard = async () => {
  <IconLink class="w-5 h-5" aria-hidden="true" />
  </template>
  <template #action>
- <button 
- type="button" 
- class="flex items-center justify-center w-8 h-8 text-white [.light-mode_&]:text-black transition-all duration-300 ease-glass rounded-lg bg-transparent mr-0.5"
+ <Button
+ variant="ghost"
+ size="sm"
+ type="button"
+ class="mr-0.5"
  aria-label="Paste from clipboard"
  @click="pasteFromClipboard"
  >
+ <template #icon>
  <IconPaste class="w-5 h-5" aria-hidden="true" />
- </button>
+ </template>
+ </Button>
  </template>
  </InputBar>
- <button type="submit" class="group inline-flex items-center justify-center rounded-xl glass-primary leading-none transition-all duration-300 ease-glass active:scale-[0.96] w-10 h-10 shrink-0" aria-label="Download">
+ <Button variant="primary" size="lg" type="submit" class="shrink-0" aria-label="Download">
+ <template #icon>
  <IconDownload aria-hidden="true" class="w-6 h-6 transition-transform duration-300 ease-glass group-hover:-translate-y-px group-hover:scale-110" />
- </button>
+ </template>
+ </Button>
  </form>
  </section>
 </template>

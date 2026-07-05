@@ -6,6 +6,7 @@ import BarStatus from "./components/layout/BarStatus.vue";
 import NavBottom from "./components/layout/NavBottom.vue";
 import SettingsPage from "./components/settings/SettingsPage.vue";
 import ToastStack from "./components/ToastStack.vue";
+import Button from "./components/ui/Button.vue";
 import Combobox from "./components/ui/Combobox.vue";
 import InputBar from "./components/ui/InputBar.vue";
 import SegmentedControl from "./components/ui/SegmentedControl.vue";
@@ -105,20 +106,24 @@ const {
                   <IconSearch class="w-5 h-5" aria-hidden="true" />
                 </template>
               </InputBar>
-              <button
+              <Button
+                variant="primary"
+                size="lg"
                 type="button"
-                class="group inline-flex items-center justify-center rounded-xl glass-primary leading-none transition-all duration-300 ease-glass active:scale-[0.96] disabled:opacity-60 disabled:active:scale-100 w-10 h-10 shrink-0"
+                class="shrink-0"
                 aria-label="Refresh history"
                 title="Refresh history"
                 :disabled="historyRefreshing"
                 @click="refreshHistory"
               >
-                <IconRefresh
-                  aria-hidden="true"
-                  class="w-6 h-6 transition-transform duration-300 ease-glass group-hover:rotate-45"
-                  :class="{ 'animate-spin': historyRefreshing }"
-                />
-              </button>
+                <template #icon>
+                  <IconRefresh
+                    aria-hidden="true"
+                    class="w-6 h-6 transition-transform duration-300 ease-glass group-hover:rotate-45"
+                    :class="{ 'animate-spin': historyRefreshing }"
+                  />
+                </template>
+              </Button>
             </div>
           </section>
         </template>

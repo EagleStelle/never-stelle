@@ -3,6 +3,8 @@ import IconDownload from "~icons/material-symbols/download";
 import IconSpinner from "~icons/material-symbols/sync";
 import IconX from "~icons/material-symbols/close";
 
+import Button from "./ui/Button.vue";
+
 import type { MenuKey, SourceProfile, TaskItem, ViewMode } from "../types";
 import {
   faviconUrlForHost,
@@ -190,12 +192,9 @@ function getSiteBadgeClass(): string {
                     {{ profile.label }}
                   </option>
                 </datalist>
-                <button
-                  type="submit"
-                  class="rounded-lg glass-primary px-2 py-1 text-[0.7rem] leading-none transition-all duration-300 ease-glass active:scale-[0.96]"
-                >
+                <Button variant="primary" size="sm" type="submit">
                   Set
-                </button>
+                </Button>
               </form>
             </td>
             <td>
@@ -227,26 +226,32 @@ function getSiteBadgeClass(): string {
             <td>{{ progressPct(task) }}%</td>
             <td>
               <div class="flex items-center gap-1.5">
-                <button
+                <Button
                   v-if="task.can_download && task.status !== 'failed'"
-                  class="inline-flex items-center justify-center gap-1.5 min-h-8 rounded-lg leading-none transition-all duration-300 ease-glass active:scale-[0.96] w-8 h-8 glass-primary"
+                  variant="primary"
+                  size="sm"
                   type="button"
                   aria-label="Download file"
                   title="Download file"
                   @click="emit('download', task.vid)"
                 >
-                  <IconDownload aria-hidden="true" />
-                </button>
-                <button
+                  <template #icon>
+                    <IconDownload aria-hidden="true" />
+                  </template>
+                </Button>
+                <Button
                   v-if="task.can_remove && task.status !== 'running'"
-                  class="inline-flex items-center justify-center gap-1.5 min-h-8 rounded-lg leading-none transition-all duration-300 ease-glass active:scale-[0.96] w-8 h-8 glass-danger"
+                  variant="danger"
+                  size="sm"
                   type="button"
                   aria-label="Remove task from the list"
                   title="Remove task from the list"
                   @click="emit('remove', task.vid)"
                 >
-                  <IconX aria-hidden="true" />
-                </button>
+                  <template #icon>
+                    <IconX aria-hidden="true" />
+                  </template>
+                </Button>
               </div>
             </td>
           </tr>
@@ -298,26 +303,32 @@ function getSiteBadgeClass(): string {
           </div>
 
           <div class="flex items-start justify-end gap-1.5">
-            <button
+            <Button
               v-if="canShowHistoryDownload(task)"
-              class="inline-flex items-center justify-center gap-1.5 h-8 w-8 rounded-lg glass-soft glass-hoverable text-white [.light-mode_&]:text-black leading-none transition-all duration-300 ease-glass active:scale-[0.96] hover:text-white [.light-mode_&]:hover:text-black"
+              variant="soft"
+              size="sm"
               type="button"
               aria-label="Download file"
               title="Download file"
               @click="emit('download', task.vid)"
             >
-              <IconDownload aria-hidden="true" />
-            </button>
-            <button
+              <template #icon>
+                <IconDownload aria-hidden="true" />
+              </template>
+            </Button>
+            <Button
               v-if="canShowCardCancel(task)"
-              class="inline-flex items-center justify-center h-8 w-8 rounded-lg glass-soft glass-hoverable text-white [.light-mode_&]:text-black transition-all duration-300 ease-glass active:scale-[0.96] hover:text-white [.light-mode_&]:hover:text-black"
+              variant="soft"
+              size="sm"
               type="button"
               aria-label="Cancel download"
               title="Cancel download"
               @click="emit('remove', task.vid)"
             >
-              <IconX class="w-5 h-5" aria-hidden="true" />
-            </button>
+              <template #icon>
+                <IconX class="w-5 h-5" aria-hidden="true" />
+              </template>
+            </Button>
           </div>
 
           <div
@@ -328,15 +339,17 @@ function getSiteBadgeClass(): string {
               Unknown source — pick or type:
             </span>
             <div class="flex flex-wrap items-center gap-1.5">
-              <button
+              <Button
                 v-for="candidate in task.source_candidates || []"
                 :key="candidate"
+                variant="soft"
+                size="sm"
                 type="button"
-                class="rounded-full glass-soft glass-hoverable px-2.5 py-1 text-[0.75rem] leading-none text-white [.light-mode_&]:text-black transition-all duration-300 ease-glass active:scale-[0.96]"
+                class="rounded-full"
                 @click="pickSource(task, candidate)"
               >
                 {{ sourceLabelFromKey(candidate) }}
-              </button>
+              </Button>
               <form
                 class="flex items-center gap-1.5"
                 @submit.prevent="submitSource(task, $event)"
@@ -358,12 +371,9 @@ function getSiteBadgeClass(): string {
                     {{ profile.label }}
                   </option>
                 </datalist>
-                <button
-                  type="submit"
-                  class="rounded-lg glass-primary px-2.5 py-1 text-[0.75rem] leading-none transition-all duration-300 ease-glass active:scale-[0.96]"
-                >
+                <Button variant="primary" size="sm" type="submit">
                   Set
-                </button>
+                </Button>
               </form>
             </div>
           </div>

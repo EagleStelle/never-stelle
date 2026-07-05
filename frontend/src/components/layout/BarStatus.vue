@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Component } from "vue";
 import IconTrash from "~icons/material-symbols/delete";
+import Button from "../ui/Button.vue";
 
 defineProps<{
   countCards: Array<{ label: string; value: number; icon: Component }>;
@@ -16,19 +17,22 @@ const emit = defineEmits<{
     class="z-40 glass-chrome glass-border-top py-2 px-3 flex items-center justify-between text-white in-[.light-mode]:text-black mb-(--nav-bottom-height) lg:mb-0 gap-3"
     aria-label="Task counts"
   >
-    <button
+    <Button
+      size="xs"
       type="button"
-      class="inline-flex items-center justify-center gap-1.5 h-7 px-2.5 rounded-lg glass-primary transition-all duration-300 ease-glass active:scale-[0.97] shrink-0"
+      class="shrink-0"
       title="Clear Queue"
       aria-label="Clear Queue"
       @click="emit('clearQueue')"
     >
-      <IconTrash class="w-4 h-4" aria-hidden="true" />
+      <template #icon>
+        <IconTrash class="w-4 h-4" aria-hidden="true" />
+      </template>
       <span
         class="hidden sm:inline text-xs font-medium uppercase tracking-wider"
         >Clear Queue</span
       >
-    </button>
+    </Button>
     <div
       class="flex items-center justify-end gap-3 sm:gap-4 overflow-x-auto scrollbar-hide w-full max-w-full"
     >
