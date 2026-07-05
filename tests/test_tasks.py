@@ -5,12 +5,6 @@ from pathlib import Path
 import pytest
 
 import backend.app.services.tasks.scan as scan_module
-from backend.app.services.tasks.formats import (
-    conflicts_with_source,
-    guess_sources,
-    learn_download,
-    reconstruct_url,
-)
 from backend.app.services.tasks import (
     canonicalize_source_url,
     convert_template_to_ytdlp,
@@ -21,6 +15,14 @@ from backend.app.services.tasks import (
     is_media_file,
     parse_filename_media_id,
 )
+from backend.app.services.tasks.formats import (
+    conflicts_with_source,
+    creator_from_url,
+    guess_sources,
+    learn_download,
+    reconstruct_url,
+)
+from backend.app.services.tasks.ytdlp import clean_filename_title, clean_social_title
 
 
 @pytest.mark.parametrize(
@@ -32,6 +34,11 @@ from backend.app.services.tasks import (
         ("https://www.instagram.com/reel/abc", "https://www.instagram.com/reel/abc"),
         ("https://tiktok.com/@x/video/1", "https://tiktok.com/@x/video/1"),
         ("https://youtube.com/watch?v=1", "https://youtube.com/watch?v=1"),
+        (
+            "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489?lang=en&q=fzyahoo&t=1781279478413",
+            "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
+        ),
+        ("https://youtube.com/watch?v=1&feature=share", "https://youtube.com/watch?v=1"),
     ],
 )
 def test_canonicalize_source_url(raw, expected):
@@ -71,6 +78,16 @@ def test_convert_template_to_ytdlp_maps_placeholders():
 
 def test_convert_template_unknown_placeholder_falls_back():
     assert convert_template_to_ytdlp("{{weird}}") == "%(weird|Unknown)s"
+
+
+def test_convert_template_prefers_creator_from_url():
+    result = convert_template_to_ytdlp(
+        "{{creator}} - {{title}} [{{id}}]",
+        "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
+    )
+
+    assert result.startswith("fzyahoo.com - ")
+    assert "%(creator" not in result
 
 
 def test_convert_template_empty():
@@ -114,6 +131,33 @@ def test_parse_filename_media_id_rejects_unrecoverable_names():
     assert parse_filename_media_id("Creator - Soft Light [NA].mp4")[0] == ""
 
 
+def test_clean_social_title_removes_engagement_and_attribution_junk():
+    assert clean_social_title("Soft Light 1.5M views · 62K reactions") == "Soft Light"
+    assert clean_social_title("Soft Light ｜ NJ Tony on Reels") == "Soft Light"
+    assert clean_social_title("NJ Tony - Video by NJ Tony", "NJ Tony") == "NJ Tony"
+
+
+def test_clean_filename_title_removes_duplicate_social_display_name():
+    title = (
+        "ININIinNINI - "
+        "\u6c99\u96e8 \u30a4\u30cb \u2726\u2726 - "
+        "Photoshop\u3067\u3064\u304f\u308b\u3001 \u590f\u30b5\u30e0\u30cd\u30a4\u30eb"
+        "\u306e\u30e1\u30a4\u30ad\u30f3\u30b0\u898b\u3066\u2026\uff01\uff01"
+    )
+
+    assert clean_filename_title(title, "ININIinNINI") == (
+        "ININIinNINI - "
+        "Photoshop\u3067\u3064\u304f\u308b\u3001 \u590f\u30b5\u30e0\u30cd\u30a4\u30eb"
+        "\u306e\u30e1\u30a4\u30ad\u30f3\u30b0\u898b\u3066\u2026\uff01\uff01"
+    )
+
+
+def test_clean_filename_title_keeps_content_like_leading_segment():
+    title = "ININIinNINI - Part 1 - Photoshop summer thumbnail process"
+
+    assert clean_filename_title(title, "ININIinNINI") == title
+
+
 def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     media_root = tmp_path / "media"
     artist_dir = media_root / "Trace Artist"
@@ -151,10 +195,27 @@ def test_learn_download_derives_url_template():
     assert _learned_youtube_twitter()["youtube"]["template"] == "https://www.youtube.com/watch?v={id}"
 
 
-def test_learn_download_generalizes_variable_segment():
+def test_learn_download_marks_creator_segment():
     learned = learn_download({}, "https://twitter.com/DohaVT/status/2073635724684054528", "2073635724684054528")
     learned = learn_download(learned, "https://twitter.com/Other/status/1111111111111111111", "1111111111111111111")
-    assert "{var}" in learned["twitter"]["template"]
+    assert learned["twitter"]["template"] == "https://twitter.com/{creator}/status/{id}"
+    assert learned["twitter"]["creator_part"] == "path:0"
+
+
+def test_learn_download_trims_seo_query_and_keeps_creator_token():
+    learned = learn_download(
+        {},
+        "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489?lang=en&q=fzyahoo&t=1781279478413",
+        "7493558766131039489",
+    )
+
+    assert learned["tiktok"]["template"] == "https://www.tiktok.com/@{creator}/video/{id}"
+    assert reconstruct_url(learned, "tiktok", "7493558766131039489") == ""
+
+
+def test_creator_from_url_uses_handle_segment_without_at_sign():
+    assert creator_from_url("https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489") == "fzyahoo.com"
+    assert creator_from_url("https://x.com/ININIinNINI/status/2073390288501166083") == "ININIinNINI"
 
 
 def test_learn_download_ignores_unknown_host():

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from backend.app.core.sources import source_key_from_url
+from backend.app.core.sources import normalize_source_key, source_key_from_url
 from backend.app.db.database import transaction, utc_now
 
 
@@ -50,20 +50,109 @@ def save_settings_payload(payload: dict[str, Any]) -> None:
         )
 
 
+def _format_entry_from_row(row: Any) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "template": str(row["template"] or ""),
+        "host": str(row["host"] or ""),
+        "id_part": str(row["id_part"] or ""),
+        "creator_part": str(row["creator_part"] or ""),
+        "samples": int(row["samples"] or 0),
+    }
+    id_min = int(row["id_min"] or 0)
+    id_max = int(row["id_max"] or 0)
+    if id_min:
+        entry["id_min"] = id_min
+    if id_max:
+        entry["id_max"] = id_max
+    id_classes = [item for item in str(row["id_classes"] or "").split(",") if item]
+    if id_classes:
+        entry["id_classes"] = id_classes
+    return {key: value for key, value in entry.items() if value not in ("", [], None)}
+
+
+def _normalize_format_payload(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for raw_key, raw_entry in payload.items():
+        key = normalize_source_key(raw_key)
+        if not key or not isinstance(raw_entry, dict):
+            continue
+        entry = dict(raw_entry)
+        if not str(entry.get("template") or "").strip():
+            continue
+        normalized[key] = entry
+    return normalized
+
+
+def _save_format_rows(connection: Any, payload: dict[str, Any]) -> None:
+    now = utc_now()
+    normalized = _normalize_format_payload(payload)
+    existing = {
+        str(row["source_key"]): str(row["created_at"] or now)
+        for row in connection.execute("SELECT source_key, created_at FROM formats").fetchall()
+    }
+    if normalized:
+        placeholders = ",".join("?" for _ in normalized)
+        connection.execute(
+            f"DELETE FROM formats WHERE source_key NOT IN ({placeholders})",
+            tuple(sorted(normalized)),
+        )
+    else:
+        connection.execute("DELETE FROM formats")
+
+    for key, entry in normalized.items():
+        id_classes = ",".join(sorted(str(item) for item in (entry.get("id_classes") or []) if str(item)))
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO formats (
+                source_key, host, template, id_min, id_max, id_classes,
+                id_part, creator_part, samples, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                key,
+                str(entry.get("host") or ""),
+                str(entry.get("template") or ""),
+                int(entry.get("id_min") or 0),
+                int(entry.get("id_max") or 0),
+                id_classes,
+                str(entry.get("id_part") or ""),
+                str(entry.get("creator_part") or ""),
+                int(entry.get("samples") or 0),
+                existing.get(key, now),
+                now,
+            ),
+        )
+
+
 def load_learned_formats_payload() -> dict[str, Any]:
     with transaction() as connection:
+        rows = connection.execute(
+            """
+            SELECT source_key, host, template, id_min, id_max, id_classes,
+                   id_part, creator_part, samples
+            FROM formats
+            ORDER BY source_key
+            """
+        ).fetchall()
+        if rows:
+            return {normalize_source_key(row["source_key"]): _format_entry_from_row(row) for row in rows}
+
         row = connection.execute("SELECT value FROM settings WHERE key = ?", ("learned_formats",)).fetchone()
-    payload = _decode(row["value"] if row else None, {})
-    return payload if isinstance(payload, dict) else {}
+        payload = _decode(row["value"] if row else None, {})
+        payload = _normalize_format_payload(payload if isinstance(payload, dict) else {})
+        if payload:
+            _save_format_rows(connection, payload)
+            connection.execute("DELETE FROM settings WHERE key = ?", ("learned_formats",))
+        return payload
 
 
 def save_learned_formats_payload(payload: dict[str, Any]) -> None:
-    now = utc_now()
     with transaction() as connection:
-        connection.execute(
-            "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
-            ("learned_formats", _encode(payload if isinstance(payload, dict) else {}), now),
-        )
+        _save_format_rows(connection, payload)
+        connection.execute("DELETE FROM settings WHERE key = ?", ("learned_formats",))
 
 
 def get_file_blob(key: str) -> dict[str, Any] | None:

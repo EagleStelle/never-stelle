@@ -10,7 +10,7 @@ from backend.app.services.settings import has_cookies_for_url
 
 from .constants import PROGRESS_RE
 from .files import extract_downloaded_path, find_newest_media_file, recover_task_path
-from .formats import learn_download
+from .formats import creator_from_url, learn_download
 from .history import save_history_entry
 from .scan import parse_filename_media_id
 from .store import (
@@ -21,7 +21,13 @@ from .store import (
     update_task,
 )
 from .urls import canonicalize_source_url
-from .ytdlp import build_output_template, build_ytdlp_command, detect_ffmpeg_location
+from .ytdlp import (
+    build_output_template,
+    build_ytdlp_command,
+    clean_filename_title,
+    detect_ffmpeg_location,
+    sanitize_filename_component,
+)
 
 _worker_lock = threading.Lock()
 _worker_wakeup = threading.Event()
@@ -125,6 +131,34 @@ def _learn_source_format(source_url: str, filename: str) -> None:
         save_learned_formats(updated)
 
 
+def _unique_sibling_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    for index in range(1, 1000):
+        candidate = path.with_name(f"{path.stem} ({index}){path.suffix}")
+        if not candidate.exists():
+            return candidate
+    return path
+
+
+def _clean_resolved_filename(source_url: str, path: Path) -> Path:
+    media_id, title = parse_filename_media_id(path.name)
+    if not media_id or not title:
+        return path
+    creator = creator_from_url(source_url, media_id)
+    cleaned_title = sanitize_filename_component(clean_filename_title(title, creator))
+    if not cleaned_title or cleaned_title == title:
+        return path
+    target = _unique_sibling_path(path.with_name(f"{cleaned_title} [{media_id}]{path.suffix}"))
+    if target == path:
+        return path
+    try:
+        path.replace(target)
+        return target
+    except OSError:
+        return path
+
+
 def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
     source_url = canonicalize_source_url(str(task.get("source_url") or ""))
     output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
@@ -179,6 +213,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             if not final_path or not final_path.exists():
                 update_task(task_id, status="failed", error="yt-dlp finished, but no media file was found.")
                 return
+            final_path = _clean_resolved_filename(source_url, final_path)
             completed_task = update_task(
                 task_id,
                 status="completed",

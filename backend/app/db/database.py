@@ -45,6 +45,22 @@ CREATE TABLE IF NOT EXISTS history (
 
 CREATE INDEX IF NOT EXISTS idx_history_source_url ON history(source_url);
 
+CREATE TABLE IF NOT EXISTS formats (
+    source_key TEXT PRIMARY KEY,
+    host TEXT NOT NULL DEFAULT '',
+    template TEXT NOT NULL DEFAULT '',
+    id_min INTEGER NOT NULL DEFAULT 0,
+    id_max INTEGER NOT NULL DEFAULT 0,
+    id_classes TEXT NOT NULL DEFAULT '',
+    id_part TEXT NOT NULL DEFAULT '',
+    creator_part TEXT NOT NULL DEFAULT '',
+    samples INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_formats_host ON formats(host);
+
 CREATE TABLE IF NOT EXISTS cookies (
     key TEXT PRIMARY KEY,
     filename TEXT NOT NULL DEFAULT '',
