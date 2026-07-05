@@ -23,7 +23,7 @@ const attrs = useAttrs()
 
 <template>
  <Label
- class="flex items-center min-w-0 h-10 p-1 rounded-xl glass-soft focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass gap-1"
+ class="flex items-center min-w-0 h-10 p-1 rounded-lg glass-soft focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass gap-1"
  :class="attrs.class"
  >
  <div v-if="$slots.icon" class="flex items-center justify-center w-8 h-8 shrink-0 text-accent ml-1.5">

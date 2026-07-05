@@ -148,7 +148,7 @@ function rowBackgroundStyle(task: TaskItem) {
   >
     <div
       v-if="props.loading"
-      class="rounded-2xl glass flex min-h-32 items-center justify-center gap-2 text-white [.light-mode_&]:text-black text-center"
+      class="rounded-lg glass flex min-h-32 items-center justify-center gap-2 text-white [.light-mode_&]:text-black text-center"
     >
       <IconSpinner class="animate-spin text-accent" aria-hidden="true" />
       <span>Loading downloads...</span>
@@ -156,7 +156,7 @@ function rowBackgroundStyle(task: TaskItem) {
 
     <div
       v-else-if="props.errorMessage"
-      class="rounded-2xl glass flex min-h-32 items-center justify-center gap-2 text-center text-white [.light-mode_&]:text-black"
+      class="rounded-lg glass flex min-h-32 items-center justify-center gap-2 text-center text-white [.light-mode_&]:text-black"
     >
       {{ props.errorMessage }}
     </div>
@@ -178,7 +178,7 @@ function rowBackgroundStyle(task: TaskItem) {
                 <img
                   v-if="sourceIconUrl(task)"
                   :src="sourceIconUrl(task)"
-                  class="h-4 w-4 rounded-sm shrink-0"
+                  class="h-4 w-4 rounded-lg shrink-0"
                   alt=""
                   aria-hidden="true"
                 />
@@ -272,7 +272,7 @@ function rowBackgroundStyle(task: TaskItem) {
       <article
         v-for="task in props.tasks"
         :key="task.vid"
-        class="glass-rise glass glass-hoverable rounded-2xl p-4 hover:-translate-y-0.5"
+        class="glass-rise glass glass-hoverable rounded-lg p-4 hover:-translate-y-0.5"
       >
         <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-4">
           <div class="min-w-0">
@@ -282,7 +282,7 @@ function rowBackgroundStyle(task: TaskItem) {
               <img
                 v-if="sourceIconUrl(task)"
                 :src="sourceIconUrl(task)"
-                class="mr-1.5 inline h-4 w-4 rounded-sm align-[-2px]"
+                class="mr-1.5 inline h-4 w-4 rounded-lg align-[-2px]"
                 alt=""
                 aria-hidden="true"
               />
@@ -342,7 +342,7 @@ function rowBackgroundStyle(task: TaskItem) {
 
           <div
             v-if="task.source_pending"
-            class="col-span-full flex flex-col gap-2 rounded-xl glass-soft p-3"
+            class="col-span-full flex flex-col gap-2 rounded-lg glass-soft p-3"
           >
             <span class="text-[0.8rem] text-white [.light-mode_&]:text-black">
               Unknown source — pick or type:
@@ -354,7 +354,7 @@ function rowBackgroundStyle(task: TaskItem) {
                 variant="soft"
                 size="sm"
                 type="button"
-                class="rounded-full"
+                class="rounded-lg"
                 @click="pickSource(task, candidate)"
               >
                 {{ sourceLabelFromKey(candidate) }}
@@ -390,9 +390,9 @@ function rowBackgroundStyle(task: TaskItem) {
           <div
             class="col-span-full grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-4"
           >
-            <div class="h-1.5 overflow-hidden rounded-full bg-secondary">
+            <div class="h-1.5 overflow-hidden rounded-lg bg-secondary">
               <div
-                class="h-full rounded-full bg-accent transition-all duration-500 ease-glass"
+                class="h-full rounded-lg bg-accent transition-all duration-500 ease-glass"
                 :style="{ width: `${progressPct(task)}%` }"
               ></div>
             </div>

@@ -71,7 +71,7 @@ const isExpanded = ref(true);
         v-for="item in pageItems"
         :key="item.key"
         type="button"
-        class="inline-flex items-center rounded-xl bg-transparent text-white/65 in-[.light-mode]:text-black/65 leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white in-[.light-mode]:hover:text-black aria-pressed:bg-accent aria-pressed:text-black"
+        class="inline-flex items-center rounded-lg bg-transparent text-white/65 in-[.light-mode]:text-black/65 leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white in-[.light-mode]:hover:text-black aria-pressed:bg-accent aria-pressed:text-black"
         :class="
           isExpanded
             ? 'w-full flex-row justify-start px-3.5 h-10 gap-3'
@@ -100,7 +100,7 @@ const isExpanded = ref(true);
     >
       <button
         type="button"
-        class="inline-flex items-center rounded-xl bg-transparent text-white/65 in-[.light-mode]:text-black/65 leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white in-[.light-mode]:hover:text-black"
+        class="inline-flex items-center rounded-lg bg-transparent text-white/65 in-[.light-mode]:text-black/65 leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white in-[.light-mode]:hover:text-black"
         :class="
           isExpanded
             ? 'w-full flex-row justify-start px-3.5 h-10 gap-3'
@@ -132,7 +132,7 @@ const isExpanded = ref(true);
       </button>
       <button
         type="button"
-        class="inline-flex items-center rounded-xl bg-transparent text-white/65 in-[.light-mode]:text-black/65 leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white in-[.light-mode]:hover:text-black aria-pressed:bg-accent aria-pressed:text-black"
+        class="inline-flex items-center rounded-lg bg-transparent text-white/65 in-[.light-mode]:text-black/65 leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white in-[.light-mode]:hover:text-black aria-pressed:bg-accent aria-pressed:text-black"
         :class="
           isExpanded
             ? 'w-full flex-row justify-start px-3.5 h-10 gap-3'

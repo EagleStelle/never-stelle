@@ -94,7 +94,7 @@ const handleOpenChange = (isOpen: boolean) => {
   >
     <ComboboxAnchor
       :class="[
-        'relative inline-flex items-center rounded-xl glass-soft focus-within:ring-2 focus-within:ring-accent h-10 transition-all duration-300 ease-glass',
+        'relative inline-flex items-center rounded-lg glass-soft focus-within:ring-2 focus-within:ring-accent h-10 transition-all duration-300 ease-glass',
         props.class,
       ]"
     >
@@ -102,7 +102,7 @@ const handleOpenChange = (isOpen: boolean) => {
         <img
           v-if="activeItem?.iconUrl"
           :src="activeItem.iconUrl"
-          class="w-4 h-4 shrink-0 rounded-sm"
+          class="w-4 h-4 shrink-0 rounded-lg"
           alt=""
           aria-hidden="true"
         />
@@ -114,7 +114,7 @@ const handleOpenChange = (isOpen: boolean) => {
         />
         <span
           v-else-if="activeItem?.initials"
-          class="inline-flex h-5 min-w-5 items-center justify-center rounded glass-soft px-1 text-[0.65rem] font-semibold text-white [.light-mode_&]:text-black"
+          class="inline-flex h-5 min-w-5 items-center justify-center rounded-lg glass-soft px-1 text-[0.65rem] font-semibold text-white [.light-mode_&]:text-black"
         >
           {{ activeItem.initials }}
         </span>
@@ -132,7 +132,7 @@ const handleOpenChange = (isOpen: boolean) => {
 
     <ComboboxPortal>
       <ComboboxContent
-        class="z-50 min-w-[160px] glass-chrome rounded-xl overflow-hidden"
+        class="z-50 min-w-[160px] glass-chrome rounded-lg overflow-hidden"
         position="popper"
         :side-offset="6"
       >
@@ -145,7 +145,7 @@ const handleOpenChange = (isOpen: boolean) => {
             v-for="item in filteredItems"
             :key="item.key"
             :value="item"
-            class="glass-option relative flex w-full cursor-pointer select-none items-center rounded-md py-2 pl-8 pr-2 text-sm outline-none text-white [.light-mode_&]:text-black transition-all duration-300 ease-glass"
+            class="glass-option relative flex w-full cursor-pointer select-none items-center rounded-lg py-2 pl-8 pr-2 text-sm outline-none text-white [.light-mode_&]:text-black transition-all duration-300 ease-glass"
           >
             <ComboboxItemIndicator
               class="absolute left-2 flex h-4 w-4 items-center justify-center"
@@ -157,7 +157,7 @@ const handleOpenChange = (isOpen: boolean) => {
               <img
                 v-if="item.iconUrl"
                 :src="item.iconUrl"
-                class="w-4 h-4 shrink-0 rounded-sm"
+                class="w-4 h-4 shrink-0 rounded-lg"
                 alt=""
                 aria-hidden="true"
               />

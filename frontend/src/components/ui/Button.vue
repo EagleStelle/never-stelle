@@ -22,8 +22,8 @@ const SIZE_CLASS: Record<Size, { base: string; pad: string; square: string }> =
   {
     xs: { base: "h-7 text-xs rounded-lg", pad: "px-2.5", square: "w-7" },
     sm: { base: "h-8 text-xs rounded-lg", pad: "px-3", square: "w-8" },
-    md: { base: "h-9 text-sm rounded-xl", pad: "px-4", square: "w-9" },
-    lg: { base: "h-10 text-sm rounded-xl", pad: "px-5", square: "w-10" },
+    md: { base: "h-9 text-sm rounded-lg", pad: "px-4", square: "w-9" },
+    lg: { base: "h-10 text-sm rounded-lg", pad: "px-5", square: "w-10" },
   };
 
 const slots = useSlots();

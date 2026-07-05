@@ -64,7 +64,7 @@ const {
     class="w-full max-w-full h-dvh overflow-hidden bg-primary text-white [.light-mode_&]:text-black lg:flex"
   >
     <a
-      class="sr-only focus:not-sr-only focus:fixed focus:z-50 focus:top-2 focus:left-2 rounded-xl glass-chrome text-white [.light-mode_&]:text-black px-3 py-2 transition-transform duration-300 ease-glass"
+      class="sr-only focus:not-sr-only focus:fixed focus:z-50 focus:top-2 focus:left-2 rounded-lg glass-chrome text-white [.light-mode_&]:text-black px-3 py-2 transition-transform duration-300 ease-glass"
       href="#mainContent"
       >Skip to content</a
     >

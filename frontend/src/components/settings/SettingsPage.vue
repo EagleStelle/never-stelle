@@ -134,7 +134,7 @@ function connectNew(): void {
         <TabsTrigger
           v-for="item in SETTINGS_SECTIONS"
           :key="item.key"
-          class="settings-tab-trigger glass-selected inline-flex items-center justify-center gap-1.5 min-h-9 px-3.5 flex-none rounded-xl glass-soft glass-hoverable text-white [.light-mode_&]:text-black leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white [.light-mode_&]:hover:text-black md:w-full md:justify-start"
+          class="settings-tab-trigger glass-selected inline-flex items-center justify-center gap-1.5 min-h-9 px-3.5 flex-none rounded-lg glass-soft glass-hoverable text-white [.light-mode_&]:text-black leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white [.light-mode_&]:hover:text-black md:w-full md:justify-start"
           :value="item.key"
           @click="selectSection(item.key)"
         >
@@ -146,7 +146,7 @@ function connectNew(): void {
         <TabsContent value="downloads" class="min-h-full focus:outline-none">
           <p
             v-if="sourceProfiles.length === 0"
-            class="rounded-xl glass p-4 text-white [.light-mode_&]:text-black"
+            class="rounded-lg glass p-4 text-white [.light-mode_&]:text-black"
           >
             No sources yet.
           </p>
@@ -219,7 +219,7 @@ function connectNew(): void {
           </div>
           <p
             v-if="sourceProfiles.length === 0"
-            class="rounded-xl glass p-4 text-white [.light-mode_&]:text-black"
+            class="rounded-lg glass p-4 text-white [.light-mode_&]:text-black"
           >
             No sources yet.
           </p>
@@ -300,7 +300,7 @@ function connectNew(): void {
         >
           <p
             v-if="sourceProfiles.length === 0"
-            class="rounded-xl glass p-4 text-white [.light-mode_&]:text-black"
+            class="rounded-lg glass p-4 text-white [.light-mode_&]:text-black"
           >
             No sources yet.
           </p>
@@ -331,7 +331,7 @@ function connectNew(): void {
         >
           <p
             v-if="sourceProfiles.length === 0"
-            class="rounded-xl glass p-4 text-white [.light-mode_&]:text-black"
+            class="rounded-lg glass p-4 text-white [.light-mode_&]:text-black"
           >
             No sources yet.
           </p>
@@ -360,7 +360,7 @@ function connectNew(): void {
     </TabsRoot>
 
     <footer
-      class="shrink-0 mt-6 flex items-center justify-end gap-2 rounded-xl glass p-3"
+      class="shrink-0 mt-6 flex items-center justify-end gap-2 rounded-lg glass p-3"
     >
       <Button variant="primary" size="md" type="button" @click="emit('save')">
         Save Settings
