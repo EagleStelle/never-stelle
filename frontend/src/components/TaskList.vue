@@ -2,8 +2,17 @@
 import IconDownload from "~icons/material-symbols/download";
 import IconSpinner from "~icons/material-symbols/sync";
 import IconX from "~icons/material-symbols/close";
+import { reactive } from "vue";
 
 import Button from "./ui/Button.vue";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "./ui/table";
 
 import type { MenuKey, SourceProfile, TaskItem, ViewMode } from "../types";
 import {
@@ -113,6 +122,22 @@ function getStatusBadgeClass(status: string): string {
 function getSiteBadgeClass(): string {
   return " bg-secondary text-white [.light-mode_&]:text-black";
 }
+
+const expandedFolders = reactive(new Set<string>());
+const expandedFilenames = reactive(new Set<string>());
+
+function rowBackgroundStyle(task: TaskItem) {
+  if (task.status === "failed") {
+    return { background: "color-mix(in srgb, var(--color-red-500) 20%, transparent)" };
+  }
+  const pct = progressPct(task);
+  if (task.status === "running" || (pct > 0 && pct < 100)) {
+    return {
+      background: `linear-gradient(to right, color-mix(in srgb, var(--accent) 20%, transparent) ${pct}%, transparent ${pct}%)`
+    };
+  }
+  return {};
+}
 </script>
 
 <template>
@@ -136,43 +161,44 @@ function getSiteBadgeClass(): string {
       {{ props.errorMessage }}
     </div>
 
-    <div
-      v-else-if="viewMode === 'table'"
-      class="w-full overflow-auto rounded-2xl glass"
-    >
-      <table
-        class="w-full min-w-full border-separate border-spacing-0 overflow-hidden text-left rounded-2xl"
-      >
-        <thead>
-          <tr>
-            <th>Site</th>
-            <th>Source</th>
-            <th>Folder</th>
-            <th>Filename</th>
-            <th>Status</th>
-            <th>Progress</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="task in props.tasks" :key="task.vid">
-            <td>
-              <span
-                class="inline-flex max-w-full items-center gap-1.5 rounded-full px-2 py-1 tracking-wide leading-none uppercase"
-                :class="getSiteBadgeClass()"
-              >
+    <Table v-else-if="viewMode === 'table'">
+      <TableHeader>
+        <TableRow>
+          <TableHead class="w-px whitespace-nowrap">Source</TableHead>
+          <TableHead class="w-px whitespace-nowrap">Folder</TableHead>
+          <TableHead class="w-px whitespace-nowrap">Filename</TableHead>
+          <TableHead class="w-px"></TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        <TableRow v-for="task in props.tasks" :key="task.vid" :style="rowBackgroundStyle(task)">
+          <TableCell class="w-px max-w-[12rem] sm:max-w-[18rem] lg:max-w-[24rem]">
+            <div class="flex flex-col gap-1.5">
+              <div class="flex items-center gap-2">
                 <img
                   v-if="sourceIconUrl(task)"
                   :src="sourceIconUrl(task)"
-                  class="h-3.5 w-3.5 rounded-sm"
+                  class="h-4 w-4 rounded-sm shrink-0"
                   alt=""
                   aria-hidden="true"
                 />
-                {{ sourceLabel(task) }}
-              </span>
+                <a
+                  v-if="sourceLink(task)"
+                  :href="sourceLink(task)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="truncate block max-w-[12rem] md:max-w-[20rem] text-white [.light-mode_&]:text-black underline decoration-dotted underline-offset-2 hover:decoration-solid min-w-0"
+                  :title="task.source_url"
+                >
+                  {{ task.source_url }}
+                </a>
+                <div v-else class="truncate block max-w-[12rem] md:max-w-[20rem] text-white [.light-mode_&]:text-black min-w-0" :title="task.source_url || task.vid">
+                  {{ task.source_url || task.vid }}
+                </div>
+              </div>
               <form
                 v-if="task.source_pending"
-                class="mt-1.5 flex items-center gap-1.5"
+                class="flex items-center gap-1.5"
                 @submit.prevent="submitSource(task, $event)"
               >
                 <input
@@ -196,68 +222,51 @@ function getSiteBadgeClass(): string {
                   Set
                 </Button>
               </form>
-            </td>
-            <td>
-              <a
-                v-if="sourceLink(task)"
-                :href="sourceLink(task)"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="wrap-break-word text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
-              >
-                {{ task.source_url }}
-              </a>
-              <div v-else class="wrap-break-word">
-                {{ task.source_url || task.vid }}
-              </div>
-            </td>
-            <td class="text-white [.light-mode_&]:text-black">
+            </div>
+          </TableCell>
+          <TableCell class="w-px max-w-[10rem] md:max-w-[15rem] lg:max-w-[20rem] cursor-pointer" @click="expandedFolders.has(task.vid) ? expandedFolders.delete(task.vid) : expandedFolders.add(task.vid)">
+            <div :class="['text-white [.light-mode_&]:text-black', expandedFolders.has(task.vid) ? 'break-all whitespace-normal' : 'truncate']" :title="task.resolved_folder">
               {{ task.resolved_folder }}
-            </td>
-            <td>{{ task.resolved_filename }}</td>
-            <td>
-              <span
-                class="inline-flex max-w-full items-center rounded-full px-2 py-1 tracking-wide leading-none uppercase"
-                :class="getStatusBadgeClass(task.status)"
+            </div>
+          </TableCell>
+          <TableCell class="w-full max-w-[0] cursor-pointer" @click="expandedFilenames.has(task.vid) ? expandedFilenames.delete(task.vid) : expandedFilenames.add(task.vid)">
+            <div :class="expandedFilenames.has(task.vid) ? 'break-all whitespace-normal' : 'truncate'" :title="task.resolved_filename">
+              {{ task.resolved_filename }}
+            </div>
+          </TableCell>
+          <TableCell class="w-px">
+            <div class="flex items-center justify-end gap-1.5">
+              <Button
+                v-if="task.can_download && task.status !== 'failed'"
+                variant="primary"
+                size="sm"
+                type="button"
+                aria-label="Download file"
+                title="Download file"
+                @click="emit('download', task.vid)"
               >
-                {{ task.status_label }}
-              </span>
-            </td>
-            <td>{{ progressPct(task) }}%</td>
-            <td>
-              <div class="flex items-center gap-1.5">
-                <Button
-                  v-if="task.can_download && task.status !== 'failed'"
-                  variant="primary"
-                  size="sm"
-                  type="button"
-                  aria-label="Download file"
-                  title="Download file"
-                  @click="emit('download', task.vid)"
-                >
-                  <template #icon>
-                    <IconDownload aria-hidden="true" />
-                  </template>
-                </Button>
-                <Button
-                  v-if="task.can_remove && task.status !== 'running'"
-                  variant="danger"
-                  size="sm"
-                  type="button"
-                  aria-label="Remove task from the list"
-                  title="Remove task from the list"
-                  @click="emit('remove', task.vid)"
-                >
-                  <template #icon>
-                    <IconX aria-hidden="true" />
-                  </template>
-                </Button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+                <template #icon>
+                  <IconDownload aria-hidden="true" />
+                </template>
+              </Button>
+              <Button
+                v-if="task.can_remove && task.status !== 'running'"
+                variant="danger"
+                size="sm"
+                type="button"
+                aria-label="Remove task from the list"
+                title="Remove task from the list"
+                @click="emit('remove', task.vid)"
+              >
+                <template #icon>
+                  <IconX aria-hidden="true" />
+                </template>
+              </Button>
+            </div>
+          </TableCell>
+        </TableRow>
+      </TableBody>
+    </Table>
 
     <template v-else>
       <article
