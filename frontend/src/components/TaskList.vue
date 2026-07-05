@@ -24,10 +24,25 @@ const props = defineProps<{
 const emit = defineEmits<{
   download: [taskId: string];
   remove: [taskId: string];
+  "set-source": [payload: { taskId: string; sourceKey: string }];
 }>();
 
 function progressPct(task: TaskItem): number {
   return Math.max(0, Math.min(100, Number(task.progress_pct) || 0));
+}
+
+function pickSource(task: TaskItem, sourceKey: string): void {
+  const value = String(sourceKey || "").trim();
+  if (value) emit("set-source", { taskId: task.vid, sourceKey: value });
+}
+
+function submitSource(task: TaskItem, event: Event): void {
+  const form = event.target as HTMLFormElement;
+  const input = form.elements.namedItem("source") as HTMLInputElement | null;
+  const value = String(input?.value || "").trim();
+  if (!value) return;
+  pickSource(task, value);
+  if (input) input.value = "";
 }
 
 function cardTitle(task: TaskItem): string {
@@ -42,6 +57,11 @@ function cardTitle(task: TaskItem): string {
 
 function cardDetail(task: TaskItem): string {
   return String(task.source_url || task.vid || "").trim();
+}
+
+function sourceLink(task: TaskItem): string {
+  const url = String(task.source_url || "").trim();
+  return /^https?:\/\//i.test(url) ? url : "";
 }
 
 function sourceProfileFor(task: TaskItem): SourceProfile | undefined {
@@ -83,7 +103,8 @@ function getStatusBadgeClass(status: string): string {
     return " bg-amber-600 text-white [.light-mode_&]:bg-amber-400 [.light-mode_&]:text-black";
   if (status === "running") return " bg-accent text-black";
   if (status === "completed") return " bg-accent text-black";
-  if (status === "failed") return " bg-red-600 text-white [.light-mode_&]:bg-red-500 [.light-mode_&]:text-black";
+  if (status === "failed")
+    return " bg-red-600 text-white [.light-mode_&]:bg-red-500 [.light-mode_&]:text-black";
   return " bg-secondary text-white [.light-mode_&]:text-black";
 }
 
@@ -147,13 +168,53 @@ function getSiteBadgeClass(): string {
                 />
                 {{ sourceLabel(task) }}
               </span>
+              <form
+                v-if="task.source_pending"
+                class="mt-1.5 flex items-center gap-1.5"
+                @submit.prevent="submitSource(task, $event)"
+              >
+                <input
+                  :list="`sources-row-${task.vid}`"
+                  name="source"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="set source"
+                  class="w-24 min-w-0 rounded-lg glass-soft px-2 py-1 text-[0.7rem] leading-none text-white [.light-mode_&]:text-black outline-none focus:ring-2 focus:ring-accent"
+                />
+                <datalist :id="`sources-row-${task.vid}`">
+                  <option
+                    v-for="profile in props.sourceProfiles || []"
+                    :key="profile.key"
+                    :value="profile.key"
+                  >
+                    {{ profile.label }}
+                  </option>
+                </datalist>
+                <button
+                  type="submit"
+                  class="rounded-lg glass-primary px-2 py-1 text-[0.7rem] leading-none transition-all duration-300 ease-glass active:scale-[0.96]"
+                >
+                  Set
+                </button>
+              </form>
             </td>
             <td>
-              <div class="wrap-break-word">
+              <a
+                v-if="sourceLink(task)"
+                :href="sourceLink(task)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="wrap-break-word text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
+              >
+                {{ task.source_url }}
+              </a>
+              <div v-else class="wrap-break-word">
                 {{ task.source_url || task.vid }}
               </div>
             </td>
-            <td class="text-white [.light-mode_&]:text-black">{{ task.resolved_folder }}</td>
+            <td class="text-white [.light-mode_&]:text-black">
+              {{ task.resolved_folder }}
+            </td>
             <td>{{ task.resolved_filename }}</td>
             <td>
               <span
@@ -213,7 +274,19 @@ function getSiteBadgeClass(): string {
               />
               {{ cardTitle(task) }}
             </h3>
-            <div class="mt-2 break-all text-white [.light-mode_&]:text-black text-[0.8rem] font-mono">
+            <a
+              v-if="sourceLink(task)"
+              :href="sourceLink(task)"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="mt-2 block break-all text-accent text-[0.8rem] font-mono underline decoration-dotted underline-offset-2 hover:decoration-solid"
+            >
+              {{ cardDetail(task) }}
+            </a>
+            <div
+              v-else
+              class="mt-2 break-all text-white [.light-mode_&]:text-black text-[0.8rem] font-mono"
+            >
               {{ cardDetail(task) }}
             </div>
             <div
@@ -248,6 +321,54 @@ function getSiteBadgeClass(): string {
           </div>
 
           <div
+            v-if="task.source_pending"
+            class="col-span-full flex flex-col gap-2 rounded-xl glass-soft p-3"
+          >
+            <span class="text-[0.8rem] text-white [.light-mode_&]:text-black">
+              Unknown source — pick or type:
+            </span>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button
+                v-for="candidate in task.source_candidates || []"
+                :key="candidate"
+                type="button"
+                class="rounded-full glass-soft glass-hoverable px-2.5 py-1 text-[0.75rem] leading-none text-white [.light-mode_&]:text-black transition-all duration-300 ease-glass active:scale-[0.96]"
+                @click="pickSource(task, candidate)"
+              >
+                {{ sourceLabelFromKey(candidate) }}
+              </button>
+              <form
+                class="flex items-center gap-1.5"
+                @submit.prevent="submitSource(task, $event)"
+              >
+                <input
+                  :list="`sources-${task.vid}`"
+                  name="source"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="e.g. youtube"
+                  class="w-28 min-w-0 rounded-lg glass-soft px-2 py-1 text-[0.75rem] leading-none text-white [.light-mode_&]:text-black outline-none focus:ring-2 focus:ring-accent"
+                />
+                <datalist :id="`sources-${task.vid}`">
+                  <option
+                    v-for="profile in props.sourceProfiles || []"
+                    :key="profile.key"
+                    :value="profile.key"
+                  >
+                    {{ profile.label }}
+                  </option>
+                </datalist>
+                <button
+                  type="submit"
+                  class="rounded-lg glass-primary px-2.5 py-1 text-[0.75rem] leading-none transition-all duration-300 ease-glass active:scale-[0.96]"
+                >
+                  Set
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <div
             class="col-span-full grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-4"
           >
             <div class="h-1.5 overflow-hidden rounded-full bg-secondary">
@@ -256,7 +377,8 @@ function getSiteBadgeClass(): string {
                 :style="{ width: `${progressPct(task)}%` }"
               ></div>
             </div>
-            <span class="text-right tabular-nums text-white [.light-mode_&]:text-black"
+            <span
+              class="text-right tabular-nums text-white [.light-mode_&]:text-black"
               >{{ progressPct(task) }}%</span
             >
           </div>

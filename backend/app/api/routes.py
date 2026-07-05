@@ -23,6 +23,7 @@ from backend.app.services.tasks import (
     remove_pending_task,
     resolve_task_file,
     scan_media_library,
+    set_task_source,
 )
 
 router = APIRouter()
@@ -38,6 +39,10 @@ class SettingsPayload(BaseModel):
 class AddTaskPayload(BaseModel):
     url: str = ""
     site_locations: dict[str, str] = Field(default_factory=dict)
+
+
+class SetSourcePayload(BaseModel):
+    source_key: str = ""
 
 
 @router.get("/health")
@@ -146,6 +151,17 @@ def delete_task(task_id: str) -> Response:
     except PermissionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(status_code=204)
+
+
+@router.patch("/tasks/{task_id}/source")
+def update_task_source(task_id: str, payload: SetSourcePayload) -> dict[str, str]:
+    if not payload.source_key.strip():
+        raise HTTPException(status_code=400, detail="Choose or type a source.")
+    try:
+        source_key = set_task_source(task_id, payload.source_key)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"source_key": source_key}
 
 
 @router.get("/tasks/{task_id}/file")

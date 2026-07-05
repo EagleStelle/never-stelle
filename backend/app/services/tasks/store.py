@@ -8,9 +8,11 @@ from backend.app.db.repositories import (
     delete_task_row,
     delete_task_row_if_status,
     load_history_payload,
+    load_learned_formats_payload,
     load_task_store_payload,
     merge_task_payload,
     save_history_row,
+    save_learned_formats_payload,
 )
 
 
@@ -36,6 +38,14 @@ def load_history() -> dict[str, Any]:
 
 def save_history_entry_row(task_id: str, entry: dict[str, Any]) -> None:
     save_history_row(task_id, entry)
+
+
+def load_learned_formats() -> dict[str, Any]:
+    return load_learned_formats_payload()
+
+
+def save_learned_formats(payload: dict[str, Any]) -> None:
+    save_learned_formats_payload(payload)
 
 
 def update_task(task_id: str, **updates: Any) -> dict[str, Any]:

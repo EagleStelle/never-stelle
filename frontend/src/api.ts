@@ -97,6 +97,18 @@ export async function removeTask(taskId: string): Promise<void> {
   throw new Error(await readError(response, "Could not remove task."));
 }
 
+export function setTaskSource(taskId: string, sourceKey: string): Promise<{ source_key: string }> {
+  return jsonRequest<{ source_key: string }>(
+    `/api/tasks/${encodeURIComponent(taskId)}/source`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source_key: sourceKey }),
+    },
+    "Could not set source.",
+  );
+}
+
 export function clearPendingTasks(): Promise<ClearTasksResponse> {
   return jsonRequest<ClearTasksResponse>(
     "/api/tasks/clear-pending",

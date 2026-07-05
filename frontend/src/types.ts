@@ -76,6 +76,8 @@ export interface TaskItem {
   can_remove: boolean;
   task_type: string;
   source_key: string;
+  source_pending?: boolean;
+  source_candidates?: string[];
   error: string;
   can_download: boolean;
 }

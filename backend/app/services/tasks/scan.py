@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import discover_volume_roots
-from backend.app.core.sources import FALLBACK_SOURCE_KEY
+from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key
 from backend.app.db.database import utc_now
 
 from .files import is_media_file, recover_task_path
+from .formats import conflicts_with_source, guess_sources, reconstruct_url
 from .store import (
     load_history,
+    load_learned_formats,
     load_task_store,
     remove_history_record,
     remove_task_record,
@@ -158,6 +160,50 @@ def _known_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], set[str]
     return paths, media_ids
 
 
+def _scan_location_map() -> dict[str, str]:
+    # Lazy import so a settings failure degrades to id-only inference, not a crash.
+    try:
+        from backend.app.core.config import load_app_config
+        from backend.app.services.settings import get_effective_saved_settings
+
+        locations = get_effective_saved_settings(load_app_config()).get("site_locations")
+        return locations if isinstance(locations, dict) else {}
+    except Exception:
+        return {}
+
+
+def _source_location_index(locations: dict[str, str]) -> list[tuple[str, str]]:
+    # Only folders owned by exactly one non-fallback source carry a usable signal.
+    owners: dict[str, set[str]] = {}
+    for raw_key, folder in (locations or {}).items():
+        key = normalize_source_key(raw_key)
+        if key == FALLBACK_SOURCE_KEY or not str(folder or "").strip():
+            continue
+        owners.setdefault(_path_key(folder), set()).add(key)
+    return [(folder, next(iter(keys))) for folder, keys in owners.items() if len(keys) == 1]
+
+
+def _source_from_path(path: Path, location_index: list[tuple[str, str]]) -> str:
+    path_key = _path_key(path)
+    for folder, key in location_index:
+        if path_key == folder or path_key.startswith(f"{folder}{os.sep}"):
+            return key
+    return ""
+
+
+def infer_disk_source(
+    path: Path, media_id: str, location_index: list[tuple[str, str]], learned: dict[str, Any]
+) -> tuple[str, bool, list[str]]:
+    # Confidence order: folder, then a single learned id match, else pending for the user.
+    from_path = _source_from_path(path, location_index)
+    if from_path and not conflicts_with_source(learned, from_path, media_id):
+        return from_path, False, []
+    candidates = guess_sources(learned, media_id)
+    if len(candidates) == 1:
+        return normalize_source_key(candidates[0]), False, candidates
+    return FALLBACK_SOURCE_KEY, True, candidates
+
+
 def _completed_at_from_file(path: Path) -> str:
     try:
         return datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat()
@@ -169,6 +215,8 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
     """Reconcile completed history with media files already present on disk."""
     checked, missing = _drop_missing_records(_completed_records())
     known_paths, known_media_ids = _known_media(_completed_records())
+    location_index = _source_location_index(_scan_location_map())
+    learned = load_learned_formats()
 
     added = 0
     for root, path in _iter_media_files(_iter_scan_roots(roots)):
@@ -184,14 +232,19 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
             file_size = path.stat().st_size
         except Exception:
             file_size = 0
+        source_key, source_pending, source_candidates = infer_disk_source(
+            path, media_id, location_index, learned
+        )
         save_history_entry_row(
             task_id,
             {
                 "task_id": task_id,
                 "media_id": media_id,
-                "source_url": "",
+                "source_url": reconstruct_url(learned, source_key, media_id),
                 "task_type": "disk",
-                "source_key": FALLBACK_SOURCE_KEY,
+                "source_key": source_key,
+                "source_pending": source_pending,
+                "source_candidates": source_candidates,
                 "resolved_folder": str(path.parent),
                 "resolved_filename": path.name,
                 "resolved_full_path": str(path),

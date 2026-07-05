@@ -16,6 +16,7 @@ defineProps<{
 const emit = defineEmits<{
   download: [taskId: string];
   remove: [taskId: string];
+  "set-source": [payload: { taskId: string; sourceKey: string }];
 }>();
 </script>
 
@@ -32,6 +33,7 @@ const emit = defineEmits<{
       :error-message="errorMessage"
       @download="emit('download', $event)"
       @remove="emit('remove', $event)"
+      @set-source="emit('set-source', $event)"
     />
   </section>
 </template>

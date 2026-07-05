@@ -42,6 +42,7 @@ const {
   savedSettings,
   setActiveMenu,
   setActivePage,
+  setTaskSource,
   setViewMode,
   settings,
   settingsDraft,
@@ -58,7 +59,9 @@ const {
 </script>
 
 <template>
-  <div class="w-full max-w-full h-dvh overflow-hidden bg-primary text-white [.light-mode_&]:text-black lg:flex">
+  <div
+    class="w-full max-w-full h-dvh overflow-hidden bg-primary text-white [.light-mode_&]:text-black lg:flex"
+  >
     <a
       class="sr-only focus:not-sr-only focus:fixed focus:z-50 focus:top-2 focus:left-2 rounded-xl glass-chrome text-white [.light-mode_&]:text-black px-3 py-2 transition-transform duration-300 ease-glass"
       href="#mainContent"
@@ -93,10 +96,14 @@ const {
         <template v-else-if="activePage === 'history'">
           <section aria-label="Search history" class="mb-2">
             <div class="flex items-center gap-2">
-              <InputBar class="flex-1 min-w-0" type="text" placeholder="Search history...">
-              <template #icon>
-                <IconSearch class="w-5 h-5" aria-hidden="true" />
-              </template>
+              <InputBar
+                class="flex-1 min-w-0"
+                type="text"
+                placeholder="Search history..."
+              >
+                <template #icon>
+                  <IconSearch class="w-5 h-5" aria-hidden="true" />
+                </template>
               </InputBar>
               <button
                 type="button"
@@ -164,6 +171,7 @@ const {
             @clear-pending="clearPending"
             @download="downloadTask"
             @remove="removeTask"
+            @set-source="setTaskSource"
             @set-view-mode="setViewMode"
           />
         </template>
@@ -181,6 +189,7 @@ const {
             @clear-pending="clearPending"
             @download="downloadTask"
             @remove="removeTask"
+            @set-source="setTaskSource"
             @set-view-mode="setViewMode"
           />
         </template>

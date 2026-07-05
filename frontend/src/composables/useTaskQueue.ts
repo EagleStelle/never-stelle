@@ -9,6 +9,7 @@ import {
   getTasks,
   removeTask as removeTaskRequest,
   scanMediaLibrary,
+  setTaskSource as setTaskSourceRequest,
 } from "../api";
 import { POLL_PENDING_MS, POLL_RUNNING_MS, TASKS_QUERY_KEY } from "../ui";
 import type { SavedSettings, TaskItem, TasksResponse, ToastType } from "../types";
@@ -31,6 +32,10 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
   });
   const addTaskMutation = useMutation({ mutationFn: createTask });
   const scanMediaMutation = useMutation({ mutationFn: scanMediaLibrary });
+  const setSourceMutation = useMutation({
+    mutationFn: (payload: { taskId: string; sourceKey: string }) =>
+      setTaskSourceRequest(payload.taskId, payload.sourceKey),
+  });
 
   const rawTasks = computed(() => tasksQuery.data.value?.tasks || []);
   const taskItems = computed(() => mergeTaskData(rawTasks.value));
@@ -140,6 +145,18 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     }
   }
 
+  async function setTaskSource(payload: { taskId: string; sourceKey: string }): Promise<void> {
+    const sourceKey = payload.sourceKey.trim();
+    if (!sourceKey) return;
+    try {
+      await setSourceMutation.mutateAsync({ taskId: payload.taskId, sourceKey });
+      toast("Source updated.");
+      await loadTasks(true);
+    } catch (error) {
+      toast(errorMessage(error, "Could not set source."), "error");
+    }
+  }
+
   async function clearPending(): Promise<void> {
     try {
       const data = await clearPendingTasks();
@@ -192,6 +209,7 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     historyRefreshing,
     refreshHistory,
     removeTask,
+    setTaskSource,
     taskItems,
     tasksErrorMessage,
     tasksLoading,

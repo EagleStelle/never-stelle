@@ -40,6 +40,8 @@ def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
         "can_remove": status in {"pending", "failed"},
         "task_type": "ytdlp",
         "source_key": source_key,
+        "source_pending": bool(task.get("source_pending")),
+        "source_candidates": list(task.get("source_candidates") or []),
         "error": str(task.get("error") or ""),
         "can_download": can_download,
     }
@@ -51,6 +53,8 @@ def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "status": "completed",
         "progress_pct": 100,
         "source_key": entry.get("source_key", ""),
+        "source_pending": entry.get("source_pending", False),
+        "source_candidates": entry.get("source_candidates", []),
         "resolved_folder": entry.get("resolved_folder", ""),
         "resolved_filename": entry.get("resolved_filename", ""),
         "resolved_full_path": entry.get("resolved_full_path", ""),

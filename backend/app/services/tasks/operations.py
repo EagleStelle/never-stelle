@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import is_allowed_location, load_app_config
+from backend.app.core.sources import normalize_source_key
 from backend.app.services.settings import (
     get_effective_saved_settings,
     get_source_profile_for_url,
@@ -13,9 +14,16 @@ from backend.app.services.settings import (
 )
 
 from .files import recover_task_path
+from .formats import reconstruct_url
 from .history import find_active_by_source, find_history_by_id, find_history_by_source
 from .serializers import fetch_tasks, history_to_api, task_to_api
-from .store import load_task_store, remove_task_record_if_status, update_task
+from .store import (
+    load_learned_formats,
+    load_task_store,
+    remove_task_record_if_status,
+    save_history_entry_row,
+    update_task,
+)
 from .urls import canonicalize_source_url
 from .worker import _worker_wakeup, ensure_worker
 from .ytdlp import build_output_template
@@ -94,6 +102,25 @@ def clear_pending_tasks() -> dict[str, Any]:
         if remove_task_record_if_status(task["vid"], {"pending", "failed"}):
             cleared += 1
     return {"cleared": cleared, "failed": []}
+
+
+def set_task_source(task_id: str, source_key: str) -> str:
+    key = normalize_source_key(source_key)
+    task = (load_task_store().get("tasks") or {}).get(task_id)
+    if task:
+        update_task(task_id, source_key=key, source_pending=False)
+        return key
+    entry = find_history_by_id(task_id)
+    if entry:
+        updated = dict(entry)
+        updated["source_key"] = key
+        updated["source_pending"] = False
+        # Rebuild a link now the source is known, but never clobber a real one.
+        if not str(updated.get("source_url") or "").strip():
+            updated["source_url"] = reconstruct_url(load_learned_formats(), key, str(updated.get("media_id") or ""))
+        save_history_entry_row(task_id, updated)
+        return key
+    raise FileNotFoundError("Task was not found.")
 
 
 def resolve_task_file(task_id: str) -> tuple[Path, str]:

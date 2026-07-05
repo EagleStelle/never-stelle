@@ -5,6 +5,12 @@ from pathlib import Path
 import pytest
 
 import backend.app.services.tasks.scan as scan_module
+from backend.app.services.tasks.formats import (
+    conflicts_with_source,
+    guess_sources,
+    learn_download,
+    reconstruct_url,
+)
 from backend.app.services.tasks import (
     canonicalize_source_url,
     convert_template_to_ytdlp,
@@ -118,6 +124,7 @@ def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkey
     saved: dict[str, dict] = {}
     monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
     monkeypatch.setattr(
         scan_module,
         "save_history_entry_row",
@@ -132,6 +139,158 @@ def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkey
     assert saved["disk:abc123"]["resolved_full_path"] == str(media_file)
     assert saved["disk:abc123"]["resolved_filename"] == media_file.name
     assert saved["disk:abc123"]["source_key"] == "others"
+
+
+def _learned_youtube_twitter() -> dict:
+    learned = learn_download({}, "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ")
+    learned = learn_download(learned, "https://www.youtube.com/watch?v=Tz-E6i7Mylc", "Tz-E6i7Mylc")
+    return learn_download(learned, "https://twitter.com/DohaVT/status/2073635724684054528", "2073635724684054528")
+
+
+def test_learn_download_derives_url_template():
+    assert _learned_youtube_twitter()["youtube"]["template"] == "https://www.youtube.com/watch?v={id}"
+
+
+def test_learn_download_generalizes_variable_segment():
+    learned = learn_download({}, "https://twitter.com/DohaVT/status/2073635724684054528", "2073635724684054528")
+    learned = learn_download(learned, "https://twitter.com/Other/status/1111111111111111111", "1111111111111111111")
+    assert "{var}" in learned["twitter"]["template"]
+
+
+def test_learn_download_ignores_unknown_host():
+    assert learn_download({}, "not a url", "abc123") == {}
+
+
+def test_guess_sources_uses_learned_signatures():
+    learned = _learned_youtube_twitter()
+    assert guess_sources(learned, "kZ0vN9pLm-Q") == ["youtube"]
+    assert guess_sources(learned, "2073635724684054528") == ["twitter"]
+
+
+@pytest.mark.parametrize(
+    "media_id,source_key,expected",
+    [
+        ("2073635724684054528", "youtube", True),
+        ("2073635724684054528", "twitter", False),
+        ("kZ0vN9pLm-Q", "youtube", False),
+        ("kZ0vN9pLm-Q", "twitter", True),
+        ("anything", "unlearnedsite", False),
+    ],
+)
+def test_conflicts_with_source(media_id, source_key, expected):
+    assert conflicts_with_source(_learned_youtube_twitter(), source_key, media_id) is expected
+
+
+@pytest.mark.parametrize(
+    "source_key,media_id,expected",
+    [
+        ("youtube", "newid1234567", "https://www.youtube.com/watch?v=newid1234567"),
+        ("tiktok", "123", ""),
+        ("youtube", "", ""),
+    ],
+)
+def test_reconstruct_url_from_learned(source_key, media_id, expected):
+    assert reconstruct_url(_learned_youtube_twitter(), source_key, media_id) == expected
+
+
+def test_infer_disk_source_vetoes_folder_then_uses_learned_guess(tmp_path: Path):
+    folder = tmp_path / "yt"
+    folder.mkdir()
+    media_file = folder / "DOHA - DOHA - Squishy cheeks [2073635724684054528].mp4"
+    media_file.write_bytes(b"video")
+    index = scan_module._source_location_index({"youtube": str(folder)})
+
+    source_key, pending, _ = scan_module.infer_disk_source(
+        media_file, "2073635724684054528", index, _learned_youtube_twitter()
+    )
+
+    assert source_key == "twitter"
+    assert pending is False
+
+
+def test_infer_disk_source_ambiguous_when_multiple_learned_match(tmp_path: Path):
+    media_file = tmp_path / "Clip [1111111111111111111].mp4"
+    media_file.write_bytes(b"video")
+    learned = learn_download({}, "https://twitter.com/A/status/2073635724684054528", "2073635724684054528")
+    learned = learn_download(learned, "https://www.tiktok.com/@a/video/7123456789012345678", "7123456789012345678")
+
+    source_key, pending, candidates = scan_module.infer_disk_source(
+        media_file, "1111111111111111111", [], learned
+    )
+
+    assert source_key == "others"
+    assert pending is True
+    assert set(candidates) == {"twitter", "tiktok"}
+
+
+def test_infer_disk_source_prefers_configured_folder(tmp_path: Path):
+    folder = tmp_path / "yt"
+    folder.mkdir()
+    media_file = folder / "Clip [dQw4w9WgXcQ].mp4"
+    media_file.write_bytes(b"video")
+    index = scan_module._source_location_index({"youtube": str(folder)})
+
+    source_key, pending, candidates = scan_module.infer_disk_source(
+        media_file, "dQw4w9WgXcQ", index, _learned_youtube_twitter()
+    )
+
+    assert source_key == "youtube"
+    assert pending is False
+    assert candidates == []
+
+
+def test_scan_media_library_flags_ambiguous_source_pending(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    media_file = media_root / "Clip [7123456789012345678].mp4"
+    media_file.write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {})
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    scan_module.scan_media_library([media_root])
+
+    entry = saved["disk:7123456789012345678"]
+    assert entry["source_key"] == "others"
+    assert entry["source_pending"] is True
+
+
+def test_scan_media_library_reconstructs_link_from_learned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    learned = learn_download({}, "https://www.bilibili.com/video/BV1xx411c7mD", "BV1xx411c7mD")
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    media_file = media_root / "Clip [BV1xx411c7mD].mp4"
+    media_file.write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {})
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    scan_module.scan_media_library([media_root])
+
+    entry = saved["disk:BV1xx411c7mD"]
+    assert entry["source_key"] == "bilibili"
+    assert entry["source_pending"] is False
+    assert entry["source_url"] == "https://www.bilibili.com/video/BV1xx411c7mD"
 
 
 def test_scan_media_library_removes_missing_completed_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

@@ -50,6 +50,22 @@ def save_settings_payload(payload: dict[str, Any]) -> None:
         )
 
 
+def load_learned_formats_payload() -> dict[str, Any]:
+    with transaction() as connection:
+        row = connection.execute("SELECT value FROM settings WHERE key = ?", ("learned_formats",)).fetchone()
+    payload = _decode(row["value"] if row else None, {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def save_learned_formats_payload(payload: dict[str, Any]) -> None:
+    now = utc_now()
+    with transaction() as connection:
+        connection.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+            ("learned_formats", _encode(payload if isinstance(payload, dict) else {}), now),
+        )
+
+
 def get_file_blob(key: str) -> dict[str, Any] | None:
     with transaction() as connection:
         row = connection.execute(

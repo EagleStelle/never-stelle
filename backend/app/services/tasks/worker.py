@@ -10,8 +10,16 @@ from backend.app.services.settings import has_cookies_for_url
 
 from .constants import PROGRESS_RE
 from .files import extract_downloaded_path, find_newest_media_file, recover_task_path
+from .formats import learn_download
 from .history import save_history_entry
-from .store import claim_pending_task, load_task_store, update_task
+from .scan import parse_filename_media_id
+from .store import (
+    claim_pending_task,
+    load_learned_formats,
+    load_task_store,
+    save_learned_formats,
+    update_task,
+)
 from .urls import canonicalize_source_url
 from .ytdlp import build_output_template, build_ytdlp_command, detect_ffmpeg_location
 
@@ -108,6 +116,15 @@ def _run_ytdlp_to_task(task_id: str, cmd: list[str]) -> tuple[int, str]:
                 pass
 
 
+def _learn_source_format(source_url: str, filename: str) -> None:
+    # Teach the DB this source's URL shape + id signature from a real download.
+    media_id, _ = parse_filename_media_id(filename)
+    learned = load_learned_formats()
+    updated = learn_download(learned, source_url, media_id)
+    if updated != learned:
+        save_learned_formats(updated)
+
+
 def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
     source_url = canonicalize_source_url(str(task.get("source_url") or ""))
     output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
@@ -177,6 +194,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 output_dir="",
                 output_template="",
             )
+            _learn_source_format(source_url, final_path.name)
             save_history_entry(task_id, completed_task)
             return
 

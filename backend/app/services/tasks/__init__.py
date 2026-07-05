@@ -41,6 +41,7 @@ from .operations import (
     queue_task,
     remove_pending_task,
     resolve_task_file,
+    set_task_source,
 )
 from .scan import parse_filename_media_id, scan_media_library
 from .serializers import (
@@ -102,6 +103,7 @@ __all__ = [
     "run_task",
     "save_history_entry",
     "scan_media_library",
+    "set_task_source",
     "task_to_api",
     "update_task",
 ]
