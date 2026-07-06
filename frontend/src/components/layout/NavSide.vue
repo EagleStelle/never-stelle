@@ -13,6 +13,7 @@ defineProps<{
   activePage: PageKey;
   isLightMode: boolean;
   pageItems: Array<{ key: PageKey; label: string; icon: Component }>;
+  settingsOpen: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -138,7 +139,7 @@ const isExpanded = ref(true);
             ? 'w-full flex-row justify-start px-3.5 h-10 gap-3'
             : 'w-10 h-10 justify-center'
         "
-        :aria-pressed="activePage === 'settings'"
+        :aria-pressed="settingsOpen"
         aria-label="Open settings"
         :title="!isExpanded ? 'Settings' : undefined"
         @click="emit('openSettings', $event)"

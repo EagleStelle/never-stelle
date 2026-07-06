@@ -10,6 +10,7 @@ defineProps<{
   activePage: PageKey;
   isLightMode: boolean;
   pageItems: Array<{ key: PageKey; label: string; icon: Component }>;
+  settingsOpen: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -49,7 +50,7 @@ const emit = defineEmits<{
     <button
       type="button"
       class="inline-flex flex-col items-center justify-center gap-1 flex-1 w-full min-w-0 h-14 px-0 rounded-lg bg-transparent leading-none text-white/65 in-[.light-mode]:text-black/65 transition-all duration-200 ease-glass active:scale-[0.94] hover:text-white in-[.light-mode]:hover:text-black aria-pressed:bg-accent aria-pressed:text-black"
-      :aria-pressed="activePage === 'settings'"
+      :aria-pressed="settingsOpen"
       @click="emit('openSettings', $event)"
     >
       <IconGear class="w-6 h-6" aria-hidden="true" />

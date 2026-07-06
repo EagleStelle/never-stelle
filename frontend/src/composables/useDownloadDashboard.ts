@@ -30,13 +30,15 @@ import {
 const SETTINGS_ROUTE_BY_SECTION: Record<SettingsSection, string> = {
   downloads: "/settings/locations",
   cookies: "/settings/cookies",
-  "folder-template": "/settings/folder-template",
-  "filename-template": "/settings/filename-template",
+  "folder-template": "/settings/folder",
+  "filename-template": "/settings/filename",
 };
 
 function settingsSectionFromPath(path: string): SettingsSection {
   const last = path.split("/").filter(Boolean).at(-1) || "";
   if (last === "locations") return "downloads";
+  if (last === "folder") return "folder-template";
+  if (last === "filename") return "filename-template";
   return isSettingsSection(last) ? last : "downloads";
 }
 
@@ -63,6 +65,7 @@ export function useDownloadDashboard() {
   const themeMode = useLocalStorage<"light" | "dark">("neverstelle.themeMode", "dark");
 
   if (!isPageKey(activePage.value)) activePage.value = "downloads";
+  if (activePage.value === "settings") activePage.value = "downloads";
   if (!isFilterKey(activeFilter.value)) activeFilter.value = "all";
   if (!isViewMode(viewMode.value)) viewMode.value = "grid";
   if (themeMode.value !== "light") themeMode.value = "dark";
@@ -120,21 +123,21 @@ export function useDownloadDashboard() {
 
   let applyingRoute = false;
 
-  function routeFor(page: PageKey = activePage.value, section: SettingsSection = settingsState.settingsSection.value): string {
-    if (page === "settings") return SETTINGS_ROUTE_BY_SECTION[section] || PAGE_ROUTES.settings;
-    return PAGE_ROUTES[page];
+  function routeFor(): string {
+    if (settingsState.settingsOpen.value) {
+      return SETTINGS_ROUTE_BY_SECTION[settingsState.settingsSection.value] || PAGE_ROUTES.settings;
+    }
+    return PAGE_ROUTES[activePage.value] || PAGE_ROUTES.downloads;
   }
 
   function applyCurrentRoute(): void {
     const path = window.location.pathname || "/";
     applyingRoute = true;
-    if (path.startsWith("/history")) {
-      activePage.value = "history";
-    } else if (path.startsWith("/settings")) {
-      activePage.value = "settings";
-      settingsState.setSettingsSection(settingsSectionFromPath(path));
+    if (path.startsWith("/settings")) {
+      settingsState.openSettings(undefined, settingsSectionFromPath(path));
     } else {
-      activePage.value = "downloads";
+      settingsState.closeSettings();
+      activePage.value = path.startsWith("/history") ? "history" : "downloads";
     }
     void nextTick(() => {
       applyingRoute = false;
@@ -175,13 +178,12 @@ export function useDownloadDashboard() {
 
   function openSettings(event?: Event, section?: SettingsSection) {
     settingsState.openSettings(event, section);
-    setActivePage("settings");
   }
 
   applyCurrentRoute();
 
   watch(
-    [activePage, settingsState.settingsSection],
+    [activePage, settingsState.settingsOpen, settingsState.settingsSection],
     () => syncRoute(),
     { flush: "post" },
   );

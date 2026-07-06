@@ -1,4 +1,5 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
+import { watchDebounced } from "@vueuse/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 
 import { deletePlatformCookies, getUiConfig, saveSettings, uploadPlatformCookies } from "../api";
@@ -73,6 +74,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   const settingsOpen = ref(false);
   const settingsSection = ref<SettingsSection>("downloads");
   const lastFocusedTrigger = ref<HTMLElement | null>(null);
+  let lastSavedSnapshot = "";
 
   const uiConfigQuery = useQuery<UiConfigResponse>({
     queryKey: UI_CONFIG_QUERY_KEY,
@@ -160,6 +162,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     replaceRecord(settingsDraft.site_locations, normalized.site_locations);
     Object.assign(settingsDraft.template_settings, normalized.template_settings);
     replaceRecord(settingsDraft.source_templates, normalized.source_templates);
+    lastSavedSnapshot = JSON.stringify(normalizeSavedPayload(settingsDraft));
   }
 
   function setSettingsSection(section: SettingsSection, shouldFocus = false): void {
@@ -190,12 +193,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     settingsOpen.value = false;
   }
 
-  async function saveSettingsDraft(): Promise<void> {
+  async function autoSaveSettings(): Promise<void> {
     const payload = normalizeSavedPayload(settingsDraft);
+    const snapshot = JSON.stringify(payload);
+    if (snapshot === lastSavedSnapshot) return;
+    lastSavedSnapshot = snapshot;
     try {
       await persistSettings(payload);
-      toast("Settings saved.");
-      closeSettings();
     } catch (error) {
       toast(errorMessage(error, "Could not save settings."), "error");
     }
@@ -260,16 +264,24 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     if (!open) lastFocusedTrigger.value?.focus();
   });
 
+  watchDebounced(
+    settingsDraft,
+    () => {
+      if (settingsOpen.value) void autoSaveSettings();
+    },
+    { deep: true, debounce: 500, maxWait: 2000 },
+  );
+
   onBeforeUnmount(() => document.body.classList.remove("dialog-open"));
 
   return {
+    closeSettings,
     connectCookies,
     connectCookiesForSource,
     cookieStatuses,
     getSavedSettings,
     openSettings,
     removeCookies,
-    saveSettingsDraft,
     savedSettings,
     setSettingsSection,
     settings,

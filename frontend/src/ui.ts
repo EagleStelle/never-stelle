@@ -28,8 +28,8 @@ export const FILTER_LABELS: Record<TaskFilter, string> = {
 export const SETTINGS_SECTIONS: Array<{ key: SettingsSection; label: string; route: string }> = [
   { key: "downloads", label: "Locations", route: "/settings/locations" },
   { key: "cookies", label: "Cookies", route: "/settings/cookies" },
-  { key: "folder-template", label: "Folder Templates", route: "/settings/folder-template" },
-  { key: "filename-template", label: "Filename Templates", route: "/settings/filename-template" },
+  { key: "folder-template", label: "Folder", route: "/settings/folder" },
+  { key: "filename-template", label: "Filename", route: "/settings/filename" },
 ];
 
 export const COUNT_ICONS: Record<"queued" | "running" | "completed" | "failed", Component> = {

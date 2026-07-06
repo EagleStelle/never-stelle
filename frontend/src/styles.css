@@ -234,6 +234,11 @@
     border-right: var(--glass-border-rule);
   }
 
+  .glass-border-bottom {
+    border: 0;
+    border-bottom: var(--glass-border-rule);
+  }
+
   /* Subtle interactive fill for inline chips/buttons */
   .glass-soft {
     background: linear-gradient(

@@ -4,7 +4,7 @@ import DownloadsPanel from "./components/downloads/DownloadsPanel.vue";
 import NavSide from "./components/layout/NavSide.vue";
 import BarStatus from "./components/layout/BarStatus.vue";
 import NavBottom from "./components/layout/NavBottom.vue";
-import SettingsPage from "./components/settings/SettingsPage.vue";
+import Settings from "./components/settings/Settings.vue";
 import ToastStack from "./components/ToastStack.vue";
 import Button from "./components/ui/Button.vue";
 import Combobox from "./components/ui/Combobox.vue";
@@ -39,7 +39,6 @@ const {
   removeCookies,
   removeTask,
   refreshHistory,
-  saveSettingsDraft,
   savedSettings,
   setActiveMenu,
   setActivePage,
@@ -47,6 +46,7 @@ const {
   setViewMode,
   settings,
   settingsDraft,
+  settingsOpen,
   settingsSection,
   sourceProfiles,
   srStatus,
@@ -74,6 +74,7 @@ const {
       :active-page="activePage"
       :is-light-mode="isLightMode"
       :page-items="pageItems"
+      :settings-open="settingsOpen"
       @open-settings="openSettings"
       @select-page="setActivePage"
       @toggle-theme="toggleThemeMode"
@@ -199,18 +200,6 @@ const {
           />
         </template>
 
-        <SettingsPage
-          v-else-if="activePage === 'settings'"
-          v-model:section="settingsSection"
-          :cookie-statuses="cookieStatuses"
-          :settings="settings"
-          :settings-draft="settingsDraft"
-          :source-profiles="sourceProfiles"
-          @connect-cookies="connectCookies"
-          @connect-cookies-source="connectCookiesForSource"
-          @remove-cookies="removeCookies"
-          @save="saveSettingsDraft"
-        />
       </main>
       <BarStatus :count-cards="countCards" @clear-queue="clearPending" />
     </div>
@@ -219,9 +208,22 @@ const {
       :active-page="activePage"
       :page-items="pageItems"
       :is-light-mode="isLightMode"
+      :settings-open="settingsOpen"
       @select-page="setActivePage"
       @toggle-theme="toggleThemeMode"
       @open-settings="openSettings"
+    />
+
+    <Settings
+      v-model:open="settingsOpen"
+      v-model:section="settingsSection"
+      :cookie-statuses="cookieStatuses"
+      :settings="settings"
+      :settings-draft="settingsDraft"
+      :source-profiles="sourceProfiles"
+      @connect-cookies="connectCookies"
+      @connect-cookies-source="connectCookiesForSource"
+      @remove-cookies="removeCookies"
     />
 
     <ToastStack :toasts="toasts" />
