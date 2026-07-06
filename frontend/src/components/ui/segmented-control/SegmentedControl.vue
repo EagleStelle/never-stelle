@@ -1,21 +1,42 @@
 <script setup lang="ts">
-import { ToggleGroupRoot, type ToggleGroupRootProps } from'reka-ui'
+import { computed } from "vue";
+import { ToggleGroupRoot, type ToggleGroupRootProps } from "reka-ui";
 
-const props = withDefaults(defineProps<ToggleGroupRootProps & { class?: string }>(), {
- type:'single'
-})
+type Size = "xs" | "sm" | "default" | "lg" | "xl";
+
+const props = withDefaults(
+  defineProps<ToggleGroupRootProps & { class?: string; size?: Size }>(),
+  {
+    type: "single",
+    size: "default",
+  },
+);
 
 const emit = defineEmits<{
-'update:modelValue': [value: any]
-}>()
+  "update:modelValue": [value: any];
+}>();
+
+const SIZE_CLASS: Record<Size, string> = {
+  xs: "h-7 text-xs",
+  sm: "h-8 text-xs",
+  default: "h-9 text-sm",
+  lg: "h-10 text-sm",
+  xl: "h-11 text-base",
+};
+
+const sizeClass = computed(() => SIZE_CLASS[props.size]);
 </script>
 
 <template>
- <ToggleGroupRoot
- v-bind="props"
- @update:modelValue="emit('update:modelValue', $event)"
- :class="['inline-flex items-center gap-1 px-1 py-1 h-10 glass-soft rounded-lg', props.class]"
- >
- <slot />
- </ToggleGroupRoot>
+  <ToggleGroupRoot
+    v-bind="props"
+    @update:modelValue="emit('update:modelValue', $event)"
+    :class="[
+      'inline-flex items-center gap-1 px-1 py-1 glass-soft rounded-lg',
+      sizeClass,
+      props.class,
+    ]"
+  >
+    <slot />
+  </ToggleGroupRoot>
 </template>

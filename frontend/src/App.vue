@@ -9,7 +9,10 @@ import ToastStack from "./components/ToastStack.vue";
 import { Button } from "./components/ui/button";
 import { Combobox } from "./components/ui/combobox";
 import { Input } from "./components/ui/input";
-import { SegmentedControl, SegmentedControlItem } from "./components/ui/segmented-control";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "./components/ui/segmented-control";
 import IconGrid from "~icons/material-symbols/grid-view";
 import IconList from "~icons/material-symbols/list";
 import IconRefresh from "~icons/material-symbols/sync";
@@ -98,6 +101,7 @@ const {
           <section aria-label="Search history" class="mb-2">
             <div class="flex items-center gap-2">
               <Input
+                size="lg"
                 class="flex-1 min-w-0"
                 type="text"
                 placeholder="Search history..."
@@ -198,7 +202,6 @@ const {
             @set-view-mode="setViewMode"
           />
         </template>
-
       </main>
       <BarStatus :count-cards="countCards" @clear-queue="clearPending" />
     </div>

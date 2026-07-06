@@ -24,13 +24,19 @@ type ComboboxItemOption = {
   initials?: string;
 };
 
-const props = defineProps<{
-  modelValue: string;
-  items: ComboboxItemOption[];
-  placeholder?: string;
-  emptyText?: string;
-  class?: string;
-}>();
+type Size = "xs" | "sm" | "default" | "lg" | "xl";
+
+const props = withDefaults(
+  defineProps<{
+    modelValue: string;
+    items: ComboboxItemOption[];
+    placeholder?: string;
+    emptyText?: string;
+    class?: string;
+    size?: Size;
+  }>(),
+  { size: "default" },
+);
 
 const emit = defineEmits<{
   "update:modelValue": [value: string];
@@ -78,6 +84,16 @@ const handleOpenChange = (isOpen: boolean) => {
     syncSearchTerm();
   }
 };
+
+const SIZE_CLASS: Record<Size, { anchor: string; input: string }> = {
+  xs: { anchor: "h-7", input: "text-xs" },
+  sm: { anchor: "h-8", input: "text-xs" },
+  default: { anchor: "h-9", input: "text-sm" },
+  lg: { anchor: "h-10", input: "text-sm" },
+  xl: { anchor: "h-11", input: "text-base" },
+};
+
+const sizes = computed(() => SIZE_CLASS[props.size]);
 </script>
 
 <template>
@@ -94,11 +110,14 @@ const handleOpenChange = (isOpen: boolean) => {
   >
     <ComboboxAnchor
       :class="[
-        'relative inline-flex items-center rounded-lg glass-soft focus-within:ring-2 focus-within:ring-accent h-10 transition-all duration-300 ease-glass',
+        'relative inline-flex items-center rounded-lg glass-soft focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass',
+        sizes.anchor,
         props.class,
       ]"
     >
-      <div class="pl-3 pr-2 flex items-center justify-center text-white [.light-mode_&]:text-black">
+      <div
+        class="pl-3 pr-2 flex items-center justify-center text-white [.light-mode_&]:text-black"
+      >
         <img
           v-if="activeItem?.iconUrl"
           :src="activeItem.iconUrl"
@@ -120,7 +139,10 @@ const handleOpenChange = (isOpen: boolean) => {
         </span>
       </div>
       <ComboboxInput
-        class="flex-1 bg-transparent outline-none min-w-0 text-white [.light-mode_&]:text-black placeholder:text-white [.light-mode_&]:placeholder:text-black"
+        :class="[
+          'flex-1 bg-transparent outline-none min-w-0 text-white [.light-mode_&]:text-black placeholder:text-white [.light-mode_&]:placeholder:text-black',
+          sizes.input,
+        ]"
         :placeholder="activeLabel || props.placeholder || 'Search...'"
       />
       <ComboboxTrigger
@@ -137,7 +159,9 @@ const handleOpenChange = (isOpen: boolean) => {
         :side-offset="6"
       >
         <ComboboxViewport class="p-1">
-          <ComboboxEmpty class="py-3 text-center text-sm text-white [.light-mode_&]:text-black">
+          <ComboboxEmpty
+            class="py-3 text-center text-sm text-white [.light-mode_&]:text-black"
+          >
             {{ props.emptyText || "No items found." }}
           </ComboboxEmpty>
 

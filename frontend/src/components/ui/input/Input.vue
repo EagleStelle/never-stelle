@@ -1,44 +1,99 @@
 <script setup lang="ts">
-import { Label } from'reka-ui'
-import { computed, useAttrs } from'vue'
+import { Label } from "reka-ui";
+import { computed, useAttrs } from "vue";
 
-const props = defineProps<{
- modelValue?: string | number | null
- inputClass?: string
-}>()
+type Size = "xs" | "sm" | "default" | "lg" | "xl";
+
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string | number | null;
+    inputClass?: string;
+    size?: Size;
+  }>(),
+  { size: "default" },
+);
 
 const emit = defineEmits<{
-'update:modelValue': [value: string]
-}>()
+  "update:modelValue": [value: string];
+}>();
 
 defineOptions({
- inheritAttrs: false
-})
+  inheritAttrs: false,
+});
 
-const attrs = useAttrs()
+const attrs = useAttrs();
 
-// Ensure we don't pass class to the input directly from parent if it was intended for wrapper,
-// or we can allow passing wrapper-class vs input-class.
-// But standard Vue behavior: $attrs goes to root unless inheritAttrs: false.
+const SIZE_CLASS: Record<
+  Size,
+  { wrapper: string; input: string; icon: string; gap: string }
+> = {
+  xs: {
+    wrapper: "h-7 p-0.5 gap-0.5",
+    input: "text-xs",
+    icon: "w-6 h-6 ml-1",
+    gap: "w-2",
+  },
+  sm: {
+    wrapper: "h-8 p-0.5 gap-1",
+    input: "text-xs",
+    icon: "w-7 h-7 ml-1",
+    gap: "w-2",
+  },
+  default: {
+    wrapper: "h-9 p-1 gap-1",
+    input: "text-sm",
+    icon: "w-7 h-7 ml-1",
+    gap: "w-2.5",
+  },
+  lg: {
+    wrapper: "h-10 p-1 gap-1",
+    input: "text-sm",
+    icon: "w-8 h-8 ml-1.5",
+    gap: "w-3",
+  },
+  xl: {
+    wrapper: "h-11 p-1 gap-1.5",
+    input: "text-base",
+    icon: "w-9 h-9 ml-1.5",
+    gap: "w-4",
+  },
+};
+
+const sizes = computed(() => SIZE_CLASS[props.size]);
 </script>
 
 <template>
- <Label
- class="flex items-center min-w-0 h-10 p-1 rounded-lg glass-soft focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass gap-1"
- :class="attrs.class"
- >
- <div v-if="$slots.icon" class="flex items-center justify-center w-8 h-8 shrink-0 text-white [.light-mode_&]:text-black ml-1.5">
- <slot name="icon" />
- </div>
- <div v-else class="w-3" />
- 
- <input
- v-bind="{ ...attrs, class: undefined }"
- :value="modelValue"
- @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
- :class="['flex-1 min-w-0 h-full bg-transparent outline-none text-white [.light-mode_&]:text-black pr-2 placeholder:text-white [.light-mode_&]:placeholder:text-black', props.inputClass]"
- />
- 
- <slot name="action" />
- </Label>
+  <Label
+    :class="[
+      'flex items-center min-w-0 rounded-lg glass-soft focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass',
+      sizes.wrapper,
+      attrs.class,
+    ]"
+  >
+    <div
+      v-if="$slots.icon"
+      :class="[
+        'flex items-center justify-center shrink-0 text-white [.light-mode_&]:text-black',
+        sizes.icon,
+      ]"
+    >
+      <slot name="icon" />
+    </div>
+    <div v-else :class="sizes.gap" />
+
+    <input
+      v-bind="{ ...attrs, class: undefined }"
+      :value="modelValue"
+      @input="
+        emit('update:modelValue', ($event.target as HTMLInputElement).value)
+      "
+      :class="[
+        'flex-1 min-w-0 h-full bg-transparent outline-none text-white [.light-mode_&]:text-black pr-2 placeholder:text-white [.light-mode_&]:placeholder:text-black',
+        sizes.input,
+        props.inputClass,
+      ]"
+    />
+
+    <slot name="action" />
+  </Label>
 </template>

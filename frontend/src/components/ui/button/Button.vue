@@ -2,7 +2,7 @@
 import { computed, useSlots } from "vue";
 import { Primitive } from "reka-ui";
 
-type Size = "xs" | "sm" | "md" | "lg";
+type Size = "xs" | "sm" | "default" | "lg" | "xl";
 
 const props = withDefaults(
   defineProps<{
@@ -12,7 +12,7 @@ const props = withDefaults(
     asChild?: boolean;
     class?: string;
   }>(),
-  { size: "md", as: "button", asChild: false },
+  { size: "default", as: "button", asChild: false },
 );
 
 const BASE =
@@ -22,8 +22,9 @@ const SIZE_CLASS: Record<Size, { base: string; pad: string; square: string }> =
   {
     xs: { base: "h-7 text-xs rounded-lg", pad: "px-2.5", square: "w-7" },
     sm: { base: "h-8 text-xs rounded-lg", pad: "px-3", square: "w-8" },
-    md: { base: "h-9 text-sm rounded-lg", pad: "px-4", square: "w-9" },
+    default: { base: "h-9 text-sm rounded-lg", pad: "px-4", square: "w-9" },
     lg: { base: "h-10 text-sm rounded-lg", pad: "px-5", square: "w-10" },
+    xl: { base: "h-11 text-base rounded-lg", pad: "px-6", square: "w-11" },
   };
 
 const slots = useSlots();

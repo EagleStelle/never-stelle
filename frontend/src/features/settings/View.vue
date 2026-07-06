@@ -214,6 +214,7 @@ function connectNew(): void {
           <Sidebar class="p-3 sm:h-full sm:w-60 sm:p-4 gap-3">
             <SidebarHeader>
               <Input
+                size="lg"
                 v-model="sectionSearch"
                 type="text"
                 placeholder="Search"
@@ -232,16 +233,23 @@ function connectNew(): void {
                 aria-label="Settings sections"
               >
                 <SidebarGroup v-for="group in sectionGroups" :key="group.label">
-                  <SidebarGroupLabel class="hidden sm:block sm:[&:not(:first-child)]:mt-3">
+                  <SidebarGroupLabel
+                    class="hidden sm:block sm:[&:not(:first-child)]:mt-3"
+                  >
                     {{ group.label }}
                   </SidebarGroupLabel>
                   <SidebarMenu class="flex-row sm:flex-col gap-1">
-                    <SidebarMenuItem v-for="item in group.items" :key="item.key" class="flex-none sm:w-full">
-                      <TabsTrigger as-child :value="item.key" @click="selectSection(item.key)">
-                        <SidebarMenuButton
-                          as="div"
-                          class="cursor-pointer"
-                        >
+                    <SidebarMenuItem
+                      v-for="item in group.items"
+                      :key="item.key"
+                      class="flex-none sm:w-full"
+                    >
+                      <TabsTrigger
+                        as-child
+                        :value="item.key"
+                        @click="selectSection(item.key)"
+                      >
+                        <SidebarMenuButton as="div" class="cursor-pointer">
                           <component
                             :is="SECTION_ICONS[item.key]"
                             class="h-5 w-5 shrink-0 opacity-80 group-data-[state=active]:opacity-100"
@@ -312,6 +320,7 @@ function connectNew(): void {
                   <div class="settings-row">
                     <div class="flex w-full items-center gap-2">
                       <Input
+                        size="lg"
                         v-model="newCookie.source"
                         type="text"
                         inputmode="url"
