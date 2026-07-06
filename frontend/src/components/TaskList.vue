@@ -4,7 +4,7 @@ import IconSpinner from "~icons/material-symbols/sync";
 import IconX from "~icons/material-symbols/close";
 import { reactive } from "vue";
 
-import Button from "./ui/Button.vue";
+import { Button } from "./ui/button";
 import {
   Table,
   TableBody,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import TaskList from "../TaskList.vue";
+import TaskList from "../../components/TaskList.vue";
 import type { MenuKey, SourceProfile, TaskItem, ViewMode } from "../../types";
 
 defineProps<{

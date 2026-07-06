@@ -23,8 +23,18 @@ import {
   TabsTrigger,
 } from "reka-ui";
 
-import Button from "../ui/Button.vue";
-import InputBar from "../ui/InputBar.vue";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import {
+  Sidebar,
+  SidebarHeader,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+} from "../../components/ui/sidebar";
 import { SETTINGS_SECTIONS } from "../../ui";
 import type {
   CookiesMap,
@@ -201,49 +211,53 @@ function connectNew(): void {
           orientation="vertical"
         >
           <!-- Sidebar -->
-          <aside
-            class="flex shrink-0 flex-col gap-3 glass-chrome p-3 sm:h-full sm:w-60 sm:p-4"
-          >
-            <InputBar
-              v-model="sectionSearch"
-              type="text"
-              placeholder="Search"
-              aria-label="Search settings"
-              class="hidden sm:flex"
-            >
-              <template #icon>
-                <IconSearch class="h-5 w-5" aria-hidden="true" />
-              </template>
-            </InputBar>
+          <Sidebar class="p-3 sm:h-full sm:w-60 sm:p-4 gap-3">
+            <SidebarHeader>
+              <Input
+                v-model="sectionSearch"
+                type="text"
+                placeholder="Search"
+                aria-label="Search settings"
+                class="hidden sm:flex"
+              >
+                <template #icon>
+                  <IconSearch class="h-5 w-5" aria-hidden="true" />
+                </template>
+              </Input>
+            </SidebarHeader>
 
-            <TabsList
-              class="flex gap-1 overflow-x-auto pb-1 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:pb-0"
-              aria-label="Settings sections"
-            >
-              <template v-for="group in sectionGroups" :key="group.label">
-                <span
-                  class="hidden px-2 pb-0.5 text-[0.7rem] font-semibold uppercase tracking-wider text-white/50 [.light-mode_&]:text-black/50 sm:block sm:[&:not(:first-child)]:mt-3"
-                  >{{ group.label }}</span
-                >
-                <TabsTrigger
-                  v-for="item in group.items"
-                  :key="item.key"
-                  class="settings-tab-trigger glass-selected group inline-flex flex-none items-center gap-3 min-h-10 rounded-lg px-3 leading-none text-white/70 [.light-mode_&]:text-black/70 transition-all duration-300 ease-glass active:scale-[0.98] hover:text-white [.light-mode_&]:hover:text-black data-[state=active]:text-white [.light-mode_&]:data-[state=active]:text-black sm:w-full sm:justify-start"
-                  :value="item.key"
-                  @click="selectSection(item.key)"
-                >
-                  <component
-                    :is="SECTION_ICONS[item.key]"
-                    class="h-5 w-5 shrink-0 opacity-80 group-data-[state=active]:opacity-100"
-                    aria-hidden="true"
-                  />
-                  <span class="whitespace-nowrap font-medium">{{
-                    item.label
-                  }}</span>
-                </TabsTrigger>
-              </template>
-            </TabsList>
-          </aside>
+            <SidebarContent>
+              <TabsList
+                class="flex gap-1 overflow-x-auto pb-1 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:pb-0"
+                aria-label="Settings sections"
+              >
+                <SidebarGroup v-for="group in sectionGroups" :key="group.label">
+                  <SidebarGroupLabel class="hidden sm:block sm:[&:not(:first-child)]:mt-3">
+                    {{ group.label }}
+                  </SidebarGroupLabel>
+                  <SidebarMenu class="flex-row sm:flex-col gap-1">
+                    <SidebarMenuItem v-for="item in group.items" :key="item.key" class="flex-none sm:w-full">
+                      <TabsTrigger as-child :value="item.key" @click="selectSection(item.key)">
+                        <SidebarMenuButton
+                          as="div"
+                          class="cursor-pointer"
+                        >
+                          <component
+                            :is="SECTION_ICONS[item.key]"
+                            class="h-5 w-5 shrink-0 opacity-80 group-data-[state=active]:opacity-100"
+                            aria-hidden="true"
+                          />
+                          <span class="whitespace-nowrap font-medium">{{
+                            item.label
+                          }}</span>
+                        </SidebarMenuButton>
+                      </TabsTrigger>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                </SidebarGroup>
+              </TabsList>
+            </SidebarContent>
+          </Sidebar>
 
           <!-- Content -->
           <div class="relative min-h-0 min-w-0 flex-1">
@@ -282,7 +296,7 @@ function connectNew(): void {
                     >
                       <span class="settings-row-label">{{ site.label }}</span>
                       <div class="settings-row-control">
-                        <InputBar
+                        <Input
                           :id="`${site.key}LocationInput`"
                           v-model="settingsDraft.site_locations[site.key]"
                           list="downloadLocationSuggestions"
@@ -297,7 +311,7 @@ function connectNew(): void {
                 <template v-else-if="item.key === 'cookies'">
                   <div class="settings-row">
                     <div class="flex w-full items-center gap-2">
-                      <InputBar
+                      <Input
                         v-model="newCookie.source"
                         type="text"
                         inputmode="url"
@@ -414,7 +428,7 @@ function connectNew(): void {
                   >
                     <span class="settings-row-label">{{ site.label }}</span>
                     <div class="settings-row-control">
-                      <InputBar
+                      <Input
                         :id="`${site.key}FolderTemplateInput`"
                         v-model="
                           settingsDraft.source_templates[site.key]
@@ -435,7 +449,7 @@ function connectNew(): void {
                   >
                     <span class="settings-row-label">{{ site.label }}</span>
                     <div class="settings-row-control">
-                      <InputBar
+                      <Input
                         :id="`${site.key}FilenameTemplateInput`"
                         v-model="
                           settingsDraft.source_templates[site.key]

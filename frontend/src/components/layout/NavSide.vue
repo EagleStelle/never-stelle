@@ -8,6 +8,15 @@ import { ref } from "vue";
 import type { Component } from "vue";
 
 import type { PageKey } from "../../types";
+import {
+  Sidebar,
+  SidebarHeader,
+  SidebarContent,
+  SidebarFooter,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+} from "../ui/sidebar";
 
 defineProps<{
   activePage: PageKey;
@@ -26,31 +35,31 @@ const isExpanded = ref(true);
 </script>
 
 <template>
-  <aside
-    class="hidden lg:flex sticky top-0 h-dvh min-w-0 flex-col gap-2 glass-chrome glass-border-right py-3 px-2.5"
+  <Sidebar
+    class="hidden lg:flex sticky top-0 h-dvh min-w-0 glass-border-right py-3 px-2.5 transition-all duration-300"
     :class="isExpanded ? 'w-64' : 'w-16 items-center'"
     aria-label="App navigation"
   >
-    <div
-      class="flex items-center w-full mb-3 h-10"
+    <SidebarHeader
+      class="w-full mb-3 h-10 flex-row items-center"
       :class="isExpanded ? 'px-1.5 justify-between' : 'justify-center'"
     >
       <a
         v-if="isExpanded"
         href="/"
-        class="inline-flex items-center min-w-0 gap-3 text-white in-[.light-mode]:text-black hover:text-white in-[.light-mode]:hover:text-black leading-none no-underline"
+        class="inline-flex items-center min-w-0 gap-3 text-white [.light-mode_&]:text-black hover:text-white [.light-mode_&]:hover:text-black leading-none no-underline"
         aria-label="Never Stelle Home"
       >
         <img src="/assets/logo.png" alt="" class="w-8 h-8 shrink-0" />
         <span
-          class="whitespace-nowrap overflow-hidden font-display font-bold text-white in-[.light-mode]:text-black text-xl tracking-tight"
+          class="whitespace-nowrap overflow-hidden font-display font-bold text-white [.light-mode_&]:text-black text-xl tracking-tight"
           >Never Stelle</span
         >
       </a>
 
       <button
         @click="isExpanded = !isExpanded"
-        class="flex items-center justify-center text-white in-[.light-mode]:text-black hover:text-white in-[.light-mode]:hover:text-black transition-all duration-300 ease-glass"
+        class="flex items-center justify-center text-white [.light-mode_&]:text-black hover:text-white [.light-mode_&]:hover:text-black transition-all duration-300 ease-glass"
         :class="
           isExpanded
             ? 'w-8 h-8 rounded-lg bg-transparent shrink-0'
@@ -61,96 +70,77 @@ const isExpanded = ref(true);
         <IconPanelClose v-if="isExpanded" class="w-5 h-5" />
         <IconPanelOpen v-else class="w-5 h-5" />
       </button>
-    </div>
+    </SidebarHeader>
 
-    <nav
-      class="flex gap-1"
-      :class="isExpanded ? 'w-full flex-col' : 'flex-col items-center w-full'"
+    <SidebarContent
+      :class="isExpanded ? 'w-full' : 'items-center w-full'"
       aria-label="App navigation"
     >
-      <button
-        v-for="item in pageItems"
-        :key="item.key"
-        type="button"
-        class="inline-flex items-center rounded-lg bg-transparent text-white/65 in-[.light-mode]:text-black/65 leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white in-[.light-mode]:hover:text-black aria-pressed:bg-accent aria-pressed:text-black"
-        :class="
-          isExpanded
-            ? 'w-full flex-row justify-start px-3.5 h-10 gap-3'
-            : 'w-10 h-10 justify-center'
-        "
-        :aria-pressed="activePage === item.key"
-        :title="!isExpanded ? item.label : undefined"
-        @click="emit('selectPage', item.key)"
-      >
-        <component
-          :is="item.icon"
-          class="shrink-0 w-5 h-5"
-          aria-hidden="true"
-        />
-        <span
-          v-show="isExpanded"
-          class="whitespace-nowrap overflow-hidden font-medium"
-          >{{ item.label }}</span
-        >
-      </button>
-    </nav>
+      <SidebarMenu>
+        <SidebarMenuItem v-for="item in pageItems" :key="item.key">
+          <SidebarMenuButton
+            @click="emit('selectPage', item.key)"
+            :aria-pressed="activePage === item.key"
+            :title="!isExpanded ? item.label : undefined"
+            :class="!isExpanded ? 'w-10 px-0 justify-center' : ''"
+          >
+            <component
+              :is="item.icon"
+              class="shrink-0 w-5 h-5"
+              aria-hidden="true"
+            />
+            <span
+              v-show="isExpanded"
+              class="whitespace-nowrap overflow-hidden font-medium"
+              >{{ item.label }}</span
+            >
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </SidebarContent>
 
-    <div
-      class="flex gap-1 mt-auto"
-      :class="isExpanded ? 'w-full flex-col' : 'flex-col items-center w-full'"
+    <SidebarFooter
+      :class="isExpanded ? 'w-full' : 'items-center w-full'"
     >
-      <button
-        type="button"
-        class="inline-flex items-center rounded-lg bg-transparent text-white/65 in-[.light-mode]:text-black/65 leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white in-[.light-mode]:hover:text-black"
-        :class="
-          isExpanded
-            ? 'w-full flex-row justify-start px-3.5 h-10 gap-3'
-            : 'w-10 h-10 justify-center'
-        "
-        :aria-label="
-          isLightMode ? 'Switch to dark mode' : 'Switch to light mode'
-        "
-        :title="
-          !isExpanded
-            ? isLightMode
-              ? 'Switch to dark mode'
-              : 'Switch to light mode'
-            : undefined
-        "
-        @click="emit('toggleTheme')"
-      >
-        <IconSun
-          v-if="isLightMode"
-          class="shrink-0 w-5 h-5"
-          aria-hidden="true"
-        />
-        <IconMoon v-else class="shrink-0 w-5 h-5" aria-hidden="true" />
-        <span
-          v-show="isExpanded"
-          class="whitespace-nowrap overflow-hidden font-medium"
-          >{{ isLightMode ? "Dark Mode" : "Light Mode" }}</span
-        >
-      </button>
-      <button
-        type="button"
-        class="inline-flex items-center rounded-lg bg-transparent text-white/65 in-[.light-mode]:text-black/65 leading-none transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white in-[.light-mode]:hover:text-black aria-pressed:bg-accent aria-pressed:text-black"
-        :class="
-          isExpanded
-            ? 'w-full flex-row justify-start px-3.5 h-10 gap-3'
-            : 'w-10 h-10 justify-center'
-        "
-        :aria-pressed="settingsOpen"
-        aria-label="Open settings"
-        :title="!isExpanded ? 'Settings' : undefined"
-        @click="emit('openSettings', $event)"
-      >
-        <IconGear class="shrink-0 w-5 h-5" aria-hidden="true" />
-        <span
-          v-show="isExpanded"
-          class="whitespace-nowrap overflow-hidden font-medium"
-          >Settings</span
-        >
-      </button>
-    </div>
-  </aside>
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            @click="emit('toggleTheme')"
+            :aria-label="isLightMode ? 'Switch to dark mode' : 'Switch to light mode'"
+            :title="!isExpanded ? (isLightMode ? 'Switch to dark mode' : 'Switch to light mode') : undefined"
+            :class="!isExpanded ? 'w-10 px-0 justify-center' : ''"
+          >
+            <IconSun
+              v-if="isLightMode"
+              class="shrink-0 w-5 h-5"
+              aria-hidden="true"
+            />
+            <IconMoon v-else class="shrink-0 w-5 h-5" aria-hidden="true" />
+            <span
+              v-show="isExpanded"
+              class="whitespace-nowrap overflow-hidden font-medium"
+              >{{ isLightMode ? "Dark Mode" : "Light Mode" }}</span
+            >
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            @click="emit('openSettings', $event)"
+            :aria-pressed="settingsOpen"
+            aria-label="Open settings"
+            :title="!isExpanded ? 'Settings' : undefined"
+            :class="!isExpanded ? 'w-10 px-0 justify-center' : ''"
+          >
+            <IconGear class="shrink-0 w-5 h-5" aria-hidden="true" />
+            <span
+              v-show="isExpanded"
+              class="whitespace-nowrap overflow-hidden font-medium"
+              >Settings</span
+            >
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </SidebarFooter>
+  </Sidebar>
 </template>

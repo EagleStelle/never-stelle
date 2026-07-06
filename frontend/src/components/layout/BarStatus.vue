@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Component } from "vue";
 import IconTrash from "~icons/material-symbols/delete";
-import Button from "../ui/Button.vue";
+import { Button } from "../ui/button";
 
 defineProps<{
   countCards: Array<{ label: string; value: number; icon: Component }>;

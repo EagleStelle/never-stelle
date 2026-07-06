@@ -1,16 +1,15 @@
 <script setup lang="ts">
-import DownloadCommand from "./components/downloads/DownloadCommand.vue";
-import DownloadsPanel from "./components/downloads/DownloadsPanel.vue";
+import DownloadInput from "./features/downloads/Input.vue";
+import DownloadPanel from "./features/downloads/Panel.vue";
 import NavSide from "./components/layout/NavSide.vue";
 import BarStatus from "./components/layout/BarStatus.vue";
 import NavBottom from "./components/layout/NavBottom.vue";
-import Settings from "./components/settings/Settings.vue";
+import SettingsView from "./features/settings/View.vue";
 import ToastStack from "./components/ToastStack.vue";
-import Button from "./components/ui/Button.vue";
-import Combobox from "./components/ui/Combobox.vue";
-import InputBar from "./components/ui/InputBar.vue";
-import SegmentedControl from "./components/ui/SegmentedControl.vue";
-import SegmentedControlItem from "./components/ui/SegmentedControlItem.vue";
+import { Button } from "./components/ui/button";
+import { Combobox } from "./components/ui/combobox";
+import { Input } from "./components/ui/input";
+import { SegmentedControl, SegmentedControlItem } from "./components/ui/segmented-control";
 import IconGrid from "~icons/material-symbols/grid-view";
 import IconList from "~icons/material-symbols/list";
 import IconRefresh from "~icons/material-symbols/sync";
@@ -87,7 +86,7 @@ const {
         tabindex="-1"
       >
         <template v-if="activePage === 'downloads'">
-          <DownloadCommand
+          <DownloadInput
             class="mb-2"
             v-model:url="url"
             :saved-settings="savedSettings"
@@ -98,7 +97,7 @@ const {
         <template v-else-if="activePage === 'history'">
           <section aria-label="Search history" class="mb-2">
             <div class="flex items-center gap-2">
-              <InputBar
+              <Input
                 class="flex-1 min-w-0"
                 type="text"
                 placeholder="Search history..."
@@ -106,7 +105,7 @@ const {
                 <template #icon>
                   <IconSearch class="w-5 h-5" aria-hidden="true" />
                 </template>
-              </InputBar>
+              </Input>
               <Button
                 variant="primary"
                 size="lg"
@@ -165,7 +164,7 @@ const {
         </div>
 
         <template v-if="activePage === 'downloads'">
-          <DownloadsPanel
+          <DownloadPanel
             :active-menu="activeMenu"
             :active-menu-label="activeMenuLabel"
             :error-message="tasksErrorMessage"
@@ -183,7 +182,7 @@ const {
         </template>
 
         <template v-else-if="activePage === 'history'">
-          <DownloadsPanel
+          <DownloadPanel
             :active-menu="activeMenu"
             :active-menu-label="activeMenuLabel"
             :error-message="tasksErrorMessage"
@@ -214,7 +213,7 @@ const {
       @open-settings="openSettings"
     />
 
-    <Settings
+    <SettingsView
       v-model:open="settingsOpen"
       v-model:section="settingsSection"
       :cookie-statuses="cookieStatuses"

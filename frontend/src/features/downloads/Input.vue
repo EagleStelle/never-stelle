@@ -2,8 +2,8 @@
 import IconDownload from"~icons/material-symbols/download";
 import IconLink from"~icons/material-symbols/link";
 import IconPaste from"~icons/material-symbols/content-paste-rounded";
-import InputBar from"../ui/InputBar.vue";
-import Button from"../ui/Button.vue";
+import { Input } from "../../components/ui/input";
+import { Button } from "../../components/ui/button";
 
 import type { SavedSettings } from"../../types";
 
@@ -30,7 +30,7 @@ const pasteFromClipboard = async () => {
 <template>
  <section aria-label="Add download">
  <form class="flex items-center gap-2" @submit.prevent="emit('addDownload')">
- <InputBar
+ <Input
  class="flex-1 min-w-0"
  :model-value="url"
  @update:model-value="(val) => emit('update:url', val)"
@@ -57,7 +57,7 @@ const pasteFromClipboard = async () => {
  </template>
  </Button>
  </template>
- </InputBar>
+ </Input>
  <Button variant="primary" size="lg" type="submit" class="shrink-0" aria-label="Download">
  <template #icon>
  <IconDownload aria-hidden="true" class="w-6 h-6 transition-transform duration-300 ease-glass group-hover:-translate-y-px group-hover:scale-110" />
