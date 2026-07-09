@@ -47,19 +47,19 @@ const isExpanded = ref(true);
       <a
         v-if="isExpanded"
         href="/"
-        class="inline-flex items-center min-w-0 gap-3 text-white [.light-mode_&]:text-black hover:text-white [.light-mode_&]:hover:text-black leading-none no-underline"
+        class="inline-flex items-center min-w-0 gap-3 text-white in-[.light-mode]:text-black hover:text-white in-[.light-mode]:hover:text-black leading-none no-underline"
         aria-label="Never Stelle Home"
       >
         <img src="/assets/logo.png" alt="" class="w-8 h-8 shrink-0" />
         <span
-          class="whitespace-nowrap overflow-hidden font-display font-bold text-white [.light-mode_&]:text-black text-xl tracking-tight"
+          class="whitespace-nowrap overflow-hidden font-display font-bold text-white in-[.light-mode]:text-black text-xl tracking-tight"
           >Never Stelle</span
         >
       </a>
 
       <button
         @click="isExpanded = !isExpanded"
-        class="flex items-center justify-center text-white [.light-mode_&]:text-black hover:text-white [.light-mode_&]:hover:text-black transition-all duration-300 ease-glass"
+        class="flex items-center justify-center text-white in-[.light-mode]:text-black hover:text-white in-[.light-mode]:hover:text-black transition-all duration-300 ease-glass"
         :class="
           isExpanded
             ? 'w-8 h-8 rounded-lg bg-transparent shrink-0'

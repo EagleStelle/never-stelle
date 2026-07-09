@@ -116,7 +116,7 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
       ]"
     >
       <div
-        class="pl-3 pr-2 flex items-center justify-center text-white [.light-mode_&]:text-black"
+        class="pl-3 pr-2 flex items-center justify-center text-white in-[.light-mode]:text-black"
       >
         <img
           v-if="activeItem?.iconUrl"
@@ -128,25 +128,25 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
         <component
           v-else-if="activeItem?.icon"
           :is="activeItem.icon"
-          class="w-4 h-4 shrink-0 text-white [.light-mode_&]:text-black"
+          class="w-4 h-4 shrink-0 text-white in-[.light-mode]:text-black"
           aria-hidden="true"
         />
         <span
           v-else-if="activeItem?.initials"
-          class="inline-flex h-5 min-w-5 items-center justify-center rounded-lg glass-soft px-1 text-[0.65rem] font-semibold text-white [.light-mode_&]:text-black"
+          class="inline-flex h-5 min-w-5 items-center justify-center rounded-lg glass-soft px-1 text-[0.65rem] font-semibold text-white in-[.light-mode]:text-black"
         >
           {{ activeItem.initials }}
         </span>
       </div>
       <ComboboxInput
         :class="[
-          'flex-1 bg-transparent outline-none min-w-0 text-white [.light-mode_&]:text-black placeholder:text-white [.light-mode_&]:placeholder:text-black',
+          'flex-1 bg-transparent outline-none min-w-0 text-white in-[.light-mode]:text-black placeholder:text-white in-[.light-mode]:placeholder:text-black',
           sizes.input,
         ]"
         :placeholder="activeLabel || props.placeholder || 'Search...'"
       />
       <ComboboxTrigger
-        class="pr-3 pl-1 flex items-center justify-center text-white [.light-mode_&]:text-black hover:text-white [.light-mode_&]:hover:text-black cursor-pointer outline-none"
+        class="pr-3 pl-1 flex items-center justify-center text-white in-[.light-mode]:text-black hover:text-white in-[.light-mode]:hover:text-black cursor-pointer outline-none"
       >
         <IconChevronDown class="w-5 h-5 shrink-0" aria-hidden="true" />
       </ComboboxTrigger>
@@ -160,7 +160,7 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
       >
         <ComboboxViewport class="p-1">
           <ComboboxEmpty
-            class="py-3 text-center text-sm text-white [.light-mode_&]:text-black"
+            class="py-3 text-center text-sm text-white in-[.light-mode]:text-black"
           >
             {{ props.emptyText || "No items found." }}
           </ComboboxEmpty>
@@ -169,7 +169,7 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
             v-for="item in filteredItems"
             :key="item.key"
             :value="item"
-            class="glass-option relative flex w-full cursor-pointer select-none items-center rounded-lg py-2 pl-8 pr-2 text-sm outline-none text-white [.light-mode_&]:text-black transition-all duration-300 ease-glass"
+            class="glass-option relative flex w-full cursor-pointer select-none items-center rounded-lg py-2 pl-8 pr-2 text-sm outline-none text-white in-[.light-mode]:text-black transition-all duration-300 ease-glass"
           >
             <ComboboxItemIndicator
               class="absolute left-2 flex h-4 w-4 items-center justify-center"

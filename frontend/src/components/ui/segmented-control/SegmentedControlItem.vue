@@ -7,7 +7,7 @@ const props = defineProps<ToggleGroupItemProps & { class?: string }>()
 <template>
  <ToggleGroupItem
  v-bind="props"
- :class="['segmented-control-item inline-flex items-center justify-center gap-2 px-3 h-full rounded-lg bg-transparent text-white [.light-mode_&]:text-black leading-none whitespace-nowrap transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white [.light-mode_&]:hover:text-black focus-visible:outline-none', props.class ]"
+ :class="['segmented-control-item inline-flex items-center justify-center gap-2 px-3 h-full rounded-lg bg-transparent text-white in-[.light-mode]:text-black leading-none whitespace-nowrap transition-all duration-300 ease-glass active:scale-[0.97] hover:text-white in-[.light-mode]:hover:text-black focus-visible:outline-none', props.class ]"
  >
  <slot />
  </ToggleGroupItem>

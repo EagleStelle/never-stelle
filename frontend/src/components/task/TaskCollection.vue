@@ -26,7 +26,7 @@ const emit = defineEmits<{
   <section aria-live="polite">
     <div
       v-if="loading"
-      class="rounded-lg glass flex min-h-32 items-center justify-center gap-2 text-white [.light-mode_&]:text-black text-center"
+      class="rounded-lg glass flex min-h-32 items-center justify-center gap-2 text-white in-[.light-mode]:text-black text-center"
     >
       <IconSpinner class="animate-spin text-accent" aria-hidden="true" />
       <span>Loading downloads...</span>
@@ -34,7 +34,7 @@ const emit = defineEmits<{
 
     <div
       v-else-if="errorMessage"
-      class="rounded-lg glass flex min-h-32 items-center justify-center gap-2 text-center text-white [.light-mode_&]:text-black"
+      class="rounded-lg glass flex min-h-32 items-center justify-center gap-2 text-center text-white in-[.light-mode]:text-black"
     >
       {{ errorMessage }}
     </div>

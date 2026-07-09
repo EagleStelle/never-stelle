@@ -41,7 +41,7 @@ function submitSource(event: Event): void {
       type="text"
       autocomplete="off"
       placeholder="set source"
-      class="w-24 min-w-0 rounded-lg glass-soft px-2 py-1 text-[0.7rem] leading-none text-white [.light-mode_&]:text-black outline-none focus:ring-2 focus:ring-accent"
+      class="w-24 min-w-0 rounded-lg glass-soft px-2 py-1 text-[0.7rem] leading-none text-white in-[.light-mode]:text-black outline-none focus:ring-2 focus:ring-accent"
     />
     <datalist :id="`sources-row-${task.vid}`">
       <option
@@ -57,7 +57,7 @@ function submitSource(event: Event): void {
 
   <!-- Labelled editor with candidate chips for cards -->
   <div v-else class="col-span-full flex flex-col gap-2 rounded-lg glass-soft p-3">
-    <span class="text-[0.8rem] text-white [.light-mode_&]:text-black">
+    <span class="text-[0.8rem] text-white in-[.light-mode]:text-black">
       Unknown source — pick or type:
     </span>
     <div class="flex flex-wrap items-center gap-1.5">
@@ -79,7 +79,7 @@ function submitSource(event: Event): void {
           type="text"
           autocomplete="off"
           placeholder="e.g. youtube"
-          class="w-28 min-w-0 rounded-lg glass-soft px-2 py-1 text-[0.75rem] leading-none text-white [.light-mode_&]:text-black outline-none focus:ring-2 focus:ring-accent"
+          class="w-28 min-w-0 rounded-lg glass-soft px-2 py-1 text-[0.75rem] leading-none text-white in-[.light-mode]:text-black outline-none focus:ring-2 focus:ring-accent"
         />
         <datalist :id="`sources-card-${task.vid}`">
           <option

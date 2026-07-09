@@ -73,7 +73,7 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
     <div
       v-if="$slots.icon"
       :class="[
-        'flex items-center justify-center shrink-0 text-white [.light-mode_&]:text-black',
+        'flex items-center justify-center shrink-0 text-white in-[.light-mode]:text-black',
         sizes.icon,
       ]"
     >
@@ -88,7 +88,7 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
         emit('update:modelValue', ($event.target as HTMLInputElement).value)
       "
       :class="[
-        'flex-1 min-w-0 h-full bg-transparent outline-none text-white [.light-mode_&]:text-black pr-2 placeholder:text-white [.light-mode_&]:placeholder:text-black',
+        'flex-1 min-w-0 h-full bg-transparent outline-none text-white in-[.light-mode]:text-black pr-2 placeholder:text-white in-[.light-mode]:placeholder:text-black',
         sizes.input,
         props.inputClass,
       ]"

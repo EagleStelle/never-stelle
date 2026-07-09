@@ -16,7 +16,7 @@ const props = withDefaults(
 );
 
 const BASE =
-  "group inline-flex items-center justify-center gap-1.5 border border-[var(--glass-border)] bg-accent text-black font-sans font-medium leading-none whitespace-nowrap transition-all duration-300 ease-glass hover:bg-accent/45 active:scale-[0.96] disabled:cursor-not-allowed";
+  "group inline-flex items-center justify-center gap-1.5 border border-(--glass-border) bg-accent text-black font-sans font-medium leading-none whitespace-nowrap transition-all duration-300 ease-glass hover:bg-accent/45 active:scale-[0.96] disabled:cursor-not-allowed";
 
 const SIZE_CLASS: Record<Size, { base: string; pad: string; square: string }> =
   {
