@@ -1,6 +1,7 @@
 import type {
   AddTaskResponse,
   ClearTasksResponse,
+  ProbeResponse,
   SavedSettings,
   ScanMediaResponse,
   TasksResponse,
@@ -76,8 +77,21 @@ export function getTasks(): Promise<TasksResponse> {
   return jsonRequest<TasksResponse>("/api/tasks", {}, "Could not load tasks.");
 }
 
+export function probeUrl(url: string): Promise<ProbeResponse> {
+  return jsonRequest<ProbeResponse>(
+    "/api/tasks/probe",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    },
+    "Could not read that link.",
+  );
+}
+
 export function addTask(payload: {
-  url: string;
+  url?: string;
+  urls?: string[];
   site_locations: SavedSettings["site_locations"];
 }): Promise<AddTaskResponse> {
   return jsonRequest<AddTaskResponse>(

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from "vue";
 import type { Component } from "vue";
-import IconClose from "~icons/material-symbols/close";
 import IconCookie from "~icons/material-symbols/cookie";
 import IconDescription from "~icons/material-symbols/description";
 import IconFolder from "~icons/material-symbols/folder";
@@ -10,13 +9,6 @@ import IconSearch from "~icons/material-symbols/search";
 import IconTrash from "~icons/material-symbols/delete";
 import IconUpload from "~icons/material-symbols/upload";
 import {
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogOverlay,
-  DialogPortal,
-  DialogRoot,
-  DialogTitle,
   TabsContent,
   TabsList,
   TabsRoot,
@@ -24,6 +16,7 @@ import {
 } from "reka-ui";
 
 import { Button } from "../../components/ui/button";
+import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import {
   Sidebar,
@@ -183,20 +176,14 @@ function connectNew(): void {
 </script>
 
 <template>
-  <DialogRoot v-model:open="openModel">
-    <DialogPortal>
-      <DialogOverlay
-        class="settings-overlay fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm"
-      />
-      <DialogContent
-        class="settings-content fixed left-1/2 top-1/2 z-[70] flex w-[min(980px,96vw)] h-[min(700px,92vh)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-[var(--glass-border)] bg-primary focus:outline-none sm:flex-row"
-        aria-describedby="settingsDescription"
-      >
-        <DialogTitle class="sr-only">Settings</DialogTitle>
-        <DialogDescription id="settingsDescription" class="sr-only">
-          Configure download locations, cookies, and naming templates.
-        </DialogDescription>
-
+  <Dialog
+    v-model:open="openModel"
+    title="Settings"
+    hide-title
+    description="Configure download locations, cookies, and naming templates."
+    overlay-class="settings-overlay fixed inset-0 z-60 bg-black/50 backdrop-blur-sm"
+    content-class="settings-content fixed left-1/2 top-1/2 z-70 flex w-[min(980px,96vw)] h-[min(700px,92vh)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none sm:flex-row"
+  >
         <datalist id="downloadLocationSuggestions">
           <option
             v-for="location in settings.download_locations"
@@ -234,7 +221,7 @@ function connectNew(): void {
               >
                 <SidebarGroup v-for="group in sectionGroups" :key="group.label">
                   <SidebarGroupLabel
-                    class="hidden sm:block sm:[&:not(:first-child)]:mt-3"
+                    class="hidden sm:block sm:not-first:mt-3"
                   >
                     {{ group.label }}
                   </SidebarGroupLabel>
@@ -269,17 +256,6 @@ function connectNew(): void {
 
           <!-- Content -->
           <div class="relative min-h-0 min-w-0 flex-1">
-            <DialogClose as-child>
-              <button
-                type="button"
-                class="absolute right-4 top-4 z-10 inline-flex h-9 w-9 items-center justify-center rounded-lg bg-transparent text-white/70 [.light-mode_&]:text-black/70 transition-all duration-300 ease-glass hover:text-white [.light-mode_&]:hover:text-black active:scale-[0.96]"
-                aria-label="Close settings"
-                title="Close settings"
-              >
-                <IconClose class="h-5 w-5" aria-hidden="true" />
-              </button>
-            </DialogClose>
-
             <div class="h-full overflow-y-auto px-5 py-6 sm:px-8">
               <TabsContent
                 v-for="item in SETTINGS_SECTIONS"
@@ -289,7 +265,7 @@ function connectNew(): void {
               >
                 <p
                   v-if="sourceProfiles.length === 0 && item.key !== 'cookies'"
-                  class="rounded-lg glass p-4 text-white [.light-mode_&]:text-black"
+                  class="rounded-lg glass p-4 text-white in-[.light-mode]:text-black"
                 >
                   No sources yet.
                 </p>
@@ -352,7 +328,7 @@ function connectNew(): void {
 
                   <p
                     v-if="sourceProfiles.length === 0"
-                    class="mt-3 rounded-lg glass p-4 text-white [.light-mode_&]:text-black"
+                    class="mt-3 rounded-lg glass p-4 text-white in-[.light-mode]:text-black"
                   >
                     No sources yet.
                   </p>
@@ -377,7 +353,7 @@ function connectNew(): void {
                             class="flex flex-1 items-center min-w-0 h-10 rounded-lg glass-soft px-3 text-sm"
                           >
                             <span
-                              class="truncate text-white/60 [.light-mode_&]:text-black/60"
+                              class="truncate text-white/60 in-[.light-mode]:text-black/60"
                               >{{
                                 cookieFiles[site.key]?.name || "No cookies file"
                               }}</span
@@ -402,7 +378,7 @@ function connectNew(): void {
                             class="flex flex-1 items-center min-w-0 h-10 rounded-lg glass-soft px-3 text-sm"
                           >
                             <span
-                              class="truncate text-white [.light-mode_&]:text-black"
+                              class="truncate text-white in-[.light-mode]:text-black"
                               >{{
                                 cookieStatuses[site.key].filename ||
                                 "cookies.txt"
@@ -413,7 +389,7 @@ function connectNew(): void {
                             variant="soft"
                             size="lg"
                             type="button"
-                            class="shrink-0 !bg-[#ef4444] !text-white hover:!bg-[#dc2626]"
+                            class="shrink-0 bg-[#ef4444]! text-white! hover:bg-[#dc2626]!"
                             :title="`Delete ${site.label} cookies`"
                             :aria-label="`Delete ${site.label} cookies`"
                             @click="emit('removeCookies', site.key)"
@@ -473,9 +449,7 @@ function connectNew(): void {
             </div>
           </div>
         </TabsRoot>
-      </DialogContent>
-    </DialogPortal>
-  </DialogRoot>
+  </Dialog>
 </template>
 
 <style scoped>

@@ -102,6 +102,24 @@ export interface AddTaskResponse {
   reused: boolean;
 }
 
+export type ProbeKind = "video" | "playlist" | "radio";
+
+export interface PlaylistEntry {
+  index: number;
+  url: string;
+  title: string;
+  creator: string;
+  duration: number | null;
+  id: string;
+}
+
+export interface ProbeResponse {
+  kind: ProbeKind;
+  url: string;
+  title: string;
+  entries: PlaylistEntry[];
+}
+
 export interface ClearTasksResponse {
   cleared: number;
   failed?: string[];

@@ -7,12 +7,13 @@ import {
   clearPendingTasks,
   fetchTaskFile,
   getTasks,
+  probeUrl,
   removeTask as removeTaskRequest,
   scanMediaLibrary,
   setTaskSource as setTaskSourceRequest,
 } from "../api";
 import { POLL_PENDING_MS, POLL_RUNNING_MS, TASKS_QUERY_KEY } from "../ui";
-import type { SavedSettings, TaskItem, TasksResponse, ToastType } from "../types";
+import type { PlaylistEntry, SavedSettings, TaskItem, TasksResponse, ToastType } from "../types";
 import { countTasks, errorMessage, filenameFromContentDisposition } from "../utils/dashboard";
 
 interface UseTaskQueueOptions {
@@ -21,9 +22,24 @@ interface UseTaskQueueOptions {
   url: Ref<string>;
 }
 
+// Playlists carry a `list` param; sets/albums live under known list routes.
+function looksLikePlaylist(sourceUrl: string): boolean {
+  try {
+    const parsed = new URL(sourceUrl);
+    if (parsed.searchParams.has("list")) return true;
+    return /\/(playlist|playlists|sets|album|albums)(\/|$)/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptions) {
   const taskCache = new Map<string, Partial<TaskItem>>();
   const pollingIntervalMs = ref(POLL_PENDING_MS);
+
+  const playlistOpen = ref(false);
+  const playlistTitle = ref("");
+  const playlistEntries = ref<PlaylistEntry[]>([]);
 
   const tasksQuery = useQuery<TasksResponse>({
     queryKey: TASKS_QUERY_KEY,
@@ -31,6 +47,7 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     staleTime: 1000,
   });
   const addTaskMutation = useMutation({ mutationFn: createTask });
+  const probeMutation = useMutation({ mutationFn: probeUrl });
   const scanMediaMutation = useMutation({ mutationFn: scanMediaLibrary });
   const setSourceMutation = useMutation({
     mutationFn: (payload: { taskId: string; sourceKey: string }) =>
@@ -87,28 +104,60 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     if (result.error && !silent) toast(errorMessage(result.error, "Could not load tasks."), "error");
   }
 
+  async function queueUrls(urls: string[]): Promise<void> {
+    const currentSettings = getSavedSettings();
+    const data = await addTaskMutation.mutateAsync({
+      urls,
+      site_locations: currentSettings.site_locations,
+    });
+    const created = Array.isArray(data.created) ? data.created : [];
+    if (urls.length > 1) {
+      toast(created.length ? `Added ${created.length} download${created.length === 1 ? "" : "s"}.` : "Those downloads are already in your list.");
+    } else if (data.reused) {
+      const first = created[0];
+      toast(first && first.status === "completed" ? "That file was already downloaded." : "That download is already in your list.");
+    } else {
+      toast("Download added.");
+    }
+    await loadTasks(true);
+  }
+
   async function addDownloadTask(): Promise<void> {
     const sourceUrl = url.value.trim();
     if (!sourceUrl) {
       toast("Paste a supported URL first.", "error");
       return;
     }
-    const currentSettings = getSavedSettings();
     try {
-      const data = await addTaskMutation.mutateAsync({
-        url: sourceUrl,
-        site_locations: currentSettings.site_locations,
-      });
-      url.value = "";
-      const firstTask = Array.isArray(data.created) ? data.created[0] : null;
-      if (data.reused) {
-        toast(firstTask && firstTask.status === "completed" ? "That file was already downloaded." : "That download is already in your list.");
-      } else {
-        toast("Download added.");
+      // Probe only playlist-shaped links: keeps single videos on the fast path
+      // and lets the backend split playlists from endless radios/mixes.
+      if (looksLikePlaylist(sourceUrl)) {
+        const probe = await probeMutation.mutateAsync(sourceUrl);
+        if (probe.kind === "playlist" && probe.entries.length > 0) {
+          playlistTitle.value = probe.title || "Playlist";
+          playlistEntries.value = probe.entries;
+          playlistOpen.value = true;
+          return;
+        }
+        await queueUrls([probe.url || sourceUrl]);
+        url.value = "";
+        return;
       }
-      await loadTasks(true);
+      await queueUrls([sourceUrl]);
+      url.value = "";
     } catch (error) {
       toast(errorMessage(error, "Failed to add task."), "error");
+    }
+  }
+
+  async function confirmPlaylistSelection(urls: string[]): Promise<void> {
+    playlistOpen.value = false;
+    if (urls.length === 0) return;
+    try {
+      await queueUrls(urls);
+      url.value = "";
+    } catch (error) {
+      toast(errorMessage(error, "Failed to add tasks."), "error");
     }
   }
 
@@ -205,8 +254,12 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
   return {
     addDownloadTask,
     clearPending,
+    confirmPlaylistSelection,
     downloadTask,
     historyRefreshing,
+    playlistEntries,
+    playlistOpen,
+    playlistTitle,
     refreshHistory,
     removeTask,
     setTaskSource,

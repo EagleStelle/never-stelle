@@ -19,6 +19,7 @@ from backend.app.services.tasks import (
     count_tasks,
     counts_by_menu,
     fetch_tasks,
+    probe_url,
     queue_task,
     remove_pending_task,
     resolve_task_file,
@@ -38,7 +39,12 @@ class SettingsPayload(BaseModel):
 
 class AddTaskPayload(BaseModel):
     url: str = ""
+    urls: list[str] = Field(default_factory=list)
     site_locations: dict[str, str] = Field(default_factory=dict)
+
+
+class ProbePayload(BaseModel):
+    url: str = ""
 
 
 class SetSourcePayload(BaseModel):
@@ -130,17 +136,35 @@ def scan_media() -> dict[str, int]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.post("/tasks")
-def add_task(payload: AddTaskPayload) -> dict[str, Any]:
+@router.post("/tasks/probe")
+def probe_task(payload: ProbePayload) -> dict[str, Any]:
     try:
-        created, reused = queue_task(
-            payload.url,
-            payload.site_locations,
-        )
+        return probe_url(payload.url)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/tasks")
+def add_task(payload: AddTaskPayload) -> dict[str, Any]:
+    targets = [url for url in (payload.urls or [payload.url]) if url and url.strip()]
+    if not targets:
+        raise HTTPException(status_code=400, detail="Paste a URL first.")
+
+    created: list[dict[str, Any]] = []
+    reused = False
+    errors: list[str] = []
+    for target in targets:
+        try:
+            task_created, task_reused = queue_task(target, payload.site_locations)
+        except Exception as exc:
+            errors.append(str(exc))
+            continue
+        created.extend(task_created)
+        reused = reused or task_reused
+    if not created and errors:
+        raise HTTPException(status_code=400, detail=errors[0])
     return {"created": created, "reused": reused}
 
 

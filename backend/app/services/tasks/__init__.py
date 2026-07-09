@@ -43,6 +43,7 @@ from .operations import (
     resolve_task_file,
     set_task_source,
 )
+from .probe import probe_url
 from .scan import parse_filename_media_id, scan_media_library
 from .serializers import (
     count_tasks,
@@ -94,6 +95,7 @@ __all__ = [
     "load_history",
     "load_task_store",
     "parse_filename_media_id",
+    "probe_url",
     "queue_task",
     "recover_task_path",
     "remove_history_record",

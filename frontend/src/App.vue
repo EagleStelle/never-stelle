@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import DownloadInput from "./features/downloads/Input.vue";
 import DownloadPanel from "./features/downloads/Panel.vue";
+import PlaylistDialog from "./features/downloads/PlaylistDialog.vue";
 import NavSide from "./components/layout/NavSide.vue";
 import BarStatus from "./components/layout/BarStatus.vue";
 import NavBottom from "./components/layout/NavBottom.vue";
@@ -25,6 +26,7 @@ const {
   activePage,
   addDownloadTask,
   clearPending,
+  confirmPlaylistSelection,
   connectCookies,
   connectCookiesForSource,
   cookieStatuses,
@@ -37,6 +39,9 @@ const {
   navigationItems,
   openSettings,
   pageItems,
+  playlistEntries,
+  playlistOpen,
+  playlistTitle,
   removeCookies,
   removeTask,
   refreshHistory,
@@ -221,6 +226,13 @@ const {
       @connect-cookies="connectCookies"
       @connect-cookies-source="connectCookiesForSource"
       @remove-cookies="removeCookies"
+    />
+
+    <PlaylistDialog
+      v-model:open="playlistOpen"
+      :title="playlistTitle"
+      :entries="playlistEntries"
+      @confirm="confirmPlaylistSelection"
     />
 
     <ToastStack :toasts="toasts" />
