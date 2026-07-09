@@ -22,6 +22,7 @@ def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
             "source_url": source_url,
             "task_type": "ytdlp",
             "source_key": source_key,
+            "creator": str(task.get("creator") or ""),
             "resolved_folder": str(task.get("resolved_folder") or ""),
             "resolved_filename": str(task.get("resolved_filename") or ""),
             "resolved_full_path": str(task.get("resolved_full_path") or ""),

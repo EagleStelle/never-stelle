@@ -14,6 +14,9 @@ from .constants import TEMPLATE_RE
 from .formats import creator_from_url
 
 _CREATOR_FIELDS = {"creator", "author", "author_nickname"}
+# Same precedence the {{creator}} template resolves. Also captured post-download
+# via --print-to-file so the creator column fills even when no template uses it.
+YTDLP_CREATOR_FIELD = "%(artist,artists,album_artist,creator,uploader,channel,playlist_uploader|Unknown)s"
 _INVALID_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _SPACING_RE = re.compile(r"\s+")
 _SEPARATOR_SPACING_RE = re.compile(r"\s*([-|,;:\u00b7\uFF5C])\s*")
@@ -48,9 +51,9 @@ def _yt_dlp_field(name: str, source_url: str = "") -> str:
         "title": "%(title|Unknown)s",
         "id": "%(id|NA)s",
         "video_id": "%(id|NA)s",
-        "creator": "%(artist,artists,album_artist,creator,uploader,channel,playlist_uploader|Unknown)s",
-        "author": "%(artist,artists,album_artist,creator,uploader,channel,playlist_uploader|Unknown)s",
-        "author_nickname": "%(artist,artists,album_artist,creator,uploader,channel,playlist_uploader|Unknown)s",
+        "creator": YTDLP_CREATOR_FIELD,
+        "author": YTDLP_CREATOR_FIELD,
+        "author_nickname": YTDLP_CREATOR_FIELD,
         "quality": "%(format_id,format_note,resolution|Unknown)s",
         "ext": "%(ext)s",
     }
@@ -185,6 +188,7 @@ def build_ytdlp_command(
     output_template: str,
     *,
     with_cookies: bool = False,
+    creator_sidecar: str = "",
 ) -> list[str]:
     selected_format = "bestvideo*+bestaudio/best"
     cmd = [
@@ -199,6 +203,10 @@ def build_ytdlp_command(
         "--merge-output-format",
         "mp4",
     ]
+    # --print-to-file (unlike --print) keeps normal progress output intact; the
+    # after_move stage runs on real downloads, never in simulate mode.
+    if creator_sidecar:
+        cmd.extend(["--print-to-file", f"after_move:{YTDLP_CREATOR_FIELD}", creator_sidecar])
     if with_cookies:
         cookies_file = find_cookies_file_for_url(source_url)
         if cookies_file:

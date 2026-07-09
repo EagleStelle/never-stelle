@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -122,6 +124,25 @@ def _run_ytdlp_to_task(task_id: str, cmd: list[str]) -> tuple[int, str]:
                 pass
 
 
+def _read_creator_sidecar(path: str) -> str:
+    # yt-dlp appends the resolved creator field here after the file is moved.
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            lines = [line.strip() for line in handle if line.strip()]
+    except OSError:
+        return ""
+    value = lines[-1] if lines else ""
+    return "" if value.lower() == "unknown" else value
+
+
+def _cleanup_file(path: str) -> None:
+    try:
+        if path:
+            os.unlink(path)
+    except OSError:
+        pass
+
+
 def _learn_source_format(source_url: str, filename: str) -> None:
     # Teach the DB this source's URL shape + id signature from a real download.
     media_id, _ = parse_filename_media_id(filename)
@@ -180,6 +201,9 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
     output_template = str(task.get("output_template") or build_output_template(source_url, output_dir))
     started_at = time.time()
 
+    sidecar_handle, creator_sidecar = tempfile.mkstemp(prefix="nvs-creator-", suffix=".txt")
+    os.close(sidecar_handle)
+
     # Try anonymously first (fast, no throttle). Only if that fails and a cookie
     # jar exists for this URL do we retry authenticated + paced.
     attempts = [False]
@@ -197,7 +221,13 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 log_lines = list(current.get("last_log_lines") or [])
                 log_lines.append("[never-stelle] Anonymous attempt failed; retrying with cookies...")
                 update_task(task_id, progress_pct=0, last_log_lines=log_lines[-30:])
-            cmd = build_ytdlp_command(source_url, ffmpeg_location, output_template, with_cookies=with_cookies)
+            cmd = build_ytdlp_command(
+                source_url,
+                ffmpeg_location,
+                output_template,
+                with_cookies=with_cookies,
+                creator_sidecar=creator_sidecar,
+            )
             rc, last_dest = _run_ytdlp_to_task(task_id, cmd)
             if rc == 0:
                 break
@@ -213,12 +243,14 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             if not final_path or not final_path.exists():
                 update_task(task_id, status="failed", error="yt-dlp finished, but no media file was found.")
                 return
+            creator = _read_creator_sidecar(creator_sidecar)
             final_path = _clean_resolved_filename(source_url, final_path)
             completed_task = update_task(
                 task_id,
                 status="completed",
                 progress_pct=100,
                 error="",
+                creator=creator,
                 resolved_full_path=str(final_path),
                 resolved_folder=str(final_path.parent),
                 resolved_filename=final_path.name,
@@ -241,3 +273,5 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
         update_task(task_id, status="failed", error=detail, output_template=output_template)
     except Exception as exc:
         update_task(task_id, status="failed", error=str(exc), output_template=output_template)
+    finally:
+        _cleanup_file(creator_sidecar)

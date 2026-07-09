@@ -67,6 +67,8 @@ def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "status": "completed",
         "progress_pct": 100,
         "source_key": entry.get("source_key", ""),
+        # Disk-scanned rows carry the creator as `artist` (top folder name).
+        "creator": entry.get("creator") or entry.get("artist") or "",
         "source_pending": entry.get("source_pending", False),
         "source_candidates": entry.get("source_candidates", []),
         "resolved_folder": entry.get("resolved_folder", ""),
