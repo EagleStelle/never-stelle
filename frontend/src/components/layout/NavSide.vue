@@ -41,17 +41,18 @@ const isExpanded = ref(true);
     aria-label="App navigation"
   >
     <SidebarHeader
-      class="w-full mb-3 h-10 flex-row items-center"
+      class="w-full mb-3 h-10 flex-row items-center relative group/header"
       :class="isExpanded ? 'px-1.5 justify-between' : 'justify-center'"
     >
       <a
-        v-if="isExpanded"
         href="/"
-        class="inline-flex items-center min-w-0 gap-3 text-white in-[.light-mode]:text-black hover:text-white in-[.light-mode]:hover:text-black leading-none no-underline"
+        class="inline-flex items-center min-w-0 gap-3 text-white in-[.light-mode]:text-black hover:text-white in-[.light-mode]:hover:text-black leading-none no-underline transition-opacity duration-300"
+        :class="!isExpanded ? 'group-hover/header:opacity-0' : ''"
         aria-label="Never Stelle Home"
       >
         <img src="/assets/logo.png" alt="" class="w-8 h-8 shrink-0" />
         <span
+          v-show="isExpanded"
           class="whitespace-nowrap overflow-hidden font-display font-bold text-white in-[.light-mode]:text-black text-xl tracking-tight"
           >Never Stelle</span
         >
@@ -59,11 +60,11 @@ const isExpanded = ref(true);
 
       <button
         @click="isExpanded = !isExpanded"
-        class="flex items-center justify-center text-white in-[.light-mode]:text-black hover:text-white in-[.light-mode]:hover:text-black transition-all duration-300 ease-glass"
+        class="flex items-center justify-center text-white/65 in-[.light-mode]:text-black/65 hover:text-white in-[.light-mode]:hover:text-black hover:bg-white/10 in-[.light-mode]:hover:bg-black/5 transition-all duration-300 ease-glass"
         :class="
           isExpanded
-            ? 'w-8 h-8 rounded-lg bg-transparent shrink-0'
-            : 'w-10 h-10 rounded-lg bg-transparent'
+            ? 'w-8 h-8 rounded-lg shrink-0'
+            : 'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-lg opacity-0 group-hover/header:opacity-100'
         "
         :aria-label="isExpanded ? 'Collapse sidebar' : 'Expand sidebar'"
       >
