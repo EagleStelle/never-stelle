@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import sys
 import tempfile
@@ -114,36 +113,15 @@ SITE_KEYS: tuple[str, ...] = ()
 SITE_LABELS = {"all": "All"}
 
 
-def parse_env_locations(raw: str) -> list[str]:
-    raw = (raw or "").strip()
-    if not raw:
+def discover_volume_roots() -> list[str]:
+    # Media base is the single library root; per-platform folders live beneath it.
+    root = MEDIA_DIR
+    if not root.exists() or not root.is_dir():
         return []
     try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, list):
-            return [str(item).strip() for item in parsed if str(item).strip()]
+        return [str(root.resolve())]
     except Exception:
-        pass
-    return [item.strip() for item in raw.split("|") if item.strip()]
-
-
-def discover_volume_roots() -> list[str]:
-    configured = parse_env_locations(os.environ.get("ACCESSIBLE_VOLUMES_ROOTS", str(DEFAULT_LIBRARY_DIR)))
-
-    out: list[str] = []
-    seen: set[str] = set()
-    for item in configured:
-        path = Path(str(item).strip())
-        if not path.exists() or not path.is_dir():
-            continue
-        try:
-            normalized = str(path.resolve())
-        except Exception:
-            normalized = str(path)
-        if normalized not in seen:
-            seen.add(normalized)
-            out.append(normalized)
-    return out
+        return [str(root)]
 
 
 def discover_volume_locations() -> list[str]:
@@ -214,24 +192,6 @@ def load_app_config() -> dict[str, Any]:
     discovered_locations = discover_volume_locations()
     if discovered_locations:
         cfg["downloadLocations"] = discovered_locations
-
-    default_others = os.environ.get("DEFAULT_OTHERS_DOWNLOAD_LOCATION", "").strip()
-    env_map = {
-        "defaultGeneralDownloadLocation": default_others,
-        "defaultYoutubeDownloadLocation": os.environ.get("DEFAULT_YOUTUBE_DOWNLOAD_LOCATION", "").strip()
-        or default_others,
-        "defaultFacebookDownloadLocation": os.environ.get("DEFAULT_FACEBOOK_DOWNLOAD_LOCATION", "").strip()
-        or default_others,
-        "defaultInstagramDownloadLocation": os.environ.get("DEFAULT_INSTAGRAM_DOWNLOAD_LOCATION", "").strip()
-        or default_others,
-        "defaultTiktokDownloadLocation": os.environ.get("DEFAULT_TIKTOK_DOWNLOAD_LOCATION", "").strip()
-        or default_others,
-        "defaultOthersDownloadLocation": default_others,
-    }
-    for key, value in env_map.items():
-        normalized = normalize_allowed_location(value) if value else ""
-        if normalized:
-            cfg[key] = normalized
     return cfg
 
 
@@ -240,7 +200,7 @@ def get_default_general_location(cfg: dict[str, Any]) -> str:
     if value:
         return value
     locations = normalize_download_locations(cfg)
-    return locations[0] if locations else ""
+    return locations[0] if locations else str(MEDIA_DIR)
 
 
 def get_config_source_profiles(cfg: dict[str, Any]) -> list[dict[str, Any]]:
@@ -255,7 +215,8 @@ def get_default_site_location(cfg: dict[str, Any], site: str) -> str:
         normalized_profile_default = normalize_allowed_location(profile_default)
         if normalized_profile_default:
             return normalized_profile_default
-    return get_default_general_location(cfg)
+    base = get_default_general_location(cfg)
+    return f"{base.rstrip('/')}/{site}" if base else ""
 
 
 def get_site_default_locations(cfg: dict[str, Any], source_keys: Iterable[str] | None = None) -> dict[str, str]:

@@ -59,6 +59,7 @@ def queue_task(
     if not is_allowed_location(output_dir):
         label = str(source_profile.get("label") or "selected")
         raise ValueError(f"Choose a valid {label} download location from Settings.")
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     task_id = f"ytdlp:{uuid.uuid4().hex[:12]}"
     output_template = build_output_template(source_url, output_dir)

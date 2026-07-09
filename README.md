@@ -46,6 +46,32 @@ http://127.0.0.1:8840
 
 Docker state is stored in the bind-mounted `data/`, `media/`, and `scratch/` directories.
 
+### Media library layout
+
+`/media` is the library base and the only required media mount. Every download resolves to `/media/<source-key>` (for example `/media/youtube`, `/media/facebook`, `/media/others`), created automatically on first use. Source keys are learned dynamically.
+
+To send one platform to a different disk, add an overlay mount whose container path is that platform's folder:
+
+```yaml
+volumes:
+  - .local/media:/media # base (required)
+  - /volume1/facebook:/media/facebook # facebook only → /volume1/facebook
+```
+
+The overlay shadows `/media/facebook`: facebook files go to `/volume1/facebook` and never appear under the base. Everything else stays under the base mount. No duplicates.
+
+### Adding a platform redirect after you already have files
+
+Docker does not move existing files — a new overlay mount **shadows** whatever was already in the base folder, so those files become invisible to the app. Migrate them yourself **before** adding the mount:
+
+```sh
+# move the existing library into the new share first
+mv .local/media/youtube/*  /volume1/youtube/
+# then add the overlay mount and restart
+```
+
+The container path stays `/media/youtube`, so history entries remain valid and no files are duplicated. Skip this step and the old files are stranded behind the mount (still on disk, but the app reports them missing until you move them).
+
 ## Requirements
 
 - Python 3.11+
@@ -59,7 +85,7 @@ Python dependencies are defined in [requirements.txt](requirements.txt). Fronten
 
 Runtime paths are derived automatically. Local runs use `.local/data`, `.local/media`, and `.local/scratch`; Docker runs use `/data`, `/media`, and `/scratch` through the compose bind mounts.
 
-Only paths inside accessible media roots can be selected as save locations. Instagram `yt-dlp` cookies are managed from Settings.
+Only paths inside the media base (`/media`, or `.local/media` locally) can be selected as save locations. Instagram `yt-dlp` cookies are managed from Settings.
 
 ## Templates
 

@@ -6,7 +6,10 @@ services:
     restart: unless-stopped
     volumes:
       - .local/data:/data
-      - .local/media:/media
       - .local/scratch:/scratch
+      - .local/media:/media
+      # Optional: redirect one platform to another disk. Container path must be /media/<source-key>.
+      # - /volume1/facebook:/media/facebook
+      # - /volume1/youtube:/media/youtube
     ports:
       - "8840:8840"

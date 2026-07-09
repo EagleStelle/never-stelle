@@ -55,4 +55,4 @@ def test_normalize_source_templates_keeps_per_source_values():
 def test_normalize_source_locations_defaults_to_fallback_media_location():
     result = normalize_source_location_selection({}, {"downloadLocations": ["/media"]}, [])
 
-    assert result["others"] == "/media"
+    assert result["others"] == "/media/others"
