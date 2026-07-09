@@ -131,7 +131,8 @@ watch(
           createTemplateSettings(props.settingsDraft.template_settings);
       }
       if (!(profile.key in props.settingsDraft.site_locations))
-        props.settingsDraft.site_locations[profile.key] = "";
+        props.settingsDraft.site_locations[profile.key] =
+          props.settings.site_locations[profile.key] || "";
     }
   },
   { immediate: true },

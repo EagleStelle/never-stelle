@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import is_allowed_location, load_app_config
-from backend.app.core.sources import normalize_source_key
+from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key
 from backend.app.services.settings import (
     get_effective_saved_settings,
     get_source_profile_for_url,
@@ -49,13 +49,18 @@ def queue_task(
     cfg = load_app_config()
     effective = get_effective_saved_settings(cfg)
     source_profile = get_source_profile_for_url(source_url, cfg)
-    source_key = str(source_profile.get("key") or "")
+    source_key = normalize_source_key(source_profile.get("key"))
+    # A never-seen source has no saved profile; carry its derived profile so the
+    # location selection resolves /media/<key> instead of dumping into /media/others.
+    source_profiles = list(effective.get("source_profiles") or [])
+    if not any(normalize_source_key(profile.get("key")) == source_key for profile in source_profiles):
+        source_profiles.append(source_profile)
     selected_locations = normalize_source_location_selection(
         site_locations or effective.get("site_locations") or {},
         cfg,
-        effective.get("source_profiles") or [source_profile],
+        source_profiles,
     )
-    output_dir = selected_locations.get(source_key) or selected_locations.get("others") or ""
+    output_dir = selected_locations.get(source_key) or selected_locations.get(FALLBACK_SOURCE_KEY) or ""
     if not is_allowed_location(output_dir):
         label = str(source_profile.get("label") or "selected")
         raise ValueError(f"Choose a valid {label} download location from Settings.")
