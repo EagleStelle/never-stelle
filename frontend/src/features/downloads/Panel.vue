@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import TaskList from "../../components/TaskList.vue";
-import type { MenuKey, SourceProfile, TaskItem, ViewMode } from "../../types";
+import TaskCollection from "../../components/task/TaskCollection.vue";
+import type { SourceProfile, TaskItem, ViewMode } from "../../types";
 
 defineProps<{
-  activeMenu: MenuKey;
-  activeMenuLabel: string;
   errorMessage: string;
   loading: boolean;
   pageKind: "downloads" | "history";
@@ -22,11 +20,9 @@ const emit = defineEmits<{
 
 <template>
   <section aria-labelledby="downloadsHeading">
-    <TaskList
+    <TaskCollection
       :tasks="tasks"
       :view-mode="viewMode"
-      :active-menu="activeMenu"
-      :active-menu-label="activeMenuLabel"
       :loading="loading"
       :page-kind="pageKind"
       :source-profiles="sourceProfiles"

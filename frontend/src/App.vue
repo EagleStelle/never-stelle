@@ -22,7 +22,6 @@ import { useDownloadDashboard } from "./composables/useDownloadDashboard";
 
 const {
   activeMenu,
-  activeMenuLabel,
   activePage,
   addDownloadTask,
   clearPending,
@@ -169,8 +168,6 @@ const {
 
         <template v-if="activePage === 'downloads'">
           <DownloadPanel
-            :active-menu="activeMenu"
-            :active-menu-label="activeMenuLabel"
             :error-message="tasksErrorMessage"
             :loading="tasksLoading"
             page-kind="downloads"
@@ -187,8 +184,6 @@ const {
 
         <template v-else-if="activePage === 'history'">
           <DownloadPanel
-            :active-menu="activeMenu"
-            :active-menu-label="activeMenuLabel"
             :error-message="tasksErrorMessage"
             :loading="tasksLoading"
             page-kind="history"
