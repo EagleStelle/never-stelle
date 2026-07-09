@@ -49,7 +49,7 @@ function toggle(set: Set<string>, id: string): void {
     </TableHeader>
     <TableBody>
       <TableRow v-for="task in props.tasks" :key="task.vid" class="glass-rise" :style="taskBackgroundStyle(task)">
-        <TableCell class="w-px max-w-[12rem] sm:max-w-[18rem] lg:max-w-[24rem]">
+        <TableCell class="w-px max-w-48 sm:max-w-[18rem] lg:max-w-[24rem]">
           <div class="flex flex-col gap-1.5">
             <div class="flex items-center gap-2">
               <img
@@ -64,12 +64,12 @@ function toggle(set: Set<string>, id: string): void {
                 :href="sourceLink(task)"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="truncate block max-w-[12rem] md:max-w-[20rem] text-white [.light-mode_&]:text-black underline decoration-dotted underline-offset-2 hover:decoration-solid min-w-0"
+                class="truncate block max-w-48 md:max-w-[20rem] text-white in-[.light-mode]:text-black underline decoration-dotted underline-offset-2 hover:decoration-solid min-w-0"
                 :title="task.source_url"
               >
                 {{ task.source_url }}
               </a>
-              <div v-else class="truncate block max-w-[12rem] md:max-w-[20rem] text-white [.light-mode_&]:text-black min-w-0" :title="task.source_url || task.vid">
+              <div v-else class="truncate block max-w-48 md:max-w-[20rem] text-white in-[.light-mode]:text-black min-w-0" :title="task.source_url || task.vid">
                 {{ task.source_url || task.vid }}
               </div>
             </div>
@@ -82,12 +82,12 @@ function toggle(set: Set<string>, id: string): void {
             />
           </div>
         </TableCell>
-        <TableCell class="w-px max-w-[10rem] md:max-w-[15rem] lg:max-w-[20rem] cursor-pointer" @click="toggle(expandedFolders, task.vid)">
-          <div :class="['text-white [.light-mode_&]:text-black', expandedFolders.has(task.vid) ? 'break-all whitespace-normal' : 'truncate']" :title="task.resolved_folder">
+        <TableCell class="w-px max-w-40 md:max-w-60 lg:max-w-[20rem] cursor-pointer" @click="toggle(expandedFolders, task.vid)">
+          <div :class="['text-white in-[.light-mode]:text-black', expandedFolders.has(task.vid) ? 'break-all whitespace-normal' : 'truncate']" :title="task.resolved_folder">
             {{ task.resolved_folder }}
           </div>
         </TableCell>
-        <TableCell class="w-full max-w-[0] cursor-pointer" @click="toggle(expandedFilenames, task.vid)">
+        <TableCell class="w-full max-w-0 cursor-pointer" @click="toggle(expandedFilenames, task.vid)">
           <div :class="expandedFilenames.has(task.vid) ? 'break-all whitespace-normal' : 'truncate'" :title="task.resolved_filename">
             {{ task.resolved_filename }}
           </div>
