@@ -8,8 +8,17 @@ from backend.app.services.settings import get_effective_source_profiles
 
 from .constants import STATUS_LABELS, STATUS_ORDER
 from .files import recover_task_path
+from .formats import creator_from_url
+from .scan import parse_filename_media_id
 from .store import load_history, load_task_store
 from .urls import detect_source_key
+
+
+def _file_size(resolved_path: str) -> int:
+    try:
+        return Path(resolved_path).stat().st_size if resolved_path else 0
+    except OSError:
+        return 0
 
 
 def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
@@ -26,6 +35,9 @@ def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
         or detect_source_key(source_url)
     )
     can_download = bool(status == "completed" and resolved_path and Path(resolved_path).is_file())
+    resolved_filename = resolved_filename or str(task.get("resolved_filename") or "")
+    media_id, _ = parse_filename_media_id(resolved_filename)
+    creator = str(task.get("creator") or creator_from_url(source_url, media_id))
     return {
         "vid": task_id,
         "status": status,
@@ -33,8 +45,10 @@ def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
         "progress": progress_pct / 100,
         "progress_pct": progress_pct,
         "source_url": source_url,
+        "creator": creator,
+        "file_size": _file_size(resolved_path),
         "resolved_folder": resolved_folder or str(task.get("resolved_folder") or ""),
-        "resolved_filename": resolved_filename or str(task.get("resolved_filename") or ""),
+        "resolved_filename": resolved_filename,
         "resolved_full_path": resolved_path or str(task.get("resolved_full_path") or ""),
         "preview_warning": str(task.get("preview_warning") or ""),
         "can_remove": status in {"pending", "failed"},

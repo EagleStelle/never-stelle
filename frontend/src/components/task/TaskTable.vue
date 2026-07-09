@@ -15,7 +15,7 @@ import {
 import SourcePicker from "./SourcePicker.vue";
 
 import type { SourceProfile, TaskItem } from "../../types";
-import { sourceIconUrl, sourceLink, taskBackgroundStyle } from "../../utils/task";
+import { formatSize, sourceIconUrl, sourceLink, taskBackgroundStyle } from "../../utils/task";
 
 const props = defineProps<{
   tasks: TaskItem[];
@@ -28,7 +28,6 @@ const emit = defineEmits<{
   "set-source": [payload: { taskId: string; sourceKey: string }];
 }>();
 
-const expandedFolders = reactive(new Set<string>());
 const expandedFilenames = reactive(new Set<string>());
 
 function toggle(set: Set<string>, id: string): void {
@@ -41,15 +40,26 @@ function toggle(set: Set<string>, id: string): void {
   <Table>
     <TableHeader>
       <TableRow>
-        <TableHead class="w-px whitespace-nowrap">Source</TableHead>
-        <TableHead class="w-px whitespace-nowrap">Folder</TableHead>
-        <TableHead class="w-px whitespace-nowrap">Filename</TableHead>
+        <TableHead class="w-1/2 min-w-72 whitespace-nowrap">Name</TableHead>
+        <TableHead class="w-px whitespace-nowrap">Creator</TableHead>
+        <TableHead class="w-1/2 min-w-72 whitespace-nowrap">Source</TableHead>
+        <TableHead class="w-px whitespace-nowrap">Size</TableHead>
         <TableHead class="w-px"></TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
       <TableRow v-for="task in props.tasks" :key="task.vid" class="glass-rise" :style="taskBackgroundStyle(task)">
-        <TableCell class="w-px max-w-48 sm:max-w-[18rem] lg:max-w-[24rem]">
+        <TableCell class="w-1/2 max-w-0 min-w-72 cursor-pointer" @click="toggle(expandedFilenames, task.vid)">
+          <div :class="['text-white in-[.light-mode]:text-black', expandedFilenames.has(task.vid) ? 'break-all whitespace-normal' : 'truncate']" :title="task.resolved_filename">
+            {{ task.resolved_filename }}
+          </div>
+        </TableCell>
+        <TableCell class="w-px max-w-40 md:max-w-60">
+          <div class="truncate text-white in-[.light-mode]:text-black" :title="task.creator">
+            {{ task.creator }}
+          </div>
+        </TableCell>
+        <TableCell class="w-1/2 max-w-0 min-w-72">
           <div class="flex flex-col gap-1.5">
             <div class="flex items-center gap-2">
               <img
@@ -64,12 +74,12 @@ function toggle(set: Set<string>, id: string): void {
                 :href="sourceLink(task)"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="truncate block max-w-48 md:max-w-[20rem] text-white in-[.light-mode]:text-black underline decoration-dotted underline-offset-2 hover:decoration-solid min-w-0"
+                class="truncate block min-w-0 text-white in-[.light-mode]:text-black underline decoration-dotted underline-offset-2 hover:decoration-solid"
                 :title="task.source_url"
               >
                 {{ task.source_url }}
               </a>
-              <div v-else class="truncate block max-w-48 md:max-w-[20rem] text-white in-[.light-mode]:text-black min-w-0" :title="task.source_url || task.vid">
+              <div v-else class="truncate block min-w-0 text-white in-[.light-mode]:text-black" :title="task.source_url || task.vid">
                 {{ task.source_url || task.vid }}
               </div>
             </div>
@@ -82,14 +92,9 @@ function toggle(set: Set<string>, id: string): void {
             />
           </div>
         </TableCell>
-        <TableCell class="w-px max-w-40 md:max-w-60 lg:max-w-[20rem] cursor-pointer" @click="toggle(expandedFolders, task.vid)">
-          <div :class="['text-white in-[.light-mode]:text-black', expandedFolders.has(task.vid) ? 'break-all whitespace-normal' : 'truncate']" :title="task.resolved_folder">
-            {{ task.resolved_folder }}
-          </div>
-        </TableCell>
-        <TableCell class="w-full max-w-0 cursor-pointer" @click="toggle(expandedFilenames, task.vid)">
-          <div :class="expandedFilenames.has(task.vid) ? 'break-all whitespace-normal' : 'truncate'" :title="task.resolved_filename">
-            {{ task.resolved_filename }}
+        <TableCell class="w-px whitespace-nowrap">
+          <div class="text-white in-[.light-mode]:text-black tabular-nums">
+            {{ formatSize(task.file_size) }}
           </div>
         </TableCell>
         <TableCell class="w-px">

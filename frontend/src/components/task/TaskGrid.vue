@@ -46,7 +46,7 @@ function canShowDownload(task: TaskItem): boolean {
       <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-4 relative z-10">
         <div class="min-w-0">
           <h3
-            class="wrap-break-word leading-snug text-white [.light-mode_&]:text-black font-display font-semibold text-base tracking-tight"
+            class="wrap-break-word leading-snug text-white in-[.light-mode]:text-black font-display font-semibold text-base tracking-tight"
           >
             <img
               v-if="sourceIconUrl(task, props.sourceProfiles)"
@@ -68,13 +68,13 @@ function canShowDownload(task: TaskItem): boolean {
           </a>
           <div
             v-else
-            class="mt-2 break-all text-white [.light-mode_&]:text-black text-[0.8rem] font-mono"
+            class="mt-2 break-all text-white in-[.light-mode]:text-black text-[0.8rem] font-mono"
           >
             {{ taskDetail(task) }}
           </div>
           <div
             v-if="task.status === 'failed' && task.error"
-            class="mt-2 wrap-break-word whitespace-pre-line text-white [.light-mode_&]:text-black"
+            class="mt-2 wrap-break-word whitespace-pre-line text-white in-[.light-mode]:text-black"
           >
             {{ task.error }}
           </div>

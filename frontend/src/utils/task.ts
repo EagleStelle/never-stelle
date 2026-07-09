@@ -44,6 +44,20 @@ export function taskDetail(task: TaskItem): string {
   return String(task.source_url || task.vid || "").trim();
 }
 
+// Human-readable byte size, empty when unknown.
+export function formatSize(bytes: number): string {
+  const value = Number(bytes) || 0;
+  if (value <= 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = value;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size >= 10 || unit === 0 ? Math.round(size) : size.toFixed(1)} ${units[unit]}`;
+}
+
 // Row/card background: red tint on failure, accent progress bar otherwise.
 export function taskBackgroundStyle(task: TaskItem) {
   if (task.status === "failed") {

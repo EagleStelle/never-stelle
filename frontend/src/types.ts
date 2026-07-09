@@ -69,6 +69,8 @@ export interface TaskItem {
   progress: number;
   progress_pct: number;
   source_url: string;
+  creator: string;
+  file_size: number;
   resolved_folder: string;
   resolved_filename: string;
   resolved_full_path: string;
