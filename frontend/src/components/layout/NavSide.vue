@@ -107,16 +107,16 @@ const isExpanded = ref(true);
         <SidebarMenuItem>
           <SidebarMenuButton
             @click="emit('toggleTheme')"
-            :aria-label="isLightMode ? 'Switch to dark mode' : 'Switch to light mode'"
-            :title="!isExpanded ? (isLightMode ? 'Switch to dark mode' : 'Switch to light mode') : undefined"
+            :aria-label="isLightMode ? 'Dark Mode' : 'Light Mode'"
+            :title="!isExpanded ? (isLightMode ? 'Dark Mode' : 'Light Mode') : undefined"
             :class="!isExpanded ? 'w-10 px-0 justify-center' : ''"
           >
-            <IconSun
+            <IconMoon
               v-if="isLightMode"
               class="shrink-0 w-5 h-5"
               aria-hidden="true"
             />
-            <IconMoon v-else class="shrink-0 w-5 h-5" aria-hidden="true" />
+            <IconSun v-else class="shrink-0 w-5 h-5" aria-hidden="true" />
             <span
               v-show="isExpanded"
               class="whitespace-nowrap overflow-hidden font-medium"
