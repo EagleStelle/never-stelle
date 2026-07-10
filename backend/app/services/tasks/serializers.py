@@ -104,10 +104,10 @@ def count_tasks(tasks: list[dict[str, Any]]) -> dict[str, int]:
 def counts_by_menu(tasks: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
     result = {"all": count_tasks(tasks)}
     source_keys = [normalize_source_key(profile.get("key")) for profile in get_effective_source_profiles()]
-    for task in tasks:
-        key = normalize_source_key(task.get("source_key") or FALLBACK_SOURCE_KEY)
+    task_keys = [normalize_source_key(task.get("source_key") or FALLBACK_SOURCE_KEY) for task in tasks]
+    for key in task_keys:
         if key not in source_keys:
             source_keys.append(key)
     for site in source_keys:
-        result[site] = count_tasks([task for task in tasks if task.get("source_key") == site])
+        result[site] = count_tasks([task for task, key in zip(tasks, task_keys, strict=True) if key == site])
     return result

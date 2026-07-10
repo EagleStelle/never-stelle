@@ -129,7 +129,7 @@ def _completed_records() -> dict[str, dict[str, Any]]:
 def _drop_missing_records(records: dict[str, dict[str, Any]]) -> tuple[int, int]:
     checked = 0
     missing = 0
-    for task_id, payload in records.items():
+    for task_id, payload in list(records.items()):
         task = dict(payload)
         if task.get("status") == "completed":
             resolved_path, _, _ = recover_task_path(task_id, task)
@@ -143,6 +143,7 @@ def _drop_missing_records(records: dict[str, dict[str, Any]]) -> tuple[int, int]
             continue
         remove_task_record(task_id)
         remove_history_record(task_id)
+        records.pop(task_id, None)
         missing += 1
     return checked, missing
 
@@ -213,8 +214,9 @@ def _completed_at_from_file(path: Path) -> str:
 
 def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, int]:
     """Reconcile completed history with media files already present on disk."""
-    checked, missing = _drop_missing_records(_completed_records())
-    known_paths, known_media_ids = _known_media(_completed_records())
+    records = _completed_records()
+    checked, missing = _drop_missing_records(records)
+    known_paths, known_media_ids = _known_media(records)
     location_index = _source_location_index(_scan_location_map())
     learned = load_learned_formats()
 

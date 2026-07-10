@@ -29,6 +29,9 @@ def _radio_single_url(url: str) -> str:
     query = dict(parse_qsl(parsed.query))
     if not query.get("list", "").startswith(_RADIO_PREFIX):
         return ""
+    # Bare radio page (no v=) would strip to a dead URL; let it fall through.
+    if not query.get("v"):
+        return ""
     return _strip_playlist_param(url)
 
 
@@ -56,7 +59,8 @@ def _flat_playlist(url: str) -> dict[str, Any]:
     )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip().splitlines()
-        raise RuntimeError(detail[-1] if detail else "Could not read that link.")
+        # Rejected link is client input: ValueError -> route maps to 400, not 502.
+        raise ValueError(detail[-1] if detail else "Could not read that link.")
     return json.loads(result.stdout or "{}")
 
 
