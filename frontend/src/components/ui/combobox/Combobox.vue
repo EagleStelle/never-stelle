@@ -107,12 +107,12 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
     v-model:searchTerm="searchTerm"
     @update:open="handleOpenChange"
     :display-value="(val: any) => (val as any)?.label || ''"
+    :class="props.class"
   >
     <ComboboxAnchor
       :class="[
-        'relative inline-flex items-center rounded-lg glass-soft focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass',
+        'relative inline-flex w-full items-center rounded-lg glass-soft focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass',
         sizes.anchor,
-        props.class,
       ]"
     >
       <div
@@ -154,7 +154,7 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
 
     <ComboboxPortal>
       <ComboboxContent
-        class="z-50 min-w-[160px] glass-chrome rounded-lg overflow-hidden"
+        class="z-50 min-w-40 glass-chrome rounded-lg overflow-hidden"
         position="popper"
         :side-offset="6"
       >

@@ -52,7 +52,7 @@ def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
         "resolved_full_path": resolved_path or str(task.get("resolved_full_path") or ""),
         "preview_warning": str(task.get("preview_warning") or ""),
         "can_remove": status in {"pending", "failed"},
-        "task_type": "ytdlp",
+        "task_type": str(task.get("engine") or "ytdlp"),
         "source_key": source_key,
         "source_pending": bool(task.get("source_pending")),
         "source_candidates": list(task.get("source_candidates") or []),

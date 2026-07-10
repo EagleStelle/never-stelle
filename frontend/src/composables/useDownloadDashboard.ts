@@ -2,6 +2,9 @@ import { computed, nextTick, ref, watch } from "vue";
 import { useEventListener, useLocalStorage } from "@vueuse/core";
 import IconHistory from "~icons/material-symbols/schedule";
 import IconTray from "~icons/material-symbols/inbox";
+import IconMedia from "~icons/material-symbols/perm-media";
+import IconVideo from "~icons/material-symbols/movie";
+import IconImage from "~icons/material-symbols/image";
 
 import { useDashboardSettings } from "./useDashboardSettings";
 import { useTaskQueue } from "./useTaskQueue";
@@ -11,12 +14,12 @@ import {
   FALLBACK_SOURCE_ICON,
   PAGE_ROUTES,
   SOURCE_ICON_COMPONENTS,
-  SITE_LABELS,
 } from "../ui";
-import type { MenuKey, PageKey, SettingsSection, SourceProfile, TaskFilter, ViewMode } from "../types";
+import type { MediaFilter, MenuKey, PageKey, SettingsSection, SourceProfile, TaskFilter, ViewMode } from "../types";
 import {
   countTasks,
   isFilterKey,
+  isMediaFilter,
   isMenuKey,
   isPageKey,
   isSettingsSection,
@@ -26,6 +29,7 @@ import {
   mergeSourceProfiles,
   sourceLabelFromKey,
 } from "../utils/dashboard";
+import { mediaKindForTask } from "../utils/task";
 
 const SETTINGS_ROUTE_BY_SECTION: Record<SettingsSection, string> = {
   downloads: "/settings/locations",
@@ -61,12 +65,14 @@ export function useDownloadDashboard() {
   const activePage = useLocalStorage<PageKey>("neverstelle.activePage", "downloads");
   const activeMenu = useLocalStorage<MenuKey>("neverstelle.activeMenu", "all");
   const activeFilter = useLocalStorage<TaskFilter>("neverstelle.activeFilter", "all");
+  const mediaFilter = useLocalStorage<MediaFilter>("neverstelle.mediaFilter", "all");
   const viewMode = useLocalStorage<ViewMode>("neverstelle.viewMode", "grid");
   const themeMode = useLocalStorage<"light" | "dark">("neverstelle.themeMode", "dark");
 
   if (!isPageKey(activePage.value)) activePage.value = "downloads";
   if (activePage.value === "settings") activePage.value = "downloads";
   if (!isFilterKey(activeFilter.value)) activeFilter.value = "all";
+  if (!isMediaFilter(mediaFilter.value)) mediaFilter.value = "all";
   if (!isViewMode(viewMode.value)) viewMode.value = "grid";
   if (themeMode.value !== "light") themeMode.value = "dark";
 
@@ -90,7 +96,7 @@ export function useDownloadDashboard() {
 
   const isLightMode = computed(() => themeMode.value === "light");
   const navigationItems = computed(() => [
-    { key: "all", label: SITE_LABELS.all, icon: IconTray },
+    { key: "all", label: "All platform", icon: IconTray },
     ...sourceProfiles.value.map((profile) => ({
       key: profile.key,
       label: profile.label,
@@ -107,8 +113,18 @@ export function useDownloadDashboard() {
     const tasks = taskQueue.taskItems.value;
     return activeMenu.value === "all" ? tasks : tasks.filter((task) => (task.source_key || "others") === activeMenu.value);
   });
-  const activeTasks = computed(() => menuTasks.value.filter((task) => ["pending", "running", "failed"].includes(task.status)));
-  const completedTasks = computed(() => menuTasks.value.filter((task) => ["completed"].includes(task.status)));
+  const mediaTasks = computed(() =>
+    mediaFilter.value === "all"
+      ? menuTasks.value
+      : menuTasks.value.filter((task) => mediaKindForTask(task) === mediaFilter.value),
+  );
+  const mediaFilterItems = computed(() => [
+    { key: "all", label: "All media", icon: IconMedia },
+    { key: "video", label: "Video", icon: IconVideo },
+    { key: "image", label: "Images", icon: IconImage },
+  ]);
+  const activeTasks = computed(() => mediaTasks.value.filter((task) => ["pending", "running", "failed"].includes(task.status)));
+  const completedTasks = computed(() => mediaTasks.value.filter((task) => ["completed"].includes(task.status)));
   const countsForActiveMenu = computed(() => countTasks(menuTasks.value));
   const activeMenuLabel = computed(() => {
     if (activeMenu.value === "all") return "All";
@@ -164,6 +180,10 @@ export function useDownloadDashboard() {
     activeFilter.value = filter;
   }
 
+  function setMediaFilter(value: MediaFilter): void {
+    mediaFilter.value = isMediaFilter(value) ? value : "all";
+  }
+
   function setViewMode(mode: ViewMode): void {
     viewMode.value = mode;
   }
@@ -210,11 +230,14 @@ export function useDownloadDashboard() {
     completedTasks,
     countCards,
     isLightMode,
+    mediaFilter,
+    mediaFilterItems,
     navigationItems,
     pageItems,
     setActivePage,
     setActiveFilter,
     setActiveMenu,
+    setMediaFilter,
     setViewMode,
     toggleThemeMode,
     url,

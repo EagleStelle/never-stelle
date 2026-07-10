@@ -1,6 +1,29 @@
 import type { SourceProfile, TaskItem } from "../types";
 import { faviconUrlForHost, hostFromUrl, sourceLabelFromKey } from "./dashboard";
 
+const IMAGE_EXTENSIONS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "gif",
+  "bmp",
+  "heic",
+  "heif",
+  "avif",
+  "jfif",
+]);
+
+// Classify a task as image or video: by real file extension, else by the
+// download engine (gallery-dl = images) for items not yet on disk.
+export function mediaKindForTask(task: TaskItem): "image" | "video" {
+  const name = String(task.resolved_filename || task.resolved_full_path || "");
+  const dot = name.lastIndexOf(".");
+  const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+  if (/^[a-z0-9]{1,5}$/.test(ext)) return IMAGE_EXTENSIONS.has(ext) ? "image" : "video";
+  return task.task_type === "gallerydl" ? "image" : "video";
+}
+
 // Clamp raw progress to 0-100.
 function progressPct(task: TaskItem): number {
   return Math.max(0, Math.min(100, Number(task.progress_pct) || 0));

@@ -36,6 +36,8 @@ const {
   activeTasks,
   completedTasks,
   isLightMode,
+  mediaFilter,
+  mediaFilterItems,
   navigationItems,
   openSettings,
   pageItems,
@@ -48,6 +50,7 @@ const {
   savedSettings,
   setActiveMenu,
   setActivePage,
+  setMediaFilter,
   setTaskSource,
   setViewMode,
   settings,
@@ -140,14 +143,23 @@ const {
           v-if="['downloads', 'history'].includes(activePage)"
           class="flex items-center justify-end gap-2 mb-2 pb-1"
         >
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 w-full sm:w-auto">
             <Combobox
               :model-value="activeMenu"
               :items="navigationItems"
               @update:model-value="(val) => setActiveMenu(val as any)"
-              class="w-40"
+              class="flex-1 min-w-0 sm:flex-none sm:w-44"
               placeholder="Search platform..."
               empty-text="No platforms found."
+            />
+
+            <Combobox
+              :model-value="mediaFilter"
+              :items="mediaFilterItems"
+              @update:model-value="(val) => setMediaFilter(val as any)"
+              class="flex-1 min-w-0 sm:flex-none sm:w-44"
+              placeholder="Media type..."
+              empty-text="No types."
             />
 
             <SegmentedControl
@@ -158,14 +170,13 @@ const {
                 }
               "
               aria-label="View mode"
+              class="shrink-0"
             >
               <SegmentedControlItem value="grid" aria-label="Grid view">
                 <IconGrid class="w-4 h-4" aria-hidden="true" />
-                <span>Grid</span>
               </SegmentedControlItem>
               <SegmentedControlItem value="table" aria-label="Table view">
                 <IconList class="w-4 h-4" aria-hidden="true" />
-                <span>Table</span>
               </SegmentedControlItem>
             </SegmentedControl>
           </div>

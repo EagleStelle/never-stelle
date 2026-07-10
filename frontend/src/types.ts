@@ -6,6 +6,7 @@ export type MenuKey = "all" | SourceKey;
 export type PageKey = (typeof PAGE_KEYS)[number];
 export type TaskStatus = "pending" | "running" | "completed" | "failed" | string;
 export type TaskFilter = "all" | "active" | "done";
+export type MediaFilter = "all" | "image" | "video";
 export type ViewMode = "grid" | "table";
 export type SettingsSection = "downloads" | "cookies" | "folder-template" | "filename-template";
 export type ToastType = "success" | "error";

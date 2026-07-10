@@ -3,6 +3,7 @@ import {
   FALLBACK_SOURCE_KEY,
   PAGE_KEYS,
   type CookiesStatus,
+  type MediaFilter,
   type MenuKey,
   type PageKey,
   type SavedSettings,
@@ -162,6 +163,10 @@ export function isSettingsSection(value: string | null): value is SettingsSectio
 
 export function isFilterKey(value: string | null): value is TaskFilter {
   return value === "all" || value === "active" || value === "done";
+}
+
+export function isMediaFilter(value: string | null): value is MediaFilter {
+  return value === "all" || value === "image" || value === "video";
 }
 
 export function isViewMode(value: string | null): value is ViewMode {
