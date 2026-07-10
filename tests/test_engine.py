@@ -6,23 +6,25 @@ import pytest
 
 import backend.app.services.tasks.gallerydl as gallerydl
 from backend.app.services.tasks import engine_by_name, engine_for_task, select_engine
-from backend.app.services.tasks.worker import _count_progress
+from backend.app.services.tasks.engine import all_engines
+from backend.app.services.tasks.worker import _count_progress, _looks_unsupported
 
 
 @pytest.mark.parametrize(
-    "url,expected",
+    "url",
     [
-        ("https://www.youtube.com/watch?v=1", "ytdlp"),
-        ("https://youtu.be/abc", "ytdlp"),
-        ("https://www.pixiv.net/en/artworks/12345", "gallerydl"),
-        ("https://danbooru.donmai.us/posts/1", "gallerydl"),
-        ("https://i.imgur.com/abc.jpg", "gallerydl"),
-        ("https://www.deviantart.com/artist/art/x", "gallerydl"),
-        ("not a url", "ytdlp"),
+        "https://www.youtube.com/watch?v=1",
+        "https://www.pixiv.net/en/artworks/12345",
+        "https://i.imgur.com/abc.jpg",
+        "not a url",
     ],
 )
-def test_select_engine_routes_by_url(url, expected):
-    assert select_engine(url).name == expected
+def test_select_engine_always_defaults_to_ytdlp(url):
+    assert select_engine(url).name == "ytdlp"
+
+
+def test_all_engines_includes_both_backends():
+    assert {engine.name for engine in all_engines()} == {"ytdlp", "gallerydl"}
 
 
 def test_engine_by_name_falls_back_to_ytdlp():
@@ -36,15 +38,16 @@ def test_engine_for_task_prefers_explicit_engine_over_url():
     assert engine_for_task(task).name == "gallerydl"
 
 
-def test_engine_for_task_falls_back_to_url_when_untagged():
-    # Legacy rows have no engine field; route them by URL.
-    assert engine_for_task({"source_url": "https://www.pixiv.net/en/artworks/1"}).name == "gallerydl"
-    assert engine_for_task({"source_url": "https://youtu.be/abc"}).name == "ytdlp"
+def test_engine_for_task_defaults_to_ytdlp_when_untagged():
+    assert engine_for_task({"source_url": "https://www.pixiv.net/en/artworks/1"}).name == "ytdlp"
 
 
-def test_id_prefix_matches_engine_name():
-    assert select_engine("https://youtu.be/abc").id_prefix == "ytdlp"
-    assert select_engine("https://imgur.com/a/x").id_prefix == "gallerydl"
+def test_looks_unsupported_flags_wrong_engine_errors():
+    assert _looks_unsupported({"last_log_lines": ["ERROR: Unsupported URL: https://tiktok.com/@x/photo/1"]}) is True
+    assert _looks_unsupported({"last_log_lines": ["yt_dlp.utils.UnsupportedError: Unsupported URL: ..."]}) is True
+    assert _looks_unsupported({"last_log_lines": ["No suitable extractor found"]}) is True
+    assert _looks_unsupported({"last_log_lines": ["ERROR: Video unavailable"]}) is False
+    assert _looks_unsupported({}) is False
 
 
 def test_ytdlp_engine_progress_and_path_parsing():
@@ -61,20 +64,6 @@ def test_gallerydl_engine_progress_and_path_parsing():
     assert engine.extract_output_path('"/media/imgur/artist/photo.png"') == "/media/imgur/artist/photo.png"
     assert engine.extract_output_path("[download] skipping existing file") == ""
     assert engine.extract_output_path("/media/imgur/notes.txt") == ""
-
-
-@pytest.mark.parametrize(
-    "url,expected",
-    [
-        ("https://www.pixiv.net/en/artworks/1", True),
-        ("https://danbooru.donmai.us/posts/1", True),
-        ("https://i.imgur.com/abc.jpg", True),
-        ("https://www.youtube.com/watch?v=1", False),
-        ("https://example.com/x", False),
-    ],
-)
-def test_gallerydl_supports_hosts(url, expected):
-    assert gallerydl.supports(url) is expected
 
 
 def test_convert_template_to_gallerydl_maps_fields_and_resolves_creator():
@@ -110,6 +99,12 @@ def test_count_progress_unknown_total_is_monotonic_below_100():
     second = _count_progress(2, 0)
     later = _count_progress(20, 0)
     assert 0 < first < second < later < 100
+
+
+def test_build_gallerydl_output_template_adds_num_for_slideshows():
+    template = gallerydl.build_gallerydl_output_template("https://www.tiktok.com/@x/photo/1", "/media/tiktok")
+    _, _, filename = template.partition(gallerydl._TEMPLATE_SEP)
+    assert filename.endswith("_{num}.{extension}")
 
 
 def test_build_gallerydl_command_layout():

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from urllib.parse import urlparse
 
 from backend.app.services.settings import (
     find_cookies_file_for_url,
@@ -10,27 +9,9 @@ from backend.app.services.settings import (
 )
 
 from .constants import CREATOR_FIELDS, MEDIA_EXTENSIONS, TEMPLATE_RE
-from .formats import _prepare_url, creator_from_url
+from .formats import creator_from_url
 from .naming import sanitize_path_literal
 
-# Image-first hosts gallery-dl handles better than yt-dlp. Routing hint only;
-# source keys and URL formats are still learned per download, never hardcoded.
-GALLERYDL_HOSTS = {
-    "pixiv.net",
-    "danbooru.donmai.us",
-    "gelbooru.com",
-    "konachan.com",
-    "yande.re",
-    "e621.net",
-    "rule34.xxx",
-    "deviantart.com",
-    "artstation.com",
-    "imgur.com",
-    "flickr.com",
-}
-
-# gallery-dl filename fields, each with fallbacks + a literal default so a
-# missing key never aborts the format string.
 _GALLERYDL_FIELD = {
     "title": '{title|content|"untitled"}',
     "id": '{id|num|"NA"}',
@@ -38,16 +19,14 @@ _GALLERYDL_FIELD = {
     "quality": '{width|"?"}x{height|"?"}',
     "ext": "{extension}",
 }
-# Directory and filename are packed into one output_template; the worker never
-# splits it, only the gallery-dl command builder does.
+# Directory and filename packed into one output_template; only the builder splits it.
 _TEMPLATE_SEP = "\x1f"
 _COUNT_TIMEOUT_SECONDS = 60
 _MAX_COUNT = 5000
 
 
 def count_gallerydl_items(source_url: str, *, with_cookies: bool = False) -> int:
-    # `-g` resolves the gallery's file URLs without downloading media, giving a
-    # total for count-based progress. Best-effort: any failure yields 0.
+    # `-g` lists file URLs without downloading, giving a total; failure yields 0.
     cmd = ["gallery-dl", "-g"]
     if with_cookies:
         cookies_file = find_cookies_file_for_url(source_url)
@@ -69,11 +48,6 @@ def count_gallerydl_items(source_url: str, *, with_cookies: bool = False) -> int
         return 0
     count = sum(1 for line in (result.stdout or "").splitlines() if line.strip())
     return min(count, _MAX_COUNT)
-
-
-def supports(source_url: str) -> bool:
-    host = urlparse(_prepare_url(source_url)).netloc.lower().removeprefix("www.")
-    return any(host == known or host.endswith(f".{known}") for known in GALLERYDL_HOSTS)
 
 
 def _escape_literal(value: str) -> str:
@@ -107,10 +81,12 @@ def _literal_folder(template: str, source_url: str) -> str:
 def build_gallerydl_output_template(source_url: str, output_dir: str) -> str:
     settings = get_effective_template_settings(source_url)
     folder = _literal_folder(settings["folder_template"], source_url)
-    filename = convert_template_to_gallerydl(settings["filename_template"], source_url)
-    if "{extension" not in filename:
-        filename = f"{filename}.{{extension}}"
-    return f"{folder}{_TEMPLATE_SEP}{filename}"
+    stem = convert_template_to_gallerydl(settings["filename_template"], source_url)
+    stem = stem.replace(".{extension}", "").replace("{extension}", "").rstrip(". ")
+    # {num} keeps every image in a multi-file post (slideshow) unique.
+    if "{num" not in stem:
+        stem = f"{stem}_{{num}}"
+    return f"{folder}{_TEMPLATE_SEP}{stem}.{{extension}}"
 
 
 def build_gallerydl_command(
@@ -134,7 +110,6 @@ def build_gallerydl_command(
 
 
 def extract_gallerydl_path(line: str) -> str:
-    # gallery-dl prints the destination path of each saved file, one per line.
     line = str(line or "").strip().strip('"')
     if not line or line[0] in "#[|":
         return ""

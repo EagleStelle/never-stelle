@@ -74,12 +74,9 @@ The container path stays `/media/youtube`, so history entries remain valid and n
 
 ## Download engines
 
-Each download dispatches to one of two backends, chosen by URL:
+Downloads run through **yt-dlp** by default. When yt-dlp reports a URL unsupported — image posts, slideshows, galleries — the download automatically retries with **gallery-dl**. No platform lists; routing is dynamic and nothing is hardcoded.
 
-- **yt-dlp** — default; video/audio from most sites.
-- **gallery-dl** — image-gallery hosts (pixiv, boorus, deviantart, artstation, imgur, flickr, …).
-
-Both are installed from [requirements.txt](requirements.txt). The split is routing only — source keys and URL formats are still learned per download, never hardcoded.
+Both engines install from [requirements.txt](requirements.txt).
 
 ## Requirements
 

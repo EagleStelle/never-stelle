@@ -10,7 +10,7 @@ from typing import Any
 
 from backend.app.services.settings import has_cookies_for_url
 
-from .engine import Engine, engine_for_task
+from .engine import Engine, all_engines, engine_for_task
 from .files import find_newest_media_file, recover_task_path
 from .formats import creator_from_url, learn_download
 from .history import save_history_entry
@@ -181,6 +181,67 @@ def _clean_resolved_filename(source_url: str, path: Path) -> Path:
         return path
 
 
+# Log markers meaning the backend has no extractor for the URL: try the other engine.
+_UNSUPPORTED_MARKERS = ("unsupported url", "unsupportederror", "no suitable extractor")
+
+
+def _looks_unsupported(task: dict[str, Any]) -> bool:
+    tail = " ".join(task.get("last_log_lines") or []).lower()
+    return any(marker in tail for marker in _UNSUPPORTED_MARKERS)
+
+
+def _failure_detail(engine: Engine, rc: int, task: dict[str, Any]) -> str:
+    tail = "\n".join(list(task.get("last_log_lines") or [])[-12:]).strip()
+    detail = f"{engine.name} exited with code {rc}."
+    return f"{detail}\n{tail}" if tail else detail
+
+
+def _append_task_log(task_id: str, message: str) -> None:
+    current = (load_task_store().get("tasks") or {}).get(task_id, {})
+    log_lines = list(current.get("last_log_lines") or [])
+    log_lines.append(message)
+    update_task(task_id, last_log_lines=log_lines[-30:])
+
+
+def _run_engine_attempts(
+    engine: Engine,
+    task_id: str,
+    source_url: str,
+    output_dir: str,
+    ffmpeg_location: str,
+    output_template: str,
+    creator_sidecar: str,
+    total_items: int,
+) -> tuple[int, str]:
+    # Anonymous first; retry authenticated + paced only when a cookie jar exists.
+    attempts = [False]
+    if has_cookies_for_url(source_url):
+        attempts.append(True)
+    rc = 1
+    last_dest = ""
+    for with_cookies in attempts:
+        if with_cookies:
+            _append_task_log(task_id, "[never-stelle] Anonymous attempt failed; retrying with cookies...")
+            update_task(task_id, progress_pct=0)
+        cmd = engine.build_command(
+            source_url,
+            output_dir=output_dir,
+            ffmpeg_location=ffmpeg_location,
+            output_template=output_template,
+            with_cookies=with_cookies,
+            creator_sidecar=creator_sidecar,
+        )
+        rc, last_dest = _run_engine_to_task(engine, task_id, cmd, total_items=total_items)
+        if rc == 0:
+            break
+    return rc, last_dest
+
+
+def _engine_run_order(task: dict[str, Any]) -> list[Engine]:
+    primary = engine_for_task(task)
+    return [primary, *[engine for engine in all_engines() if engine is not primary]]
+
+
 def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
     source_url = canonicalize_source_url(str(task.get("source_url") or ""))
     output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
@@ -188,59 +249,66 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
         update_task(task_id, status="failed", error="Missing URL or output directory.")
         return
 
-    engine = engine_for_task(task)
-
-    ffmpeg_location = ""
-    if engine.needs_ffmpeg:
-        ffmpeg_location = detect_ffmpeg_location()
-        if not ffmpeg_location:
-            update_task(
-                task_id,
-                status="failed",
-                error="ffmpeg was not found. Install ffmpeg or make it available on PATH.",
-            )
-            return
-
+    candidates = _engine_run_order(task)
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
-    output_template = str(task.get("output_template") or engine.build_output_template(source_url, output_dir))
-    started_at = time.time()
-
-    # Byte-progress backends (yt-dlp) report their own percentage; others get a
-    # count-based bar, so pre-count how many files the URL yields.
-    total_items = 0 if engine.emits_progress else engine.count_items(source_url)
 
     sidecar_handle, creator_sidecar = tempfile.mkstemp(prefix="nvs-creator-", suffix=".txt")
     os.close(sidecar_handle)
 
-    # Try anonymously first (fast, no throttle). Only if that fails and a cookie
-    # jar exists for this URL do we retry authenticated + paced.
-    attempts = [False]
-    if has_cookies_for_url(source_url):
-        attempts.append(True)
-
     rc = 1
     last_dest = ""
+    started_at = time.time()
+    used_engine = candidates[0]
+    primary_error = ""
     try:
         if mark_running:
             update_task(task_id, status="running", progress_pct=0, error="", last_log_lines=[])
-        for with_cookies in attempts:
-            if with_cookies:
-                current = (load_task_store().get("tasks") or {}).get(task_id, {})
-                log_lines = list(current.get("last_log_lines") or [])
-                log_lines.append("[never-stelle] Anonymous attempt failed; retrying with cookies...")
-                update_task(task_id, progress_pct=0, last_log_lines=log_lines[-30:])
-            cmd = engine.build_command(
+
+        for index, engine in enumerate(candidates):
+            if engine.needs_ffmpeg:
+                ffmpeg_location = detect_ffmpeg_location()
+                if not ffmpeg_location:
+                    message = "ffmpeg was not found. Install ffmpeg or make it available on PATH."
+                    if index == 0:
+                        primary_error = message
+                    _append_task_log(task_id, f"[never-stelle] {message}")
+                    continue
+            else:
+                ffmpeg_location = ""
+
+            # Stored template is the primary engine's; a fallback builds its own.
+            if index == 0 and str(task.get("output_template") or ""):
+                output_template = str(task["output_template"])
+            else:
+                output_template = engine.build_output_template(source_url, output_dir)
+            total_items = 0 if engine.emits_progress else engine.count_items(source_url)
+
+            started_at = time.time()
+            used_engine = engine
+            rc, last_dest = _run_engine_attempts(
+                engine,
+                task_id,
                 source_url,
-                output_dir=output_dir,
-                ffmpeg_location=ffmpeg_location,
-                output_template=output_template,
-                with_cookies=with_cookies,
-                creator_sidecar=creator_sidecar,
+                output_dir,
+                ffmpeg_location,
+                output_template,
+                creator_sidecar,
+                total_items,
             )
-            rc, last_dest = _run_engine_to_task(engine, task_id, cmd, total_items=total_items)
             if rc == 0:
                 break
+
+            failed_task = (load_task_store().get("tasks") or {}).get(task_id, {})
+            if index == 0:
+                primary_error = _failure_detail(engine, rc, failed_task)
+            if index + 1 < len(candidates) and _looks_unsupported(failed_task):
+                _append_task_log(
+                    task_id,
+                    f"[never-stelle] {engine.name} can't handle this URL; trying {candidates[index + 1].name}...",
+                )
+                continue
+            break
 
         current_task = (load_task_store().get("tasks") or {}).get(task_id, {})
         if rc == 0:
@@ -251,22 +319,26 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             if not final_path or not final_path.exists():
                 final_path = find_newest_media_file(output_root, started_at)
             if not final_path or not final_path.exists():
-                update_task(task_id, status="failed", error="yt-dlp finished, but no media file was found.")
+                update_task(
+                    task_id,
+                    status="failed",
+                    error=f"{used_engine.name} finished, but no media file was found.",
+                )
                 return
-            creator = engine.read_creator(creator_sidecar, source_url)
+            creator = used_engine.read_creator(creator_sidecar, source_url)
             final_path = _clean_resolved_filename(source_url, final_path)
             completed_task = update_task(
                 task_id,
                 status="completed",
                 progress_pct=100,
                 error="",
+                # The engine that actually succeeded may differ from the one queued.
+                engine=used_engine.name,
                 creator=creator,
                 resolved_full_path=str(final_path),
                 resolved_folder=str(final_path.parent),
                 resolved_filename=final_path.name,
-                # Completed rows are kept forever; drop the runtime-only fields
-                # nothing reads once the file path is resolved. Saves the bulk of
-                # the row (30 lines of yt-dlp log) plus the download templates.
+                # Drop runtime-only fields nothing reads once the path is resolved.
                 last_log_lines=[],
                 output_dir="",
                 output_template="",
@@ -275,13 +347,12 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             save_history_entry(task_id, completed_task)
             return
 
-        log_lines = list(current_task.get("last_log_lines") or [])
-        tail = "\n".join(log_lines[-12:]).strip()
-        detail = f"yt-dlp exited with code {rc}."
-        if tail:
-            detail = f"{detail}\n{tail}"
-        update_task(task_id, status="failed", error=detail, output_template=output_template)
+        update_task(
+            task_id,
+            status="failed",
+            error=primary_error or _failure_detail(used_engine, rc, current_task),
+        )
     except Exception as exc:
-        update_task(task_id, status="failed", error=str(exc), output_template=output_template)
+        update_task(task_id, status="failed", error=str(exc))
     finally:
         _cleanup_file(creator_sidecar)

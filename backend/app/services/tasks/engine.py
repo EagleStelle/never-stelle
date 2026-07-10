@@ -14,15 +14,13 @@ class Engine:
     name: str = ""
     id_prefix: str = ""
     needs_ffmpeg: bool = False
-    # True when the backend streams its own byte-percentage (yt-dlp). False
-    # backends get count-based progress: one tick per completed file.
+    # True when the backend reports its own byte-percentage (else count-based).
     emits_progress: bool = False
 
     def matches(self, source_url: str) -> bool:
         raise NotImplementedError
 
     def count_items(self, source_url: str) -> int:
-        # Total files this URL will yield, for count-based progress. 0 = unknown.
         return 0
 
     def build_output_template(self, source_url: str, output_dir: str) -> str:
@@ -57,7 +55,7 @@ class YtdlpEngine(Engine):
     emits_progress = True
 
     def matches(self, source_url: str) -> bool:
-        return True  # catch-all default; handles anything not claimed first
+        return True
 
     def build_output_template(self, source_url: str, output_dir: str) -> str:
         return ytdlp.build_output_template(source_url, output_dir)
@@ -98,7 +96,8 @@ class GallerydlEngine(Engine):
     emits_progress = False
 
     def matches(self, source_url: str) -> bool:
-        return gallerydl.supports(source_url)
+        # Fallback-only: reached when yt-dlp reports the URL unsupported.
+        return False
 
     def count_items(self, source_url: str) -> int:
         return gallerydl.count_gallerydl_items(source_url)
@@ -130,10 +129,14 @@ class GallerydlEngine(Engine):
         return creator_from_url(source_url)
 
 
-# gallery-dl claims image hosts first; yt-dlp is the catch-all default last.
+# yt-dlp is the default; gallery-dl is the runtime fallback.
 _YTDLP = YtdlpEngine()
 _ENGINES: tuple[Engine, ...] = (GallerydlEngine(), _YTDLP)
 _BY_NAME: dict[str, Engine] = {engine.name: engine for engine in _ENGINES}
+
+
+def all_engines() -> tuple[Engine, ...]:
+    return _ENGINES
 
 
 def select_engine(source_url: str) -> Engine:
