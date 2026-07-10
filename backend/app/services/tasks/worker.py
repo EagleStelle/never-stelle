@@ -10,10 +10,11 @@ from typing import Any
 
 from backend.app.services.settings import has_cookies_for_url
 
-from .constants import PROGRESS_RE
-from .files import extract_downloaded_path, find_newest_media_file, recover_task_path
+from .engine import Engine, engine_for_task
+from .files import find_newest_media_file, recover_task_path
 from .formats import creator_from_url, learn_download
 from .history import save_history_entry
+from .naming import clean_filename_title, detect_ffmpeg_location, sanitize_filename_component
 from .scan import parse_filename_media_id
 from .store import (
     claim_pending_task,
@@ -23,13 +24,9 @@ from .store import (
     update_task,
 )
 from .urls import canonicalize_source_url
-from .ytdlp import (
-    build_output_template,
-    build_ytdlp_command,
-    clean_filename_title,
-    detect_ffmpeg_location,
-    sanitize_filename_component,
-)
+
+# Re-exported for tests that patched the worker's sidecar reader by this name.
+from .ytdlp import read_creator_sidecar as _read_creator_sidecar  # noqa: F401
 
 _worker_lock = threading.Lock()
 _worker_wakeup = threading.Event()
@@ -73,13 +70,25 @@ def _worker_loop() -> None:
             _worker_wakeup.wait(2)
 
 
-def _run_ytdlp_to_task(task_id: str, cmd: list[str]) -> tuple[int, str]:
-    """Run one yt-dlp invocation, streaming progress into the task store.
+def _count_progress(done: int, total: int) -> float:
+    # Count-based bar for backends without byte progress. Known total -> real
+    # percentage (capped below 100 until the run exits); unknown -> a monotonic
+    # curve that keeps approaching but never reaches 100.
+    if total > 0:
+        return min(99.0, round(done / total * 100, 1))
+    return round(100.0 * (1 - 1 / (1 + done)), 1)
+
+
+def _run_engine_to_task(
+    engine: Engine, task_id: str, cmd: list[str], *, total_items: int = 0
+) -> tuple[int, str]:
+    """Run one downloader invocation, streaming progress into the task store.
 
     Returns the process return code and the last detected destination path.
     """
     process: subprocess.Popen[str] | None = None
     last_dest = ""
+    done = 0
     try:
         process = subprocess.Popen(
             cmd,
@@ -100,12 +109,13 @@ def _run_ytdlp_to_task(task_id: str, cmd: list[str]) -> tuple[int, str]:
                 log_lines.append(line)
                 log_lines = log_lines[-30:]
                 updates: dict[str, Any] = {"last_log_lines": log_lines}
-                progress_match = PROGRESS_RE.search(line)
-                if progress_match:
-                    updates["progress_pct"] = float(progress_match.group(1))
-                downloaded_path = extract_downloaded_path(line)
+                progress_pct = engine.parse_progress(line)
+                if progress_pct is not None:
+                    updates["progress_pct"] = progress_pct
+                downloaded_path = engine.extract_output_path(line)
                 if downloaded_path:
                     last_dest = downloaded_path
+                    done += 1
                     path = Path(downloaded_path)
                     updates.update(
                         {
@@ -114,6 +124,8 @@ def _run_ytdlp_to_task(task_id: str, cmd: list[str]) -> tuple[int, str]:
                             "resolved_filename": path.name,
                         }
                     )
+                    if not engine.emits_progress:
+                        updates["progress_pct"] = _count_progress(done, total_items)
                 update_task(task_id, **updates)
         return process.wait(), last_dest
     finally:
@@ -122,17 +134,6 @@ def _run_ytdlp_to_task(task_id: str, cmd: list[str]) -> tuple[int, str]:
                 process.kill()
             except Exception:
                 pass
-
-
-def _read_creator_sidecar(path: str) -> str:
-    # yt-dlp appends the resolved creator field here after the file is moved.
-    try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            lines = [line.strip() for line in handle if line.strip()]
-    except OSError:
-        return ""
-    value = lines[-1] if lines else ""
-    return "" if value.lower() == "unknown" else value
 
 
 def _cleanup_file(path: str) -> None:
@@ -187,19 +188,27 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
         update_task(task_id, status="failed", error="Missing URL or output directory.")
         return
 
-    ffmpeg_location = detect_ffmpeg_location()
-    if not ffmpeg_location:
-        update_task(
-            task_id,
-            status="failed",
-            error="ffmpeg was not found. Install ffmpeg or make it available on PATH.",
-        )
-        return
+    engine = engine_for_task(task)
+
+    ffmpeg_location = ""
+    if engine.needs_ffmpeg:
+        ffmpeg_location = detect_ffmpeg_location()
+        if not ffmpeg_location:
+            update_task(
+                task_id,
+                status="failed",
+                error="ffmpeg was not found. Install ffmpeg or make it available on PATH.",
+            )
+            return
 
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
-    output_template = str(task.get("output_template") or build_output_template(source_url, output_dir))
+    output_template = str(task.get("output_template") or engine.build_output_template(source_url, output_dir))
     started_at = time.time()
+
+    # Byte-progress backends (yt-dlp) report their own percentage; others get a
+    # count-based bar, so pre-count how many files the URL yields.
+    total_items = 0 if engine.emits_progress else engine.count_items(source_url)
 
     sidecar_handle, creator_sidecar = tempfile.mkstemp(prefix="nvs-creator-", suffix=".txt")
     os.close(sidecar_handle)
@@ -221,14 +230,15 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 log_lines = list(current.get("last_log_lines") or [])
                 log_lines.append("[never-stelle] Anonymous attempt failed; retrying with cookies...")
                 update_task(task_id, progress_pct=0, last_log_lines=log_lines[-30:])
-            cmd = build_ytdlp_command(
+            cmd = engine.build_command(
                 source_url,
-                ffmpeg_location,
-                output_template,
+                output_dir=output_dir,
+                ffmpeg_location=ffmpeg_location,
+                output_template=output_template,
                 with_cookies=with_cookies,
                 creator_sidecar=creator_sidecar,
             )
-            rc, last_dest = _run_ytdlp_to_task(task_id, cmd)
+            rc, last_dest = _run_engine_to_task(engine, task_id, cmd, total_items=total_items)
             if rc == 0:
                 break
 
@@ -243,7 +253,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             if not final_path or not final_path.exists():
                 update_task(task_id, status="failed", error="yt-dlp finished, but no media file was found.")
                 return
-            creator = _read_creator_sidecar(creator_sidecar)
+            creator = engine.read_creator(creator_sidecar, source_url)
             final_path = _clean_resolved_filename(source_url, final_path)
             completed_task = update_task(
                 task_id,

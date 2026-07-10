@@ -6,11 +6,14 @@ callers keep importing from ``backend.app.services.tasks``.
 - constants   : status labels/order, media extensions, regexes
 - urls        : source-url canonicalization + site detection
 - store       : queue/history persistence + normalization
-- ytdlp       : output templates + yt-dlp command building
+- naming      : engine-agnostic title/filename cleaning + tool detection
+- ytdlp       : yt-dlp output templates + command building
+- gallerydl   : gallery-dl output templates + command building
+- engine      : downloader-backend dispatch (yt-dlp / gallery-dl)
 - files       : path extraction, media scanning, path recovery
 - history     : download-history entries + lookups
 - serializers : task/history -> API payloads + counts
-- worker      : background thread + yt-dlp runner
+- worker      : background thread + engine runner
 - operations  : queue/remove/clear/resolve actions
 - scan        : media-folder reconciliation for history refresh
 """
@@ -18,12 +21,14 @@ callers keep importing from ``backend.app.services.tasks``.
 from __future__ import annotations
 
 from .constants import (
+    CREATOR_FIELDS,
     MEDIA_EXTENSIONS,
     PROGRESS_RE,
     STATUS_LABELS,
     STATUS_ORDER,
     TEMPLATE_RE,
 )
+from .engine import Engine, engine_by_name, engine_for_task, select_engine
 from .files import (
     extract_downloaded_path,
     find_newest_media_file,
@@ -69,11 +74,13 @@ from .ytdlp import (
 )
 
 __all__ = [
+    "CREATOR_FIELDS",
     "MEDIA_EXTENSIONS",
     "PROGRESS_RE",
     "STATUS_LABELS",
     "STATUS_ORDER",
     "TEMPLATE_RE",
+    "Engine",
     "build_output_template",
     "build_ytdlp_command",
     "canonicalize_source_url",
@@ -83,6 +90,8 @@ __all__ = [
     "counts_by_menu",
     "detect_ffmpeg_location",
     "detect_source_key",
+    "engine_by_name",
+    "engine_for_task",
     "ensure_worker",
     "extract_downloaded_path",
     "fetch_tasks",
@@ -105,6 +114,7 @@ __all__ = [
     "run_task",
     "save_history_entry",
     "scan_media_library",
+    "select_engine",
     "set_task_source",
     "task_to_api",
     "update_task",

@@ -13,6 +13,7 @@ from backend.app.services.settings import (
     normalize_source_location_selection,
 )
 
+from .engine import select_engine
 from .files import recover_task_path
 from .formats import reconstruct_url
 from .history import find_active_by_source, find_history_by_id, find_history_by_source
@@ -26,7 +27,6 @@ from .store import (
 )
 from .urls import canonicalize_source_url
 from .worker import _worker_wakeup, ensure_worker
-from .ytdlp import build_output_template
 
 
 def queue_task(
@@ -66,9 +66,11 @@ def queue_task(
         raise ValueError(f"Choose a valid {label} download location from Settings.")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    task_id = f"ytdlp:{uuid.uuid4().hex[:12]}"
-    output_template = build_output_template(source_url, output_dir)
+    engine = select_engine(source_url)
+    task_id = f"{engine.id_prefix}:{uuid.uuid4().hex[:12]}"
+    output_template = engine.build_output_template(source_url, output_dir)
     task = {
+        "engine": engine.name,
         "source_url": source_url,
         "source_key": source_key,
         "status": "pending",

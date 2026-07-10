@@ -72,6 +72,15 @@ mv .local/media/youtube/*  /volume1/youtube/
 
 The container path stays `/media/youtube`, so history entries remain valid and no files are duplicated. Skip this step and the old files are stranded behind the mount (still on disk, but the app reports them missing until you move them).
 
+## Download engines
+
+Each download dispatches to one of two backends, chosen by URL:
+
+- **yt-dlp** — default; video/audio from most sites.
+- **gallery-dl** — image-gallery hosts (pixiv, boorus, deviantart, artstation, imgur, flickr, …).
+
+Both are installed from [requirements.txt](requirements.txt). The split is routing only — source keys and URL formats are still learned per download, never hardcoded.
+
 ## Requirements
 
 - Python 3.11+

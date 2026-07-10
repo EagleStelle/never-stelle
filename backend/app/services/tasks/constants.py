@@ -38,3 +38,5 @@ MEDIA_EXTENSIONS = {
 }
 PROGRESS_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%")
 TEMPLATE_RE = re.compile(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}")
+# Template placeholders that resolve to the creator/uploader across engines.
+CREATOR_FIELDS = {"creator", "author", "author_nickname"}
