@@ -114,6 +114,18 @@ export async function removeTask(taskId: string): Promise<void> {
   throw new Error(await readError(response, "Could not remove task."));
 }
 
+export async function cancelTask(taskId: string): Promise<void> {
+  const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST" });
+  if (response.status === 204) return;
+  throw new Error(await readError(response, "Could not cancel download."));
+}
+
+export async function retryTask(taskId: string): Promise<void> {
+  const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/retry`, { method: "POST" });
+  if (response.status === 204) return;
+  throw new Error(await readError(response, "Could not retry download."));
+}
+
 export function setTaskSource(taskId: string, sourceKey: string): Promise<{ source_key: string }> {
   return jsonRequest<{ source_key: string }>(
     `/api/tasks/${encodeURIComponent(taskId)}/source`,

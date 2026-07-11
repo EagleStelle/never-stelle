@@ -4,11 +4,13 @@ import { useEventListener, useIntervalFn } from "@vueuse/core";
 
 import {
   addTask as createTask,
+  cancelTask as cancelTaskRequest,
   clearPendingTasks,
   fetchTaskFile,
   getTasks,
   probeUrl,
   removeTask as removeTaskRequest,
+  retryTask as retryTaskRequest,
   scanMediaLibrary,
   setTaskSource as setTaskSourceRequest,
 } from "../api";
@@ -197,6 +199,26 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     }
   }
 
+  async function cancelTask(taskId: string): Promise<void> {
+    try {
+      await cancelTaskRequest(taskId);
+      toast("Download cancelled.");
+      await loadTasks(true);
+    } catch (error) {
+      toast(errorMessage(error, "Could not cancel download."), "error");
+    }
+  }
+
+  async function retryTask(taskId: string): Promise<void> {
+    try {
+      await retryTaskRequest(taskId);
+      toast("Retrying download.");
+      await loadTasks(true);
+    } catch (error) {
+      toast(errorMessage(error, "Could not retry download."), "error");
+    }
+  }
+
   async function setTaskSource(payload: { taskId: string; sourceKey: string }): Promise<void> {
     const sourceKey = payload.sourceKey.trim();
     if (!sourceKey) return;
@@ -256,10 +278,12 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
 
   return {
     addDownloadTask,
+    cancelTask,
     clearPending,
     confirmPlaylistSelection,
     downloadTask,
     historyRefreshing,
+    retryTask,
     playlistEntries,
     playlistOpen,
     playlistTitle,

@@ -43,10 +43,12 @@ from .history import (
     save_history_entry,
 )
 from .operations import (
+    cancel_task,
     clear_pending_tasks,
     queue_task,
     remove_pending_task,
     resolve_task_file,
+    retry_task,
     set_task_source,
 )
 from .probe import probe_url
@@ -84,6 +86,7 @@ __all__ = [
     "Engine",
     "build_output_template",
     "build_ytdlp_command",
+    "cancel_task",
     "canonicalize_source_url",
     "clear_pending_tasks",
     "convert_template_to_ytdlp",
@@ -113,6 +116,7 @@ __all__ = [
     "remove_pending_task",
     "remove_task_record",
     "resolve_task_file",
+    "retry_task",
     "run_task",
     "save_history_entry",
     "scan_media_library",

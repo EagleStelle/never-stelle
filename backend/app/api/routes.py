@@ -16,6 +16,7 @@ from backend.app.services.settings import (
     save_ytdlp_cookies_upload,
 )
 from backend.app.services.tasks import (
+    cancel_task,
     clear_pending_tasks,
     count_tasks,
     counts_by_menu,
@@ -24,6 +25,7 @@ from backend.app.services.tasks import (
     queue_task,
     remove_pending_task,
     resolve_task_file,
+    retry_task,
     scan_media_library,
     set_task_source,
 )
@@ -184,6 +186,26 @@ def delete_task(task_id: str) -> Response:
         remove_pending_task(task_id)
     except PermissionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(status_code=204)
+
+
+@router.post("/tasks/{task_id}/cancel", status_code=204, response_class=Response)
+def cancel_task_route(task_id: str) -> Response:
+    try:
+        cancel_task(task_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(status_code=204)
+
+
+@router.post("/tasks/{task_id}/retry", status_code=204, response_class=Response)
+def retry_task_route(task_id: str) -> Response:
+    try:
+        retry_task(task_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return Response(status_code=204)
 
 

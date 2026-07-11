@@ -16,8 +16,10 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
+  cancel: [taskId: string];
   download: [taskId: string];
   remove: [taskId: string];
+  retry: [taskId: string];
   "set-source": [payload: { taskId: string; sourceKey: string }];
 }>();
 </script>
@@ -43,8 +45,10 @@ const emit = defineEmits<{
       v-else-if="viewMode === 'table'"
       :tasks="tasks"
       :source-profiles="sourceProfiles"
+      @cancel="emit('cancel', $event)"
       @download="emit('download', $event)"
       @remove="emit('remove', $event)"
+      @retry="emit('retry', $event)"
       @set-source="emit('set-source', $event)"
     />
 
@@ -53,8 +57,10 @@ const emit = defineEmits<{
       :tasks="tasks"
       :page-kind="pageKind"
       :source-profiles="sourceProfiles"
+      @cancel="emit('cancel', $event)"
       @download="emit('download', $event)"
       @remove="emit('remove', $event)"
+      @retry="emit('retry', $event)"
       @set-source="emit('set-source', $event)"
     />
   </section>

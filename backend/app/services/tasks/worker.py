@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 import tempfile
 import threading
@@ -33,6 +34,7 @@ from .store import (
     claim_pending_task,
     load_learned_formats,
     load_task_store,
+    remove_task_record,
     save_learned_formats,
     update_task,
 )
@@ -44,6 +46,73 @@ from .ytdlp import read_creator_sidecar as _read_creator_sidecar  # noqa: F401
 _worker_lock = threading.Lock()
 _worker_wakeup = threading.Event()
 _worker_started = False
+
+# Cancellation shares process memory with the API thread: a request flags a task
+# and kills its live subprocess; the worker sees the flag and drops the row.
+_cancel_lock = threading.Lock()
+_cancel_requested: set[str] = set()
+_active_processes: dict[str, subprocess.Popen[str]] = {}
+
+
+def _kill_process_tree(process: subprocess.Popen[Any]) -> None:
+    # Kill descendants too; a surviving ffmpeg child holds the stdout pipe open.
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+
+
+def request_cancel(task_id: str) -> None:
+    with _cancel_lock:
+        _cancel_requested.add(task_id)
+        process = _active_processes.get(task_id)
+    if process:
+        _kill_process_tree(process)
+
+
+def _cancel_pending(task_id: str) -> bool:
+    with _cancel_lock:
+        return task_id in _cancel_requested
+
+
+def _clear_cancel(task_id: str) -> None:
+    with _cancel_lock:
+        _cancel_requested.discard(task_id)
+
+
+def _register_process(task_id: str, process: subprocess.Popen[str]) -> None:
+    with _cancel_lock:
+        _active_processes[task_id] = process
+
+
+def _unregister_process(task_id: str) -> None:
+    with _cancel_lock:
+        _active_processes.pop(task_id, None)
+
+
+def has_active_process(task_id: str) -> bool:
+    with _cancel_lock:
+        return task_id in _active_processes
+
+
+def recover_orphaned_tasks() -> None:
+    # A fresh process owns no downloads, so any "running" row is crash debris.
+    for task_id, task in list((load_task_store().get("tasks") or {}).items()):
+        if task.get("status") == "running":
+            update_task(task_id, status="failed", error="Download interrupted by shutdown.")
 
 
 def _next_pending_task() -> tuple[str | None, dict[str, Any] | None]:
@@ -58,6 +127,7 @@ def ensure_worker() -> None:
     with _worker_lock:
         if _worker_started:
             return
+        recover_orphaned_tasks()
         thread = threading.Thread(target=_worker_loop, name="never-stelle-ytdlp-worker", daemon=True)
         thread.start()
         _worker_started = True
@@ -113,7 +183,10 @@ def _run_engine_to_task(
             encoding="utf-8",
             errors="replace",
             bufsize=1,
+            # POSIX: own session so the whole tree can be signalled on cancel.
+            start_new_session=(os.name != "nt"),
         )
+        _register_process(task_id, process)
         if process.stdout is not None:
             for raw_line in process.stdout:
                 line = raw_line.strip()
@@ -152,11 +225,9 @@ def _run_engine_to_task(
                 update_task(task_id, **updates)
         return process.wait(), last_dest, emitted_paths
     finally:
+        _unregister_process(task_id)
         if process and process.poll() is None:
-            try:
-                process.kill()
-            except Exception:
-                pass
+            _kill_process_tree(process)
 
 
 def _cleanup_file(path: str) -> None:
@@ -964,7 +1035,7 @@ def _run_engine_attempts(
             excluded_extensions=excluded_extensions,
         )
         rc, last_dest, emitted_paths = _run_engine_to_task(engine, task_id, cmd, total_items=total_items)
-        if rc == 0 or _has_output_media(last_dest, emitted_paths):
+        if rc == 0 or _has_output_media(last_dest, emitted_paths) or _cancel_pending(task_id):
             break
     return rc, last_dest, emitted_paths
 
@@ -1012,6 +1083,8 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             update_task(task_id, status="running", progress_pct=0, error="", last_log_lines=[])
 
         for index, engine in enumerate(candidates):
+            if _cancel_pending(task_id):
+                break
             if engine.needs_ffmpeg:
                 ffmpeg_location = detect_ffmpeg_location()
                 if not ffmpeg_location:
@@ -1054,6 +1127,8 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 total_items,
                 excluded_extensions,
             )
+            if _cancel_pending(task_id):
+                break
             for path in _attempt_output_paths(last_dest, emitted_paths):
                 path_key = _path_key(path)
                 if path_key in output_record_keys:
@@ -1072,6 +1147,11 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 )
                 continue
             break
+
+        if _cancel_pending(task_id):
+            _clear_cancel(task_id)
+            remove_task_record(task_id)
+            return
 
         current_task = (load_task_store().get("tasks") or {}).get(task_id, {})
         if rc == 0 or output_records:
@@ -1184,7 +1264,11 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             or _failure_detail(used_engine, rc, current_task),
         )
     except Exception as exc:
-        update_task(task_id, status="failed", error=str(exc))
+        if _cancel_pending(task_id):
+            _clear_cancel(task_id)
+            remove_task_record(task_id)
+        else:
+            update_task(task_id, status="failed", error=str(exc))
     finally:
         _cleanup_file(creator_sidecar)
         _cleanup_file(metadata_sidecar)

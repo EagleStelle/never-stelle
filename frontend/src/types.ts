@@ -77,6 +77,8 @@ export interface TaskItem {
   resolved_full_path: string;
   preview_warning: string;
   can_remove: boolean;
+  can_cancel: boolean;
+  can_retry: boolean;
   task_type: string;
   source_key: string;
   source_pending?: boolean;

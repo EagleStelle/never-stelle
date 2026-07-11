@@ -12,8 +12,10 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
+  cancel: [taskId: string];
   download: [taskId: string];
   remove: [taskId: string];
+  retry: [taskId: string];
   "set-source": [payload: { taskId: string; sourceKey: string }];
 }>();
 </script>
@@ -27,8 +29,10 @@ const emit = defineEmits<{
       :page-kind="pageKind"
       :source-profiles="sourceProfiles"
       :error-message="errorMessage"
+      @cancel="emit('cancel', $event)"
       @download="emit('download', $event)"
       @remove="emit('remove', $event)"
+      @retry="emit('retry', $event)"
       @set-source="emit('set-source', $event)"
     />
   </section>

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import IconDownload from "~icons/material-symbols/download";
 import IconX from "~icons/material-symbols/close";
+import IconStop from "~icons/material-symbols/stop";
+import IconRetry from "~icons/material-symbols/replay";
 import { reactive } from "vue";
 
 import { Button } from "../ui/button";
@@ -23,8 +25,10 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  cancel: [taskId: string];
   download: [taskId: string];
   remove: [taskId: string];
+  retry: [taskId: string];
   "set-source": [payload: { taskId: string; sourceKey: string }];
 }>();
 
@@ -100,9 +104,9 @@ function toggle(set: Set<string>, id: string): void {
         <TableCell class="w-px">
           <div class="flex items-center justify-end gap-1.5">
             <Button
-              v-if="task.can_download && task.status !== 'failed'"
+              v-if="task.can_download"
               variant="primary"
-              size="sm"
+              size="xs"
               type="button"
               aria-label="Download file"
               title="Download file"
@@ -113,9 +117,35 @@ function toggle(set: Set<string>, id: string): void {
               </template>
             </Button>
             <Button
-              v-if="task.can_remove && task.status !== 'running'"
+              v-if="task.can_retry"
+              variant="primary"
+              size="xs"
+              type="button"
+              aria-label="Retry download"
+              title="Retry download"
+              @click="emit('retry', task.vid)"
+            >
+              <template #icon>
+                <IconRetry aria-hidden="true" />
+              </template>
+            </Button>
+            <Button
+              v-if="task.can_cancel"
               variant="danger"
-              size="sm"
+              size="xs"
+              type="button"
+              aria-label="Cancel download"
+              title="Cancel download"
+              @click="emit('cancel', task.vid)"
+            >
+              <template #icon>
+                <IconStop aria-hidden="true" />
+              </template>
+            </Button>
+            <Button
+              v-if="task.can_remove"
+              variant="danger"
+              size="xs"
               type="button"
               aria-label="Remove task from the list"
               title="Remove task from the list"

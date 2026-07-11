@@ -21,13 +21,14 @@ from .serializers import fetch_tasks, history_to_api, task_to_api
 from .store import (
     load_learned_formats,
     load_task_store,
+    remove_task_record,
     remove_task_record_if_status,
     save_history_entry_row,
     save_learned_formats,
     update_task,
 )
 from .urls import canonicalize_source_url, detect_source_key, resolve_redirect_url
-from .worker import _worker_wakeup, ensure_worker
+from .worker import _worker_wakeup, ensure_worker, has_active_process, request_cancel
 
 
 def queue_task(
@@ -111,6 +112,36 @@ def remove_pending_task(task_id: str) -> None:
         raise PermissionError("Only queued or failed tasks can be removed right now.")
     if not remove_task_record_if_status(task_id, {"pending", "failed"}):
         raise PermissionError("Only queued or failed tasks can be removed right now.")
+
+
+def cancel_task(task_id: str) -> None:
+    task = (load_task_store().get("tasks") or {}).get(task_id)
+    if not task:
+        return
+    status = task.get("status")
+    if status == "running":
+        if has_active_process(task_id):
+            # Signal the worker thread; it kills the subprocess and drops the row.
+            request_cancel(task_id)
+        else:
+            # Orphaned running row (crash debris) has no process to signal.
+            remove_task_record(task_id)
+        return
+    if status == "pending":
+        remove_task_record_if_status(task_id, {"pending"})
+        return
+    raise PermissionError("Only active or queued downloads can be cancelled.")
+
+
+def retry_task(task_id: str) -> None:
+    task = (load_task_store().get("tasks") or {}).get(task_id)
+    if not task:
+        raise FileNotFoundError("Task was not found.")
+    if task.get("status") != "failed":
+        raise PermissionError("Only failed downloads can be retried.")
+    ensure_worker()
+    update_task(task_id, status="pending", progress_pct=0, error="", last_log_lines=[])
+    _worker_wakeup.set()
 
 
 def clear_pending_tasks() -> dict[str, Any]:

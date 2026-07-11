@@ -18,7 +18,10 @@ _METRIC_RE = re.compile(
     r"(?=$|[\s,;|/\-()\[\]·｜]+)"
 )
 _MEDIA_KIND_RE = r"(?:videos?|photos?|images?|posts?|reels?|clips?|shorts?|stories|story|pins?|galleries|gallery)"
-_SURFACE_NOUN_RE = r"(?:posts?|timelines?|profiles?|albums?|pages?|stories|story|feeds?|walls?|reels?|videos?|photos?|galler(?:y|ies)|moments?)"
+_SURFACE_NOUN_RE = (
+    r"(?:posts?|timelines?|profiles?|albums?|pages?|stories|story|feeds?|walls?"
+    r"|reels?|videos?|photos?|galler(?:y|ies)|moments?)"
+)
 _ATTRIBUTION_RE = re.compile(
     rf"(?i)(?:^|[\s\-|:｜]+){_MEDIA_KIND_RE}\s+by\s+[^|:｜()\[\]\n]{{1,80}}$"
 )

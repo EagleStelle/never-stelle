@@ -59,6 +59,8 @@ def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
         "resolved_full_path": resolved_path or str(task.get("resolved_full_path") or ""),
         "preview_warning": str(task.get("preview_warning") or ""),
         "can_remove": status in {"pending", "failed"},
+        "can_cancel": status == "running",
+        "can_retry": status == "failed",
         "task_type": task_type,
         "source_key": source_key,
         "source_pending": bool(task.get("source_pending")),

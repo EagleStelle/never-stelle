@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import IconDownload from "~icons/material-symbols/download";
 import IconX from "~icons/material-symbols/close";
+import IconStop from "~icons/material-symbols/stop";
+import IconRetry from "~icons/material-symbols/replay";
 
 import { Button } from "../ui/button";
 import SourcePicker from "./SourcePicker.vue";
@@ -21,17 +23,27 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  cancel: [taskId: string];
   download: [taskId: string];
   remove: [taskId: string];
+  retry: [taskId: string];
   "set-source": [payload: { taskId: string; sourceKey: string }];
 }>();
 
-function canShowCancel(task: TaskItem): boolean {
-  return props.pageKind === "downloads" && task.can_remove && task.status !== "running";
+function canDownload(task: TaskItem): boolean {
+  return props.pageKind === "history" && task.can_download;
 }
 
-function canShowDownload(task: TaskItem): boolean {
-  return props.pageKind === "history" && task.can_download && task.status !== "failed";
+function canRetry(task: TaskItem): boolean {
+  return props.pageKind === "downloads" && task.can_retry;
+}
+
+function canCancel(task: TaskItem): boolean {
+  return props.pageKind === "downloads" && task.can_cancel;
+}
+
+function canRemove(task: TaskItem): boolean {
+  return props.pageKind === "downloads" && task.can_remove;
 }
 </script>
 
@@ -82,9 +94,9 @@ function canShowDownload(task: TaskItem): boolean {
 
         <div class="flex items-start justify-end gap-1.5">
           <Button
-            v-if="canShowDownload(task)"
+            v-if="canDownload(task)"
             variant="soft"
-            size="sm"
+            size="default"
             type="button"
             aria-label="Download file"
             title="Download file"
@@ -95,16 +107,42 @@ function canShowDownload(task: TaskItem): boolean {
             </template>
           </Button>
           <Button
-            v-if="canShowCancel(task)"
+            v-if="canRetry(task)"
             variant="soft"
-            size="sm"
+            size="default"
+            type="button"
+            aria-label="Retry download"
+            title="Retry download"
+            @click="emit('retry', task.vid)"
+          >
+            <template #icon>
+              <IconRetry aria-hidden="true" />
+            </template>
+          </Button>
+          <Button
+            v-if="canCancel(task)"
+            variant="soft"
+            size="default"
             type="button"
             aria-label="Cancel download"
             title="Cancel download"
+            @click="emit('cancel', task.vid)"
+          >
+            <template #icon>
+              <IconStop aria-hidden="true" />
+            </template>
+          </Button>
+          <Button
+            v-if="canRemove(task)"
+            variant="soft"
+            size="default"
+            type="button"
+            aria-label="Remove task from the list"
+            title="Remove task from the list"
             @click="emit('remove', task.vid)"
           >
             <template #icon>
-              <IconX class="w-5 h-5" aria-hidden="true" />
+              <IconX aria-hidden="true" />
             </template>
           </Button>
         </div>

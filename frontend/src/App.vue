@@ -25,6 +25,7 @@ const {
   activeMenu,
   activePage,
   addDownloadTask,
+  cancelTask,
   clearPending,
   confirmPlaylistSelection,
   connectCookies,
@@ -46,6 +47,7 @@ const {
   playlistTitle,
   removeCookies,
   removeTask,
+  retryTask,
   refreshHistory,
   savedSettings,
   setActiveMenu,
@@ -190,9 +192,11 @@ const {
             :source-profiles="sourceProfiles"
             :tasks="activeTasks"
             :view-mode="viewMode"
+            @cancel="cancelTask"
             @clear-pending="clearPending"
             @download="downloadTask"
             @remove="removeTask"
+            @retry="retryTask"
             @set-source="setTaskSource"
             @set-view-mode="setViewMode"
           />
@@ -206,9 +210,11 @@ const {
             :source-profiles="sourceProfiles"
             :tasks="completedTasks"
             :view-mode="viewMode"
+            @cancel="cancelTask"
             @clear-pending="clearPending"
             @download="downloadTask"
             @remove="removeTask"
+            @retry="retryTask"
             @set-source="setTaskSource"
             @set-view-mode="setViewMode"
           />
