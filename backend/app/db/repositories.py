@@ -50,9 +50,28 @@ def save_settings_payload(payload: dict[str, Any]) -> None:
         )
 
 
+def _row_templates(row: Any, template: str) -> list[str]:
+    # Decode the persisted route list, falling back to the single template column.
+    try:
+        raw = row["templates"]
+    except (IndexError, KeyError):
+        raw = ""
+    templates = [item for item in _decode(raw, []) if isinstance(item, str) and item.strip()]
+    if not templates and template:
+        templates = [template]
+    seen: list[str] = []
+    for item in templates:
+        if item not in seen:
+            seen.append(item)
+    return seen
+
+
 def _format_entry_from_row(row: Any) -> dict[str, Any]:
+    template = str(row["template"] or "")
+    templates = _row_templates(row, template)
     entry: dict[str, Any] = {
-        "template": str(row["template"] or ""),
+        "template": template or (templates[0] if templates else ""),
+        "templates": templates,
         "host": str(row["host"] or ""),
         "id_part": str(row["id_part"] or ""),
         "creator_part": str(row["creator_part"] or ""),
@@ -103,18 +122,23 @@ def _save_format_rows(connection: Any, payload: dict[str, Any]) -> None:
 
     for key, entry in normalized.items():
         id_classes = ",".join(sorted(str(item) for item in (entry.get("id_classes") or []) if str(item)))
+        template = str(entry.get("template") or "")
+        templates = [str(item).strip() for item in (entry.get("templates") or []) if str(item or "").strip()]
+        if template and template not in templates:
+            templates = [template, *templates]
         connection.execute(
             """
             INSERT OR REPLACE INTO formats (
-                source_key, host, template, id_min, id_max, id_classes,
+                source_key, host, template, templates, id_min, id_max, id_classes,
                 id_part, creator_part, samples, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 key,
                 str(entry.get("host") or ""),
-                str(entry.get("template") or ""),
+                template,
+                _encode(templates),
                 int(entry.get("id_min") or 0),
                 int(entry.get("id_max") or 0),
                 id_classes,
@@ -131,7 +155,7 @@ def load_learned_formats_payload() -> dict[str, Any]:
     with transaction() as connection:
         rows = connection.execute(
             """
-            SELECT source_key, host, template, id_min, id_max, id_classes,
+            SELECT source_key, host, template, templates, id_min, id_max, id_classes,
                    id_part, creator_part, samples
             FROM formats
             ORDER BY source_key

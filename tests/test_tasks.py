@@ -27,6 +27,7 @@ from backend.app.services.tasks.formats import (
     learn_download,
     learn_media_id,
     reconstruct_url,
+    reconstruct_url_candidates,
 )
 from backend.app.services.tasks.naming import (
     clean_gallerydl_disk_filename,
@@ -289,6 +290,43 @@ def test_task_to_api_cleans_existing_raw_gallerydl_display_filename(tmp_path: Pa
     assert api_task["resolved_filename"] == "fzyahoo.com - [7420705673542978833].jpg"
 
 
+def test_task_to_api_prefers_tiktok_url_creator_over_stored_display_name(tmp_path: Path):
+    media_file = tmp_path / "fzyahoo.com - Clip [7420705673542978833].mp4"
+    media_file.write_bytes(b"video")
+
+    api_task = task_to_api(
+        "ytdlp:test",
+        {
+            "engine": "ytdlp",
+            "status": "completed",
+            "creator": "Some Display Name",
+            "source_url": "https://www.tiktok.com/@fzyahoo.com/video/7420705673542978833",
+            "resolved_full_path": str(media_file),
+            "resolved_filename": media_file.name,
+        },
+    )
+
+    assert api_task["creator"] == "fzyahoo.com"
+
+
+def test_worker_prefers_tiktok_url_creator_over_ytdlp_sidecar(tmp_path: Path):
+    sidecar = tmp_path / "creator.txt"
+    sidecar.write_text("Some Display Name\n", encoding="utf-8")
+
+    class FakeEngine:
+        def read_creator(self, sidecar_path: str, source_url: str) -> str:
+            return "Some Display Name"
+
+    creator = worker_module._resolved_task_creator(
+        FakeEngine(),
+        str(sidecar),
+        "https://www.tiktok.com/@fzyahoo.com/video/7420705673542978833",
+        "fzyahoo.com - Clip [7420705673542978833].mp4",
+    )
+
+    assert creator == "fzyahoo.com"
+
+
 def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     media_root = tmp_path / "media"
     artist_dir = media_root / "Trace Artist"
@@ -344,6 +382,44 @@ def test_scan_media_library_infers_source_from_named_platform_folder(
     entry = saved["disk:7420705673542978833"]
     assert entry["source_key"] == "tiktok"
     assert entry["source_pending"] is False
+    assert entry["resolved_filename"] == "fzyahoo.com - [7420705673542978833].jpg"
+
+
+def test_scan_media_library_uses_learned_tiktok_photo_template(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    learned = learn_download(
+        {},
+        "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833",
+        "7420705673542978833",
+    )
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    media_file = media_root / "fzyahoo.com - [7420705673542978833]_1.jpg"
+    media_file.write_bytes(b"image")
+
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {})
+    monkeypatch.setattr(scan_module, "_scan_source_profile_keys", lambda: set())
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    scan_module.scan_media_library([media_root])
+
+    entry = saved["disk:7420705673542978833"]
+    assert entry["source_key"] == "tiktok"
+    assert entry["source_pending"] is False
+    assert entry["resolved_filename"] == "fzyahoo.com - [7420705673542978833].jpg"
+    assert entry["resolved_full_path"] == str(media_file)
+    assert entry["source_url"] == "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833"
 
 
 def _learned_youtube_twitter() -> dict:
@@ -372,6 +448,55 @@ def test_learn_download_trims_seo_query_and_keeps_creator_token():
 
     assert learned["tiktok"]["template"] == "https://www.tiktok.com/@{creator}/video/{id}"
     assert reconstruct_url(learned, "tiktok", "7493558766131039489") == ""
+
+
+def test_learn_download_keeps_multiple_templates_per_source():
+    learned = learn_download(
+        {},
+        "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
+        "7493558766131039489",
+    )
+    learned = learn_download(
+        learned,
+        "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833",
+        "7420705673542978833",
+    )
+
+    assert learned["tiktok"]["template"] == "https://www.tiktok.com/@{creator}/video/{id}"
+    assert set(learned["tiktok"]["templates"]) == {
+        "https://www.tiktok.com/@{creator}/video/{id}",
+        "https://www.tiktok.com/@{creator}/photo/{id}",
+    }
+
+
+def test_reconstruct_url_candidates_returns_every_learned_route():
+    # Both routes come out as concrete candidates; a probe (not a heuristic) picks the real one.
+    learned = learn_download(
+        {},
+        "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
+        "7493558766131039489",
+    )
+    learned = learn_download(
+        learned,
+        "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833",
+        "7420705673542978833",
+    )
+
+    candidates = reconstruct_url_candidates(learned, "tiktok", "7420705673542978833", creator="fzyahoo.com")
+    assert set(candidates) == {
+        "https://www.tiktok.com/@fzyahoo.com/video/7420705673542978833",
+        "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833",
+    }
+
+
+def test_reconstruct_url_candidates_needs_creator_and_id():
+    learned = learn_download(
+        {},
+        "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
+        "7493558766131039489",
+    )
+    assert reconstruct_url_candidates(learned, "tiktok", "123") == []
+    assert reconstruct_url_candidates(learned, "tiktok", "") == []
 
 
 def test_creator_from_url_uses_handle_segment_without_at_sign():

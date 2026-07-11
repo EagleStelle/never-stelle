@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
 from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key, source_key_from_url
 
@@ -193,6 +193,41 @@ def creator_from_url(source_url: str, media_id: str = "") -> str:
     return str(analyze_url(source_url, media_id).get("creator") or "")
 
 
+def _media_id_from_analysis(analysis: dict[str, Any]) -> str:
+    canonical = str(analysis.get("canonical") or "")
+    id_part = str(analysis.get("id_part") or "")
+    if not canonical or not id_part:
+        return ""
+    try:
+        parsed = urlparse(canonical)
+    except Exception:
+        return ""
+    if id_part.startswith("path:"):
+        segments = _path_segments(parsed.path)
+        try:
+            index = int(id_part.split(":", 1)[1])
+        except ValueError:
+            return ""
+        return segments[index] if 0 <= index < len(segments) else ""
+    if id_part.startswith("query:"):
+        key = id_part.split(":", 1)[1]
+        return dict(parse_qsl(parsed.query)).get(key, "")
+    return ""
+
+
+def media_id_from_url(source_url: str) -> str:
+    """Best-effort media id parsed straight from a URL (no prior id needed)."""
+    return _media_id_from_analysis(analyze_url(source_url))
+
+
+def url_dedup_key(source_url: str) -> str:
+    """Route-agnostic identity for a link: host + media id, so /photo and /video of one post match."""
+    analysis = analyze_url(source_url)
+    host = str(analysis.get("host") or "").lower()
+    media_id = _media_id_from_analysis(analysis)
+    return f"{host}#{media_id}" if host and media_id else canonicalize_url(source_url)
+
+
 def _url_shape(source_url: str, media_id: str) -> str:
     analysis = analyze_url(source_url, media_id)
     url = str(analysis.get("canonical") or "").strip()
@@ -263,6 +298,19 @@ def _record_id_signature(entry: dict[str, Any], media_id: str) -> None:
     entry["id_classes"] = sorted(set(entry.get("id_classes") or []) | _id_classes(media_id))
 
 
+def _entry_templates(entry: dict[str, Any]) -> list[str]:
+    values: list[Any] = [entry.get("template")]
+    raw_templates = entry.get("templates")
+    if isinstance(raw_templates, list):
+        values.extend(raw_templates)
+    templates: list[str] = []
+    for value in values:
+        template = str(value or "").strip()
+        if template and template not in templates:
+            templates.append(template)
+    return templates
+
+
 def learn_download(learned: dict[str, Any], source_url: str, media_id: str) -> dict[str, Any]:
     analysis = analyze_url(source_url, media_id)
     canonical = str(analysis.get("canonical") or "")
@@ -272,8 +320,12 @@ def learn_download(learned: dict[str, Any], source_url: str, media_id: str) -> d
         return learned
     shape = _url_shape(canonical, media_id)
     entry = dict(learned.get(key) or {})
-    template = str(entry.get("template") or "")
-    entry["template"] = _generalize(template, shape) if template else shape
+    templates = _entry_templates(entry)
+    if shape and shape not in templates:
+        templates.append(shape)
+    if templates:
+        entry["template"] = templates[0]
+        entry["templates"] = templates
     entry["host"] = str(entry.get("host") or analysis.get("host") or "")
     entry["id_part"] = str(entry.get("id_part") or analysis.get("id_part") or "")
     if analysis.get("creator_part"):
@@ -300,19 +352,35 @@ def learn_media_id(learned: dict[str, Any], source_key: str, media_id: str) -> d
     return updated
 
 
-def reconstruct_url(learned: dict[str, Any], source_key: str, media_id: str) -> str:
+def reconstruct_url_candidates(
+    learned: dict[str, Any],
+    source_key: str,
+    media_id: str,
+    *,
+    creator: str = "",
+) -> list[str]:
+    """Fill every learned template for this source; a probe picks the real one."""
     entry = learned.get(normalize_source_key(source_key)) or {}
-    template = str(entry.get("template") or "")
+    templates = _entry_templates(entry)
     media_id = str(media_id or "").strip()
-    if (
-        not template
-        or not media_id
-        or _VAR_TOKEN in template
-        or _CREATOR_TOKEN in template
-        or _ID_TOKEN not in template
-    ):
-        return ""
-    return template.replace(_ID_TOKEN, media_id)
+    if not media_id:
+        return []
+    creator_value = quote(str(creator or "").strip().lstrip("@"), safe="")
+    urls: list[str] = []
+    for template in templates:
+        if not template or _VAR_TOKEN in template or _ID_TOKEN not in template:
+            continue
+        if _CREATOR_TOKEN in template and not creator_value:
+            continue
+        url = template.replace(_ID_TOKEN, media_id).replace(_CREATOR_TOKEN, creator_value)
+        if url not in urls:
+            urls.append(url)
+    return urls
+
+
+def reconstruct_url(learned: dict[str, Any], source_key: str, media_id: str, *, creator: str = "") -> str:
+    candidates = reconstruct_url_candidates(learned, source_key, media_id, creator=creator)
+    return candidates[0] if candidates else ""
 
 
 def _id_matches(entry: dict[str, Any], media_id: str) -> bool:

@@ -39,10 +39,10 @@ def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
     can_download = bool(status == "completed" and resolved_path and Path(resolved_path).is_file())
     raw_filename = str(task.get("resolved_filename") or "").strip() or recovered_filename
     media_id, _ = parse_filename_media_id(raw_filename)
-    creator = str(task.get("creator") or creator_from_url(source_url, media_id))
+    creator = str(creator_from_url(source_url, media_id) or task.get("creator") or "")
     resolved_filename = (
         clean_gallerydl_display_filename(raw_filename, creator)
-        if task_type == "gallerydl"
+        if task_type in {"gallerydl", "disk"}
         else raw_filename
     )
     return {

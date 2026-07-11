@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS formats (
     source_key TEXT PRIMARY KEY,
     host TEXT NOT NULL DEFAULT '',
     template TEXT NOT NULL DEFAULT '',
+    templates TEXT NOT NULL DEFAULT '',
     id_min INTEGER NOT NULL DEFAULT 0,
     id_max INTEGER NOT NULL DEFAULT 0,
     id_classes TEXT NOT NULL DEFAULT '',
@@ -114,6 +115,7 @@ def initialize_database() -> None:
         connection = _connect()
         try:
             connection.executescript(SCHEMA)
+            _migrate_schema(connection)
             connection.commit()
         except Exception:
             connection.rollback()
@@ -121,3 +123,10 @@ def initialize_database() -> None:
         finally:
             connection.close()
         _INITIALIZED = True
+
+
+def _migrate_schema(connection: sqlite3.Connection) -> None:
+    # Add columns to older databases that predate them; CREATE IF NOT EXISTS won't.
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(formats)")}
+    if "templates" not in columns:
+        connection.execute("ALTER TABLE formats ADD COLUMN templates TEXT NOT NULL DEFAULT ''")

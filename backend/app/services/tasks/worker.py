@@ -238,6 +238,11 @@ def _clean_resolved_filename(source_url: str, path: Path) -> tuple[Path, str]:
         return path, path.name
 
 
+def _resolved_task_creator(engine: Engine, sidecar_path: str, source_url: str, filename: str) -> str:
+    media_id, _ = parse_filename_media_id(filename)
+    return creator_from_url(source_url, media_id) or engine.read_creator(sidecar_path, source_url)
+
+
 # Log markers meaning the backend has no extractor for the URL: try the other engine.
 _UNSUPPORTED_MARKERS = ("unsupported url", "unsupportederror", "no suitable extractor")
 
@@ -401,8 +406,8 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     error=f"{used_engine.name} finished, but no media file was found.",
                 )
                 return
-            creator = used_engine.read_creator(creator_sidecar, source_url)
             final_path, display_filename = _clean_resolved_filename(source_url, final_path)
+            creator = _resolved_task_creator(used_engine, creator_sidecar, source_url, display_filename)
             completed_task = update_task(
                 task_id,
                 status="completed",

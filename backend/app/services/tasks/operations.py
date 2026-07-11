@@ -12,10 +12,11 @@ from backend.app.core.sources import normalize_source_key
 
 from .engine import select_engine
 from .files import find_numbered_media_siblings, recover_task_path
-from .formats import learn_media_id, reconstruct_url
+from .formats import learn_media_id, reconstruct_url_candidates
 from .history import find_active_by_source, find_history_by_id, find_history_by_source
 from .naming import clean_gallerydl_display_filename
 from .planning import resolve_task_settings
+from .probe import resolve_source_url
 from .scan import parse_filename_media_id
 from .serializers import fetch_tasks, history_to_api, task_to_api
 from .store import (
@@ -141,7 +142,9 @@ def set_task_source(task_id: str, source_key: str) -> str:
             media_id, _ = parse_filename_media_id(str(entry.get("resolved_filename") or ""))
         # Rebuild a link now the source is known, but never clobber a real one.
         if not str(updated.get("source_url") or "").strip():
-            updated["source_url"] = reconstruct_url(load_learned_formats(), key, media_id)
+            creator = str(updated.get("artist") or updated.get("creator") or "")
+            candidates = reconstruct_url_candidates(load_learned_formats(), key, media_id, creator=creator)
+            updated["source_url"] = resolve_source_url(candidates, media_id)
         save_history_entry_row(task_id, updated)
         _learn_confirmed_source(key, media_id)
         return key

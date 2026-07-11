@@ -13,7 +13,9 @@ from backend.app.db.database import utc_now
 
 from .constants import CREATOR_FIELDS, TEMPLATE_RE
 from .files import is_media_file, recover_task_path
-from .formats import conflicts_with_source, guess_sources, reconstruct_url
+from .formats import conflicts_with_source, guess_sources, learn_download, reconstruct_url_candidates
+from .naming import clean_gallerydl_display_filename
+from .probe import verify_source_url
 from .store import (
     load_history,
     load_learned_formats,
@@ -21,6 +23,7 @@ from .store import (
     remove_history_record,
     remove_task_record,
     save_history_entry_row,
+    save_learned_formats,
 )
 
 FILENAME_ID_RE = re.compile(r"^(.*) \[([A-Za-z0-9_-]+)\](?:_\d+)?$")
@@ -199,6 +202,17 @@ def _creator_for_file(
     return creator or _match_template(filename_pattern, path.stem).get("creator", "")
 
 
+def _creator_from_title(title: str) -> str:
+    value = str(title or "").strip()
+    if not value:
+        return ""
+    if value.rstrip().endswith("-"):
+        return value.rstrip(" -").strip()
+    if " - " in value:
+        return value.split(" - ", 1)[0].strip()
+    return ""
+
+
 def _completed_records() -> dict[str, dict[str, Any]]:
     records: dict[str, dict[str, Any]] = {}
     for task_id, task in (load_task_store().get("tasks") or {}).items():
@@ -237,6 +251,22 @@ def _known_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], set[str]
     paths: set[str] = set()
     media_ids: set[str] = set()
     for payload in records.values():
+        path = _payload_path(payload)
+        if path:
+            paths.add(_path_key(path))
+        media_id = _payload_media_id(payload)
+        if media_id:
+            media_ids.add(media_id)
+    return paths, media_ids
+
+
+def _disk_derived_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], set[str]]:
+    # Disk entries are rebuilt from files, so a rescan may re-resolve them as learning improves.
+    paths: set[str] = set()
+    media_ids: set[str] = set()
+    for task_id, payload in records.items():
+        if not (str(task_id).startswith("disk:") or payload.get("task_type") == "disk"):
+            continue
         path = _payload_path(payload)
         if path:
             paths.add(_path_key(path))
@@ -353,6 +383,35 @@ def _source_from_named_folder(root: Path, path: Path, source_keys: set[str]) -> 
     return ""
 
 
+def _seed_learned_from_history(learned: dict[str, Any], records: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Recover route templates from real past downloads (never disk reconstructions)."""
+    for task_id, payload in records.items():
+        if str(task_id).startswith("disk:") or payload.get("task_type") == "disk":
+            continue
+        source_url = str(payload.get("source_url") or "").strip()
+        media_id = _payload_media_id(payload)
+        if source_url and media_id:
+            learned = learn_download(learned, source_url, media_id)
+    return learned
+
+
+def _resolve_disk_url(
+    learned: dict[str, Any],
+    media_id: str,
+    candidates: list[str],
+) -> tuple[str, dict[str, Any]]:
+    """Probe candidates for a disk file (redirects reveal the true route) and learn the resolved link."""
+    if not candidates:
+        return "", learned
+    if len(candidates) < 2:
+        # One known shape means no route ambiguity, so there is nothing to probe.
+        return candidates[0], learned
+    resolved = verify_source_url(candidates, media_id)
+    if not resolved:
+        return candidates[0], learned
+    return resolved, learn_download(learned, resolved, media_id)
+
+
 def infer_disk_source(
     path: Path,
     media_id: str,
@@ -393,21 +452,28 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
     records = _completed_records()
     checked, missing = _drop_missing_records(records)
     known_paths, known_media_ids = _known_media(records)
+    disk_paths, disk_media_ids = _disk_derived_media(records)
     locations = _scan_location_map()
     location_index = _source_location_index(locations)
     source_folders = _source_folder_keys(locations)
     source_profile_keys = _scan_source_profile_keys()
     templates = _TemplateResolver(*_scan_template_map())
     learned = load_learned_formats()
+    learned_before = learned
+    learned = _seed_learned_from_history(learned, records)
 
     added = 0
+    resolved_this_run: set[str] = set()
     for root, path in _iter_media_files(_iter_scan_roots(roots)):
         path_key = _path_key(path)
-        if path_key in known_paths:
+        if path_key in known_paths and path_key not in disk_paths:
             continue
         media_id, title = _parse_media_fields(path, templates.base_filename)
-        if not media_id or media_id in known_media_ids:
+        if not media_id or media_id in resolved_this_run:
             continue
+        if media_id in known_media_ids and media_id not in disk_media_ids:
+            continue
+        resolved_this_run.add(media_id)
 
         task_id = f"disk:{media_id}"
         try:
@@ -420,19 +486,25 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         )
         folder_pattern, filename_pattern = templates.for_source(source_key)
         title = _match_template(filename_pattern, path.stem).get("title", title)
-        creator = _creator_for_file(root, path, source_folders, folder_pattern, filename_pattern)
+        creator = (
+            _creator_for_file(root, path, source_folders, folder_pattern, filename_pattern)
+            or _creator_from_title(title)
+        )
+        display_filename = clean_gallerydl_display_filename(path.name, creator)
+        candidates = reconstruct_url_candidates(learned, source_key, media_id, creator=creator)
+        source_url, learned = _resolve_disk_url(learned, media_id, candidates)
         save_history_entry_row(
             task_id,
             {
                 "task_id": task_id,
                 "media_id": media_id,
-                "source_url": reconstruct_url(learned, source_key, media_id),
+                "source_url": source_url,
                 "task_type": "disk",
                 "source_key": source_key,
                 "source_pending": source_pending,
                 "source_candidates": source_candidates,
                 "resolved_folder": str(path.parent),
-                "resolved_filename": path.name,
+                "resolved_filename": display_filename,
                 "resolved_full_path": str(path),
                 "title": title,
                 "artist": creator,
@@ -440,8 +512,11 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
                 "completed_at": _completed_at_from_file(path),
             },
         )
+        if path_key not in disk_paths and media_id not in disk_media_ids:
+            added += 1
         known_paths.add(path_key)
         known_media_ids.add(media_id)
-        added += 1
 
+    if learned != learned_before:
+        save_learned_formats(learned)
     return {"checked": checked, "missing": missing, "added": added}

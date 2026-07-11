@@ -154,10 +154,11 @@ def clean_gallerydl_display_filename(filename: str, creator: str = "") -> str:
     if not match:
         return value
     media_id = match.group("id").strip()
-    cleaned_title = clean_filename_title(match.group("title").strip(), creator)
+    raw_title = match.group("title").strip()
+    cleaned_title = clean_filename_title(raw_title, creator)
     raw_display_title, stripped_placeholder = _strip_placeholder_segment(cleaned_title, creator)
     display_title = sanitize_filename_component(raw_display_title) if raw_display_title else ""
-    if display_title and stripped_placeholder:
+    if display_title and (stripped_placeholder or raw_title.rstrip().endswith("-")):
         display_stem = f"{display_title} - [{media_id}]"
     else:
         display_stem = f"{display_title} [{media_id}]" if display_title else f"[{media_id}]"

@@ -5,8 +5,9 @@ from typing import Any
 
 from backend.app.core.sources import normalize_source_key
 
+from .formats import url_dedup_key
 from .store import load_history, load_task_store, save_history_entry_row
-from .urls import canonicalize_source_url, detect_source_key
+from .urls import detect_source_key
 
 
 def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
@@ -32,9 +33,10 @@ def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
 
 
 def find_history_by_source(source_url: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
-    normalized = canonicalize_source_url(source_url)
+    # Match on the route-agnostic id so a re-download of the same post dedups regardless of route.
+    normalized = url_dedup_key(source_url)
     for task_id, entry in (load_history().get("entries") or {}).items():
-        if canonicalize_source_url(str(entry.get("source_url") or "")) == normalized:
+        if url_dedup_key(str(entry.get("source_url") or "")) == normalized:
             return str(task_id), entry
     return None, None
 
@@ -45,9 +47,9 @@ def find_history_by_id(task_id: str) -> dict[str, Any] | None:
 
 
 def find_active_by_source(source_url: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
-    normalized = canonicalize_source_url(source_url)
+    normalized = url_dedup_key(source_url)
     for task_id, task in (load_task_store().get("tasks") or {}).items():
-        task_source = canonicalize_source_url(str(task.get("source_url") or ""))
+        task_source = url_dedup_key(str(task.get("source_url") or ""))
         if task.get("status") in {"pending", "running"} and task_source == normalized:
             return str(task_id), task
     return None, None
