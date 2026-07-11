@@ -313,15 +313,27 @@ def _reconstruct_item_url(source_url: str, source_key: str, media_id: str, creat
     return reconstruct_url(learned, source_key, media_id, creator=creator)
 
 
-def _item_source_url(source_url: str, source_key: str, media_id: str, creator: str, metadata: dict[str, str]) -> str:
+def _distinct_metadata_item_url(source_url: str, metadata: dict[str, str]) -> str:
     source_url = canonicalize_source_url(source_url)
+    source_media_id = media_id_from_url(source_url)
     for key in ("webpage_url", "original_url"):
         candidate = canonicalize_source_url(str(metadata.get(key) or ""))
-        if not candidate:
+        if not candidate or candidate == source_url:
             continue
         candidate_media_id = media_id_from_url(candidate)
-        if not media_id or candidate_media_id == media_id or candidate != source_url:
-            return candidate
+        if not candidate_media_id:
+            continue
+        if source_media_id and candidate_media_id == source_media_id:
+            continue
+        return candidate
+    return ""
+
+
+def _item_source_url(source_url: str, source_key: str, media_id: str, creator: str, metadata: dict[str, str]) -> str:
+    source_url = canonicalize_source_url(source_url)
+    candidate = _distinct_metadata_item_url(source_url, metadata)
+    if candidate:
+        return candidate
     if media_id:
         candidate = _reconstruct_item_url(source_url, source_key, media_id, creator)
         if candidate:
@@ -367,13 +379,23 @@ def _download_groups(
 ) -> list[dict[str, Any]]:
     groups: list[dict[str, Any]] = []
     by_key: dict[str, dict[str, Any]] = {}
+    source_media_id = media_id_from_url(source_url)
     for path in paths:
         metadata = metadata_by_path.get(_path_key(path), {})
         media_id = _filename_media_id(path, filename_template, metadata)
+        key_media_id = media_id
         key = media_id or _path_key(path)
+        if engine.name == "gallerydl" and source_media_id:
+            item_url = _distinct_metadata_item_url(source_url, metadata)
+            if item_url:
+                key_media_id = media_id_from_url(item_url) or media_id
+                key = f"url:{item_url}"
+            else:
+                key_media_id = source_media_id
+                key = f"source:{source_media_id}"
         group = by_key.get(key)
         if group is None:
-            group = {"media_id": media_id, "paths": [], "metadata": metadata}
+            group = {"media_id": key_media_id, "paths": [], "metadata": metadata}
             by_key[key] = group
             groups.append(group)
         group["paths"].append(path)
@@ -423,11 +445,41 @@ def _rename_gallerydl_numbered_siblings(
     return selected
 
 
+def _rename_gallerydl_group_paths(
+    paths: list[Path],
+    selected_path: Path,
+    creator: str,
+    source_key: str,
+    filename_template: str = "",
+    media_id: str = "",
+) -> Path:
+    selected = selected_path
+    selected_key = _path_key(selected_path)
+    for path in paths:
+        target_name = ""
+        if filename_template:
+            target_name = clean_template_filename(
+                path.name,
+                filename_template,
+                creator=creator,
+                media_id=media_id,
+                source_key=source_key,
+                keep_numbered_suffix=True,
+            )
+        if not target_name:
+            target_name = clean_gallerydl_disk_filename(path.name, creator, source_key)
+        target = _rename_path(path, target_name)
+        if _path_key(path) == selected_key:
+            selected = target
+    return selected
+
+
 def _clean_resolved_filename(
     source_url: str,
     path: Path,
     template_settings: dict[str, str] | None = None,
     source_key: str = "",
+    group_paths: list[Path] | None = None,
 ) -> tuple[Path, str]:
     filename_template = _filename_template(template_settings)
     source_key = source_key or detect_source_key(source_url)
@@ -452,13 +504,23 @@ def _clean_resolved_filename(
         )
         if disk_filename:
             if strip_numbered_suffix(path.stem) != path.stem:
-                renamed = _rename_gallerydl_numbered_siblings(
-                    path,
-                    creator_hint,
-                    source_key,
-                    filename_template,
-                    media_id_hint,
-                )
+                if group_paths:
+                    renamed = _rename_gallerydl_group_paths(
+                        group_paths,
+                        path,
+                        creator_hint,
+                        source_key,
+                        filename_template,
+                        media_id_hint,
+                    )
+                else:
+                    renamed = _rename_gallerydl_numbered_siblings(
+                        path,
+                        creator_hint,
+                        source_key,
+                        filename_template,
+                        media_id_hint,
+                    )
                 return renamed, display_filename or f"{strip_numbered_suffix(renamed.stem)}{renamed.suffix}"
             renamed = _rename_path(path, disk_filename)
             return renamed, renamed.name
@@ -475,6 +537,8 @@ def _clean_resolved_filename(
         source_key,
     )
     if strip_numbered_suffix(path.stem) != path.stem:
+        if group_paths:
+            return _rename_gallerydl_group_paths(group_paths, path, creator, source_key), display_filename
         return _rename_gallerydl_numbered_siblings(path, creator, source_key), display_filename
     if display_filename == path.name:
         return path, display_filename
@@ -487,8 +551,15 @@ def _resolved_task_creator(engine: Engine, sidecar_path: str, source_url: str, f
     return creator_from_url(source_url, media_id) or engine.read_creator(sidecar_path, source_url)
 
 
-# Log markers meaning the backend has no extractor for the URL: try the other engine.
-_UNSUPPORTED_MARKERS = ("unsupported url", "unsupportederror", "no suitable extractor")
+# Log markers meaning the backend has no extractor or no downloadable media
+# formats for the URL. These are engine capability signals, not platform routes.
+_UNSUPPORTED_MARKERS = (
+    "unsupported url",
+    "unsupportederror",
+    "no suitable extractor",
+    "no video formats found",
+    "no formats found",
+)
 
 
 def _looks_unsupported(task: dict[str, Any]) -> bool:
@@ -496,10 +567,31 @@ def _looks_unsupported(task: dict[str, Any]) -> bool:
     return any(marker in tail for marker in _UNSUPPORTED_MARKERS)
 
 
+def _should_try_next_engine(rc: int, task: dict[str, Any], last_dest: str, emitted_paths: list[str]) -> bool:
+    if rc == 0:
+        return False
+    if _looks_unsupported(task):
+        return True
+    # If this engine already produced media, do not blindly redownload through
+    # another backend. Failed empty runs are the dynamic capability probe.
+    if last_dest or emitted_paths:
+        return False
+    return True
+
+
 def _failure_detail(engine: Engine, rc: int, task: dict[str, Any]) -> str:
     tail = "\n".join(list(task.get("last_log_lines") or [])[-12:]).strip()
     detail = f"{engine.name} exited with code {rc}."
     return f"{detail}\n{tail}" if tail else detail
+
+
+def _combined_failure_detail(failures: list[str]) -> str:
+    failures = [failure for failure in failures if str(failure or "").strip()]
+    if not failures:
+        return "Download failed."
+    if len(failures) == 1:
+        return failures[0]
+    return "All download engines failed.\n\n" + "\n\n".join(failures)
 
 
 def _append_task_log(task_id: str, message: str) -> None:
@@ -583,7 +675,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
     emitted_paths: list[str] = []
     started_at = time.time()
     used_engine = candidates[0]
-    primary_error = ""
+    failure_details: list[str] = []
     try:
         if mark_running:
             update_task(task_id, status="running", progress_pct=0, error="", last_log_lines=[])
@@ -593,8 +685,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 ffmpeg_location = detect_ffmpeg_location()
                 if not ffmpeg_location:
                     message = "ffmpeg was not found. Install ffmpeg or make it available on PATH."
-                    if index == 0:
-                        primary_error = message
+                    failure_details.append(message)
                     _append_task_log(task_id, f"[never-stelle] {message}")
                     continue
             else:
@@ -633,12 +724,11 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 break
 
             failed_task = (load_task_store().get("tasks") or {}).get(task_id, {})
-            if index == 0:
-                primary_error = _failure_detail(engine, rc, failed_task)
-            if index + 1 < len(candidates) and _looks_unsupported(failed_task):
+            failure_details.append(_failure_detail(engine, rc, failed_task))
+            if index + 1 < len(candidates) and _should_try_next_engine(rc, failed_task, last_dest, emitted_paths):
                 _append_task_log(
                     task_id,
-                    f"[never-stelle] {engine.name} can't handle this URL; trying {candidates[index + 1].name}...",
+                    f"[never-stelle] {engine.name} did not produce media; trying {candidates[index + 1].name}...",
                 )
                 continue
             break
@@ -682,6 +772,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     raw_path,
                     template_settings,
                     item_source_key,
+                    list(group.get("paths") or []),
                 )
                 media_id = (
                     media_id
@@ -722,7 +813,8 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
         update_task(
             task_id,
             status="failed",
-            error=primary_error or _failure_detail(used_engine, rc, current_task),
+            error=_combined_failure_detail(failure_details)
+            or _failure_detail(used_engine, rc, current_task),
         )
     except Exception as exc:
         update_task(task_id, status="failed", error=str(exc))

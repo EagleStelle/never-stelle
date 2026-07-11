@@ -8,7 +8,7 @@ import backend.app.services.tasks.gallerydl as gallerydl
 import backend.app.services.tasks.ytdlp as ytdlp
 from backend.app.services.tasks import engine_by_name, engine_for_task, select_engine
 from backend.app.services.tasks.engine import all_engines
-from backend.app.services.tasks.worker import _count_progress, _looks_unsupported
+from backend.app.services.tasks.worker import _count_progress, _looks_unsupported, _should_try_next_engine
 
 
 def _has_cli_pair(cmd: list[str], option: str, value: str) -> bool:
@@ -51,8 +51,15 @@ def test_looks_unsupported_flags_wrong_engine_errors():
     assert _looks_unsupported({"last_log_lines": ["ERROR: Unsupported URL: https://tiktok.com/@x/photo/1"]}) is True
     assert _looks_unsupported({"last_log_lines": ["yt_dlp.utils.UnsupportedError: Unsupported URL: ..."]}) is True
     assert _looks_unsupported({"last_log_lines": ["No suitable extractor found"]}) is True
+    assert _looks_unsupported({"last_log_lines": ["ERROR: [site] id: No video formats found!"]}) is True
     assert _looks_unsupported({"last_log_lines": ["ERROR: Video unavailable"]}) is False
     assert _looks_unsupported({}) is False
+
+
+def test_should_try_next_engine_after_empty_failure():
+    assert _should_try_next_engine(1, {"last_log_lines": ["ERROR: Video unavailable"]}, "", []) is True
+    assert _should_try_next_engine(0, {}, "", []) is False
+    assert _should_try_next_engine(1, {}, "/media/a.mp4", ["/media/a.mp4"]) is False
 
 
 def test_ytdlp_engine_progress_and_path_parsing():

@@ -37,11 +37,33 @@ _DISPLAY_FILENAME_ID_RE = re.compile(r"^(?P<title>.*) \[(?P<id>[A-Za-z0-9_-]+)\]
 _PLACEHOLDER_PREFIX_RE = re.compile(r"^\s*(?P<prefix>[^|:\n\[\]]{1,100}?)\s*[-|:]\s+(?P<body>.+)$")
 _EXT_TEMPLATE_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$", re.IGNORECASE)
 _ID_TEMPLATE_FIELDS = {"id", "video_id"}
+_EMPTY_TITLE_VALUES = {"none", "null", "undefined", "unknown", "untitled", "n/a", "na"}
+TITLE_MAX_CHARS = 50
 
 
 def sanitize_path_literal(value: str) -> str:
     # Path-safe literal with no fallback; callers add engine-specific escaping.
     return _INVALID_FILENAME_CHARS_RE.sub("_", str(value or "")).strip().strip(".")
+
+
+def _is_empty_title(value: str) -> bool:
+    normalized = str(value or "").strip().strip("\"'`").strip().lower()
+    return normalized in _EMPTY_TITLE_VALUES
+
+
+def shorten_filename_title(title: str, max_chars: int = TITLE_MAX_CHARS) -> str:
+    value = _SPACING_RE.sub(" ", str(title or "")).strip()
+    if not value or _is_empty_title(value):
+        return ""
+    max_chars = max(12, int(max_chars or TITLE_MAX_CHARS))
+    if len(value) <= max_chars:
+        return value
+    candidate = value[:max_chars].rstrip()
+    word_break = candidate.rfind(" ")
+    if word_break >= max(20, int(max_chars * 0.6)):
+        candidate = candidate[:word_break]
+    candidate = candidate.rstrip(" -_|,;:.Â·ï½œ")
+    return candidate or value[:max_chars].strip()
 
 
 def _normalize_match_key(value: str) -> str:
@@ -56,6 +78,8 @@ def _source_matches_placeholder(source_label: str, source_key: str) -> bool:
 
 def strip_placeholder_title(title: str, media_id: str = "", source_key: str = "") -> str:
     value = str(title or "").strip()
+    if _is_empty_title(value):
+        return ""
     match = _PLACEHOLDER_TITLE_RE.match(value)
     if not match:
         return value
@@ -72,7 +96,7 @@ def strip_numbered_suffix(stem: str) -> str:
 
 def clean_social_title(title: str, creator: str = "") -> str:
     original = str(title or "").strip()
-    if not original:
+    if not original or _is_empty_title(original):
         return ""
     value = _ON_SURFACE_RE.sub("", original)
     creator = str(creator or "").strip()
@@ -140,7 +164,7 @@ def _strip_leading_social_byline(value: str) -> str:
 
 def clean_filename_title(title: str, creator: str = "", media_id: str = "", source_key: str = "") -> str:
     original = str(title or "").strip()
-    if not original:
+    if not original or _is_empty_title(original):
         return ""
     original = strip_placeholder_title(original, media_id, source_key)
     if not original:
@@ -200,7 +224,7 @@ def clean_gallerydl_display_filename(filename: str, creator: str = "", source_ke
             media_id,
             source_key,
         )
-    display_title = sanitize_filename_component(raw_display_title) if raw_display_title else ""
+    display_title = sanitize_filename_component(shorten_filename_title(raw_display_title)) if raw_display_title else ""
     if display_title and (stripped_placeholder or raw_title.rstrip().endswith("-")):
         display_stem = f"{display_title} - [{media_id}]"
     else:
@@ -327,17 +351,20 @@ def clean_template_filename(
     raw_title = _field_value(fields, "title")
     if not fields or not raw_title:
         return ""
-    resolved_media_id = _field_value(fields, "id", "video_id") or str(media_id or "").strip()
+    original_media_id = _field_value(fields, "id", "video_id")
+    resolved_media_id = str(media_id or "").strip() or original_media_id
     resolved_creator = str(creator or "").strip() or _field_value(fields, *CREATOR_FIELDS)
     cleaned_title = clean_filename_title(raw_title, resolved_creator, resolved_media_id, source_key)
-    if cleaned_title == raw_title and (keep_numbered_suffix or not numbered_suffix):
+    shortened_title = shorten_filename_title(cleaned_title)
+    media_id_changed = bool(resolved_media_id and original_media_id and resolved_media_id != original_media_id)
+    if shortened_title == raw_title and not media_id_changed and (keep_numbered_suffix or not numbered_suffix):
         return value
 
     rendered_fields = dict(fields)
-    rendered_fields["title"] = cleaned_title
+    rendered_fields["title"] = shortened_title
     if resolved_media_id:
-        rendered_fields.setdefault("id", resolved_media_id)
-        rendered_fields.setdefault("video_id", resolved_media_id)
+        rendered_fields["id"] = resolved_media_id
+        rendered_fields["video_id"] = resolved_media_id
     if resolved_creator:
         for creator_field in CREATOR_FIELDS:
             rendered_fields.setdefault(creator_field, resolved_creator)

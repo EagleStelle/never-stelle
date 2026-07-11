@@ -16,6 +16,7 @@ from backend.app.services.tasks import (
     count_tasks,
     counts_by_menu,
     detect_source_key,
+    engine_by_name,
     extract_downloaded_path,
     is_media_file,
     parse_filename_media_id,
@@ -34,6 +35,7 @@ from backend.app.services.tasks.formats import (
 from backend.app.services.tasks.naming import (
     clean_gallerydl_disk_filename,
     clean_gallerydl_display_filename,
+    clean_template_filename,
     strip_numbered_suffix,
     strip_placeholder_title,
 )
@@ -212,6 +214,35 @@ def test_clean_filename_title_keeps_content_like_leading_segment():
     assert clean_filename_title(title, "ININIinNINI") == title
 
 
+def test_clean_filename_title_drops_empty_title_sentinels():
+    assert clean_filename_title("None") == ""
+    assert clean_filename_title(" untitled ") == ""
+    assert clean_gallerydl_display_filename("Poster - None [abc123]_1.jpg", "Poster") == "Poster - [abc123].jpg"
+
+
+def test_clean_template_filename_drops_none_title_segment():
+    result = clean_template_filename(
+        "Poster - None [abc123]_1.jpg",
+        "{{creator}} - {{title}} [{{id}}]",
+        creator="Poster",
+        media_id="abc123",
+    )
+
+    assert result == "Poster - [abc123]_1.jpg"
+
+
+def test_clean_template_filename_truncates_long_title():
+    title = "A" * 80
+    result = clean_template_filename(
+        f"Poster - {title} [abc123]_1.jpg",
+        "{{creator}} - {{title}} [{{id}}]",
+        creator="Poster",
+        media_id="abc123",
+    )
+
+    assert result == f"Poster - {'A' * 50} [abc123]_1.jpg"
+
+
 def test_clean_resolved_filename_renames_real_file_using_settings_template(tmp_path: Path):
     source_url = "https://twitter.com/DohaVT/status/2073635724684054528"
     media_file = tmp_path / "DohaVT - 2073635724684054528 - Video by DohaVT.mp4"
@@ -316,6 +347,177 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
     assert completed["title"] == "Creator - [1234567890]"
     assert saved[task_id]["resolved_full_path"] == str(first_clean)
     assert saved[task_id]["resolved_filename"] == "Creator - [1234567890].jpg"
+
+
+def test_gallerydl_same_source_assets_share_one_row_and_source_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    first = tmp_path / "Poster - Image [childA]_1.jpg"
+    second = tmp_path / "Poster - Image [childB]_2.jpg"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    source_url = "https://www.example.test/post/DWyrvI9Ef3z"
+    task_id = "ytdlp:gallery-post"
+    store = {
+        "tasks": {
+            task_id: {
+                "engine": "ytdlp",
+                "source_url": source_url,
+                "source_key": "example",
+                "status": "pending",
+                "output_dir": str(tmp_path),
+                "resolved_folder": str(tmp_path),
+                "template_settings": {
+                    "folder_template": "",
+                    "filename_template": "{{creator}} - {{title}} [{{id}}]",
+                },
+            }
+        }
+    }
+    saved: dict[str, dict] = {}
+
+    class FakeProcess:
+        def __init__(self, lines: list[str], rc: int):
+            self.stdout = iter(lines)
+            self._rc = rc
+
+        def wait(self):
+            return self._rc
+
+        def poll(self):
+            return self._rc
+
+        def kill(self):
+            return None
+
+    def fake_popen(cmd, *args, **kwargs):
+        if cmd[0] == "yt-dlp":
+            return FakeProcess(["ERROR: [Example] DWyrvI9Ef3z: No video formats found!\n"], 1)
+        return FakeProcess([f"{first}\n", f"{second}\n"], 0)
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    monkeypatch.setattr(worker_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
+    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
+    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(gallerydl_module, "count_gallerydl_items", lambda *args, **kwargs: 2)
+    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+
+    worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+
+    first_clean = tmp_path / "Poster - Image [DWyrvI9Ef3z]_1.jpg"
+    second_clean = tmp_path / "Poster - Image [DWyrvI9Ef3z]_2.jpg"
+    completed = store["tasks"][task_id]
+    assert set(saved) == {task_id}
+    assert first_clean.is_file()
+    assert second_clean.is_file()
+    assert not first.exists()
+    assert not second.exists()
+    assert completed["status"] == "completed"
+    assert completed["engine"] == "gallerydl"
+    assert completed["media_id"] == "DWyrvI9Ef3z"
+    assert completed["source_url"] == source_url
+    assert completed["resolved_full_path"] == str(first_clean)
+    assert completed["resolved_filename"] == "Poster - Image [DWyrvI9Ef3z].jpg"
+    assert saved[task_id]["media_id"] == "DWyrvI9Ef3z"
+    assert saved[task_id]["resolved_filename"] == "Poster - Image [DWyrvI9Ef3z].jpg"
+
+
+def test_gallerydl_distinct_metadata_urls_split_rows_dynamically(tmp_path: Path):
+    first = tmp_path / "Poster - Image [asset-a]_1.jpg"
+    second = tmp_path / "Poster - Image [asset-b]_2.jpg"
+    for path in (first, second):
+        path.write_bytes(b"image")
+    metadata = {
+        worker_module._path_key(first): {"webpage_url": "https://www.example.test/item/asset-a"},
+        worker_module._path_key(second): {"webpage_url": "https://www.example.test/item/asset-b"},
+    }
+
+    groups = worker_module._download_groups(
+        [first, second],
+        engine_by_name("gallerydl"),
+        "{{creator}} - {{title}} [{{id}}]",
+        metadata,
+        "https://www.example.test/post/root123",
+    )
+
+    assert len(groups) == 2
+    assert {group["media_id"] for group in groups} == {"asset-a", "asset-b"}
+
+
+def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    image = tmp_path / "Creator - Image [abc123]_1.jpg"
+    image.write_bytes(b"image")
+    source_url = "https://www.example.test/post/abc123"
+    task_id = "ytdlp:fallback"
+    store = {
+        "tasks": {
+            task_id: {
+                "engine": "ytdlp",
+                "source_url": source_url,
+                "source_key": "example",
+                "status": "pending",
+                "output_dir": str(tmp_path),
+                "resolved_folder": str(tmp_path),
+                "template_settings": {
+                    "folder_template": "",
+                    "filename_template": "{{creator}} - {{title}} [{{id}}]",
+                },
+            }
+        }
+    }
+    saved: dict[str, dict] = {}
+    commands: list[str] = []
+
+    class FakeProcess:
+        def __init__(self, lines: list[str], rc: int):
+            self.stdout = iter(lines)
+            self._rc = rc
+
+        def wait(self):
+            return self._rc
+
+        def poll(self):
+            return self._rc
+
+        def kill(self):
+            return None
+
+    def fake_popen(cmd, *args, **kwargs):
+        commands.append(cmd[0])
+        if cmd[0] == "yt-dlp":
+            return FakeProcess(["ERROR: [Example] abc123: No video formats found!\n"], 1)
+        return FakeProcess([f"{image}\n"], 0)
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    monkeypatch.setattr(worker_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
+    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
+    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(gallerydl_module, "count_gallerydl_items", lambda *args, **kwargs: 1)
+    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+
+    worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+
+    completed = store["tasks"][task_id]
+    assert commands == ["yt-dlp", "gallery-dl"]
+    assert completed["status"] == "completed"
+    assert completed["engine"] == "gallerydl"
+    assert saved[task_id]["engine"] == "gallerydl"
 
 
 def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
