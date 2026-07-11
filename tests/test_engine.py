@@ -141,6 +141,28 @@ def test_build_gallerydl_command_layout():
     assert cmd[-1] == "https://imgur.com/a/x"
 
 
+def test_ytdlp_command_enables_youtube_js_solver():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://www.youtube.com/watch?v=Rh8dLAeeEsQ",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+    )
+
+    assert cmd[cmd.index("--js-runtimes") + 1] == "node"
+    assert cmd[cmd.index("--remote-components") + 1] == "ejs:github"
+
+
+def test_ytdlp_command_keeps_youtube_solver_off_for_other_sites():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://twitter.com/DohaVT/status/1",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+    )
+
+    assert "--js-runtimes" not in cmd
+    assert "--remote-components" not in cmd
+
+
 def test_downloader_commands_use_resolved_source_cookie(monkeypatch):
     monkeypatch.setattr(ytdlp, "find_cookies_file_for_source", lambda source_key: f"/cookies/{source_key}.txt")
     monkeypatch.setattr(gallerydl, "find_cookies_file_for_source", lambda source_key: f"/cookies/{source_key}.txt")

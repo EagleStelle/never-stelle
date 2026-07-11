@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from backend.app.core.sources import host_from_url
 from backend.app.services.settings import (
     find_cookies_file_for_source,
     find_cookies_file_for_url,
@@ -35,6 +36,12 @@ __all__ = [
 # Same precedence the {{creator}} template resolves. Also captured post-download
 # via --print-to-file so the creator column fills even when no template uses it.
 YTDLP_CREATOR_FIELD = "%(artist,artists,album_artist,creator,uploader,channel,playlist_uploader|Unknown)s"
+YOUTUBE_HOSTS = ("youtube.com", "youtube-nocookie.com", "youtu.be")
+
+
+def _is_youtube_url(source_url: str) -> bool:
+    host = host_from_url(source_url)
+    return any(host == candidate or host.endswith(f".{candidate}") for candidate in YOUTUBE_HOSTS)
 
 
 def _safe_literal(value: str) -> str:
@@ -118,6 +125,8 @@ def build_ytdlp_command(
         "--merge-output-format",
         "mp4",
     ]
+    if _is_youtube_url(source_url):
+        cmd.extend(["--js-runtimes", "node", "--remote-components", "ejs:github"])
     # --print-to-file (unlike --print) keeps normal progress output intact; the
     # after_move stage runs on real downloads, never in simulate mode.
     if creator_sidecar:
