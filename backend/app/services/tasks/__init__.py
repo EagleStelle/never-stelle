@@ -32,6 +32,7 @@ from .engine import Engine, engine_by_name, engine_for_task, select_engine
 from .files import (
     extract_downloaded_path,
     find_newest_media_file,
+    find_numbered_media_siblings,
     is_media_file,
     recover_task_path,
 )
@@ -95,6 +96,7 @@ __all__ = [
     "ensure_worker",
     "extract_downloaded_path",
     "fetch_tasks",
+    "find_numbered_media_siblings",
     "find_active_by_source",
     "find_history_by_id",
     "find_history_by_source",

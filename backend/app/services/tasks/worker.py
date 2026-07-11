@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -11,11 +12,18 @@ from typing import Any
 from backend.app.core.sources import normalize_source_key
 from backend.app.services.settings import detect_cookie_source, has_cookies_for_source
 
+from .constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS
 from .engine import Engine, all_engines, engine_for_task
-from .files import find_newest_media_file, recover_task_path
+from .files import find_newest_media_file, find_numbered_media_siblings, recover_task_path
 from .formats import creator_from_url, learn_download
 from .history import save_history_entry
-from .naming import clean_filename_title, detect_ffmpeg_location, sanitize_filename_component
+from .naming import (
+    clean_filename_title,
+    clean_gallerydl_disk_filename,
+    clean_gallerydl_display_filename,
+    detect_ffmpeg_location,
+    strip_numbered_suffix,
+)
 from .scan import parse_filename_media_id
 from .store import (
     claim_pending_task,
@@ -115,14 +123,18 @@ def _run_engine_to_task(
                     updates["progress_pct"] = progress_pct
                 downloaded_path = engine.extract_output_path(line)
                 if downloaded_path:
-                    last_dest = downloaded_path
-                    done += 1
                     path = Path(downloaded_path)
+                    if engine.name == "gallerydl" and _is_audio_path(path):
+                        update_task(task_id, **updates)
+                        continue
+                    done += 1
+                    last_dest = _preferred_output_path(engine, last_dest, path)
+                    resolved_path = Path(last_dest)
                     updates.update(
                         {
-                            "resolved_full_path": str(path),
-                            "resolved_folder": str(path.parent),
-                            "resolved_filename": path.name,
+                            "resolved_full_path": str(resolved_path),
+                            "resolved_folder": str(resolved_path.parent),
+                            "resolved_filename": resolved_path.name,
                         }
                     )
                     if not engine.emits_progress:
@@ -164,22 +176,66 @@ def _unique_sibling_path(path: Path) -> Path:
     return path
 
 
-def _clean_resolved_filename(source_url: str, path: Path) -> Path:
+def _is_audio_path(path: Path) -> bool:
+    return path.suffix.lower() in AUDIO_EXTENSIONS
+
+
+def _numbered_suffix_value(stem: str) -> int:
+    match = re.search(r"_(\d+)$", str(stem or ""))
+    return int(match.group(1)) if match else 0
+
+
+def _is_first_numbered_image(path: Path) -> bool:
+    return path.suffix.lower() in IMAGE_EXTENSIONS and _numbered_suffix_value(path.stem) == 1
+
+
+def _preferred_output_path(engine: Engine, current: str, candidate: Path) -> str:
+    if engine.name != "gallerydl":
+        return str(candidate)
+    if not current:
+        return str(candidate)
+    if _is_first_numbered_image(candidate) and not _is_first_numbered_image(Path(current)):
+        return str(candidate)
+    return current
+
+
+def _rename_gallerydl_numbered_siblings(path: Path, creator: str) -> Path:
+    selected = path
+    siblings = find_numbered_media_siblings(path) or [path]
+    for sibling in siblings:
+        target_name = clean_gallerydl_disk_filename(sibling.name, creator)
+        if not target_name or target_name == sibling.name:
+            continue
+        target = _unique_sibling_path(sibling.with_name(target_name))
+        try:
+            sibling.replace(target)
+        except OSError:
+            continue
+        if sibling == path:
+            selected = target
+    return selected
+
+
+def _clean_resolved_filename(source_url: str, path: Path) -> tuple[Path, str]:
     media_id, title = parse_filename_media_id(path.name)
     if not media_id or not title:
-        return path
+        display_stem = strip_numbered_suffix(path.stem)
+        return path, f"{display_stem}{path.suffix}" if display_stem else path.name
     creator = creator_from_url(source_url, media_id)
-    cleaned_title = sanitize_filename_component(clean_filename_title(title, creator))
-    if not cleaned_title or cleaned_title == title:
-        return path
-    target = _unique_sibling_path(path.with_name(f"{cleaned_title} [{media_id}]{path.suffix}"))
+    cleaned_title = clean_filename_title(title, creator)
+    display_filename = clean_gallerydl_display_filename(f"{cleaned_title} [{media_id}]{path.suffix}", creator)
+    if strip_numbered_suffix(path.stem) != path.stem:
+        return _rename_gallerydl_numbered_siblings(path, creator), display_filename
+    if display_filename == path.name:
+        return path, display_filename
+    target = _unique_sibling_path(path.with_name(display_filename))
     if target == path:
-        return path
+        return path, display_filename
     try:
         path.replace(target)
-        return target
+        return target, target.name
     except OSError:
-        return path
+        return path, path.name
 
 
 # Log markers meaning the backend has no extractor for the URL: try the other engine.
@@ -346,7 +402,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 )
                 return
             creator = used_engine.read_creator(creator_sidecar, source_url)
-            final_path = _clean_resolved_filename(source_url, final_path)
+            final_path, display_filename = _clean_resolved_filename(source_url, final_path)
             completed_task = update_task(
                 task_id,
                 status="completed",
@@ -357,13 +413,14 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 creator=creator,
                 resolved_full_path=str(final_path),
                 resolved_folder=str(final_path.parent),
-                resolved_filename=final_path.name,
+                resolved_filename=display_filename,
+                title=Path(display_filename).stem,
                 # Drop runtime-only fields nothing reads once the path is resolved.
                 last_log_lines=[],
                 output_dir="",
                 output_template="",
             )
-            _learn_source_format(source_url, final_path.name)
+            _learn_source_format(source_url, display_filename)
             save_history_entry(task_id, completed_task)
             return
 

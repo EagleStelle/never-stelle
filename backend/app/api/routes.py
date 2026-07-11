@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from backend.app.core.config import load_app_config
 from backend.app.services.settings import (
@@ -200,12 +201,14 @@ def update_task_source(task_id: str, payload: SetSourcePayload) -> dict[str, str
 @router.get("/tasks/{task_id}/file")
 def download_task_file(task_id: str) -> FileResponse:
     try:
-        path, filename = resolve_task_file(task_id)
+        path, filename, cleanup_path = resolve_task_file(task_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return FileResponse(path, filename=filename, media_type="application/octet-stream")
+    background = BackgroundTask(cleanup_path.unlink, missing_ok=True) if cleanup_path else None
+    media_type = "application/zip" if path.suffix.lower() == ".zip" else "application/octet-stream"
+    return FileResponse(path, filename=filename, media_type=media_type, background=background)
 
 
 @router.post("/tasks/clear-pending")

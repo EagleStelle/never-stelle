@@ -11,6 +11,10 @@ from backend.app.services.tasks.engine import all_engines
 from backend.app.services.tasks.worker import _count_progress, _looks_unsupported
 
 
+def _has_cli_pair(cmd: list[str], option: str, value: str) -> bool:
+    return any(left == option and right == value for left, right in zip(cmd, cmd[1:], strict=False))
+
+
 @pytest.mark.parametrize(
     "url",
     [
@@ -135,10 +139,28 @@ def test_build_gallerydl_command_layout():
     )
     assert cmd[0] == "gallery-dl"
     assert cmd[cmd.index("--destination") + 1] == str(Path("/media/imgur"))
-    assert cmd[cmd.index("-o") + 1] == 'directory=["artist"]'
+    assert _has_cli_pair(cmd, "-o", "extractor.tiktok.audio=false")
+    assert _has_cli_pair(cmd, "-o", 'directory=["artist"]')
     assert cmd[cmd.index("--filename") + 1] == "Clip [id].{extension}"
     assert "--cookies" not in cmd
     assert cmd[-1] == "https://imgur.com/a/x"
+
+
+def test_count_gallerydl_items_disables_tiktok_audio(monkeypatch):
+    captured: dict[str, list[str]] = {}
+
+    class Result:
+        returncode = 0
+        stdout = "https://example.test/1.jpg\nhttps://example.test/2.jpg\n"
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return Result()
+
+    monkeypatch.setattr(gallerydl.subprocess, "run", fake_run)
+
+    assert gallerydl.count_gallerydl_items("https://www.tiktok.com/@x/photo/1") == 2
+    assert _has_cli_pair(captured["cmd"], "-o", "extractor.tiktok.audio=false")
 
 
 def test_ytdlp_command_enables_youtube_js_solver():

@@ -23,10 +23,22 @@ from .store import (
     save_history_entry_row,
 )
 
-FILENAME_ID_RE = re.compile(r"^(.*) \[([A-Za-z0-9_-]+)\]$")
+FILENAME_ID_RE = re.compile(r"^(.*) \[([A-Za-z0-9_-]+)\](?:_\d+)?$")
 UNRECOVERABLE_MEDIA_IDS = {"", "na", "n-a", "n/a", "none", "null", "unknown"}
 _ID_TOKENS = {"id", "video_id"}
 _EXT_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$")
+_COMMON_SOURCE_FOLDER_KEYS = {
+    "bilibili",
+    "facebook",
+    "instagram",
+    "imgur",
+    "pixiv",
+    "reddit",
+    "tiktok",
+    "twitter",
+    "x",
+    "youtube",
+}
 
 
 def _template_group(field: str) -> str:
@@ -276,6 +288,20 @@ def _scan_template_map() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
         return {"folder_template": "{{creator}}", "filename_template": "{{creator}} - {{title}} [{{id}}]"}, {}
 
 
+def _scan_source_profile_keys() -> set[str]:
+    try:
+        from backend.app.core.config import load_app_config
+        from backend.app.services.settings import get_effective_source_profiles
+
+        return {
+            normalize_source_key(profile.get("key"))
+            for profile in get_effective_source_profiles(load_app_config())
+            if normalize_source_key(profile.get("key")) != FALLBACK_SOURCE_KEY
+        }
+    except Exception:
+        return set()
+
+
 class _TemplateResolver:
     """Compile and cache the folder/filename matchers for each source key."""
 
@@ -314,11 +340,28 @@ def _source_from_path(path: Path, location_index: list[tuple[str, str]]) -> str:
     return ""
 
 
+def _source_from_named_folder(root: Path, path: Path, source_keys: set[str]) -> str:
+    try:
+        relative_parts = path.parent.relative_to(root).parts
+    except ValueError:
+        relative_parts = path.parent.parts
+    candidates = source_keys | _COMMON_SOURCE_FOLDER_KEYS
+    for part in relative_parts:
+        key = normalize_source_key(part)
+        if key in candidates:
+            return key
+    return ""
+
+
 def infer_disk_source(
-    path: Path, media_id: str, location_index: list[tuple[str, str]], learned: dict[str, Any]
+    path: Path,
+    media_id: str,
+    location_index: list[tuple[str, str]],
+    learned: dict[str, Any],
+    source_hint: str = "",
 ) -> tuple[str, bool, list[str]]:
     # Confidence order: folder, then a single learned id match, else pending for the user.
-    from_path = _source_from_path(path, location_index)
+    from_path = _source_from_path(path, location_index) or (normalize_source_key(source_hint) if source_hint else "")
     if from_path and not conflicts_with_source(learned, from_path, media_id):
         return from_path, False, []
     candidates = guess_sources(learned, media_id)
@@ -353,6 +396,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
     locations = _scan_location_map()
     location_index = _source_location_index(locations)
     source_folders = _source_folder_keys(locations)
+    source_profile_keys = _scan_source_profile_keys()
     templates = _TemplateResolver(*_scan_template_map())
     learned = load_learned_formats()
 
@@ -370,8 +414,9 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
             file_size = path.stat().st_size
         except Exception:
             file_size = 0
+        source_hint = _source_from_named_folder(root, path, source_profile_keys)
         source_key, source_pending, source_candidates = infer_disk_source(
-            path, media_id, location_index, learned
+            path, media_id, location_index, learned, source_hint
         )
         folder_pattern, filename_pattern = templates.for_source(source_key)
         title = _match_template(filename_pattern, path.stem).get("title", title)

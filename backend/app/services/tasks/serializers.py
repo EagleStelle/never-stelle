@@ -9,6 +9,7 @@ from backend.app.services.settings import get_effective_source_profiles
 from .constants import STATUS_LABELS, STATUS_ORDER
 from .files import recover_task_path
 from .formats import creator_from_url
+from .naming import clean_gallerydl_display_filename
 from .scan import parse_filename_media_id
 from .store import load_history, load_task_store
 from .urls import detect_source_key
@@ -28,16 +29,22 @@ def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
         progress_pct = max(0, min(100, round(float(task.get("progress_pct") or 0))))
     except Exception:
         progress_pct = 0
-    resolved_path, resolved_folder, resolved_filename = recover_task_path(task_id, task, persist=False)
+    resolved_path, resolved_folder, recovered_filename = recover_task_path(task_id, task, persist=False)
     source_url = str(task.get("source_url") or "")
+    task_type = str(task.get("engine") or "ytdlp")
     source_key = normalize_source_key(
         task.get("source_key")
         or detect_source_key(source_url)
     )
     can_download = bool(status == "completed" and resolved_path and Path(resolved_path).is_file())
-    resolved_filename = resolved_filename or str(task.get("resolved_filename") or "")
-    media_id, _ = parse_filename_media_id(resolved_filename)
+    raw_filename = str(task.get("resolved_filename") or "").strip() or recovered_filename
+    media_id, _ = parse_filename_media_id(raw_filename)
     creator = str(task.get("creator") or creator_from_url(source_url, media_id))
+    resolved_filename = (
+        clean_gallerydl_display_filename(raw_filename, creator)
+        if task_type == "gallerydl"
+        else raw_filename
+    )
     return {
         "vid": task_id,
         "status": status,
@@ -52,7 +59,7 @@ def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
         "resolved_full_path": resolved_path or str(task.get("resolved_full_path") or ""),
         "preview_warning": str(task.get("preview_warning") or ""),
         "can_remove": status in {"pending", "failed"},
-        "task_type": str(task.get("engine") or "ytdlp"),
+        "task_type": task_type,
         "source_key": source_key,
         "source_pending": bool(task.get("source_pending")),
         "source_candidates": list(task.get("source_candidates") or []),

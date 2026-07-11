@@ -24,9 +24,24 @@ _URLISH_RE = re.compile(r"(?i)\b(?:https?://|www\.)")
 _TERMINAL_SENTENCE_RE = re.compile(r"[.!?。！？…]$")
 
 
+_TIKTOK_PLACEHOLDER_TITLE_RE = re.compile(r"^TikTok (?:photo|video) #\d+$", re.IGNORECASE)
+_NUMBERED_SUFFIX_RE = re.compile(r"_\d+$")
+_DISPLAY_FILENAME_ID_RE = re.compile(r"^(?P<title>.*) \[(?P<id>[A-Za-z0-9_-]+)\](?:_\d+)?$")
+_PLACEHOLDER_PREFIX_RE = re.compile(r"^\s*(?P<prefix>[^|:\n\[\]]{1,100}?)\s*[-|:]\s+(?P<body>.+)$")
+
+
 def sanitize_path_literal(value: str) -> str:
     # Path-safe literal with no fallback; callers add engine-specific escaping.
     return _INVALID_FILENAME_CHARS_RE.sub("_", str(value or "")).strip().strip(".")
+
+
+def strip_placeholder_title(title: str) -> str:
+    value = str(title or "").strip()
+    return "" if _TIKTOK_PLACEHOLDER_TITLE_RE.match(value) else value
+
+
+def strip_numbered_suffix(stem: str) -> str:
+    return _NUMBERED_SUFFIX_RE.sub("", str(stem or "").strip())
 
 
 def clean_social_title(title: str, creator: str = "") -> str:
@@ -114,6 +129,52 @@ def sanitize_filename_component(value: str) -> str:
     value = _INVALID_FILENAME_CHARS_RE.sub("_", str(value or ""))
     value = _SPACING_RE.sub(" ", value).strip().strip(".")
     return value or "Unknown"
+
+
+def _strip_placeholder_segment(title: str, creator: str = "") -> tuple[str, bool]:
+    value = strip_placeholder_title(title)
+    if not value:
+        return sanitize_filename_component(creator) if creator else "", True
+    for candidate in _creator_prefix_candidates(creator):
+        match = re.match(rf"^\s*{re.escape(candidate)}\s*[-|:]\s+(?P<body>.+)$", value, re.IGNORECASE)
+        if match and not strip_placeholder_title(match.group("body")):
+            return candidate, True
+    match = _PLACEHOLDER_PREFIX_RE.match(value)
+    if match and not strip_placeholder_title(match.group("body")):
+        return match.group("prefix").strip(), True
+    return value, False
+
+
+def clean_gallerydl_display_filename(filename: str, creator: str = "") -> str:
+    value = str(filename or "").strip()
+    if not value:
+        return ""
+    path = Path(value)
+    match = _DISPLAY_FILENAME_ID_RE.match(path.stem.strip())
+    if not match:
+        return value
+    media_id = match.group("id").strip()
+    cleaned_title = clean_filename_title(match.group("title").strip(), creator)
+    raw_display_title, stripped_placeholder = _strip_placeholder_segment(cleaned_title, creator)
+    display_title = sanitize_filename_component(raw_display_title) if raw_display_title else ""
+    if display_title and stripped_placeholder:
+        display_stem = f"{display_title} - [{media_id}]"
+    else:
+        display_stem = f"{display_title} [{media_id}]" if display_title else f"[{media_id}]"
+    return f"{display_stem}{path.suffix}"
+
+
+def clean_gallerydl_disk_filename(filename: str, creator: str = "") -> str:
+    value = str(filename or "").strip()
+    if not value:
+        return ""
+    path = Path(value)
+    numbered = re.search(r"_\d+$", path.stem)
+    display = clean_gallerydl_display_filename(value, creator)
+    if not numbered or display == value:
+        return display
+    display_path = Path(display)
+    return f"{display_path.stem}{numbered.group(0)}{path.suffix}"
 
 
 def detect_ffmpeg_location() -> str:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import tempfile
 import uuid
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -9,9 +11,10 @@ from backend.app.core.config import is_allowed_location, load_app_config
 from backend.app.core.sources import normalize_source_key
 
 from .engine import select_engine
-from .files import recover_task_path
+from .files import find_numbered_media_siblings, recover_task_path
 from .formats import learn_media_id, reconstruct_url
 from .history import find_active_by_source, find_history_by_id, find_history_by_source
+from .naming import clean_gallerydl_display_filename
 from .planning import resolve_task_settings
 from .scan import parse_filename_media_id
 from .serializers import fetch_tasks, history_to_api, task_to_api
@@ -145,12 +148,25 @@ def set_task_source(task_id: str, source_key: str) -> str:
     raise FileNotFoundError("Task was not found.")
 
 
-def resolve_task_file(task_id: str) -> tuple[Path, str]:
+def _build_slideshow_archive(files: list[Path]) -> Path:
+    handle = tempfile.NamedTemporaryFile(prefix="never-stelle-slideshow-", suffix=".zip", delete=False)
+    archive_path = Path(handle.name)
+    handle.close()
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for file in files:
+            archive.write(file, arcname=file.name)
+    return archive_path
+
+
+def resolve_task_file(task_id: str) -> tuple[Path, str, Path | None]:
     task = (load_task_store().get("tasks") or {}).get(task_id)
     history_entry = find_history_by_id(task_id)
     if not task and history_entry:
         task = {
             "status": "completed",
+            "engine": history_entry.get("task_type") or history_entry.get("engine") or "ytdlp",
+            "creator": history_entry.get("creator") or history_entry.get("artist") or "",
+            "source_url": history_entry.get("source_url", ""),
             "resolved_full_path": history_entry.get("resolved_full_path", ""),
             "resolved_filename": history_entry.get("resolved_filename", ""),
             "resolved_folder": history_entry.get("resolved_folder", ""),
@@ -159,7 +175,8 @@ def resolve_task_file(task_id: str) -> tuple[Path, str]:
         raise FileNotFoundError("Task was not found.")
     if task.get("status") != "completed":
         raise RuntimeError("File is not ready yet.")
-    resolved_path, _, resolved_filename = recover_task_path(task_id, task)
+    display_filename = str(task.get("resolved_filename") or "").strip()
+    resolved_path, _, recovered_filename = recover_task_path(task_id, task)
     if not resolved_path:
         resolved_path = str(task.get("resolved_full_path") or "")
     if not resolved_path:
@@ -167,4 +184,12 @@ def resolve_task_file(task_id: str) -> tuple[Path, str]:
     path = Path(resolved_path)
     if not path.exists() or not path.is_file():
         raise FileNotFoundError("The completed file could not be found.")
-    return path, resolved_filename or path.name
+    filename = display_filename or recovered_filename or path.name
+    if str(task.get("engine") or "") == "gallerydl":
+        filename = clean_gallerydl_display_filename(filename, str(task.get("creator") or ""))
+    siblings = find_numbered_media_siblings(path)
+    if len(siblings) > 1:
+        archive_path = _build_slideshow_archive(siblings)
+        archive_name = f"{Path(filename).stem}.zip"
+        return archive_path, archive_name, archive_path
+    return path, filename, None

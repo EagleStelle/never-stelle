@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 
 import pytest
 
+import backend.app.services.tasks.gallerydl as gallerydl_module
 import backend.app.services.tasks.history as history_module
+import backend.app.services.tasks.operations as operations_module
 import backend.app.services.tasks.scan as scan_module
+import backend.app.services.tasks.worker as worker_module
 from backend.app.services.tasks import (
     canonicalize_source_url,
     convert_template_to_ytdlp,
@@ -24,7 +28,13 @@ from backend.app.services.tasks.formats import (
     learn_media_id,
     reconstruct_url,
 )
-from backend.app.services.tasks.serializers import history_to_api
+from backend.app.services.tasks.naming import (
+    clean_gallerydl_disk_filename,
+    clean_gallerydl_display_filename,
+    strip_numbered_suffix,
+    strip_placeholder_title,
+)
+from backend.app.services.tasks.serializers import history_to_api, task_to_api
 from backend.app.services.tasks.ytdlp import clean_filename_title, clean_social_title
 
 
@@ -129,6 +139,38 @@ def test_parse_filename_media_id_uses_last_bracketed_id():
     )
 
 
+def test_parse_filename_media_id_accepts_numbered_gallerydl_suffix():
+    assert parse_filename_media_id("Creator - Cap [id]_8.jpg") == ("id", "Creator - Cap")
+
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        ("TikTok photo #123", ""),
+        ("TikTok video #123", ""),
+        ("Actual caption #123", "Actual caption #123"),
+    ],
+)
+def test_strip_placeholder_title_only_drops_tiktok_placeholder(title, expected):
+    assert strip_placeholder_title(title) == expected
+
+
+def test_strip_numbered_suffix_removes_gallerydl_num():
+    assert strip_numbered_suffix("Creator - Cap [id]_8") == "Creator - Cap [id]"
+
+
+def test_clean_gallerydl_display_filename_drops_tiktok_placeholder_and_num():
+    filename = "fzyahoo.com - TikTok photo #7420705673542978833 [7420705673542978833]_1.jpg"
+
+    assert clean_gallerydl_display_filename(filename) == "fzyahoo.com - [7420705673542978833].jpg"
+
+
+def test_clean_gallerydl_disk_filename_keeps_num_but_drops_tiktok_placeholder():
+    filename = "fzyahoo.com - TikTok photo #7420705673542978833 [7420705673542978833]_1.jpg"
+
+    assert clean_gallerydl_disk_filename(filename) == "fzyahoo.com - [7420705673542978833]_1.jpg"
+
+
 def test_parse_filename_media_id_rejects_unrecoverable_names():
     assert parse_filename_media_id("Creator - Soft Light.mp4") == ("", "Creator - Soft Light")
     assert parse_filename_media_id("Creator - Soft Light [NA].mp4")[0] == ""
@@ -161,6 +203,92 @@ def test_clean_filename_title_keeps_content_like_leading_segment():
     assert clean_filename_title(title, "ININIinNINI") == title
 
 
+def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    first = tmp_path / "Creator - TikTok photo #1234567890 [1234567890]_1.jpg"
+    second = tmp_path / "Creator - TikTok photo #1234567890 [1234567890]_2.jpg"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    source_url = "https://www.tiktok.com/@Creator/photo/1234567890"
+    task_id = "gallerydl:test"
+    store = {
+        "tasks": {
+            task_id: {
+                "engine": "gallerydl",
+                "source_url": source_url,
+                "source_key": "tiktok",
+                "status": "pending",
+                "output_dir": str(tmp_path),
+                "resolved_folder": str(tmp_path),
+                "template_settings": {
+                    "folder_template": "",
+                    "filename_template": "{{creator}} - {{title}} [{{id}}]",
+                },
+            }
+        }
+    }
+    saved: dict[str, dict] = {}
+
+    class FakeProcess:
+        stdout = iter([f"{second}\n", f"{first}\n"])
+
+        def wait(self):
+            return 0
+
+        def poll(self):
+            return 0
+
+        def kill(self):
+            return None
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    monkeypatch.setattr(worker_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
+    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(gallerydl_module, "count_gallerydl_items", lambda *args, **kwargs: 2)
+    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+
+    worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+
+    completed = store["tasks"][task_id]
+    first_clean = tmp_path / "Creator - [1234567890]_1.jpg"
+    second_clean = tmp_path / "Creator - [1234567890]_2.jpg"
+    assert completed["status"] == "completed"
+    assert first_clean.is_file()
+    assert second_clean.is_file()
+    assert not first.exists()
+    assert not second.exists()
+    assert completed["resolved_full_path"] == str(first_clean)
+    assert completed["resolved_filename"] == "Creator - [1234567890].jpg"
+    assert completed["title"] == "Creator - [1234567890]"
+    assert saved[task_id]["resolved_full_path"] == str(first_clean)
+    assert saved[task_id]["resolved_filename"] == "Creator - [1234567890].jpg"
+
+
+def test_task_to_api_cleans_existing_raw_gallerydl_display_filename(tmp_path: Path):
+    media_file = tmp_path / "fzyahoo.com - TikTok photo #7420705673542978833 [7420705673542978833]_1.jpg"
+    media_file.write_bytes(b"image")
+
+    api_task = task_to_api(
+        "gallerydl:test",
+        {
+            "engine": "gallerydl",
+            "status": "completed",
+            "source_url": "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833",
+            "resolved_full_path": str(media_file),
+            "resolved_filename": media_file.name,
+        },
+    )
+
+    assert api_task["resolved_filename"] == "fzyahoo.com - [7420705673542978833].jpg"
+
+
 def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     media_root = tmp_path / "media"
     artist_dir = media_root / "Trace Artist"
@@ -186,6 +314,36 @@ def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkey
     assert saved["disk:abc123"]["resolved_full_path"] == str(media_file)
     assert saved["disk:abc123"]["resolved_filename"] == media_file.name
     assert saved["disk:abc123"]["source_key"] == "others"
+
+
+def test_scan_media_library_infers_source_from_named_platform_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media_root = tmp_path / "media"
+    tiktok_dir = media_root / "tiktok" / "fzyahoo.com"
+    tiktok_dir.mkdir(parents=True)
+    media_file = tiktok_dir / "fzyahoo.com - [7420705673542978833]_1.jpg"
+    media_file.write_bytes(b"image")
+
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {})
+    monkeypatch.setattr(scan_module, "_scan_source_profile_keys", lambda: set())
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    scan_module.scan_media_library([media_root])
+
+    entry = saved["disk:7420705673542978833"]
+    assert entry["source_key"] == "tiktok"
+    assert entry["source_pending"] is False
 
 
 def _learned_youtube_twitter() -> dict:
@@ -527,3 +685,36 @@ def test_history_preserves_completed_engine(monkeypatch: pytest.MonkeyPatch):
 
     assert saved["gallerydl:abc123"]["task_type"] == "gallerydl"
     assert history_to_api("gallerydl:abc123", saved["gallerydl:abc123"])["task_type"] == "gallerydl"
+
+
+def test_resolve_task_file_zips_numbered_gallerydl_siblings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    first = tmp_path / "Creator - Cap [abc123]_1.jpg"
+    second = tmp_path / "Creator - Cap [abc123]_2.jpg"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    task_id = "gallerydl:abc123"
+
+    monkeypatch.setattr(
+        operations_module,
+        "load_task_store",
+        lambda: {
+            "tasks": {
+                task_id: {
+                    "status": "completed",
+                    "resolved_full_path": str(first),
+                    "resolved_filename": "Creator - Cap [abc123].jpg",
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(operations_module, "find_history_by_id", lambda task_id: None)
+
+    archive_path, filename, cleanup_path = operations_module.resolve_task_file(task_id)
+
+    try:
+        assert filename == "Creator - Cap [abc123].zip"
+        assert cleanup_path == archive_path
+        with zipfile.ZipFile(archive_path) as archive:
+            assert archive.namelist() == [first.name, second.name]
+    finally:
+        archive_path.unlink(missing_ok=True)

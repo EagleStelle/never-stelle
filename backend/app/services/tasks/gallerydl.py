@@ -27,6 +27,7 @@ _GALLERYDL_FIELD = {
 _TEMPLATE_SEP = "\x1f"
 _COUNT_TIMEOUT_SECONDS = 60
 _MAX_COUNT = 5000
+_TIKTOK_NO_AUDIO_OPTION = "extractor.tiktok.audio=false"
 
 
 def _directory_segments(folder: str) -> list[str]:
@@ -44,7 +45,7 @@ def count_gallerydl_items(
     cookie_source_key: str = "",
 ) -> int:
     # `-g` lists file URLs without downloading, giving a total; failure yields 0.
-    cmd = ["gallery-dl", "-g"]
+    cmd = ["gallery-dl", "-g", "-o", _TIKTOK_NO_AUDIO_OPTION]
     if with_cookies:
         cookies_file = (
             find_cookies_file_for_source(cookie_source_key)
@@ -119,7 +120,15 @@ def build_gallerydl_command(
 ) -> list[str]:
     folder, _, filename = str(output_template or "").partition(_TEMPLATE_SEP)
     directory = json.dumps(_directory_segments(folder), ensure_ascii=False)
-    cmd = ["gallery-dl", "--destination", str(Path(output_dir)), "-o", f"directory={directory}"]
+    cmd = [
+        "gallery-dl",
+        "--destination",
+        str(Path(output_dir)),
+        "-o",
+        _TIKTOK_NO_AUDIO_OPTION,
+        "-o",
+        f"directory={directory}",
+    ]
     if filename:
         cmd.extend(["--filename", filename])
     if with_cookies:

@@ -14,7 +14,7 @@ STATUS_ORDER = {
     "failed": 2,
     "completed": 3,
 }
-MEDIA_EXTENSIONS = {
+VIDEO_EXTENSIONS = {
     ".mp4",
     ".mkv",
     ".webm",
@@ -27,6 +27,8 @@ MEDIA_EXTENSIONS = {
     ".m2ts",
     ".mpg",
     ".mpeg",
+}
+IMAGE_EXTENSIONS = {
     ".jpg",
     ".jpeg",
     ".png",
@@ -36,6 +38,16 @@ MEDIA_EXTENSIONS = {
     ".heic",
     ".heif",
 }
+AUDIO_EXTENSIONS = {
+    ".aac",
+    ".flac",
+    ".m4a",
+    ".mp3",
+    ".ogg",
+    ".opus",
+    ".wav",
+}
+MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS
 PROGRESS_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%")
 TEMPLATE_RE = re.compile(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}")
 # Template placeholders that resolve to the creator/uploader across engines.

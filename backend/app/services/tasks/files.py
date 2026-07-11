@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .constants import MEDIA_EXTENSIONS
+from .naming import strip_numbered_suffix
 from .store import update_task
 
 
@@ -45,6 +46,24 @@ def find_newest_media_file(root: Path, started_at: float) -> Path | None:
     if not candidates:
         return None
     return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
+def _numbered_suffix_value(stem: str) -> int:
+    match = re.search(r"_(\d+)$", str(stem or ""))
+    return int(match.group(1)) if match else 0
+
+
+def find_numbered_media_siblings(path: Path) -> list[Path]:
+    base = strip_numbered_suffix(path.stem)
+    try:
+        candidates = [
+            candidate
+            for candidate in path.parent.iterdir()
+            if is_media_file(candidate) and strip_numbered_suffix(candidate.stem) == base
+        ]
+    except OSError:
+        return []
+    return sorted(candidates, key=lambda candidate: (_numbered_suffix_value(candidate.stem), candidate.name))
 
 
 def recover_task_path(task_id: str, task: dict[str, Any], *, persist: bool = True) -> tuple[str, str, str]:
