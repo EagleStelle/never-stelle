@@ -111,6 +111,7 @@ def build_ytdlp_command(
     with_cookies: bool = False,
     cookie_source_key: str = "",
     creator_sidecar: str = "",
+    metadata_sidecar: str = "",
 ) -> list[str]:
     selected_format = "bestvideo*+bestaudio/best"
     cmd = [
@@ -131,6 +132,9 @@ def build_ytdlp_command(
     # after_move stage runs on real downloads, never in simulate mode.
     if creator_sidecar:
         cmd.extend(["--print-to-file", f"after_move:{YTDLP_CREATOR_FIELD}", creator_sidecar])
+    if metadata_sidecar:
+        item_template = "%(filepath,_filename|)j\t%(id|)j\t%(webpage_url,original_url|)j\t%(original_url,webpage_url|)j"
+        cmd.extend(["--print-to-file", f"after_move:{item_template}", metadata_sidecar])
     if with_cookies:
         cookies_file = (
             find_cookies_file_for_source(cookie_source_key)

@@ -26,7 +26,7 @@ from .store import (
     save_learned_formats,
     update_task,
 )
-from .urls import canonicalize_source_url
+from .urls import canonicalize_source_url, detect_source_key
 from .worker import _worker_wakeup, ensure_worker
 
 
@@ -200,7 +200,8 @@ def resolve_task_file(task_id: str) -> tuple[Path, str, Path | None]:
         raise FileNotFoundError("The completed file could not be found.")
     filename = display_filename or recovered_filename or path.name
     if str(task.get("engine") or "") == "gallerydl":
-        filename = clean_gallerydl_display_filename(filename, str(task.get("creator") or ""))
+        source_key = str(task.get("source_key") or "").strip() or detect_source_key(str(task.get("source_url") or ""))
+        filename = clean_gallerydl_display_filename(filename, str(task.get("creator") or ""), source_key)
     siblings = find_numbered_media_siblings(path)
     if len(siblings) > 1:
         archive_path = _build_slideshow_archive(siblings)

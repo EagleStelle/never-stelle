@@ -41,6 +41,7 @@ class Engine:
         with_cookies: bool = False,
         cookie_source_key: str = "",
         creator_sidecar: str = "",
+        metadata_sidecar: str = "",
     ) -> list[str]:
         raise NotImplementedError
 
@@ -81,6 +82,7 @@ class YtdlpEngine(Engine):
         with_cookies: bool = False,
         cookie_source_key: str = "",
         creator_sidecar: str = "",
+        metadata_sidecar: str = "",
     ) -> list[str]:
         return ytdlp.build_ytdlp_command(
             source_url,
@@ -89,6 +91,7 @@ class YtdlpEngine(Engine):
             with_cookies=with_cookies,
             cookie_source_key=cookie_source_key,
             creator_sidecar=creator_sidecar,
+            metadata_sidecar=metadata_sidecar,
         )
 
     def parse_progress(self, line: str) -> float | None:
@@ -137,6 +140,7 @@ class GallerydlEngine(Engine):
         with_cookies: bool = False,
         cookie_source_key: str = "",
         creator_sidecar: str = "",
+        metadata_sidecar: str = "",
     ) -> list[str]:
         return gallerydl.build_gallerydl_command(
             source_url,

@@ -41,7 +41,7 @@ def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
     media_id, _ = parse_filename_media_id(raw_filename)
     creator = str(creator_from_url(source_url, media_id) or task.get("creator") or "")
     resolved_filename = (
-        clean_gallerydl_display_filename(raw_filename, creator)
+        clean_gallerydl_display_filename(raw_filename, creator, source_key)
         if task_type in {"gallerydl", "disk"}
         else raw_filename
     )

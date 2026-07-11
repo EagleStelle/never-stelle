@@ -504,7 +504,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
             _creator_for_file(root, path, source_folders, folder_pattern, filename_pattern)
             or _creator_from_title(title)
         )
-        display_filename = clean_gallerydl_display_filename(path.name, creator)
+        display_filename = clean_gallerydl_display_filename(path.name, creator, source_key)
         candidates = reconstruct_url_candidates(learned, source_key, media_id, creator=creator)
         source_url = candidates[0] if candidates else ""
         save_history_entry_row(

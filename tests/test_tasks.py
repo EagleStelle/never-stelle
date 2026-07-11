@@ -147,15 +147,19 @@ def test_parse_filename_media_id_accepts_numbered_gallerydl_suffix():
 
 
 @pytest.mark.parametrize(
-    "title,expected",
+    "title,media_id,source_key,expected",
     [
-        ("TikTok photo #123", ""),
-        ("TikTok video #123", ""),
-        ("Actual caption #123", "Actual caption #123"),
+        ("MadeUpHub photo #123", "", "madeuphub", ""),
+        ("Another Site video #abc_123", "abc_123", "", ""),
+        ("Actual caption #123", "123", "madeuphub", "Actual caption #123"),
     ],
 )
-def test_strip_placeholder_title_only_drops_tiktok_placeholder(title, expected):
-    assert strip_placeholder_title(title) == expected
+def test_strip_placeholder_title_drops_dynamic_source_placeholders(title, media_id, source_key, expected):
+    assert strip_placeholder_title(title, media_id, source_key) == expected
+
+
+def test_strip_placeholder_title_drops_when_real_media_id_matches():
+    assert strip_placeholder_title("Any Platform video #abc_123", "abc_123") == ""
 
 
 def test_strip_numbered_suffix_removes_gallerydl_num():
@@ -183,6 +187,8 @@ def test_clean_social_title_removes_engagement_and_attribution_junk():
     assert clean_social_title("Soft Light 1.5M views · 62K reactions") == "Soft Light"
     assert clean_social_title("Soft Light ｜ NJ Tony on Reels") == "Soft Light"
     assert clean_social_title("NJ Tony - Video by NJ Tony", "NJ Tony") == "NJ Tony"
+    assert clean_social_title("Video by NJ Tony", "NJ Tony") == ""
+    assert clean_social_title("Photo by NJ Tony - 12K likes", "NJ Tony") == ""
 
 
 def test_clean_filename_title_removes_duplicate_social_display_name():
@@ -204,6 +210,44 @@ def test_clean_filename_title_keeps_content_like_leading_segment():
     title = "ININIinNINI - Part 1 - Photoshop summer thumbnail process"
 
     assert clean_filename_title(title, "ININIinNINI") == title
+
+
+def test_clean_resolved_filename_renames_real_file_using_settings_template(tmp_path: Path):
+    source_url = "https://twitter.com/DohaVT/status/2073635724684054528"
+    media_file = tmp_path / "DohaVT - 2073635724684054528 - Video by DohaVT.mp4"
+    media_file.write_bytes(b"video")
+
+    final_path, display_filename = worker_module._clean_resolved_filename(
+        source_url,
+        media_file,
+        {"folder_template": "", "filename_template": "{{creator}} - {{id}} - {{title}}"},
+        "twitter",
+    )
+
+    expected = tmp_path / "DohaVT - 2073635724684054528.mp4"
+    assert final_path == expected
+    assert display_filename == expected.name
+    assert expected.is_file()
+    assert not media_file.exists()
+
+
+def test_clean_resolved_filename_title_only_template_falls_back_to_media_id(tmp_path: Path):
+    source_url = "https://twitter.com/DohaVT/status/2073635724684054528"
+    media_file = tmp_path / "Video by DohaVT.mp4"
+    media_file.write_bytes(b"video")
+
+    final_path, display_filename = worker_module._clean_resolved_filename(
+        source_url,
+        media_file,
+        {"folder_template": "", "filename_template": "{{title}}"},
+        "twitter",
+    )
+
+    expected = tmp_path / "2073635724684054528.mp4"
+    assert final_path == expected
+    assert display_filename == expected.name
+    assert expected.is_file()
+    assert not media_file.exists()
 
 
 def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
@@ -272,6 +316,85 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
     assert completed["title"] == "Creator - [1234567890]"
     assert saved[task_id]["resolved_full_path"] == str(first_clean)
     assert saved[task_id]["resolved_filename"] == "Creator - [1234567890].jpg"
+
+
+def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    first = tmp_path / "love.rizzzz - Video by love.rizzzz [DanBhNzkY9_].mp4"
+    second = tmp_path / "love.rizzzz - [DapLPfHEQz5].mp4"
+    third = tmp_path / "love.rizzzz - Video by love.rizzzz [DapIP3mDqE2].mp4"
+    for path in (first, second, third):
+        path.write_bytes(b"video")
+    source_url = "https://www.instagram.com/stories/love.rizzzz/3938715623970742582/"
+    task_id = "ytdlp:story"
+    store = {
+        "tasks": {
+            task_id: {
+                "engine": "ytdlp",
+                "source_url": source_url,
+                "source_key": "instagram",
+                "status": "pending",
+                "output_dir": str(tmp_path),
+                "resolved_folder": str(tmp_path),
+                "template_settings": {
+                    "folder_template": "",
+                    "filename_template": "{{creator}} - {{title}} [{{id}}]",
+                },
+            }
+        }
+    }
+    saved: dict[str, dict] = {}
+
+    class FakeProcess:
+        stdout = iter(
+            [
+                f"[download] Destination: {first}\n",
+                f"[download] Destination: {second}\n",
+                f"[download] Destination: {third}\n",
+            ]
+        )
+
+        def wait(self):
+            return 0
+
+        def poll(self):
+            return 0
+
+        def kill(self):
+            return None
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    monkeypatch.setattr(worker_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+    monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
+    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
+    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+
+    worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+
+    first_clean = tmp_path / "love.rizzzz - [DanBhNzkY9_].mp4"
+    second_clean = tmp_path / "love.rizzzz - [DapLPfHEQz5].mp4"
+    third_clean = tmp_path / "love.rizzzz - [DapIP3mDqE2].mp4"
+    assert first_clean.is_file()
+    assert second_clean.is_file()
+    assert third_clean.is_file()
+    assert not first.exists()
+    assert not third.exists()
+    assert set(saved) == {task_id, f"{task_id}:DapLPfHEQz5", f"{task_id}:DapIP3mDqE2"}
+    assert saved[task_id]["resolved_filename"] == first_clean.name
+    assert saved[f"{task_id}:DapLPfHEQz5"]["resolved_filename"] == second_clean.name
+    assert saved[f"{task_id}:DapIP3mDqE2"]["resolved_filename"] == third_clean.name
+    assert saved[task_id]["source_url"] == "https://www.instagram.com/stories/love.rizzzz/DanBhNzkY9_"
+    assert saved[f"{task_id}:DapLPfHEQz5"]["source_url"] == (
+        "https://www.instagram.com/stories/love.rizzzz/DapLPfHEQz5"
+    )
 
 
 def test_task_to_api_cleans_existing_raw_gallerydl_display_filename(tmp_path: Path):
