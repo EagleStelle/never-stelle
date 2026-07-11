@@ -302,6 +302,99 @@ def test_infer_disk_source_prefers_configured_folder(tmp_path: Path):
     assert candidates == []
 
 
+def test_scan_media_library_creator_from_filename_in_platform_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media_root = tmp_path / "media"
+    platform_dir = media_root / "youtube"
+    platform_dir.mkdir(parents=True)
+    media_file = platform_dir / "Cool Channel - Soft Light [abc123].mp4"
+    media_file.write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"youtube": str(platform_dir)})
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    scan_module.scan_media_library([media_root])
+
+    assert saved["disk:abc123"]["artist"] == "Cool Channel"
+
+
+def test_scan_media_library_creator_from_folder_template(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media_root = tmp_path / "media"
+    platform_dir = media_root / "youtube"
+    creator_dir = platform_dir / "Cool Channel"
+    creator_dir.mkdir(parents=True)
+    media_file = creator_dir / "Soft Light [abc123].mp4"
+    media_file.write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"youtube": str(platform_dir)})
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_template_map",
+        lambda: ({"folder_template": "{{creator}}", "filename_template": "{{title}} [{{id}}]"}, {}),
+    )
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    scan_module.scan_media_library([media_root])
+
+    assert saved["disk:abc123"]["artist"] == "Cool Channel"
+    assert saved["disk:abc123"]["title"] == "Soft Light"
+
+
+def test_scan_media_library_creator_empty_when_no_creator_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media_root = tmp_path / "media"
+    quality_dir = media_root / "1080p"
+    quality_dir.mkdir(parents=True)
+    media_file = quality_dir / "Soft Light [abc123].mp4"
+    media_file.write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {})
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_template_map",
+        lambda: ({"folder_template": "{{quality}}", "filename_template": "{{title}} [{{id}}]"}, {}),
+    )
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    scan_module.scan_media_library([media_root])
+
+    assert saved["disk:abc123"]["artist"] == ""
+
+
 def test_scan_media_library_flags_ambiguous_source_pending(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     media_root = tmp_path / "media"
     media_root.mkdir()

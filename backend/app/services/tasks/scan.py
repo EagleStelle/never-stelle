@@ -11,6 +11,7 @@ from backend.app.core.config import discover_volume_roots
 from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key
 from backend.app.db.database import utc_now
 
+from .constants import CREATOR_FIELDS, TEMPLATE_RE
 from .files import is_media_file, recover_task_path
 from .formats import conflicts_with_source, guess_sources, reconstruct_url
 from .store import (
@@ -24,6 +25,57 @@ from .store import (
 
 FILENAME_ID_RE = re.compile(r"^(.*) \[([A-Za-z0-9_-]+)\]$")
 UNRECOVERABLE_MEDIA_IDS = {"", "na", "n-a", "n/a", "none", "null", "unknown"}
+_ID_TOKENS = {"id", "video_id"}
+_EXT_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$")
+
+
+def _template_group(field: str) -> str:
+    # Map a template token to the capture group it feeds, or "" if it carries no signal.
+    if field in CREATOR_FIELDS:
+        return "creator"
+    if field in _ID_TOKENS:
+        return "id"
+    if field == "title":
+        return "title"
+    return ""
+
+
+def _template_pattern(group: str) -> str:
+    return r"[A-Za-z0-9_-]+" if group == "id" else r"[^/]+?"
+
+
+def compile_template(template: str) -> re.Pattern[str] | None:
+    """Turn a ``{{token}}`` naming template into a matcher exposing creator/id/title groups."""
+    value = _EXT_TAIL_RE.sub("", str(template or "").strip())
+    if not value:
+        return None
+    parts: list[str] = []
+    used: set[str] = set()
+    cursor = 0
+    for match in TEMPLATE_RE.finditer(value):
+        parts.append(re.escape(value[cursor : match.start()]))
+        group = _template_group(match.group(1).strip().lower())
+        pattern = _template_pattern(group)
+        if group and group not in used:
+            used.add(group)
+            parts.append(f"(?P<{group}>{pattern})")
+        else:
+            parts.append(f"(?:{pattern})")
+        cursor = match.end()
+    parts.append(re.escape(value[cursor:]))
+    try:
+        return re.compile(f"^{''.join(parts)}$")
+    except re.error:
+        return None
+
+
+def _match_template(pattern: re.Pattern[str] | None, text: str) -> dict[str, str]:
+    if pattern is None:
+        return {}
+    match = pattern.match(str(text or "").strip())
+    if not match:
+        return {}
+    return {key: value.strip() for key, value in match.groupdict().items() if value and value.strip()}
 
 
 def _path_key(path: Path | str) -> str:
@@ -106,12 +158,33 @@ def _iter_media_files(roots: Iterable[Path]) -> Iterable[tuple[Path, Path]]:
                 yield root, path
 
 
-def _artist_from_path(root: Path, path: Path) -> str:
+def _folder_base(root: Path, path: Path, source_folders: set[str]) -> Path:
+    # The creator folder is measured from the platform (site-location) folder, else the scan root.
+    for parent in path.parents:
+        if _path_key(parent) in source_folders:
+            return parent
+    return root
+
+
+def _relative_folder(base: Path, folder: Path) -> str:
     try:
-        relative = path.relative_to(root)
+        relative = folder.relative_to(base)
     except ValueError:
         return ""
-    return str(relative.parts[0]) if len(relative.parts) > 1 else ""
+    return "" if relative == Path(".") else relative.as_posix()
+
+
+def _creator_for_file(
+    root: Path,
+    path: Path,
+    source_folders: set[str],
+    folder_pattern: re.Pattern[str] | None,
+    filename_pattern: re.Pattern[str] | None,
+) -> str:
+    # Follow the templates: creator from the {{creator}} folder first, then the filename.
+    folder_text = _relative_folder(_folder_base(root, path, source_folders), path.parent)
+    creator = _match_template(folder_pattern, folder_text).get("creator", "")
+    return creator or _match_template(filename_pattern, path.stem).get("creator", "")
 
 
 def _completed_records() -> dict[str, dict[str, Any]]:
@@ -173,6 +246,55 @@ def _scan_location_map() -> dict[str, str]:
         return {}
 
 
+def _source_folder_keys(locations: dict[str, str]) -> set[str]:
+    # Platform folders (site locations) are never a creator; used to skip them.
+    return {_path_key(folder) for folder in (locations or {}).values() if str(folder or "").strip()}
+
+
+def _scan_template_map() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+    # Lazy import so a settings failure degrades to the builtin default templates.
+    try:
+        from backend.app.core.config import load_app_config
+        from backend.app.services.settings import (
+            get_effective_saved_settings,
+            get_effective_source_profiles,
+            normalize_source_template_selection,
+            normalize_template_settings,
+        )
+
+        cfg = load_app_config()
+        effective = get_effective_saved_settings(cfg)
+        base = normalize_template_settings(effective.get("template_settings"))
+        per_source = normalize_source_template_selection(
+            effective.get("source_templates") or effective.get("source_template_settings"),
+            cfg,
+            get_effective_source_profiles(cfg),
+            base,
+        )
+        return base, per_source
+    except Exception:
+        return {"folder_template": "{{creator}}", "filename_template": "{{creator}} - {{title}} [{{id}}]"}, {}
+
+
+class _TemplateResolver:
+    """Compile and cache the folder/filename matchers for each source key."""
+
+    def __init__(self, base: dict[str, str], per_source: dict[str, dict[str, str]]) -> None:
+        self._base = base
+        self._per_source = per_source
+        self._cache: dict[str, tuple[re.Pattern[str] | None, re.Pattern[str] | None]] = {}
+        self.base_filename = compile_template(base.get("filename_template") or "")
+
+    def for_source(self, source_key: str) -> tuple[re.Pattern[str] | None, re.Pattern[str] | None]:
+        if source_key not in self._cache:
+            settings = self._per_source.get(source_key) or self._base
+            self._cache[source_key] = (
+                compile_template(settings.get("folder_template") or ""),
+                compile_template(settings.get("filename_template") or ""),
+            )
+        return self._cache[source_key]
+
+
 def _source_location_index(locations: dict[str, str]) -> list[tuple[str, str]]:
     # Only folders owned by exactly one non-fallback source carry a usable signal.
     owners: dict[str, set[str]] = {}
@@ -212,12 +334,26 @@ def _completed_at_from_file(path: Path) -> str:
         return utc_now()
 
 
+def _parse_media_fields(path: Path, filename_pattern: re.Pattern[str] | None) -> tuple[str, str]:
+    # Read id/title from the filename template, falling back to the generic ``Title [id]`` shape.
+    fields = _match_template(filename_pattern, path.stem)
+    media_id = fields.get("id", "")
+    title = fields.get("title", "")
+    if media_id and media_id.lower() not in UNRECOVERABLE_MEDIA_IDS:
+        return media_id, (title or path.stem)
+    generic_id, generic_title = parse_filename_media_id(path.name)
+    return generic_id, (title or generic_title)
+
+
 def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, int]:
     """Reconcile completed history with media files already present on disk."""
     records = _completed_records()
     checked, missing = _drop_missing_records(records)
     known_paths, known_media_ids = _known_media(records)
-    location_index = _source_location_index(_scan_location_map())
+    locations = _scan_location_map()
+    location_index = _source_location_index(locations)
+    source_folders = _source_folder_keys(locations)
+    templates = _TemplateResolver(*_scan_template_map())
     learned = load_learned_formats()
 
     added = 0
@@ -225,7 +361,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         path_key = _path_key(path)
         if path_key in known_paths:
             continue
-        media_id, title = parse_filename_media_id(path.name)
+        media_id, title = _parse_media_fields(path, templates.base_filename)
         if not media_id or media_id in known_media_ids:
             continue
 
@@ -237,6 +373,9 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         source_key, source_pending, source_candidates = infer_disk_source(
             path, media_id, location_index, learned
         )
+        folder_pattern, filename_pattern = templates.for_source(source_key)
+        title = _match_template(filename_pattern, path.stem).get("title", title)
+        creator = _creator_for_file(root, path, source_folders, folder_pattern, filename_pattern)
         save_history_entry_row(
             task_id,
             {
@@ -251,7 +390,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
                 "resolved_filename": path.name,
                 "resolved_full_path": str(path),
                 "title": title,
-                "artist": _artist_from_path(root, path),
+                "artist": creator,
                 "file_size": file_size,
                 "completed_at": _completed_at_from_file(path),
             },
