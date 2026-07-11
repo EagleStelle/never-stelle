@@ -10,15 +10,17 @@ from backend.app.core.sources import normalize_source_key
 
 from .engine import select_engine
 from .files import recover_task_path
-from .formats import reconstruct_url
+from .formats import learn_media_id, reconstruct_url
 from .history import find_active_by_source, find_history_by_id, find_history_by_source
 from .planning import resolve_task_settings
+from .scan import parse_filename_media_id
 from .serializers import fetch_tasks, history_to_api, task_to_api
 from .store import (
     load_learned_formats,
     load_task_store,
     remove_task_record_if_status,
     save_history_entry_row,
+    save_learned_formats,
     update_task,
 )
 from .urls import canonicalize_source_url
@@ -108,21 +110,37 @@ def clear_pending_tasks() -> dict[str, Any]:
     return {"cleared": cleared, "failed": []}
 
 
+def _learn_confirmed_source(source_key: str, media_id: str) -> None:
+    # A user confirmation is ground truth: teach the id shape so future scans match it.
+    if not media_id:
+        return
+    learned = load_learned_formats()
+    updated = learn_media_id(learned, source_key, media_id)
+    if updated != learned:
+        save_learned_formats(updated)
+
+
 def set_task_source(task_id: str, source_key: str) -> str:
     key = normalize_source_key(source_key)
     task = (load_task_store().get("tasks") or {}).get(task_id)
     if task:
         update_task(task_id, source_key=key, source_pending=False)
+        media_id, _ = parse_filename_media_id(str(task.get("resolved_filename") or ""))
+        _learn_confirmed_source(key, media_id)
         return key
     entry = find_history_by_id(task_id)
     if entry:
         updated = dict(entry)
         updated["source_key"] = key
         updated["source_pending"] = False
+        media_id = str(entry.get("media_id") or "").strip()
+        if not media_id:
+            media_id, _ = parse_filename_media_id(str(entry.get("resolved_filename") or ""))
         # Rebuild a link now the source is known, but never clobber a real one.
         if not str(updated.get("source_url") or "").strip():
-            updated["source_url"] = reconstruct_url(load_learned_formats(), key, str(updated.get("media_id") or ""))
+            updated["source_url"] = reconstruct_url(load_learned_formats(), key, media_id)
         save_history_entry_row(task_id, updated)
+        _learn_confirmed_source(key, media_id)
         return key
     raise FileNotFoundError("Task was not found.")
 

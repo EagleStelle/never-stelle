@@ -254,6 +254,15 @@ def _generalize(learned_template: str, shape: str) -> str:
     return "".join(out)
 
 
+def _record_id_signature(entry: dict[str, Any], media_id: str) -> None:
+    # Widen the id length range and class set this source has been seen with.
+    lengths = [n for n in (entry.get("id_min"), entry.get("id_max")) if isinstance(n, int)]
+    lengths.append(len(media_id))
+    entry["id_min"] = min(lengths)
+    entry["id_max"] = max(lengths)
+    entry["id_classes"] = sorted(set(entry.get("id_classes") or []) | _id_classes(media_id))
+
+
 def learn_download(learned: dict[str, Any], source_url: str, media_id: str) -> dict[str, Any]:
     analysis = analyze_url(source_url, media_id)
     canonical = str(analysis.get("canonical") or "")
@@ -271,11 +280,21 @@ def learn_download(learned: dict[str, Any], source_url: str, media_id: str) -> d
         entry["creator_part"] = str(entry.get("creator_part") or analysis.get("creator_part") or "")
     entry["samples"] = int(entry.get("samples") or 0) + 1
     if media_id:
-        lengths = [n for n in (entry.get("id_min"), entry.get("id_max")) if isinstance(n, int)]
-        lengths.append(len(media_id))
-        entry["id_min"] = min(lengths)
-        entry["id_max"] = max(lengths)
-        entry["id_classes"] = sorted(set(entry.get("id_classes") or []) | _id_classes(media_id))
+        _record_id_signature(entry, media_id)
+    updated = dict(learned)
+    updated[key] = entry
+    return updated
+
+
+def learn_media_id(learned: dict[str, Any], source_key: str, media_id: str) -> dict[str, Any]:
+    """Record an id signature for a user-confirmed source so later scans recognise its shape."""
+    key = normalize_source_key(source_key)
+    media_id = str(media_id or "").strip()
+    if key == FALLBACK_SOURCE_KEY or not media_id:
+        return learned
+    entry = dict(learned.get(key) or {})
+    entry["samples"] = int(entry.get("samples") or 0) + 1
+    _record_id_signature(entry, media_id)
     updated = dict(learned)
     updated[key] = entry
     return updated
@@ -306,7 +325,7 @@ def _id_matches(entry: dict[str, Any], media_id: str) -> bool:
     if isinstance(id_max, int) and len(value) > id_max:
         return False
     classes = set(entry.get("id_classes") or [])
-    return not classes or _id_classes(value) <= classes
+    return not classes or _id_classes(value) <= classes | {"-", "_"}
 
 
 def guess_sources(learned: dict[str, Any], media_id: str) -> list[str]:

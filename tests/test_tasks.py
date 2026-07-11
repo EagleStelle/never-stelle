@@ -21,6 +21,7 @@ from backend.app.services.tasks.formats import (
     creator_from_url,
     guess_sources,
     learn_download,
+    learn_media_id,
     reconstruct_url,
 )
 from backend.app.services.tasks.serializers import history_to_api
@@ -269,6 +270,25 @@ def test_infer_disk_source_vetoes_folder_then_uses_learned_guess(tmp_path: Path)
 
     assert source_key == "twitter"
     assert pending is False
+
+
+def test_guess_sources_tolerates_base64url_separators():
+    # Learned only from ids without "-"/"_"; new youtube ids carrying them must still match.
+    learned = learn_download({}, "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ")
+    assert guess_sources(learned, "K1-BVtsHrOY") == ["youtube"]
+    assert guess_sources(learned, "_F5vcIlr9bs") == ["youtube"]
+
+
+def test_learn_media_id_seeds_shape_for_confirmed_source():
+    learned = learn_media_id({}, "youtube", "dQw4w9WgXcQ")
+    assert learned["youtube"]["id_min"] == 11
+    assert learned["youtube"]["id_max"] == 11
+    assert guess_sources(learned, "_F5vcIlr9bs") == ["youtube"]
+
+
+def test_learn_media_id_ignores_fallback_and_empty():
+    assert learn_media_id({}, "others", "dQw4w9WgXcQ") == {}
+    assert learn_media_id({}, "youtube", "") == {}
 
 
 def test_infer_disk_source_ambiguous_when_multiple_learned_match(tmp_path: Path):
