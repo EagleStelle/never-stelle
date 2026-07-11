@@ -242,6 +242,91 @@ def test_clean_filename_title_keeps_content_like_leading_segment():
     assert clean_filename_title(title, "ININIinNINI") == title
 
 
+def test_clean_social_title_strips_trailing_creator_byline():
+    raw = "6.9M views · 66K reactions | Bakit kadiri pag ako? | Charess"
+    assert clean_social_title(raw, "charechii", ("Charess",)) == "Bakit kadiri pag ako?"
+    # A plain-space trailing name is left intact; only strong separators mark a byline.
+    assert clean_social_title("A letter to Charess", "charechii", ("Charess",)) == "A letter to Charess"
+
+
+def test_clean_social_title_drops_generic_post_caption():
+    assert clean_social_title("Photos from Charess's post", "charechii") == ""
+    assert clean_social_title("Video from Charess’s timeline", "charechii") == ""
+    # Real captions that merely start with a media word survive.
+    assert clean_social_title("Photos from my trip to Japan", "charechii") == "Photos from my trip to Japan"
+
+
+def test_clean_template_filename_redacts_duplicate_display_name():
+    result = clean_template_filename(
+        "Charess - Bakit kadiri pag ako？ ｜ Charess [891576008993182].mp4",
+        "{{creator}} - {{title}} [{{id}}]",
+        creator="charechii",
+        media_id="891576008993182",
+    )
+    assert result == "charechii - Bakit kadiri pag ako？ [891576008993182].mp4"
+
+
+def test_clean_template_filename_drops_generic_post_caption():
+    result = clean_template_filename(
+        "charechii - Photos from Charess's post [pfbid02xDjH4VegXX]_1.jpg",
+        "{{creator}} - {{title}} [{{id}}]",
+        creator="charechii",
+        media_id="pfbid02xDjH4VegXX",
+    )
+    assert result == "charechii - [pfbid02xDjH4VegXX]_1.jpg"
+
+
+def test_resolve_creator_handle_extracts_vanity_without_network(monkeypatch):
+    _patch_head(monkeypatch, exc=RuntimeError("should not be called"))
+    assert urls_module.resolve_creator_handle("https://www.facebook.com/charechii") == "charechii"
+    assert urls_module.resolve_creator_handle("https://www.tiktok.com/@fzyahoo.com") == "fzyahoo.com"
+
+
+def test_resolve_creator_handle_follows_numeric_id_redirect(monkeypatch):
+    _patch_head(monkeypatch, "https://www.facebook.com/charechii")
+    assert urls_module.resolve_creator_handle("https://www.facebook.com/100044174692204") == "charechii"
+
+
+def test_resolve_creator_handle_rejects_media_and_walls(monkeypatch):
+    # Media URLs are rejected pre-network (multi-segment); auth walls redirect with a query string.
+    _patch_head(monkeypatch, "https://www.facebook.com/login/?next=https%3A%2F%2Fwww.facebook.com%2F100044174692204")
+    assert urls_module.resolve_creator_handle("https://www.facebook.com/reel/891576008993182") == ""
+    assert urls_module.resolve_creator_handle("https://www.facebook.com/100044174692204") == ""
+
+
+def test_resolve_creator_handle_rejects_cross_host_redirect(monkeypatch):
+    # An off-site consent/login host must never supply a handle for the source's creator.
+    _patch_head(monkeypatch, "https://login.example.com/charechii")
+    assert urls_module.resolve_creator_handle("https://www.facebook.com/100044174692204") == ""
+
+
+def test_metadata_creator_prefers_resolved_handle_over_display_name(monkeypatch):
+    _patch_head(monkeypatch, "https://www.facebook.com/charechii")
+    metadata = {
+        "uploader": "Charess",
+        "channel": "Charess",
+        "uploader_id": "100044174692204",
+        "original_url": "https://www.facebook.com/reel/891576008993182",
+    }
+    assert worker_module._metadata_creator(metadata, "891576008993182") == "charechii"
+
+
+def test_metadata_creator_skips_mobile_host_wall(monkeypatch):
+    # yt-dlp's webpage_url is often a mobile host that walls a bare-id fetch; the apex/www host must win.
+    def fake_head(url, **kwargs):
+        target = "https://m.facebook.com/login/?next=x" if "m.facebook.com" in url else "https://www.facebook.com/charechii"
+        return type("Resp", (), {"url": target})()
+
+    monkeypatch.setattr(urls_module.httpx, "head", fake_head)
+    metadata = {
+        "uploader": "Charess",
+        "uploader_id": "100044174692204",
+        "webpage_url": "https://m.facebook.com/watch/?v=1727302008412891",
+        "original_url": "https://www.facebook.com/reel/1727302008412891",
+    }
+    assert worker_module._metadata_creator(metadata, "1727302008412891") == "charechii"
+
+
 def test_clean_filename_title_drops_empty_title_sentinels():
     assert clean_filename_title("None") == ""
     assert clean_filename_title(" untitled ") == ""

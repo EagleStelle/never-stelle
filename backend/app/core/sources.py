@@ -59,6 +59,11 @@ def _display_host(host: str) -> str:
     return ".".join(parts)
 
 
+def apex_host(value: Any) -> str:
+    # Registrable host with generic www/m/mobile/amp prefixes stripped; keeps other subdomains distinct.
+    return _display_host(str(value or ""))
+
+
 def _domain_stem(host: str) -> str:
     parts = [part for part in _display_host(host).split(".") if part]
     if not parts:

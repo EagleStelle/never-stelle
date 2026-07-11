@@ -149,6 +149,8 @@ def build_ytdlp_command(
                 "%(playlist_uploader|)j",
                 "%(uploader_url|)j",
                 "%(channel_url|)j",
+                "%(uploader_id|)j",
+                "%(channel_id|)j",
             ]
         )
         cmd.extend(["--print-to-file", f"after_move:{item_template}", metadata_sidecar])

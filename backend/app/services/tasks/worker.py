@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from backend.app.core.sources import normalize_source_key
+from backend.app.core.sources import apex_host, host_from_url, normalize_source_key
 from backend.app.services.settings import detect_cookie_source, has_cookies_for_source
 
 from .constants import AUDIO_EXTENSIONS, CREATOR_FIELDS, IMAGE_EXTENSIONS, TEMPLATE_RE, VIDEO_EXTENSIONS
@@ -36,7 +36,7 @@ from .store import (
     save_learned_formats,
     update_task,
 )
-from .urls import canonicalize_source_url, detect_source_key
+from .urls import canonicalize_source_url, detect_source_key, resolve_creator_handle
 
 # Re-exported for tests that patched the worker's sidecar reader by this name.
 from .ytdlp import read_creator_sidecar as _read_creator_sidecar  # noqa: F401
@@ -284,6 +284,8 @@ def _read_metadata_sidecar(path: str) -> dict[str, dict[str, str]]:
         "playlist_uploader",
         "uploader_url",
         "channel_url",
+        "uploader_id",
+        "channel_id",
     ]
     for line in lines:
         parts = str(line or "").split("\t")
@@ -351,14 +353,63 @@ def _best_creator_candidate(candidates: list[tuple[str, str]]) -> str:
     return best_value if best_score > 0 else ""
 
 
+def _profile_host_candidates(metadata: dict[str, str]) -> list[str]:
+    # Prefer canonical/apex hosts; a mobile host (m.) often walls a bare-id profile fetch.
+    hosts: list[str] = []
+    for key in ("uploader_url", "channel_url", "original_url", "webpage_url"):
+        host = host_from_url(str(metadata.get(key) or ""))
+        if host and host not in hosts:
+            hosts.append(host)
+    candidates: list[str] = []
+    for host in hosts:
+        apex = apex_host(host)
+        for candidate in (apex, f"www.{apex}" if apex else "", host):
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+    return candidates
+
+
+def _metadata_profile_urls(metadata: dict[str, str]) -> list[str]:
+    # Profile URLs to probe for a vanity handle: explicit ones, then host/<numeric id> forms.
+    urls: list[str] = []
+    for key in ("uploader_url", "channel_url", "author_url", "owner_url"):
+        value = str(metadata.get(key) or "").strip()
+        if value and value not in urls:
+            urls.append(value)
+    profile_ids = [
+        str(metadata.get(key) or "").strip().lstrip("@")
+        for key in ("uploader_id", "channel_id", "artist_id", "owner_id")
+    ]
+    for host in _profile_host_candidates(metadata):
+        for profile_id in profile_ids:
+            if not profile_id:
+                continue
+            url = f"https://{host}/{profile_id}"
+            if url not in urls:
+                urls.append(url)
+    return urls
+
+
+def _resolved_profile_handle(metadata: dict[str, str]) -> str:
+    for profile_url in _metadata_profile_urls(metadata):
+        handle = resolve_creator_handle(profile_url)
+        if handle:
+            return handle
+    return ""
+
+
 def _metadata_creator(metadata: dict[str, str], media_id: str) -> str:
     candidates: list[tuple[str, str]] = []
     for key in ("webpage_url", "original_url", "uploader_url", "channel_url", "author_url", "owner_url"):
         creator = creator_from_url(str(metadata.get(key) or ""), media_id)
         if creator:
             candidates.append((f"{key}_creator", creator))
+    # A resolved vanity handle is the real username; prefer it over display-name fields.
+    handle = _resolved_profile_handle(metadata)
+    if handle:
+        candidates.append(("username_handle", handle))
     for key, value in metadata.items():
-        if key in {"filepath", "id", "webpage_url", "original_url"} or key.endswith("_url"):
+        if key in {"filepath", "id", "webpage_url", "original_url"} or key.endswith("_url") or key.endswith("_id"):
             continue
         candidates.append((key, value))
     return _best_creator_candidate(candidates)

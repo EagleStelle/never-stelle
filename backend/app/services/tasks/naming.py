@@ -18,9 +18,15 @@ _METRIC_RE = re.compile(
     r"(?=$|[\s,;|/\-()\[\]·｜]+)"
 )
 _MEDIA_KIND_RE = r"(?:videos?|photos?|images?|posts?|reels?|clips?|shorts?|stories|story|pins?|galleries|gallery)"
+_SURFACE_NOUN_RE = r"(?:posts?|timelines?|profiles?|albums?|pages?|stories|story|feeds?|walls?|reels?|videos?|photos?|galler(?:y|ies)|moments?)"
 _ATTRIBUTION_RE = re.compile(
     rf"(?i)(?:^|[\s\-|:｜]+){_MEDIA_KIND_RE}\s+by\s+[^|:｜()\[\]\n]{{1,80}}$"
 )
+# Auto-generated placeholder captions like "Photos from Charess's post" carry no real title.
+_GENERIC_DESCRIPTION_RE = re.compile(
+    rf"(?i)^{_MEDIA_KIND_RE}\s+(?:from|by|of)\s+.+['’]s\s+{_SURFACE_NOUN_RE}$"
+)
+_STRONG_SEPARATORS = r"|｜:·・—–\-"
 _ON_SURFACE_RE = re.compile(r"(?i)\s*[\|｜]\s*[^|｜\n]{1,80}\s+on\s+[a-z][a-z0-9 _.-]{1,40}\s*$")
 _KNOWN_CREATOR_PREFIX_TEMPLATE = r"^\s*(?P<prefix>{creator})\s*(?P<separator>[-|:｜])\s+(?P<body>.+)$"
 _LEADING_BYLINE_RE = re.compile(r"^\s*(?P<byline>.+?)\s+(?P<separator>[-|:｜])\s+(?P<body>.+)$")
@@ -95,20 +101,44 @@ def strip_numbered_suffix(stem: str) -> str:
     return _NUMBERED_SUFFIX_RE.sub("", str(stem or "").strip())
 
 
-def clean_social_title(title: str, creator: str = "") -> str:
+def _creator_alias_set(creator: str, creator_aliases: tuple[str, ...] | None) -> list[str]:
+    seen: set[str] = set()
+    aliases: list[str] = []
+    for value in (creator, *(creator_aliases or ())):
+        value = str(value or "").strip().lstrip("@").strip()
+        key = value.lower()
+        if len(value) < 2 or key in seen or value == "Unknown":
+            continue
+        seen.add(key)
+        aliases.append(value)
+    return aliases
+
+
+def _strip_trailing_creator_alias(value: str, aliases: list[str]) -> str:
+    # Drop a trailing "｜ Creator" byline that repeats the resolved creator/display name.
+    for alias in aliases:
+        pattern = re.compile(rf"(?i)\s*[{_STRONG_SEPARATORS}]\s*{re.escape(alias)}\s*$")
+        value = pattern.sub("", value)
+    return value
+
+
+def clean_social_title(title: str, creator: str = "", creator_aliases: tuple[str, ...] | None = None) -> str:
     original = str(title or "").strip()
     if not original or _is_empty_title(original):
         return ""
+    if _GENERIC_DESCRIPTION_RE.match(original):
+        return ""
+    aliases = _creator_alias_set(creator, creator_aliases)
     value = _ON_SURFACE_RE.sub("", original)
-    creator = str(creator or "").strip()
-    if creator:
+    for alias in aliases:
         by_creator = re.compile(
-            rf"(?i)(?:^|[\s\-|:｜]+){_MEDIA_KIND_RE}\s+by\s+{re.escape(creator)}\b"
+            rf"(?i)(?:^|[\s\-|:｜]+){_MEDIA_KIND_RE}\s+by\s+{re.escape(alias)}\b"
         )
         value = by_creator.sub(" ", value)
     value = _ATTRIBUTION_RE.sub("", value)
     value = _HASHTAG_RE.sub(" ", value)
     value = _METRIC_RE.sub(" ", value)
+    value = _strip_trailing_creator_alias(value, aliases)
     value = _SEPARATOR_SPACING_RE.sub(r" \1 ", value)
     value = _SPACING_RE.sub(" ", value).strip(" -|,;:·｜")
     return value
@@ -164,7 +194,13 @@ def _strip_leading_social_byline(value: str) -> str:
     return body if _looks_like_social_byline(byline, body) else value
 
 
-def clean_filename_title(title: str, creator: str = "", media_id: str = "", source_key: str = "") -> str:
+def clean_filename_title(
+    title: str,
+    creator: str = "",
+    media_id: str = "",
+    source_key: str = "",
+    creator_aliases: tuple[str, ...] | None = None,
+) -> str:
     original = str(title or "").strip()
     if not original or _is_empty_title(original):
         return ""
@@ -173,11 +209,13 @@ def clean_filename_title(title: str, creator: str = "", media_id: str = "", sour
         return ""
     prefix, separator, body = _split_known_creator_prefix(original, creator)
     if prefix:
-        cleaned_body = clean_social_title(strip_placeholder_title(body, media_id, source_key), creator)
+        cleaned_body = clean_social_title(strip_placeholder_title(body, media_id, source_key), creator, creator_aliases)
         cleaned_body = _strip_leading_social_byline(cleaned_body)
-        cleaned_body = clean_social_title(strip_placeholder_title(cleaned_body, media_id, source_key), creator)
+        cleaned_body = clean_social_title(
+            strip_placeholder_title(cleaned_body, media_id, source_key), creator, creator_aliases
+        )
         return f"{prefix} {separator} {cleaned_body}".strip() if cleaned_body else prefix
-    return clean_social_title(original, creator)
+    return clean_social_title(original, creator, creator_aliases)
 
 
 def sanitize_filename_component(value: str) -> str:
@@ -373,7 +411,14 @@ def clean_template_filename(
     original_creator = _field_value(fields, *CREATOR_FIELDS)
     resolved_media_id = str(media_id or "").strip() or original_media_id
     resolved_creator = str(creator or "").strip() or _field_value(fields, *CREATOR_FIELDS)
-    cleaned_title = clean_filename_title(raw_title, resolved_creator, resolved_media_id, source_key)
+    # The on-disk creator segment often holds the display name; redact it from the title too.
+    cleaned_title = clean_filename_title(
+        raw_title,
+        resolved_creator,
+        resolved_media_id,
+        source_key,
+        creator_aliases=(original_creator,),
+    )
     shortened_title = shorten_filename_title(cleaned_title)
     media_id_changed = bool(resolved_media_id and original_media_id and resolved_media_id != original_media_id)
     creator_changed = bool(resolved_creator and original_creator and resolved_creator != original_creator)
