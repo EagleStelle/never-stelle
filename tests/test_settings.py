@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import backend.app.services.settings as settings_module
+import backend.app.services.tasks.planning as planning_module
 from backend.app.services.settings import (
     BUILTIN_FILENAME_TEMPLATE,
     BUILTIN_FOLDER_TEMPLATE,
@@ -56,3 +58,41 @@ def test_normalize_source_locations_defaults_to_fallback_media_location():
     result = normalize_source_location_selection({}, {"downloadLocations": ["/media"]}, [])
 
     assert result["others"] == "/media/others"
+
+
+def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
+    monkeypatch.setattr(settings_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
+    monkeypatch.setattr(
+        planning_module,
+        "get_effective_saved_settings",
+        lambda cfg: {
+            "source_profiles": [{"key": "others", "label": "Others", "hosts": []}],
+            "site_locations": {"others": "/library/others"},
+            "template_settings": {
+                "folder_template": "{{creator}}",
+                "filename_template": "{{creator}} - {{title}} [{{id}}]",
+            },
+            "source_templates": {},
+        },
+    )
+
+    resolved = planning_module.resolve_task_settings(
+        "https://twitter.com/DohaVT/status/2073635724684054528",
+        site_locations={"twitter": "/library/twitter", "others": "/library/others"},
+        template_settings={"folder_template": "{{creator}}", "filename_template": "{{title}}"},
+        source_profiles=[{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
+        source_templates={
+            "twitter": {
+                "folder_template": "{{creator}}/{{id}}",
+                "filename_template": "{{creator}} - {{id}}",
+            }
+        },
+        cfg={"downloadLocations": ["/library"]},
+    )
+
+    assert resolved.source_key == "twitter"
+    assert resolved.output_dir == "/library/twitter"
+    assert resolved.template_settings == {
+        "folder_template": "{{creator}}/{{id}}",
+        "filename_template": "{{creator}} - {{id}}",
+    }

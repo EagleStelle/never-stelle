@@ -313,10 +313,10 @@ def materialize_cookie_blob(source_key: str) -> str:
     return str(target)
 
 
-def find_cookies_file_for_url(source_url: str) -> str:
-    # Prefer the jar for this URL's source; fall back to the catch-all jar so a
-    # generic cookies.txt still helps unmapped sites.
-    source_key = detect_cookie_source(source_url)
+def find_cookies_file_for_source(source_key: str) -> str:
+    # Prefer the jar for this resolved source; fall back to the catch-all jar so
+    # a generic cookies.txt still helps unmapped sites.
+    source_key = normalize_cookie_source(source_key)
     candidate = materialize_cookie_blob(source_key)
     if candidate and Path(candidate).is_file():
         return candidate
@@ -327,11 +327,19 @@ def find_cookies_file_for_url(source_url: str) -> str:
     return ""
 
 
-def has_cookies_for_url(source_url: str) -> bool:
-    source_key = detect_cookie_source(source_url)
+def find_cookies_file_for_url(source_url: str) -> str:
+    return find_cookies_file_for_source(detect_cookie_source(source_url))
+
+
+def has_cookies_for_source(source_key: str) -> bool:
+    source_key = normalize_cookie_source(source_key)
     if _cookie_blob_metadata(source_key):
         return True
     return source_key != FALLBACK_SOURCE_KEY and bool(_cookie_blob_metadata(FALLBACK_SOURCE_KEY))
+
+
+def has_cookies_for_url(source_url: str) -> bool:
+    return has_cookies_for_source(detect_cookie_source(source_url))
 
 
 async def save_ytdlp_cookies_upload(uploaded: UploadFile, source_key: str) -> None:

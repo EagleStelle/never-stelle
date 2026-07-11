@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
+import re
 import subprocess
 from pathlib import Path
 
 from backend.app.services.settings import (
+    find_cookies_file_for_source,
     find_cookies_file_for_url,
     get_effective_template_settings,
+    normalize_template_settings,
 )
 
 from .constants import CREATOR_FIELDS, MEDIA_EXTENSIONS, TEMPLATE_RE
@@ -25,11 +29,28 @@ _COUNT_TIMEOUT_SECONDS = 60
 _MAX_COUNT = 5000
 
 
-def count_gallerydl_items(source_url: str, *, with_cookies: bool = False) -> int:
+def _directory_segments(folder: str) -> list[str]:
+    return [
+        segment.strip()
+        for segment in re.split(r"[\\/]+", str(folder or ""))
+        if segment.strip() and segment.strip() not in {".", ".."}
+    ]
+
+
+def count_gallerydl_items(
+    source_url: str,
+    *,
+    with_cookies: bool = False,
+    cookie_source_key: str = "",
+) -> int:
     # `-g` lists file URLs without downloading, giving a total; failure yields 0.
     cmd = ["gallery-dl", "-g"]
     if with_cookies:
-        cookies_file = find_cookies_file_for_url(source_url)
+        cookies_file = (
+            find_cookies_file_for_source(cookie_source_key)
+            if cookie_source_key
+            else find_cookies_file_for_url(source_url)
+        )
         if cookies_file:
             cmd.extend(["--cookies", cookies_file])
     cmd.append(source_url)
@@ -69,18 +90,17 @@ def convert_template_to_gallerydl(template: str, source_url: str = "") -> str:
     return TEMPLATE_RE.sub(lambda match: _gallerydl_field(match.group(1), source_url), value)
 
 
-def _literal_folder(template: str, source_url: str) -> str:
-    creator = sanitize_path_literal(creator_from_url(source_url)) or "Unknown"
-    folder = TEMPLATE_RE.sub(
-        lambda match: creator if match.group(1).strip().lower() in CREATOR_FIELDS else "",
-        str(template or "").strip(),
+def build_gallerydl_output_template(
+    source_url: str,
+    output_dir: str,
+    template_settings: dict[str, str] | None = None,
+) -> str:
+    settings = (
+        normalize_template_settings(template_settings)
+        if template_settings is not None
+        else get_effective_template_settings(source_url)
     )
-    return sanitize_path_literal(folder)
-
-
-def build_gallerydl_output_template(source_url: str, output_dir: str) -> str:
-    settings = get_effective_template_settings(source_url)
-    folder = _literal_folder(settings["folder_template"], source_url)
+    folder = convert_template_to_gallerydl(settings["folder_template"], source_url)
     stem = convert_template_to_gallerydl(settings["filename_template"], source_url)
     stem = stem.replace(".{extension}", "").replace("{extension}", "").rstrip(". ")
     # {num} keeps every image in a multi-file post (slideshow) unique.
@@ -95,14 +115,19 @@ def build_gallerydl_command(
     output_template: str,
     *,
     with_cookies: bool = False,
+    cookie_source_key: str = "",
 ) -> list[str]:
     folder, _, filename = str(output_template or "").partition(_TEMPLATE_SEP)
-    directory = str(Path(output_dir) / folder) if folder else str(Path(output_dir))
-    cmd = ["gallery-dl", "--directory", directory]
+    directory = json.dumps(_directory_segments(folder), ensure_ascii=False)
+    cmd = ["gallery-dl", "--destination", str(Path(output_dir)), "-o", f"directory={directory}"]
     if filename:
         cmd.extend(["--filename", filename])
     if with_cookies:
-        cookies_file = find_cookies_file_for_url(source_url)
+        cookies_file = (
+            find_cookies_file_for_source(cookie_source_key)
+            if cookie_source_key
+            else find_cookies_file_for_url(source_url)
+        )
         if cookies_file:
             cmd.extend(["--cookies", cookies_file, "--sleep-request", "2", "--retries", "5"])
     cmd.append(source_url)

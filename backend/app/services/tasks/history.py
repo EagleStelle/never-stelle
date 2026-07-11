@@ -20,7 +20,7 @@ def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
         {
             "task_id": task_id,
             "source_url": source_url,
-            "task_type": "ytdlp",
+            "task_type": str(task.get("engine") or "ytdlp"),
             "source_key": source_key,
             "creator": str(task.get("creator") or ""),
             "resolved_folder": str(task.get("resolved_folder") or ""),

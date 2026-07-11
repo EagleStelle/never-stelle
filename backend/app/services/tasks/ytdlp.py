@@ -3,8 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from backend.app.services.settings import (
+    find_cookies_file_for_source,
     find_cookies_file_for_url,
     get_effective_template_settings,
+    normalize_template_settings,
 )
 
 from .constants import CREATOR_FIELDS, TEMPLATE_RE
@@ -65,8 +67,16 @@ def convert_template_to_ytdlp(template: str, source_url: str = "") -> str:
     return TEMPLATE_RE.sub(lambda match: _yt_dlp_field(match.group(1), source_url), value)
 
 
-def build_output_template(source_url: str, output_dir: str) -> str:
-    settings = get_effective_template_settings(source_url)
+def build_output_template(
+    source_url: str,
+    output_dir: str,
+    template_settings: dict[str, str] | None = None,
+) -> str:
+    settings = (
+        normalize_template_settings(template_settings)
+        if template_settings is not None
+        else get_effective_template_settings(source_url)
+    )
     folder_template = convert_template_to_ytdlp(settings["folder_template"], source_url)
     filename_template = convert_template_to_ytdlp(settings["filename_template"], source_url)
     if "%(ext" not in filename_template:
@@ -92,6 +102,7 @@ def build_ytdlp_command(
     output_template: str,
     *,
     with_cookies: bool = False,
+    cookie_source_key: str = "",
     creator_sidecar: str = "",
 ) -> list[str]:
     selected_format = "bestvideo*+bestaudio/best"
@@ -112,7 +123,11 @@ def build_ytdlp_command(
     if creator_sidecar:
         cmd.extend(["--print-to-file", f"after_move:{YTDLP_CREATOR_FIELD}", creator_sidecar])
     if with_cookies:
-        cookies_file = find_cookies_file_for_url(source_url)
+        cookies_file = (
+            find_cookies_file_for_source(cookie_source_key)
+            if cookie_source_key
+            else find_cookies_file_for_url(source_url)
+        )
         if cookies_file:
             cmd.extend(
                 [

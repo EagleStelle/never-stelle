@@ -40,7 +40,10 @@ class SettingsPayload(BaseModel):
 class AddTaskPayload(BaseModel):
     url: str = ""
     urls: list[str] = Field(default_factory=list)
-    site_locations: dict[str, str] = Field(default_factory=dict)
+    site_locations: dict[str, str] | None = None
+    template_settings: dict[str, str] | None = None
+    source_profiles: list[dict[str, Any]] | dict[str, Any] | None = None
+    source_templates: dict[str, dict[str, str]] | None = None
 
 
 class ProbePayload(BaseModel):
@@ -157,7 +160,13 @@ def add_task(payload: AddTaskPayload) -> dict[str, Any]:
     errors: list[str] = []
     for target in targets:
         try:
-            task_created, task_reused = queue_task(target, payload.site_locations)
+            task_created, task_reused = queue_task(
+                target,
+                payload.site_locations,
+                payload.template_settings,
+                payload.source_profiles,
+                payload.source_templates,
+            )
         except Exception as exc:
             errors.append(str(exc))
             continue

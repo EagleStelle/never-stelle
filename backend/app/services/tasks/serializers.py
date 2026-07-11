@@ -71,6 +71,7 @@ def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "creator": entry.get("creator") or entry.get("artist") or "",
         "source_pending": entry.get("source_pending", False),
         "source_candidates": entry.get("source_candidates", []),
+        "engine": entry.get("task_type") or entry.get("engine") or "ytdlp",
         "resolved_folder": entry.get("resolved_folder", ""),
         "resolved_filename": entry.get("resolved_filename", ""),
         "resolved_full_path": entry.get("resolved_full_path", ""),

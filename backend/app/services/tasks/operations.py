@@ -6,17 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import is_allowed_location, load_app_config
-from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key
-from backend.app.services.settings import (
-    get_effective_saved_settings,
-    get_source_profile_for_url,
-    normalize_source_location_selection,
-)
+from backend.app.core.sources import normalize_source_key
 
 from .engine import select_engine
 from .files import recover_task_path
 from .formats import reconstruct_url
 from .history import find_active_by_source, find_history_by_id, find_history_by_source
+from .planning import resolve_task_settings
 from .serializers import fetch_tasks, history_to_api, task_to_api
 from .store import (
     load_learned_formats,
@@ -31,7 +27,10 @@ from .worker import _worker_wakeup, ensure_worker
 
 def queue_task(
     source_url: str,
-    site_locations: dict[str, str] | None,
+    site_locations: dict[str, str] | None = None,
+    template_settings: dict[str, str] | None = None,
+    source_profiles: list[dict[str, Any]] | dict[str, Any] | None = None,
+    source_templates: dict[str, dict[str, str]] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     ensure_worker()
     source_url = canonicalize_source_url(source_url)
@@ -47,28 +46,24 @@ def queue_task(
         return [history_to_api(history_id, history_entry)], True
 
     cfg = load_app_config()
-    effective = get_effective_saved_settings(cfg)
-    source_profile = get_source_profile_for_url(source_url, cfg)
-    source_key = normalize_source_key(source_profile.get("key"))
-    # A never-seen source has no saved profile; carry its derived profile so the
-    # location selection resolves /media/<key> instead of dumping into /media/others.
-    source_profiles = list(effective.get("source_profiles") or [])
-    if not any(normalize_source_key(profile.get("key")) == source_key for profile in source_profiles):
-        source_profiles.append(source_profile)
-    selected_locations = normalize_source_location_selection(
-        site_locations or effective.get("site_locations") or {},
-        cfg,
-        source_profiles,
+    resolved_settings = resolve_task_settings(
+        source_url,
+        site_locations=site_locations,
+        template_settings=template_settings,
+        source_profiles=source_profiles,
+        source_templates=source_templates,
+        cfg=cfg,
     )
-    output_dir = selected_locations.get(source_key) or selected_locations.get(FALLBACK_SOURCE_KEY) or ""
+    source_key = resolved_settings.source_key
+    output_dir = resolved_settings.output_dir
     if not is_allowed_location(output_dir):
-        label = str(source_profile.get("label") or "selected")
+        label = str(resolved_settings.source_profile.get("label") or "selected")
         raise ValueError(f"Choose a valid {label} download location from Settings.")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     engine = select_engine(source_url)
     task_id = f"{engine.id_prefix}:{uuid.uuid4().hex[:12]}"
-    output_template = engine.build_output_template(source_url, output_dir)
+    output_template = engine.build_output_template(source_url, output_dir, resolved_settings.template_settings)
     task = {
         "engine": engine.name,
         "source_url": source_url,
@@ -77,6 +72,7 @@ def queue_task(
         "progress_pct": 0,
         "output_dir": output_dir,
         "output_template": output_template,
+        "template_settings": resolved_settings.template_settings,
         "resolved_folder": output_dir,
         "resolved_filename": "",
         "resolved_full_path": "",

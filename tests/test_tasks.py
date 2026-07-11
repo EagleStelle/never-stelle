@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import backend.app.services.tasks.history as history_module
 import backend.app.services.tasks.scan as scan_module
 from backend.app.services.tasks import (
     canonicalize_source_url,
@@ -22,6 +23,7 @@ from backend.app.services.tasks.formats import (
     learn_download,
     reconstruct_url,
 )
+from backend.app.services.tasks.serializers import history_to_api
 from backend.app.services.tasks.ytdlp import clean_filename_title, clean_social_title
 
 
@@ -388,3 +390,27 @@ def test_count_tasks_and_by_menu():
     assert by_menu["all"]["queued"] == 1
     assert by_menu["youtube"]["running"] == 1
     assert by_menu["tiktok"]["completed"] == 1
+
+
+def test_history_preserves_completed_engine(monkeypatch: pytest.MonkeyPatch):
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(
+        history_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+
+    history_module.save_history_entry(
+        "gallerydl:abc123",
+        {
+            "engine": "gallerydl",
+            "source_url": "https://imgur.com/a/abc123",
+            "source_key": "imgur",
+            "resolved_folder": "/media/imgur",
+            "resolved_filename": "clip [abc123].jpg",
+            "resolved_full_path": "/media/imgur/clip [abc123].jpg",
+        },
+    )
+
+    assert saved["gallerydl:abc123"]["task_type"] == "gallerydl"
+    assert history_to_api("gallerydl:abc123", saved["gallerydl:abc123"])["task_type"] == "gallerydl"

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import backend.app.services.tasks.gallerydl as gallerydl
+import backend.app.services.tasks.ytdlp as ytdlp
 from backend.app.services.tasks import engine_by_name, engine_for_task, select_engine
 from backend.app.services.tasks.engine import all_engines
 from backend.app.services.tasks.worker import _count_progress, _looks_unsupported
@@ -107,6 +108,23 @@ def test_build_gallerydl_output_template_adds_num_for_slideshows():
     assert filename.endswith("_{num}.{extension}")
 
 
+def test_engines_build_output_templates_from_same_settings_snapshot():
+    settings = {
+        "folder_template": "{{creator}}/{{id}}",
+        "filename_template": "{{creator}} - {{title}} [{{id}}]",
+    }
+    url = "https://twitter.com/DohaVT/status/2073635724684054528"
+
+    ytdlp_template = engine_by_name("ytdlp").build_output_template(url, "/media/twitter", settings)
+    gallery_template = engine_by_name("gallerydl").build_output_template(url, "/media/twitter", settings)
+    gallery_folder, _, gallery_filename = gallery_template.partition(gallerydl._TEMPLATE_SEP)
+
+    assert "DohaVT" in ytdlp_template
+    assert "%(id|NA)s" in ytdlp_template
+    assert gallery_folder == 'DohaVT/{id|num|"NA"}'
+    assert gallery_filename.startswith('DohaVT - {title|content|"untitled"} [{id|num|"NA"}]')
+
+
 def test_build_gallerydl_command_layout():
     sep = gallerydl._TEMPLATE_SEP
     output_template = f"artist{sep}Clip [id].{{extension}}"
@@ -116,8 +134,33 @@ def test_build_gallerydl_command_layout():
         output_template,
     )
     assert cmd[0] == "gallery-dl"
-    directory = cmd[cmd.index("--directory") + 1]
-    assert directory == str(Path("/media/imgur") / "artist")
+    assert cmd[cmd.index("--destination") + 1] == str(Path("/media/imgur"))
+    assert cmd[cmd.index("-o") + 1] == 'directory=["artist"]'
     assert cmd[cmd.index("--filename") + 1] == "Clip [id].{extension}"
     assert "--cookies" not in cmd
     assert cmd[-1] == "https://imgur.com/a/x"
+
+
+def test_downloader_commands_use_resolved_source_cookie(monkeypatch):
+    monkeypatch.setattr(ytdlp, "find_cookies_file_for_source", lambda source_key: f"/cookies/{source_key}.txt")
+    monkeypatch.setattr(gallerydl, "find_cookies_file_for_source", lambda source_key: f"/cookies/{source_key}.txt")
+    monkeypatch.setattr(ytdlp, "find_cookies_file_for_url", lambda source_url: "")
+    monkeypatch.setattr(gallerydl, "find_cookies_file_for_url", lambda source_url: "")
+
+    ytdlp_cmd = ytdlp.build_ytdlp_command(
+        "https://twitter.com/DohaVT/status/1",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        with_cookies=True,
+        cookie_source_key="twitter",
+    )
+    gallery_cmd = gallerydl.build_gallerydl_command(
+        "https://twitter.com/DohaVT/status/1",
+        "/media/twitter",
+        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        with_cookies=True,
+        cookie_source_key="twitter",
+    )
+
+    assert ytdlp_cmd[ytdlp_cmd.index("--cookies") + 1] == "/cookies/twitter.txt"
+    assert gallery_cmd[gallery_cmd.index("--cookies") + 1] == "/cookies/twitter.txt"

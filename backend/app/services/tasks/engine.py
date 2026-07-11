@@ -20,10 +20,15 @@ class Engine:
     def matches(self, source_url: str) -> bool:
         raise NotImplementedError
 
-    def count_items(self, source_url: str) -> int:
+    def count_items(self, source_url: str, *, with_cookies: bool = False, cookie_source_key: str = "") -> int:
         return 0
 
-    def build_output_template(self, source_url: str, output_dir: str) -> str:
+    def build_output_template(
+        self,
+        source_url: str,
+        output_dir: str,
+        template_settings: dict[str, str] | None = None,
+    ) -> str:
         raise NotImplementedError
 
     def build_command(
@@ -34,6 +39,7 @@ class Engine:
         ffmpeg_location: str,
         output_template: str,
         with_cookies: bool = False,
+        cookie_source_key: str = "",
         creator_sidecar: str = "",
     ) -> list[str]:
         raise NotImplementedError
@@ -57,8 +63,13 @@ class YtdlpEngine(Engine):
     def matches(self, source_url: str) -> bool:
         return True
 
-    def build_output_template(self, source_url: str, output_dir: str) -> str:
-        return ytdlp.build_output_template(source_url, output_dir)
+    def build_output_template(
+        self,
+        source_url: str,
+        output_dir: str,
+        template_settings: dict[str, str] | None = None,
+    ) -> str:
+        return ytdlp.build_output_template(source_url, output_dir, template_settings)
 
     def build_command(
         self,
@@ -68,6 +79,7 @@ class YtdlpEngine(Engine):
         ffmpeg_location: str,
         output_template: str,
         with_cookies: bool = False,
+        cookie_source_key: str = "",
         creator_sidecar: str = "",
     ) -> list[str]:
         return ytdlp.build_ytdlp_command(
@@ -75,6 +87,7 @@ class YtdlpEngine(Engine):
             ffmpeg_location,
             output_template,
             with_cookies=with_cookies,
+            cookie_source_key=cookie_source_key,
             creator_sidecar=creator_sidecar,
         )
 
@@ -99,11 +112,20 @@ class GallerydlEngine(Engine):
         # Fallback-only: reached when yt-dlp reports the URL unsupported.
         return False
 
-    def count_items(self, source_url: str) -> int:
-        return gallerydl.count_gallerydl_items(source_url)
+    def count_items(self, source_url: str, *, with_cookies: bool = False, cookie_source_key: str = "") -> int:
+        return gallerydl.count_gallerydl_items(
+            source_url,
+            with_cookies=with_cookies,
+            cookie_source_key=cookie_source_key,
+        )
 
-    def build_output_template(self, source_url: str, output_dir: str) -> str:
-        return gallerydl.build_gallerydl_output_template(source_url, output_dir)
+    def build_output_template(
+        self,
+        source_url: str,
+        output_dir: str,
+        template_settings: dict[str, str] | None = None,
+    ) -> str:
+        return gallerydl.build_gallerydl_output_template(source_url, output_dir, template_settings)
 
     def build_command(
         self,
@@ -113,6 +135,7 @@ class GallerydlEngine(Engine):
         ffmpeg_location: str,
         output_template: str,
         with_cookies: bool = False,
+        cookie_source_key: str = "",
         creator_sidecar: str = "",
     ) -> list[str]:
         return gallerydl.build_gallerydl_command(
@@ -120,6 +143,7 @@ class GallerydlEngine(Engine):
             output_dir,
             output_template,
             with_cookies=with_cookies,
+            cookie_source_key=cookie_source_key,
         )
 
     def extract_output_path(self, line: str) -> str:

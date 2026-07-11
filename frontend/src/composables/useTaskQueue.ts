@@ -109,6 +109,9 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
     const data = await addTaskMutation.mutateAsync({
       urls,
       site_locations: currentSettings.site_locations,
+      template_settings: currentSettings.template_settings,
+      source_profiles: currentSettings.source_profiles,
+      source_templates: currentSettings.source_templates,
     });
     const created = Array.isArray(data.created) ? data.created : [];
     if (urls.length > 1) {

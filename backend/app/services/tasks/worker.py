@@ -8,7 +8,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from backend.app.services.settings import has_cookies_for_url
+from backend.app.core.sources import normalize_source_key
+from backend.app.services.settings import detect_cookie_source, has_cookies_for_source
 
 from .engine import Engine, all_engines, engine_for_task
 from .files import find_newest_media_file, recover_task_path
@@ -210,12 +211,13 @@ def _run_engine_attempts(
     output_dir: str,
     ffmpeg_location: str,
     output_template: str,
+    cookie_source_key: str,
     creator_sidecar: str,
     total_items: int,
 ) -> tuple[int, str]:
     # Anonymous first; retry authenticated + paced only when a cookie jar exists.
     attempts = [False]
-    if has_cookies_for_url(source_url):
+    if has_cookies_for_source(cookie_source_key):
         attempts.append(True)
     rc = 1
     last_dest = ""
@@ -229,6 +231,7 @@ def _run_engine_attempts(
             ffmpeg_location=ffmpeg_location,
             output_template=output_template,
             with_cookies=with_cookies,
+            cookie_source_key=cookie_source_key,
             creator_sidecar=creator_sidecar,
         )
         rc, last_dest = _run_engine_to_task(engine, task_id, cmd, total_items=total_items)
@@ -242,6 +245,11 @@ def _engine_run_order(task: dict[str, Any]) -> list[Engine]:
     return [primary, *[engine for engine in all_engines() if engine is not primary]]
 
 
+def _task_template_settings(task: dict[str, Any]) -> dict[str, str] | None:
+    template_settings = task.get("template_settings")
+    return template_settings if isinstance(template_settings, dict) else None
+
+
 def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
     source_url = canonicalize_source_url(str(task.get("source_url") or ""))
     output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
@@ -250,6 +258,9 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
         return
 
     candidates = _engine_run_order(task)
+    template_settings = _task_template_settings(task)
+    raw_source_key = str(task.get("source_key") or "").strip()
+    cookie_source_key = normalize_source_key(raw_source_key) if raw_source_key else detect_cookie_source(source_url)
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
 
@@ -281,8 +292,16 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             if index == 0 and str(task.get("output_template") or ""):
                 output_template = str(task["output_template"])
             else:
-                output_template = engine.build_output_template(source_url, output_dir)
-            total_items = 0 if engine.emits_progress else engine.count_items(source_url)
+                output_template = engine.build_output_template(source_url, output_dir, template_settings)
+            total_items = (
+                0
+                if engine.emits_progress
+                else engine.count_items(
+                    source_url,
+                    with_cookies=has_cookies_for_source(cookie_source_key),
+                    cookie_source_key=cookie_source_key,
+                )
+            )
 
             started_at = time.time()
             used_engine = engine
@@ -293,6 +312,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 output_dir,
                 ffmpeg_location,
                 output_template,
+                cookie_source_key,
                 creator_sidecar,
                 total_items,
             )
