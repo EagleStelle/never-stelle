@@ -14,7 +14,7 @@ from typing import Any
 from backend.app.core.sources import normalize_source_key
 from backend.app.services.settings import detect_cookie_source, has_cookies_for_source
 
-from .constants import AUDIO_EXTENSIONS, CREATOR_FIELDS, IMAGE_EXTENSIONS
+from .constants import AUDIO_EXTENSIONS, CREATOR_FIELDS, IMAGE_EXTENSIONS, TEMPLATE_RE, VIDEO_EXTENSIONS
 from .engine import Engine, all_engines, engine_for_task
 from .files import find_newest_media_file, find_numbered_media_siblings, is_media_file, recover_task_path
 from .formats import creator_from_url, learn_download, media_id_from_url, reconstruct_url
@@ -25,6 +25,7 @@ from .naming import (
     clean_template_filename,
     detect_ffmpeg_location,
     filename_template_fields,
+    sanitize_path_literal,
     strip_numbered_suffix,
 )
 from .scan import parse_filename_media_id
@@ -196,6 +197,27 @@ def _is_audio_path(path: Path) -> bool:
     return path.suffix.lower() in AUDIO_EXTENSIONS
 
 
+def _media_kind(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in VIDEO_EXTENSIONS:
+        return "video"
+    if suffix in IMAGE_EXTENSIONS:
+        return "image"
+    if suffix in AUDIO_EXTENSIONS:
+        return "audio"
+    return suffix or "media"
+
+
+def _recorded_media_kinds(records: list[dict[str, Any]]) -> set[str]:
+    return {_media_kind(Path(record["path"])) for record in records}
+
+
+def _fallback_excluded_extensions(engine: Engine, records: list[dict[str, Any]]) -> set[str]:
+    if engine.name != "gallerydl":
+        return set()
+    return set(VIDEO_EXTENSIONS) if "video" in _recorded_media_kinds(records) else set()
+
+
 def _numbered_suffix_value(stem: str) -> int:
     match = re.search(r"_(\d+)$", str(stem or ""))
     return int(match.group(1)) if match else 0
@@ -237,6 +259,8 @@ def _json_sidecar_value(value: str) -> str:
         decoded = json.loads(value)
     except Exception:
         return str(value or "").strip()
+    if isinstance(decoded, list):
+        return ", ".join(str(item).strip() for item in decoded if str(item).strip())
     return str(decoded or "").strip()
 
 
@@ -246,6 +270,21 @@ def _read_metadata_sidecar(path: str) -> dict[str, dict[str, str]]:
     except OSError:
         return {}
     out: dict[str, dict[str, str]] = {}
+    keys = [
+        "filepath",
+        "id",
+        "webpage_url",
+        "original_url",
+        "channel",
+        "uploader",
+        "creator",
+        "artist",
+        "artists",
+        "album_artist",
+        "playlist_uploader",
+        "uploader_url",
+        "channel_url",
+    ]
     for line in lines:
         parts = str(line or "").split("\t")
         if not parts:
@@ -253,12 +292,10 @@ def _read_metadata_sidecar(path: str) -> dict[str, dict[str, str]]:
         filepath = _json_sidecar_value(parts[0])
         if not filepath:
             continue
-        out[_path_key(filepath)] = {
-            "filepath": filepath,
-            "id": _json_sidecar_value(parts[1]) if len(parts) > 1 else "",
-            "webpage_url": _json_sidecar_value(parts[2]) if len(parts) > 2 else "",
-            "original_url": _json_sidecar_value(parts[3]) if len(parts) > 3 else "",
-        }
+        metadata = {"filepath": filepath}
+        for index, key in enumerate(keys[1:], start=1):
+            metadata[key] = _json_sidecar_value(parts[index]) if len(parts) > index else ""
+        out[_path_key(filepath)] = metadata
     return out
 
 
@@ -268,6 +305,63 @@ def _field_value(fields: dict[str, str], *names: str) -> str:
         if value:
             return value
     return ""
+
+
+def _clean_creator_candidate(value: str) -> str:
+    value = sanitize_path_literal(str(value or "").strip().lstrip("@"))
+    return "" if value.lower() in {"", "unknown", "none", "null", "undefined", "na", "n/a"} else value
+
+
+def _creator_candidate_score(key: str, value: str) -> int:
+    value = _clean_creator_candidate(value)
+    if not value or value.isdigit():
+        return -100
+    key = str(key or "").lower()
+    score = 0
+    if any(token in key for token in ("username", "handle", "screen_name", "login")):
+        score += 6
+    if any(token in key for token in ("channel", "uploader", "owner", "user", "creator", "author")):
+        score += 3
+    if any(token in key for token in ("full", "display", "nickname", "artist", "album")):
+        score -= 3
+    if not any(ch.isspace() for ch in value):
+        score += 4
+    else:
+        score -= 4
+    if re.fullmatch(r"[A-Za-z0-9._-]+", value):
+        score += 3
+    if re.search(r"[._-]|\d", value):
+        score += 1
+    if len(value) > 40:
+        score -= 4
+    if "," in value:
+        score -= 3
+    return score
+
+
+def _best_creator_candidate(candidates: list[tuple[str, str]]) -> str:
+    best_value = ""
+    best_score = -100
+    for key, raw_value in candidates:
+        value = _clean_creator_candidate(raw_value)
+        score = _creator_candidate_score(key, value)
+        if score > best_score:
+            best_value = value
+            best_score = score
+    return best_value if best_score > 0 else ""
+
+
+def _metadata_creator(metadata: dict[str, str], media_id: str) -> str:
+    candidates: list[tuple[str, str]] = []
+    for key in ("webpage_url", "original_url", "uploader_url", "channel_url", "author_url", "owner_url"):
+        creator = creator_from_url(str(metadata.get(key) or ""), media_id)
+        if creator:
+            candidates.append((f"{key}_creator", creator))
+    for key, value in metadata.items():
+        if key in {"filepath", "id", "webpage_url", "original_url"} or key.endswith("_url"):
+            continue
+        candidates.append((key, value))
+    return _best_creator_candidate(candidates)
 
 
 def _filename_media_id(path: Path, filename_template: str, metadata: dict[str, str]) -> str:
@@ -296,6 +390,12 @@ def _filename_creator(
     source_url: str,
     media_id: str,
 ) -> str:
+    creator = creator_from_url(source_url, media_id)
+    if creator:
+        return creator
+    creator = _metadata_creator(metadata, media_id)
+    if creator:
+        return creator
     if filename_template:
         fields = filename_template_fields(path.name, filename_template)
         creator = _field_value(fields, *CREATOR_FIELDS)
@@ -305,7 +405,7 @@ def _filename_creator(
         creator = creator_from_url(str(metadata.get(key) or ""), media_id)
         if creator:
             return creator
-    return creator_from_url(source_url, media_id)
+    return ""
 
 
 def _reconstruct_item_url(source_url: str, source_key: str, media_id: str, creator: str) -> str:
@@ -370,22 +470,111 @@ def _existing_output_paths(
     return [newest] if newest and newest.exists() else []
 
 
+def _attempt_output_paths(last_dest: str, emitted_paths: list[str]) -> list[Path]:
+    values = [*emitted_paths]
+    if last_dest:
+        values.append(last_dest)
+    out: list[Path] = []
+    seen: set[str] = set()
+    for value in values:
+        path = Path(value)
+        key = _path_key(path)
+        if key in seen or not is_media_file(path):
+            continue
+        seen.add(key)
+        out.append(path)
+    return out
+
+
+def _has_output_media(last_dest: str, emitted_paths: list[str]) -> bool:
+    return bool(_attempt_output_paths(last_dest, emitted_paths))
+
+
+def _output_identity(
+    path: Path,
+    engine: Engine,
+    filename_template: str,
+    metadata: dict[str, str],
+    source_url: str,
+) -> str:
+    source_media_id = media_id_from_url(source_url)
+    media_id = _filename_media_id(path, filename_template, metadata)
+    if engine.name == "gallerydl" and source_media_id:
+        item_url = _distinct_metadata_item_url(source_url, metadata)
+        return media_id_from_url(item_url) if item_url else source_media_id
+    return media_id or _path_key(path)
+
+
+def _dedupe_output_records(
+    records: list[dict[str, Any]],
+    filename_template: str,
+    metadata_by_path: dict[str, dict[str, str]],
+    source_url: str,
+) -> list[dict[str, Any]]:
+    kept: list[dict[str, Any]] = []
+    seen_cross_engine: dict[tuple[str, str], str] = {}
+    for record in records:
+        path = Path(record["path"])
+        engine = record["engine"]
+        metadata = metadata_by_path.get(_path_key(path), {})
+        identity = _output_identity(path, engine, filename_template, metadata, source_url)
+        key = (identity, _media_kind(path))
+        existing_engine = seen_cross_engine.get(key)
+        if existing_engine and existing_engine != engine.name:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            continue
+        kept.append(record)
+        seen_cross_engine.setdefault(key, engine.name)
+    return kept
+
+
+def _cleanup_duplicate_library_media(root: Path, media_id: str, keep_paths: list[Path]) -> None:
+    media_id = str(media_id or "").strip()
+    if not media_id or not root.exists():
+        return
+    keep_keys = {_path_key(path) for path in keep_paths if is_media_file(path)}
+    keep_kinds = {_media_kind(path) for path in keep_paths if is_media_file(path)}
+    if not keep_keys or not keep_kinds:
+        return
+    try:
+        candidates = list(root.rglob("*"))
+    except OSError:
+        return
+    for candidate in candidates:
+        if not is_media_file(candidate) or _path_key(candidate) in keep_keys:
+            continue
+        if _media_kind(candidate) not in keep_kinds:
+            continue
+        candidate_media_id, _ = parse_filename_media_id(candidate.name)
+        if candidate_media_id != media_id:
+            continue
+        try:
+            candidate.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def _download_groups(
     paths: list[Path],
     engine: Engine,
     filename_template: str,
     metadata_by_path: dict[str, dict[str, str]],
     source_url: str,
+    collapse_source_items: bool | None = None,
 ) -> list[dict[str, Any]]:
     groups: list[dict[str, Any]] = []
     by_key: dict[str, dict[str, Any]] = {}
     source_media_id = media_id_from_url(source_url)
+    collapse_source_items = engine.name == "gallerydl" if collapse_source_items is None else collapse_source_items
     for path in paths:
         metadata = metadata_by_path.get(_path_key(path), {})
         media_id = _filename_media_id(path, filename_template, metadata)
         key_media_id = media_id
         key = media_id or _path_key(path)
-        if engine.name == "gallerydl" and source_media_id:
+        if collapse_source_items and source_media_id:
             item_url = _distinct_metadata_item_url(source_url, metadata)
             if item_url:
                 key_media_id = media_id_from_url(item_url) or media_id
@@ -404,7 +593,10 @@ def _download_groups(
     for group in groups:
         selected = ""
         for path in group["paths"]:
-            selected = _preferred_output_path(engine, selected, path) if selected else str(path)
+            if not selected:
+                selected = str(path)
+            elif not collapse_source_items or engine.name == "gallerydl":
+                selected = _preferred_output_path(engine, selected, path)
         group["path"] = Path(selected or group["paths"][0])
     return groups
 
@@ -480,11 +672,13 @@ def _clean_resolved_filename(
     template_settings: dict[str, str] | None = None,
     source_key: str = "",
     group_paths: list[Path] | None = None,
+    creator_hint: str = "",
+    media_id_hint: str = "",
 ) -> tuple[Path, str]:
     filename_template = _filename_template(template_settings)
     source_key = source_key or detect_source_key(source_url)
-    media_id_hint = media_id_from_url(source_url)
-    creator_hint = creator_from_url(source_url, media_id_hint)
+    media_id_hint = str(media_id_hint or "").strip() or media_id_from_url(source_url)
+    creator_hint = str(creator_hint or "").strip() or creator_from_url(source_url, media_id_hint)
     if filename_template:
         display_filename = clean_template_filename(
             path.name,
@@ -503,6 +697,16 @@ def _clean_resolved_filename(
             keep_numbered_suffix=True,
         )
         if disk_filename:
+            if group_paths and len(group_paths) > 1:
+                renamed = _rename_gallerydl_group_paths(
+                    group_paths,
+                    path,
+                    creator_hint,
+                    source_key,
+                    filename_template,
+                    media_id_hint,
+                )
+                return renamed, display_filename or f"{strip_numbered_suffix(renamed.stem)}{renamed.suffix}"
             if strip_numbered_suffix(path.stem) != path.stem:
                 if group_paths:
                     renamed = _rename_gallerydl_group_paths(
@@ -529,7 +733,7 @@ def _clean_resolved_filename(
     if not media_id or not title:
         display_stem = strip_numbered_suffix(path.stem)
         return path, f"{display_stem}{path.suffix}" if display_stem else path.name
-    creator = creator_from_url(source_url, media_id)
+    creator = creator_hint or creator_from_url(source_url, media_id)
     source_key = source_key or detect_source_key(source_url)
     display_filename = clean_gallerydl_display_filename(
         path.name,
@@ -544,6 +748,78 @@ def _clean_resolved_filename(
         return path, display_filename
     target = _rename_path(path, display_filename)
     return target, target.name if target != path else path.name
+
+
+def _render_template_folder(
+    output_root: Path,
+    template_settings: dict[str, str] | None,
+    creator: str,
+    media_id: str,
+) -> Path | None:
+    folder_template = str((template_settings or {}).get("folder_template") or "").strip()
+    if not folder_template:
+        return None
+    creator = _clean_creator_candidate(creator)
+    media_id = str(media_id or "").strip()
+
+    def replace(match: re.Match[str]) -> str:
+        field = match.group(1).strip().lower()
+        if field in CREATOR_FIELDS:
+            return creator
+        if field in {"id", "video_id"}:
+            return media_id
+        return ""
+
+    rendered = TEMPLATE_RE.sub(replace, folder_template)
+    if not rendered.strip():
+        return None
+    segments = [
+        sanitize_path_literal(segment)
+        for segment in re.split(r"[\\/]+", rendered)
+        if sanitize_path_literal(segment) and sanitize_path_literal(segment) not in {".", ".."}
+    ]
+    if not segments:
+        return None
+    return output_root.joinpath(*segments)
+
+
+def _move_group_to_template_folder(
+    selected_path: Path,
+    output_root: Path,
+    template_settings: dict[str, str] | None,
+    creator: str,
+    media_id: str,
+) -> Path:
+    target_dir = _render_template_folder(output_root, template_settings, creator, media_id)
+    if target_dir is None or _path_key(selected_path.parent) == _path_key(target_dir):
+        return selected_path
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return selected_path
+
+    source_parent = selected_path.parent
+    selected = selected_path
+    selected_key = _path_key(selected_path)
+    for path in find_numbered_media_siblings(selected_path) or [selected_path]:
+        target = _unique_sibling_path(target_dir / path.name)
+        if _path_key(path) == _path_key(target):
+            moved = path
+        else:
+            try:
+                path.replace(target)
+                moved = target
+            except OSError:
+                moved = path
+        if _path_key(path) == selected_key:
+            selected = moved
+    if _path_key(source_parent) != _path_key(output_root):
+        try:
+            if source_parent.exists() and not any(source_parent.iterdir()):
+                source_parent.rmdir()
+        except OSError:
+            pass
+    return selected
 
 
 def _resolved_task_creator(engine: Engine, sidecar_path: str, source_url: str, filename: str) -> str:
@@ -574,7 +850,7 @@ def _should_try_next_engine(rc: int, task: dict[str, Any], last_dest: str, emitt
         return True
     # If this engine already produced media, do not blindly redownload through
     # another backend. Failed empty runs are the dynamic capability probe.
-    if last_dest or emitted_paths:
+    if _has_output_media(last_dest, emitted_paths):
         return False
     return True
 
@@ -612,6 +888,7 @@ def _run_engine_attempts(
     creator_sidecar: str,
     metadata_sidecar: str,
     total_items: int,
+    excluded_extensions: set[str] | None = None,
 ) -> tuple[int, str, list[str]]:
     # Anonymous first; retry authenticated + paced only when a cookie jar exists.
     attempts = [False]
@@ -633,9 +910,10 @@ def _run_engine_attempts(
             cookie_source_key=cookie_source_key,
             creator_sidecar=creator_sidecar,
             metadata_sidecar=metadata_sidecar,
+            excluded_extensions=excluded_extensions,
         )
         rc, last_dest, emitted_paths = _run_engine_to_task(engine, task_id, cmd, total_items=total_items)
-        if rc == 0:
+        if rc == 0 or _has_output_media(last_dest, emitted_paths):
             break
     return rc, last_dest, emitted_paths
 
@@ -676,6 +954,8 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
     started_at = time.time()
     used_engine = candidates[0]
     failure_details: list[str] = []
+    output_records: list[dict[str, Any]] = []
+    output_record_keys: set[str] = set()
     try:
         if mark_running:
             update_task(task_id, status="running", progress_pct=0, error="", last_log_lines=[])
@@ -696,6 +976,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 output_template = str(task["output_template"])
             else:
                 output_template = engine.build_output_template(source_url, output_dir, template_settings)
+            excluded_extensions = _fallback_excluded_extensions(engine, output_records)
             total_items = (
                 0
                 if engine.emits_progress
@@ -703,6 +984,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     source_url,
                     with_cookies=has_cookies_for_source(cookie_source_key),
                     cookie_source_key=cookie_source_key,
+                    excluded_extensions=excluded_extensions,
                 )
             )
 
@@ -719,7 +1001,14 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 creator_sidecar,
                 metadata_sidecar,
                 total_items,
+                excluded_extensions,
             )
+            for path in _attempt_output_paths(last_dest, emitted_paths):
+                path_key = _path_key(path)
+                if path_key in output_record_keys:
+                    continue
+                output_records.append({"path": path, "engine": engine})
+                output_record_keys.add(path_key)
             if rc == 0:
                 break
 
@@ -734,15 +1023,25 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             break
 
         current_task = (load_task_store().get("tasks") or {}).get(task_id, {})
-        if rc == 0:
-            output_paths = _existing_output_paths(
-                emitted_paths,
-                last_dest,
-                task_id,
-                current_task,
-                output_root,
-                started_at,
+        if rc == 0 or output_records:
+            filename_template = _filename_template(template_settings)
+            metadata_by_path = _read_metadata_sidecar(metadata_sidecar)
+            output_records = _dedupe_output_records(
+                output_records,
+                filename_template,
+                metadata_by_path,
+                source_url,
             )
+            output_paths = [Path(record["path"]) for record in output_records]
+            if not output_paths:
+                output_paths = _existing_output_paths(
+                    emitted_paths,
+                    last_dest,
+                    task_id,
+                    current_task,
+                    output_root,
+                    started_at,
+                )
             if not output_paths:
                 update_task(
                     task_id,
@@ -750,14 +1049,15 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     error=f"{used_engine.name} finished, but no media file was found.",
                 )
                 return
-            filename_template = _filename_template(template_settings)
-            metadata_by_path = _read_metadata_sidecar(metadata_sidecar)
+            selection_engine = output_records[0]["engine"] if output_records else used_engine
+            collapse_source_items = any(record["engine"].name == "gallerydl" for record in output_records)
             groups = _download_groups(
                 output_paths,
-                used_engine,
+                selection_engine,
                 filename_template,
                 metadata_by_path,
                 source_url,
+                collapse_source_items,
             )
             completed_rows: list[tuple[str, dict[str, Any]]] = []
             for index, group in enumerate(groups):
@@ -773,24 +1073,40 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     template_settings,
                     item_source_key,
                     list(group.get("paths") or []),
+                    creator_hint,
+                    media_id,
                 )
                 media_id = (
                     media_id
                     or parse_filename_media_id(display_filename)[0]
                     or media_id_from_url(item_source_url)
                 )
+                final_path = _move_group_to_template_folder(
+                    final_path,
+                    output_root,
+                    template_settings,
+                    creator_hint,
+                    media_id,
+                )
+                keep_paths = find_numbered_media_siblings(final_path) or [final_path]
+                _cleanup_duplicate_library_media(output_root, media_id, keep_paths)
                 creator = (
                     creator_from_url(item_source_url, media_id)
                     or creator_hint
                     or _resolved_task_creator(used_engine, creator_sidecar, item_source_url, display_filename)
                 )
                 row_task_id = task_id if index == 0 else _child_task_id(task_id, media_id, final_path)
+                row_engine = used_engine.name
+                for record in output_records:
+                    if _path_key(record["path"]) == _path_key(raw_path):
+                        row_engine = record["engine"].name
+                        break
                 completed_task = update_task(
                     row_task_id,
                     status="completed",
                     progress_pct=100,
                     error="",
-                    engine=used_engine.name,
+                    engine=row_engine,
                     creator=creator,
                     media_id=media_id,
                     source_url=item_source_url,

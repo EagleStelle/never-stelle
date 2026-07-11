@@ -20,7 +20,14 @@ class Engine:
     def matches(self, source_url: str) -> bool:
         raise NotImplementedError
 
-    def count_items(self, source_url: str, *, with_cookies: bool = False, cookie_source_key: str = "") -> int:
+    def count_items(
+        self,
+        source_url: str,
+        *,
+        with_cookies: bool = False,
+        cookie_source_key: str = "",
+        excluded_extensions: set[str] | None = None,
+    ) -> int:
         return 0
 
     def build_output_template(
@@ -42,6 +49,7 @@ class Engine:
         cookie_source_key: str = "",
         creator_sidecar: str = "",
         metadata_sidecar: str = "",
+        excluded_extensions: set[str] | None = None,
     ) -> list[str]:
         raise NotImplementedError
 
@@ -83,6 +91,7 @@ class YtdlpEngine(Engine):
         cookie_source_key: str = "",
         creator_sidecar: str = "",
         metadata_sidecar: str = "",
+        excluded_extensions: set[str] | None = None,
     ) -> list[str]:
         return ytdlp.build_ytdlp_command(
             source_url,
@@ -115,11 +124,19 @@ class GallerydlEngine(Engine):
         # Fallback-only: reached when yt-dlp reports the URL unsupported.
         return False
 
-    def count_items(self, source_url: str, *, with_cookies: bool = False, cookie_source_key: str = "") -> int:
+    def count_items(
+        self,
+        source_url: str,
+        *,
+        with_cookies: bool = False,
+        cookie_source_key: str = "",
+        excluded_extensions: set[str] | None = None,
+    ) -> int:
         return gallerydl.count_gallerydl_items(
             source_url,
             with_cookies=with_cookies,
             cookie_source_key=cookie_source_key,
+            excluded_extensions=excluded_extensions,
         )
 
     def build_output_template(
@@ -141,6 +158,7 @@ class GallerydlEngine(Engine):
         cookie_source_key: str = "",
         creator_sidecar: str = "",
         metadata_sidecar: str = "",
+        excluded_extensions: set[str] | None = None,
     ) -> list[str]:
         return gallerydl.build_gallerydl_command(
             source_url,
@@ -148,6 +166,7 @@ class GallerydlEngine(Engine):
             output_template,
             with_cookies=with_cookies,
             cookie_source_key=cookie_source_key,
+            excluded_extensions=excluded_extensions,
         )
 
     def extract_output_path(self, line: str) -> str:

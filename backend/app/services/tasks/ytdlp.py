@@ -33,9 +33,10 @@ __all__ = [
     "sanitize_filename_component",
 ]
 
-# Same precedence the {{creator}} template resolves. Also captured post-download
-# via --print-to-file so the creator column fills even when no template uses it.
-YTDLP_CREATOR_FIELD = "%(artist,artists,album_artist,creator,uploader,channel,playlist_uploader|Unknown)s"
+# Same precedence the {{creator}} template resolves. Prefer handle-like fields
+# over display-name/music metadata; the worker still validates and can rename
+# from sidecar metadata when an extractor's field meanings differ.
+YTDLP_CREATOR_FIELD = "%(channel,uploader,creator,playlist_uploader,artist,artists,album_artist|Unknown)s"
 YOUTUBE_HOSTS = ("youtube.com", "youtube-nocookie.com", "youtu.be")
 
 
@@ -133,7 +134,23 @@ def build_ytdlp_command(
     if creator_sidecar:
         cmd.extend(["--print-to-file", f"after_move:{YTDLP_CREATOR_FIELD}", creator_sidecar])
     if metadata_sidecar:
-        item_template = "%(filepath,_filename|)j\t%(id|)j\t%(webpage_url,original_url|)j\t%(original_url,webpage_url|)j"
+        item_template = "\t".join(
+            [
+                "%(filepath,_filename|)j",
+                "%(id|)j",
+                "%(webpage_url,original_url|)j",
+                "%(original_url,webpage_url|)j",
+                "%(channel|)j",
+                "%(uploader|)j",
+                "%(creator|)j",
+                "%(artist|)j",
+                "%(artists|)j",
+                "%(album_artist|)j",
+                "%(playlist_uploader|)j",
+                "%(uploader_url|)j",
+                "%(channel_url|)j",
+            ]
+        )
         cmd.extend(["--print-to-file", f"after_move:{item_template}", metadata_sidecar])
     if with_cookies:
         cookies_file = (

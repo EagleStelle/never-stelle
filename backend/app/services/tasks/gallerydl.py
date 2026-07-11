@@ -43,9 +43,13 @@ def count_gallerydl_items(
     *,
     with_cookies: bool = False,
     cookie_source_key: str = "",
+    excluded_extensions: set[str] | None = None,
 ) -> int:
     # `-g` lists file URLs without downloading, giving a total; failure yields 0.
     cmd = ["gallery-dl", "-g", "-o", _TIKTOK_NO_AUDIO_OPTION]
+    filter_expr = _excluded_extension_filter(excluded_extensions)
+    if filter_expr:
+        cmd.extend(["--filter", filter_expr])
     if with_cookies:
         cookies_file = (
             find_cookies_file_for_source(cookie_source_key)
@@ -76,11 +80,19 @@ def _escape_literal(value: str) -> str:
     return value.replace("{", "{{").replace("}", "}}")
 
 
+def _excluded_extension_filter(excluded_extensions: set[str] | None) -> str:
+    values = sorted({str(ext or "").strip().lower().lstrip(".") for ext in (excluded_extensions or set())})
+    values = [value for value in values if value]
+    if not values:
+        return ""
+    return f"extension not in {tuple(values)!r}"
+
+
 def _gallerydl_field(name: str, source_url: str) -> str:
     field = str(name or "").strip().lower()
     if field in CREATOR_FIELDS:
         creator = sanitize_path_literal(creator_from_url(source_url))
-        return _escape_literal(creator) if creator else '{user[name]|username|author|"unknown"}'
+        return _escape_literal(creator) if creator else '{username|user[name]|author|"unknown"}'
     return _GALLERYDL_FIELD.get(field, "")
 
 
@@ -117,6 +129,7 @@ def build_gallerydl_command(
     *,
     with_cookies: bool = False,
     cookie_source_key: str = "",
+    excluded_extensions: set[str] | None = None,
 ) -> list[str]:
     folder, _, filename = str(output_template or "").partition(_TEMPLATE_SEP)
     directory = json.dumps(_directory_segments(folder), ensure_ascii=False)
@@ -131,6 +144,9 @@ def build_gallerydl_command(
     ]
     if filename:
         cmd.extend(["--filename", filename])
+    filter_expr = _excluded_extension_filter(excluded_extensions)
+    if filter_expr:
+        cmd.extend(["--filter", filter_expr])
     if with_cookies:
         cookies_file = (
             find_cookies_file_for_source(cookie_source_key)

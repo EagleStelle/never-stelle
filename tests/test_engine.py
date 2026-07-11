@@ -56,10 +56,19 @@ def test_looks_unsupported_flags_wrong_engine_errors():
     assert _looks_unsupported({}) is False
 
 
-def test_should_try_next_engine_after_empty_failure():
+def test_should_try_next_engine_after_empty_failure(tmp_path: Path):
+    media = tmp_path / "a.mp4"
+    media.write_bytes(b"video")
+
     assert _should_try_next_engine(1, {"last_log_lines": ["ERROR: Video unavailable"]}, "", []) is True
     assert _should_try_next_engine(0, {}, "", []) is False
-    assert _should_try_next_engine(1, {}, "/media/a.mp4", ["/media/a.mp4"]) is False
+    assert _should_try_next_engine(1, {}, str(media), [str(media)]) is False
+    assert _should_try_next_engine(
+        1,
+        {"last_log_lines": ["ERROR: [site] child: No video formats found!"]},
+        str(media),
+        [str(media)],
+    ) is True
 
 
 def test_ytdlp_engine_progress_and_path_parsing():
@@ -91,7 +100,7 @@ def test_convert_template_to_gallerydl_maps_fields_and_resolves_creator():
 def test_convert_template_to_gallerydl_falls_back_to_metadata_creator():
     # No creator segment in the URL -> emit a gallery-dl field with fallbacks.
     result = gallerydl.convert_template_to_gallerydl("{{creator}}", "https://imgur.com/abc")
-    assert result == '{user[name]|username|author|"unknown"}'
+    assert result == '{username|user[name]|author|"unknown"}'
 
 
 def test_engine_progress_style_flags():
@@ -151,6 +160,21 @@ def test_build_gallerydl_command_layout():
     assert cmd[cmd.index("--filename") + 1] == "Clip [id].{extension}"
     assert "--cookies" not in cmd
     assert cmd[-1] == "https://imgur.com/a/x"
+
+
+def test_build_gallerydl_command_can_filter_extensions():
+    sep = gallerydl._TEMPLATE_SEP
+    cmd = gallerydl.build_gallerydl_command(
+        "https://imgur.com/a/x",
+        "/media/imgur",
+        f"artist{sep}Clip [id].{{extension}}",
+        excluded_extensions={".mp4", "webm"},
+    )
+
+    filter_expr = cmd[cmd.index("--filter") + 1]
+    assert "extension not in" in filter_expr
+    assert "mp4" in filter_expr
+    assert "webm" in filter_expr
 
 
 def test_count_gallerydl_items_disables_tiktok_audio(monkeypatch):

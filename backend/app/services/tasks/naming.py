@@ -349,15 +349,38 @@ def clean_template_filename(
     path = Path(value)
     fields, numbered_suffix = _match_template_fields(path.stem, filename_template)
     raw_title = _field_value(fields, "title")
+    fallback_match = _DISPLAY_FILENAME_ID_RE.match(path.stem.strip())
+    fallback_media_id = str(media_id or "").strip() or (fallback_match.group("id").strip() if fallback_match else "")
+    fallback_creator = str(creator or "").strip()
+    if (not fields or not raw_title) and (fallback_creator or fallback_media_id):
+        rendered_fields: dict[str, str] = {"title": ""}
+        if fallback_creator:
+            for creator_field in CREATOR_FIELDS:
+                rendered_fields[creator_field] = fallback_creator
+        if fallback_media_id:
+            rendered_fields["id"] = fallback_media_id
+            rendered_fields["video_id"] = fallback_media_id
+        stem = _render_template_stem(filename_template, rendered_fields)
+        numbered = re.search(r"_\d+$", path.stem)
+        if keep_numbered_suffix and numbered:
+            stem = f"{stem}{numbered.group(0)}"
+        return f"{stem}{path.suffix}" if stem else value
     if not fields or not raw_title:
         return ""
     original_media_id = _field_value(fields, "id", "video_id")
+    original_creator = _field_value(fields, *CREATOR_FIELDS)
     resolved_media_id = str(media_id or "").strip() or original_media_id
     resolved_creator = str(creator or "").strip() or _field_value(fields, *CREATOR_FIELDS)
     cleaned_title = clean_filename_title(raw_title, resolved_creator, resolved_media_id, source_key)
     shortened_title = shorten_filename_title(cleaned_title)
     media_id_changed = bool(resolved_media_id and original_media_id and resolved_media_id != original_media_id)
-    if shortened_title == raw_title and not media_id_changed and (keep_numbered_suffix or not numbered_suffix):
+    creator_changed = bool(resolved_creator and original_creator and resolved_creator != original_creator)
+    if (
+        shortened_title == raw_title
+        and not media_id_changed
+        and not creator_changed
+        and (keep_numbered_suffix or not numbered_suffix)
+    ):
         return value
 
     rendered_fields = dict(fields)
@@ -367,7 +390,7 @@ def clean_template_filename(
         rendered_fields["video_id"] = resolved_media_id
     if resolved_creator:
         for creator_field in CREATOR_FIELDS:
-            rendered_fields.setdefault(creator_field, resolved_creator)
+            rendered_fields[creator_field] = resolved_creator
     stem = _render_template_stem(filename_template, rendered_fields)
     if not stem:
         stem = sanitize_path_literal(resolved_media_id or resolved_creator or strip_numbered_suffix(path.stem))

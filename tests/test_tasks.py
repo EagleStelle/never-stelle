@@ -520,6 +520,207 @@ def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(
     assert saved[task_id]["engine"] == "gallerydl"
 
 
+def test_worker_merges_fallback_assets_without_duplicate_videos(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ytdlp_video = tmp_path / "love.rizzzz - Video by Riz [DOS-dVRkUK3].mp4"
+    gallery_video = tmp_path / "love.rizzzz - Video by Riz [DOS-dVRkUK3]_1.mp4"
+    gallery_image = tmp_path / "love.rizzzz - None [DOS-dVRkUK3]_2.jpg"
+    stale_wrong_video = tmp_path / "Riz" / "Riz - [DOS-dVRkUK3].mp4"
+    stale_wrong_video.parent.mkdir()
+    for path in (ytdlp_video, gallery_video, gallery_image):
+        path.write_bytes(b"media")
+    stale_wrong_video.write_bytes(b"duplicate")
+    source_url = "https://www.example.test/post/DOS-dVRkUK3"
+    task_id = "ytdlp:mixed-post"
+    store = {
+        "tasks": {
+            task_id: {
+                "engine": "ytdlp",
+                "source_url": source_url,
+                "source_key": "example",
+                "status": "pending",
+                "output_dir": str(tmp_path),
+                "resolved_folder": str(tmp_path),
+                "template_settings": {
+                    "folder_template": "",
+                    "filename_template": "{{creator}} - {{title}} [{{id}}]",
+                },
+            }
+        }
+    }
+    saved: dict[str, dict] = {}
+    commands: list[list[str]] = []
+    count_kwargs: list[dict] = []
+
+    class FakeProcess:
+        def __init__(self, lines: list[str], rc: int):
+            self.stdout = iter(lines)
+            self._rc = rc
+
+        def wait(self):
+            return self._rc
+
+        def poll(self):
+            return self._rc
+
+        def kill(self):
+            return None
+
+    def fake_popen(cmd, *args, **kwargs):
+        commands.append(cmd)
+        if cmd[0] == "yt-dlp":
+            return FakeProcess(
+                [
+                    f"[download] Destination: {ytdlp_video}\n",
+                    "ERROR: [Example] child-image: No video formats found!\n",
+                ],
+                1,
+            )
+        return FakeProcess([f"{gallery_video}\n", f"{gallery_image}\n"], 0)
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    monkeypatch.setattr(worker_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
+    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
+    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+
+    def fake_count_gallerydl_items(*args, **kwargs):
+        count_kwargs.append(kwargs)
+        return 3
+
+    monkeypatch.setattr(gallerydl_module, "count_gallerydl_items", fake_count_gallerydl_items)
+    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+
+    worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+
+    clean_video = tmp_path / "love.rizzzz - [DOS-dVRkUK3].mp4"
+    clean_image = tmp_path / "love.rizzzz - [DOS-dVRkUK3]_2.jpg"
+    completed = store["tasks"][task_id]
+    assert [cmd[0] for cmd in commands] == ["yt-dlp", "gallery-dl"]
+    gallery_cmd = commands[1]
+    filter_expr = gallery_cmd[gallery_cmd.index("--filter") + 1]
+    assert "mp4" in filter_expr
+    assert "webm" in filter_expr
+    assert ".mp4" in count_kwargs[0]["excluded_extensions"]
+    assert set(saved) == {task_id}
+    assert clean_video.is_file()
+    assert clean_image.is_file()
+    assert not ytdlp_video.exists()
+    assert not gallery_video.exists()
+    assert not gallery_image.exists()
+    assert not stale_wrong_video.exists()
+    assert completed["status"] == "completed"
+    assert completed["engine"] == "ytdlp"
+    assert completed["creator"] == "love.rizzzz"
+    assert completed["source_url"] == source_url
+    assert completed["resolved_full_path"] == str(clean_video)
+    assert completed["resolved_filename"] == "love.rizzzz - [DOS-dVRkUK3].mp4"
+
+
+def test_worker_renames_display_creator_to_handle_and_template_folder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    raw_video = tmp_path / "Riz" / "Riz - [DOS-dVRkUK3].mp4"
+    raw_video.parent.mkdir()
+    raw_video.write_bytes(b"video")
+    source_url = "https://www.example.test/post/DOS-dVRkUK3"
+    task_id = "ytdlp:display-name"
+    store = {
+        "tasks": {
+            task_id: {
+                "engine": "ytdlp",
+                "source_url": source_url,
+                "source_key": "instagram",
+                "status": "pending",
+                "output_dir": str(tmp_path),
+                "resolved_folder": str(tmp_path),
+                "template_settings": {
+                    "folder_template": "{{creator}}",
+                    "filename_template": "{{creator}} - {{title}} [{{id}}]",
+                },
+            }
+        }
+    }
+    saved: dict[str, dict] = {}
+
+    class FakeProcess:
+        stdout = iter([f"[download] Destination: {raw_video}\n"])
+
+        def wait(self):
+            return 0
+
+        def poll(self):
+            return 0
+
+        def kill(self):
+            return None
+
+    def fake_popen(cmd, *args, **kwargs):
+        for index, arg in enumerate(cmd):
+            if arg != "--print-to-file":
+                continue
+            template = cmd[index + 1]
+            sidecar = Path(cmd[index + 2])
+            if "filepath" in template:
+                sidecar.write_text(
+                    "\t".join(
+                        [
+                            str(raw_video),
+                            "DOS-dVRkUK3",
+                            "",
+                            "",
+                            "love.rizzzz",
+                            "Riz",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+            else:
+                sidecar.write_text("Riz\n", encoding="utf-8")
+        return FakeProcess()
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    monkeypatch.setattr(worker_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
+    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
+    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+
+    worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+
+    clean_video = tmp_path / "love.rizzzz" / "love.rizzzz - [DOS-dVRkUK3].mp4"
+    completed = store["tasks"][task_id]
+    assert clean_video.is_file()
+    assert not raw_video.exists()
+    assert completed["status"] == "completed"
+    assert completed["creator"] == "love.rizzzz"
+    assert completed["resolved_folder"] == str(clean_video.parent)
+    assert completed["resolved_full_path"] == str(clean_video)
+    assert completed["resolved_filename"] == "love.rizzzz - [DOS-dVRkUK3].mp4"
+    assert saved[task_id]["resolved_full_path"] == str(clean_video)
+
+
 def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
