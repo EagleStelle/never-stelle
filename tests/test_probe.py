@@ -8,32 +8,7 @@ from backend.app.services.tasks.probe import (
     _radio_single_url,
     _strip_playlist_param,
     probe_url,
-    resolve_source_url,
-    verify_source_url,
 )
-
-
-def test_verify_source_url_returns_the_redirected_real_url(monkeypatch):
-    # The platform corrects a wrong path: probing /video/123 lands on /photo/123.
-    real = "https://www.tiktok.com/@a/photo/123"
-
-    def _resolve(url, media_id=""):
-        return real  # any candidate redirects to the real landing url
-
-    monkeypatch.setattr(probe_module, "_resolve_live_url", _resolve)
-    assert verify_source_url(["https://www.tiktok.com/@a/video/123"], "123") == real
-
-
-def test_verify_source_url_returns_empty_when_none_resolve(monkeypatch):
-    monkeypatch.setattr(probe_module, "_resolve_live_url", lambda url, media_id="": "")
-    assert verify_source_url(["https://www.tiktok.com/@a/video/123"], "123") == ""
-
-
-def test_resolve_source_url_falls_back_to_first_when_offline(monkeypatch):
-    # Network down: keep the first known shape rather than dropping the link.
-    monkeypatch.setattr(probe_module, "_resolve_live_url", lambda url, media_id="": "")
-    candidates = ["https://www.tiktok.com/@a/photo/123", "https://www.tiktok.com/@a/video/123"]
-    assert resolve_source_url(candidates, "123") == candidates[0]
 
 
 def test_strip_playlist_param_drops_only_list():

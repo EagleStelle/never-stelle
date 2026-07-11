@@ -16,7 +16,6 @@ from .formats import learn_media_id, reconstruct_url_candidates
 from .history import find_active_by_source, find_history_by_id, find_history_by_source
 from .naming import clean_gallerydl_display_filename
 from .planning import resolve_task_settings
-from .probe import resolve_source_url
 from .scan import parse_filename_media_id
 from .serializers import fetch_tasks, history_to_api, task_to_api
 from .store import (
@@ -49,6 +48,7 @@ def queue_task(
 
     history_id, history_entry = find_history_by_source(source_url)
     if history_id and history_entry:
+        history_entry = _correct_reconstructed_url(history_id, history_entry, source_url)
         return [history_to_api(history_id, history_entry)], True
 
     cfg = load_app_config()
@@ -90,6 +90,17 @@ def queue_task(
     update_task(task_id, **task)
     _worker_wakeup.set()
     return [task_to_api(task_id, task)], False
+
+
+def _correct_reconstructed_url(task_id: str, entry: dict[str, Any], source_url: str) -> dict[str, Any]:
+    """A dedup hit on a disk-reconstructed record: the pasted link is authoritative, so adopt it."""
+    is_reconstructed = str(task_id).startswith("disk:") or entry.get("task_type") == "disk"
+    if not is_reconstructed or str(entry.get("source_url") or "") == source_url:
+        return entry
+    updated = dict(entry)
+    updated["source_url"] = source_url
+    save_history_entry_row(task_id, updated)
+    return updated
 
 
 def remove_pending_task(task_id: str) -> None:
@@ -144,7 +155,7 @@ def set_task_source(task_id: str, source_key: str) -> str:
         if not str(updated.get("source_url") or "").strip():
             creator = str(updated.get("artist") or updated.get("creator") or "")
             candidates = reconstruct_url_candidates(load_learned_formats(), key, media_id, creator=creator)
-            updated["source_url"] = resolve_source_url(candidates, media_id)
+            updated["source_url"] = candidates[0] if candidates else ""
         save_history_entry_row(task_id, updated)
         _learn_confirmed_source(key, media_id)
         return key

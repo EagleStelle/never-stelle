@@ -26,8 +26,10 @@ from backend.app.services.tasks.formats import (
     guess_sources,
     learn_download,
     learn_media_id,
+    media_id_from_url,
     reconstruct_url,
     reconstruct_url_candidates,
+    url_dedup_key,
 )
 from backend.app.services.tasks.naming import (
     clean_gallerydl_disk_filename,
@@ -506,6 +508,67 @@ def test_creator_from_url_uses_handle_segment_without_at_sign():
 
 def test_learn_download_ignores_unknown_host():
     assert learn_download({}, "not a url", "abc123") == {}
+
+
+def test_url_dedup_key_ignores_route_so_reposts_dedup():
+    # The reported bug: a video reconsolidated to /photo must still dedup its /video link.
+    photo = url_dedup_key("https://www.tiktok.com/@fzyahoo.com/photo/7615077542189337873")
+    video = url_dedup_key("https://www.tiktok.com/@fzyahoo.com/video/7615077542189337873")
+    assert photo == video == "tiktok#7615077542189337873"
+
+
+def test_url_dedup_key_separates_different_posts():
+    a = url_dedup_key("https://www.tiktok.com/@fzyahoo.com/photo/7615077542189337873")
+    b = url_dedup_key("https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833")
+    assert a != b
+
+
+def test_media_id_from_url_reads_id_without_prior_knowledge():
+    assert media_id_from_url("https://www.tiktok.com/@a/video/7615077542189337873") == "7615077542189337873"
+    assert media_id_from_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+
+
+def test_correct_reconstructed_url_adopts_pasted_link_for_disk_entry(monkeypatch):
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(operations_module, "save_history_entry_row", lambda tid, p: saved.update({tid: p}))
+    entry = {"task_type": "disk", "source_url": "https://www.tiktok.com/@a/photo/7615077542189337873"}
+    real_url = "https://www.tiktok.com/@a/video/7615077542189337873"
+
+    out = operations_module._correct_reconstructed_url("disk:7615077542189337873", entry, real_url)
+
+    assert out["source_url"] == real_url
+    assert saved["disk:7615077542189337873"]["source_url"] == real_url
+
+
+def test_correct_reconstructed_url_leaves_real_download_untouched(monkeypatch):
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(operations_module, "save_history_entry_row", lambda tid, p: saved.update({tid: p}))
+    real_url = "https://www.tiktok.com/@a/video/7615077542189337873"
+    entry = {"task_type": "ytdlp", "source_url": real_url}
+
+    out = operations_module._correct_reconstructed_url("ytdlp:abc", entry, "https://www.tiktok.com/@a/photo/7615077542189337873")
+
+    assert out["source_url"] == real_url  # a real download's link is authoritative; never overwritten
+    assert saved == {}
+
+
+def test_prune_disk_shadows_drops_disk_duplicate_of_real_download(monkeypatch):
+    removed: list[str] = []
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda tid: removed.append(tid))
+    records = {
+        "ytdlp:abc": {"source_url": "https://www.tiktok.com/@a/video/7615077542189337873", "media_id": ""},
+        "disk:7615077542189337873": {
+            "task_type": "disk",
+            "media_id": "7615077542189337873",
+            "source_url": "https://www.tiktok.com/@a/photo/7615077542189337873",
+        },
+    }
+    real = scan_module._real_download_media_ids(records)
+
+    scan_module._prune_disk_shadows(records, real)
+
+    assert removed == ["disk:7615077542189337873"]
+    assert "disk:7615077542189337873" not in records
 
 
 def test_guess_sources_uses_learned_signatures():

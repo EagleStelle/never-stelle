@@ -221,11 +221,15 @@ def media_id_from_url(source_url: str) -> str:
 
 
 def url_dedup_key(source_url: str) -> str:
-    """Route-agnostic identity for a link: host + media id, so /photo and /video of one post match."""
+    """Route-agnostic identity for a link: platform + media id, so /photo and /video of one post match."""
     analysis = analyze_url(source_url)
-    host = str(analysis.get("host") or "").lower()
     media_id = _media_id_from_analysis(analysis)
-    return f"{host}#{media_id}" if host and media_id else canonicalize_url(source_url)
+    if not media_id:
+        return canonicalize_url(source_url)
+    key = source_key_from_url(str(analysis.get("canonical") or ""))
+    # Known platforms fold aliases (youtu.be==youtube); unknown hosts stay distinct to avoid false matches.
+    scope = key if key != FALLBACK_SOURCE_KEY else str(analysis.get("host") or "").lower()
+    return f"{scope}#{media_id}"
 
 
 def _url_shape(source_url: str, media_id: str) -> str:

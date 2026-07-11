@@ -13,9 +13,14 @@ from backend.app.db.database import utc_now
 
 from .constants import CREATOR_FIELDS, TEMPLATE_RE
 from .files import is_media_file, recover_task_path
-from .formats import conflicts_with_source, guess_sources, learn_download, reconstruct_url_candidates
+from .formats import (
+    conflicts_with_source,
+    guess_sources,
+    learn_download,
+    media_id_from_url,
+    reconstruct_url_candidates,
+)
 from .naming import clean_gallerydl_display_filename
-from .probe import verify_source_url
 from .store import (
     load_history,
     load_learned_formats,
@@ -131,7 +136,8 @@ def _payload_media_id(payload: dict[str, Any]) -> str:
     path = _payload_path(payload)
     filename = str(payload.get("resolved_filename") or "").strip()
     media_id, _ = parse_filename_media_id(filename or (path.name if path else ""))
-    return media_id
+    # Real downloads often leave media_id blank, but their source_url still carries the id.
+    return media_id or media_id_from_url(str(payload.get("source_url") or ""))
 
 
 def _path_exists(path: Path) -> bool:
@@ -260,12 +266,16 @@ def _known_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], set[str]
     return paths, media_ids
 
 
+def _is_disk_record(task_id: str, payload: dict[str, Any]) -> bool:
+    return str(task_id).startswith("disk:") or payload.get("task_type") == "disk"
+
+
 def _disk_derived_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], set[str]]:
     # Disk entries are rebuilt from files, so a rescan may re-resolve them as learning improves.
     paths: set[str] = set()
     media_ids: set[str] = set()
     for task_id, payload in records.items():
-        if not (str(task_id).startswith("disk:") or payload.get("task_type") == "disk"):
+        if not _is_disk_record(task_id, payload):
             continue
         path = _payload_path(payload)
         if path:
@@ -274,6 +284,23 @@ def _disk_derived_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], s
         if media_id:
             media_ids.add(media_id)
     return paths, media_ids
+
+
+def _real_download_media_ids(records: dict[str, dict[str, Any]]) -> set[str]:
+    # Ids owned by a genuine download; disk reconstructions must never shadow these.
+    return {
+        _payload_media_id(payload)
+        for task_id, payload in records.items()
+        if not _is_disk_record(task_id, payload) and _payload_media_id(payload)
+    }
+
+
+def _prune_disk_shadows(records: dict[str, dict[str, Any]], real_media_ids: set[str]) -> None:
+    # Drop disk entries that merely duplicate a real download of the same media.
+    for task_id, payload in list(records.items()):
+        if _is_disk_record(task_id, payload) and _payload_media_id(payload) in real_media_ids:
+            remove_history_record(task_id)
+            records.pop(task_id, None)
 
 
 def _scan_location_map() -> dict[str, str]:
@@ -395,23 +422,6 @@ def _seed_learned_from_history(learned: dict[str, Any], records: dict[str, dict[
     return learned
 
 
-def _resolve_disk_url(
-    learned: dict[str, Any],
-    media_id: str,
-    candidates: list[str],
-) -> tuple[str, dict[str, Any]]:
-    """Probe candidates for a disk file (redirects reveal the true route) and learn the resolved link."""
-    if not candidates:
-        return "", learned
-    if len(candidates) < 2:
-        # One known shape means no route ambiguity, so there is nothing to probe.
-        return candidates[0], learned
-    resolved = verify_source_url(candidates, media_id)
-    if not resolved:
-        return candidates[0], learned
-    return resolved, learn_download(learned, resolved, media_id)
-
-
 def infer_disk_source(
     path: Path,
     media_id: str,
@@ -451,6 +461,8 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
     """Reconcile completed history with media files already present on disk."""
     records = _completed_records()
     checked, missing = _drop_missing_records(records)
+    real_media_ids = _real_download_media_ids(records)
+    _prune_disk_shadows(records, real_media_ids)
     known_paths, known_media_ids = _known_media(records)
     disk_paths, disk_media_ids = _disk_derived_media(records)
     locations = _scan_location_map()
@@ -471,6 +483,8 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         media_id, title = _parse_media_fields(path, templates.base_filename)
         if not media_id or media_id in resolved_this_run:
             continue
+        if media_id in real_media_ids:
+            continue  # a real download already owns this media; never shadow it with a disk entry
         if media_id in known_media_ids and media_id not in disk_media_ids:
             continue
         resolved_this_run.add(media_id)
@@ -492,7 +506,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         )
         display_filename = clean_gallerydl_display_filename(path.name, creator)
         candidates = reconstruct_url_candidates(learned, source_key, media_id, creator=creator)
-        source_url, learned = _resolve_disk_url(learned, media_id, candidates)
+        source_url = candidates[0] if candidates else ""
         save_history_entry_row(
             task_id,
             {

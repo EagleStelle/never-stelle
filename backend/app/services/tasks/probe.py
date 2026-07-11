@@ -4,7 +4,6 @@ import json
 import subprocess
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
-from urllib.request import Request, urlopen
 
 from backend.app.services.settings import find_cookies_file_for_url
 
@@ -15,12 +14,6 @@ from .formats import _prepare_url
 _RADIO_PREFIX = "RD"
 _PROBE_TIMEOUT_SECONDS = 90
 _MAX_ENTRIES = 500
-
-# Reconstructed links are verified with a light HTTP request that follows
-# redirects; a wrong path redirects to the real one, so the final URL is the
-# authoritative link. Works for any host, with no per-platform route knowledge.
-_VERIFY_TIMEOUT_SECONDS = 8
-_VERIFY_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; never-stelle/1.0)"}
 
 
 def _strip_playlist_param(url: str) -> str:
@@ -69,44 +62,6 @@ def _flat_playlist(url: str) -> dict[str, Any]:
         # Rejected link is client input: ValueError -> route maps to 400, not 502.
         raise ValueError(detail[-1] if detail else "Could not read that link.")
     return json.loads(result.stdout or "{}")
-
-
-def _resolve_live_url(url: str, media_id: str = "") -> str:
-    """Follow redirects to the real landing URL; the id must survive it, else "" (a dead/bounced link)."""
-    try:
-        request = Request(url, headers=_VERIFY_HEADERS, method="GET")
-        with urlopen(request, timeout=_VERIFY_TIMEOUT_SECONDS) as response:
-            status = getattr(response, "status", 200) or 200
-            final_url = response.geturl()
-    except Exception:
-        return ""
-    if status >= 400:
-        return ""
-    media_id = str(media_id or "").strip()
-    if media_id and media_id not in final_url:
-        return ""
-    return final_url
-
-
-def verify_source_url(candidates: list[str], media_id: str = "") -> str:
-    """Probe candidates and return the first that resolves to its real landing URL."""
-    seen: set[str] = set()
-    for candidate in candidates:
-        url = str(candidate or "").strip()
-        if not url or url in seen:
-            continue
-        seen.add(url)
-        resolved = _resolve_live_url(url, media_id)
-        if resolved:
-            return resolved
-    return ""
-
-
-def resolve_source_url(candidates: list[str], media_id: str = "") -> str:
-    """Pick the real URL among reconstructed candidates, falling back when offline."""
-    if not candidates:
-        return ""
-    return verify_source_url(candidates, media_id) or candidates[0]
 
 
 def probe_url(source_url: str) -> dict[str, Any]:
