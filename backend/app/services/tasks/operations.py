@@ -26,7 +26,7 @@ from .store import (
     save_learned_formats,
     update_task,
 )
-from .urls import canonicalize_source_url, detect_source_key
+from .urls import canonicalize_source_url, detect_source_key, resolve_redirect_url
 from .worker import _worker_wakeup, ensure_worker
 
 
@@ -38,7 +38,7 @@ def queue_task(
     source_templates: dict[str, dict[str, str]] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     ensure_worker()
-    source_url = canonicalize_source_url(source_url)
+    source_url = canonicalize_source_url(resolve_redirect_url(source_url))
     if not source_url:
         raise ValueError("Paste a URL first.")
 

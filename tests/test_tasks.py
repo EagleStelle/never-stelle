@@ -9,6 +9,7 @@ import backend.app.services.tasks.gallerydl as gallerydl_module
 import backend.app.services.tasks.history as history_module
 import backend.app.services.tasks.operations as operations_module
 import backend.app.services.tasks.scan as scan_module
+import backend.app.services.tasks.urls as urls_module
 import backend.app.services.tasks.worker as worker_module
 from backend.app.services.tasks import (
     canonicalize_source_url,
@@ -66,6 +67,33 @@ def test_canonicalize_source_url(raw, expected):
 def test_canonicalize_trailing_slash_idempotent():
     once = canonicalize_source_url("instagram.com/reel/abc")
     assert canonicalize_source_url(once) == once
+
+
+def _patch_head(monkeypatch, final_url=None, exc=None):
+    def fake_head(url, **kwargs):
+        if exc is not None:
+            raise exc
+        return type("Resp", (), {"url": final_url if final_url is not None else url})()
+
+    monkeypatch.setattr(urls_module.httpx, "head", fake_head)
+
+
+def test_resolve_redirect_expands_share_link(monkeypatch):
+    _patch_head(monkeypatch, "https://www.facebook.com/charechii/posts/pfbid02xDjH4VegXXU7epxAJJVz6vJnaRnWScxmggX1iSB4GhoBexQB926QQg9NQdAvByPEl")
+    resolved = urls_module.resolve_redirect_url("https://www.facebook.com/share/p/17tZcAG16f/")
+    assert resolved.endswith("pfbid02xDjH4VegXXU7epxAJJVz6vJnaRnWScxmggX1iSB4GhoBexQB926QQg9NQdAvByPEl")
+
+
+def test_resolve_redirect_keeps_original_when_target_loses_id(monkeypatch):
+    _patch_head(monkeypatch, "https://www.instagram.com/accounts/login/")
+    original = "https://www.instagram.com/reel/DWyrvI9Ef3z/"
+    assert urls_module.resolve_redirect_url(original) == original
+
+
+def test_resolve_redirect_survives_network_error(monkeypatch):
+    _patch_head(monkeypatch, exc=RuntimeError("boom"))
+    original = "https://www.facebook.com/share/p/17tZcAG16f/"
+    assert urls_module.resolve_redirect_url(original) == original
 
 
 @pytest.mark.parametrize(
