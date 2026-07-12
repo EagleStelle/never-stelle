@@ -11,6 +11,10 @@ from backend.app.core.config import DATABASE_PATH
 
 _DB_LOCK = threading.RLock()
 _INITIALIZED = False
+# One long-lived connection reused for every transaction, guarded by _DB_LOCK.
+# Opening/closing per call re-ran the WAL pragma and checkpointed the journal to
+# disk each time; on a NAS spinning disk that dominated latency under load.
+_CONNECTION: sqlite3.Connection | None = None
 
 
 SCHEMA = """
@@ -89,32 +93,50 @@ def _connect() -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA journal_mode = WAL")
+    # NORMAL is durable-enough under WAL (no corruption risk) and drops one fsync
+    # per commit; batched checkpoints keep the WAL from growing unbounded.
+    connection.execute("PRAGMA synchronous = NORMAL")
+    connection.execute("PRAGMA wal_autocheckpoint = 1000")
     connection.execute("PRAGMA busy_timeout = 30000")
+    connection.execute("PRAGMA cache_size = -8000")
     return connection
+
+
+def _shared_connection() -> sqlite3.Connection:
+    # Lazily open and keep one connection for the process; _DB_LOCK serializes use.
+    global _CONNECTION
+    if _CONNECTION is None:
+        _CONNECTION = _connect()
+    return _CONNECTION
 
 
 @contextmanager
 def transaction() -> Iterator[sqlite3.Connection]:
     initialize_database()
     with _DB_LOCK:
-        connection = _connect()
+        connection = _shared_connection()
         try:
             yield connection
             connection.commit()
         except Exception:
             connection.rollback()
             raise
-        finally:
-            connection.close()
 
 
 def initialize_database() -> None:
-    global _INITIALIZED
+    global _INITIALIZED, _CONNECTION
     with _DB_LOCK:
         if _INITIALIZED:
             return
-        DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        connection = _connect()
+        # A reset (tests swap DATABASE_PATH and clear _INITIALIZED) must rebind the
+        # shared connection to the current path, so drop any stale one first.
+        if _CONNECTION is not None:
+            try:
+                _CONNECTION.close()
+            except Exception:
+                pass
+            _CONNECTION = None
+        connection = _shared_connection()
         try:
             connection.executescript(SCHEMA)
             _migrate_schema(connection)
@@ -122,8 +144,6 @@ def initialize_database() -> None:
         except Exception:
             connection.rollback()
             raise
-        finally:
-            connection.close()
         _INITIALIZED = True
 
 

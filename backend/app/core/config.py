@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import threading
+import time
 from collections.abc import Iterable
 from copy import deepcopy
 from pathlib import Path
@@ -112,7 +114,14 @@ def discover_volume_roots() -> list[str]:
         return [str(root)]
 
 
-def discover_volume_locations() -> list[str]:
+# Recursively walking the media tree is expensive on a NAS; the location list
+# barely changes, so cache it briefly instead of rebuilding it on every request.
+_VOLUME_LOCATIONS_TTL_SECONDS = 30.0
+_volume_locations_lock = threading.Lock()
+_volume_locations_cache: tuple[float, list[str]] | None = None
+
+
+def _scan_volume_locations() -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     for root_value in discover_volume_roots():
@@ -128,6 +137,19 @@ def discover_volume_locations() -> list[str]:
                 seen.add(value)
                 out.append(value)
     return out
+
+
+def discover_volume_locations() -> list[str]:
+    global _volume_locations_cache
+    now = time.monotonic()
+    with _volume_locations_lock:
+        cached = _volume_locations_cache
+        if cached is not None and now - cached[0] < _VOLUME_LOCATIONS_TTL_SECONDS:
+            return list(cached[1])
+    result = _scan_volume_locations()
+    with _volume_locations_lock:
+        _volume_locations_cache = (now, result)
+    return list(result)
 
 
 def normalize_download_locations(cfg: dict[str, Any]) -> list[str]:
