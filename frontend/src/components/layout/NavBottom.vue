@@ -34,7 +34,7 @@ const emit = defineEmits<{
       @click="emit('selectPage', item.key)"
     >
       <component :is="item.icon" class="w-6 h-6" aria-hidden="true" />
-      <span class="text-[10px] font-medium tracking-wide">{{
+      <span class="text-10px font-medium tracking-wide">{{
         item.label
       }}</span>
     </button>
@@ -45,7 +45,7 @@ const emit = defineEmits<{
     >
       <IconSun v-if="isLightMode" class="w-6 h-6" aria-hidden="true" />
       <IconMoon v-else class="w-6 h-6" aria-hidden="true" />
-      <span class="text-[10px] font-medium tracking-wide">Theme</span>
+      <span class="text-10px font-medium tracking-wide">Theme</span>
     </button>
     <button
       type="button"
@@ -54,7 +54,7 @@ const emit = defineEmits<{
       @click="emit('openSettings', $event)"
     >
       <IconGear class="w-6 h-6" aria-hidden="true" />
-      <span class="text-[10px] font-medium tracking-wide">Settings</span>
+      <span class="text-10px font-medium tracking-wide">Settings</span>
     </button>
   </nav>
 </template>

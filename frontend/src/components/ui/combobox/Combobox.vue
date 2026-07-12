@@ -112,7 +112,7 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
   >
     <ComboboxAnchor
       :class="[
-        'relative inline-flex max-w-full items-center rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-[var(--glass-border)] shadow-inner focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass',
+        'relative inline-flex max-w-full items-center rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-(--glass-border) shadow-inner focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass',
         sizes.anchor,
       ]"
     >
@@ -134,7 +134,7 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
         />
         <span
           v-else-if="activeItem?.initials"
-          class="inline-flex h-5 min-w-5 items-center justify-center rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-[var(--glass-border)] px-1 text-[0.65rem] font-semibold text-white in-[.light-mode]:text-black"
+          class="inline-flex h-5 min-w-5 items-center justify-center rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-(--glass-border) px-1 text-[0.65rem] font-semibold text-white in-[.light-mode]:text-black"
         >
           {{ activeItem.initials }}
         </span>
@@ -157,7 +157,7 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
 
     <ComboboxPortal>
       <ComboboxContent
-        class="z-[100] glass-chrome rounded-lg overflow-hidden"
+        class="z-100 glass-chrome rounded-lg overflow-hidden"
         :style="{ width: 'var(--reka-combobox-trigger-width)', minWidth: 'var(--reka-combobox-trigger-width)' }"
         position="popper"
         :side-offset="6"

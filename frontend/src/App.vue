@@ -119,7 +119,7 @@ const { height: statusBarHeight } = useElementSize(
           tabindex="-1"
         >
           <!-- Desktop Header: Sticky Top -->
-          <div class="hidden lg:block sticky top-0 z-20 shrink-0 pt-4 pb-2 px-4 glass border-0 border-b border-[var(--glass-border)]">
+          <div class="hidden lg:block sticky top-0 z-20 shrink-0 pt-4 pb-2 px-4 glass border-0 border-b border-(--glass-border)">
             <template v-if="activePage === 'downloads'">
               <DownloadInput
                 v-model:url="url"
@@ -222,7 +222,7 @@ const { height: statusBarHeight } = useElementSize(
 
           <!-- Mobile Header & Status Bar: Sticky Bottom -->
           <div class="sticky bottom-0 z-20 flex flex-col shrink-0">
-            <div class="lg:hidden pt-2 pb-4 px-4 glass border-0 border-t border-[var(--glass-border)]">
+            <div class="lg:hidden pt-2 pb-4 px-4 glass border-0 border-t border-(--glass-border)">
               <template v-if="activePage === 'downloads'">
                 <DownloadInput
                   v-model:url="url"
