@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from backend.app.core.config import max_concurrent_downloads
 from backend.app.core.sources import apex_host, host_from_url, normalize_source_key
 from backend.app.services.settings import detect_cookie_source, has_cookies_for_source
 
@@ -51,8 +52,10 @@ from .urls import canonicalize_source_url, detect_source_key, resolve_creator_ha
 from .ytdlp import read_creator_sidecar as _read_creator_sidecar  # noqa: F401
 
 _worker_lock = threading.Lock()
-_worker_wakeup = threading.Event()
 _worker_started = False
+# Guarded by _worker_lock. A dying thread still reports is_alive(), so the pool
+# tracks its own count here instead of polling threading.enumerate().
+_active_worker_count = 0
 _YOUTUBE_HOSTS = ("youtube.com", "youtube-nocookie.com", "youtu.be")
 _YOUTUBE_CHANNEL_ID_RE = re.compile(r"UC[A-Za-z0-9_-]{20,}")
 
@@ -131,35 +134,48 @@ def _next_pending_task() -> tuple[str | None, dict[str, Any] | None]:
     return None, None
 
 
+def _pending_count() -> int:
+    return sum(
+        1 for task in (load_task_store().get("tasks") or {}).values() if task.get("status") == "pending"
+    )
+
+
 def ensure_worker() -> None:
-    global _worker_started
+    # Spawn workers on demand, capped by the pool size, only while tasks wait.
+    # Idle workers exit themselves, so a drained queue parks zero worker threads.
+    global _worker_started, _active_worker_count
     with _worker_lock:
-        if _worker_started:
-            return
-        recover_orphaned_tasks()
-        thread = threading.Thread(target=_worker_loop, name="never-stelle-ytdlp-worker", daemon=True)
-        thread.start()
-        _worker_started = True
-        _worker_wakeup.set()
+        if not _worker_started:
+            recover_orphaned_tasks()
+            _worker_started = True
+        target = min(_pending_count(), max_concurrent_downloads())
+        while _active_worker_count < target:
+            _active_worker_count += 1
+            threading.Thread(
+                target=_worker_loop, name=f"never-stelle-worker-{_active_worker_count}", daemon=True
+            ).start()
 
 
 def _worker_loop() -> None:
+    global _active_worker_count
     while True:
         try:
             task_id, task = _next_pending_task()
-            if task_id and task:
-                claimed_task = claim_pending_task(task_id)
-                if claimed_task:
-                    run_task(task_id, claimed_task, mark_running=False)
-                continue
-            _worker_wakeup.clear()
-            task_id, task = _next_pending_task()
-            if task_id and task:
-                _worker_wakeup.set()
-                continue
-            _worker_wakeup.wait()
+            if not (task_id and task):
+                with _worker_lock:
+                    # Re-check under the lock, then decrement before releasing it, so
+                    # a task enqueued this instant can't be stranded by our exit.
+                    task_id, task = _next_pending_task()
+                    if not (task_id and task):
+                        _active_worker_count -= 1
+                        return
+            claimed_task = claim_pending_task(task_id)
+            if claimed_task:
+                # Any remaining pending tasks get their own worker, up to the cap.
+                ensure_worker()
+                run_task(task_id, claimed_task, mark_running=False)
         except Exception:
-            _worker_wakeup.wait(2)
+            time.sleep(1)
 
 
 def _count_progress(done: int, total: int) -> float:
@@ -197,41 +213,54 @@ def _run_engine_to_task(
         )
         _register_process(task_id, process)
         if process.stdout is not None:
+            seed = (load_task_store().get("tasks") or {}).get(task_id, {})
+            log_lines = list(seed.get("last_log_lines") or [])
+            # Debounce DB writes: progress-only lines flush at most ~twice a second;
+            # a new output path flushes at once so resolved-path state is never stale.
+            pending_updates: dict[str, Any] = {}
+            last_flush = 0.0
             for raw_line in process.stdout:
                 line = raw_line.strip()
                 if not line:
                     continue
-                current = (load_task_store().get("tasks") or {}).get(task_id, {})
-                log_lines = list(current.get("last_log_lines") or [])
                 log_lines.append(line)
                 log_lines = log_lines[-30:]
-                updates: dict[str, Any] = {"last_log_lines": log_lines}
+                pending_updates["last_log_lines"] = log_lines
                 progress_pct = engine.parse_progress(line)
                 if progress_pct is not None:
-                    updates["progress_pct"] = progress_pct
+                    pending_updates["progress_pct"] = progress_pct
+                force = False
                 downloaded_path = engine.extract_output_path(line)
                 if downloaded_path:
                     path = Path(downloaded_path)
                     if engine.name == "gallerydl" and _is_audio_path(path):
-                        update_task(task_id, **updates)
-                        continue
-                    path_key = _path_key(path)
-                    if path_key not in emitted_keys:
-                        emitted_paths.append(str(path))
-                        emitted_keys.add(path_key)
-                    done += 1
-                    last_dest = _preferred_output_path(engine, last_dest, path)
-                    resolved_path = Path(last_dest)
-                    updates.update(
-                        {
-                            "resolved_full_path": str(resolved_path),
-                            "resolved_folder": str(resolved_path.parent),
-                            "resolved_filename": resolved_path.name,
-                        }
-                    )
-                    if not engine.emits_progress:
-                        updates["progress_pct"] = _count_progress(done, total_items)
-                update_task(task_id, **updates)
+                        # Audio sidecar: keep the log line, skip path bookkeeping.
+                        pass
+                    else:
+                        path_key = _path_key(path)
+                        if path_key not in emitted_keys:
+                            emitted_paths.append(str(path))
+                            emitted_keys.add(path_key)
+                        done += 1
+                        last_dest = _preferred_output_path(engine, last_dest, path)
+                        resolved_path = Path(last_dest)
+                        pending_updates.update(
+                            {
+                                "resolved_full_path": str(resolved_path),
+                                "resolved_folder": str(resolved_path.parent),
+                                "resolved_filename": resolved_path.name,
+                            }
+                        )
+                        if not engine.emits_progress:
+                            pending_updates["progress_pct"] = _count_progress(done, total_items)
+                        force = True
+                now = time.monotonic()
+                if force or (now - last_flush) >= 0.5:
+                    update_task(task_id, **pending_updates)
+                    pending_updates = {}
+                    last_flush = now
+            if pending_updates:
+                update_task(task_id, **pending_updates)
         return process.wait(), last_dest, emitted_paths
     finally:
         _unregister_process(task_id)

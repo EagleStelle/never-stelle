@@ -30,7 +30,7 @@ from .store import (
     update_task,
 )
 from .urls import canonicalize_source_url, detect_source_key, resolve_redirect_url
-from .worker import _worker_wakeup, ensure_worker, has_active_process, request_cancel
+from .worker import ensure_worker, has_active_process, request_cancel
 
 
 def queue_task(
@@ -41,7 +41,6 @@ def queue_task(
     source_templates: dict[str, dict[str, str]] | None = None,
     quality: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
-    ensure_worker()
     source_url = canonicalize_source_url(resolve_redirect_url(source_url))
     if not source_url:
         raise ValueError("Paste a URL first.")
@@ -96,7 +95,7 @@ def queue_task(
         "last_log_lines": [],
     }
     update_task(task_id, **task)
-    _worker_wakeup.set()
+    ensure_worker()
     return [task_to_api(task_id, task)], False
 
 
@@ -146,9 +145,8 @@ def retry_task(task_id: str) -> None:
         raise FileNotFoundError("Task was not found.")
     if task.get("status") != "failed":
         raise PermissionError("Only failed downloads can be retried.")
-    ensure_worker()
     update_task(task_id, status="pending", progress_pct=0, error="", last_log_lines=[])
-    _worker_wakeup.set()
+    ensure_worker()
 
 
 def clear_pending_tasks() -> dict[str, Any]:

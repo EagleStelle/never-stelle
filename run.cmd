@@ -22,7 +22,9 @@ param(
     [switch]$Reinstall,
     [switch]$Prod,
     [string]$Username = "",
-    [string]$Password = ""
+    [string]$Password = "",
+    [int]$MaxConcurrent = 0,
+    [switch]$CookieSecure
 )
 
 $Dev = -not $Prod
@@ -67,6 +69,26 @@ $SeedPassword = if ($Password) {
 }
 $env:NEVER_STELLE_USERNAME = $SeedUsername
 $env:NEVER_STELLE_PASSWORD = $SeedPassword
+
+$SeedMaxConcurrent = if ($MaxConcurrent -gt 0) {
+    $MaxConcurrent
+} elseif ($env:NEVER_STELLE_MAX_CONCURRENT) {
+    $env:NEVER_STELLE_MAX_CONCURRENT
+} else {
+    3
+}
+$env:NEVER_STELLE_MAX_CONCURRENT = "$SeedMaxConcurrent"
+
+# Off by default: run.cmd serves plain HTTP, where a Secure cookie blocks login.
+# Pass -CookieSecure only when fronting the app with HTTPS.
+$SeedCookieSecure = if ($CookieSecure) {
+    "1"
+} elseif ($env:NEVER_STELLE_COOKIE_SECURE) {
+    $env:NEVER_STELLE_COOKIE_SECURE
+} else {
+    ""
+}
+$env:NEVER_STELLE_COOKIE_SECURE = "$SeedCookieSecure"
 
 function Assert-UnderLocal {
     param([string]$Path)
@@ -256,6 +278,7 @@ Write-Host "  Scratch:  $ScratchDir"
 Write-Host "  Database: $DatabasePath"
 Write-Host "  Frontend: $FrontendDistDir"
 Write-Host "  Auth:     $SeedUsername (seed user; first run only)"
+Write-Host "  Workers:  $SeedMaxConcurrent (parallel downloads)"
 Write-Host ""
 Write-Host "Press Ctrl+C to stop."
 Write-Host ""

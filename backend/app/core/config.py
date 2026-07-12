@@ -84,6 +84,16 @@ SITE_KEYS: tuple[str, ...] = ()
 SITE_LABELS = {"all": "All"}
 
 
+def max_concurrent_downloads(default: int = 3) -> int:
+    # Worker-pool size: parallel downloads. Env-overridable, clamped 1..16.
+    raw = str(os.environ.get("NEVER_STELLE_MAX_CONCURRENT") or "").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(1, min(value, 16))
+
+
 def discover_volume_roots() -> list[str]:
     # Media base is the single library root; per-platform folders live beneath it.
     root = MEDIA_DIR

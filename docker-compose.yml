@@ -7,6 +7,8 @@ services:
     environment:
       NEVER_STELLE_USERNAME: ${NEVER_STELLE_USERNAME:-root}
       NEVER_STELLE_PASSWORD: ${NEVER_STELLE_PASSWORD:-never-stelle}
+      NEVER_STELLE_MAX_CONCURRENT: ${NEVER_STELLE_MAX_CONCURRENT:-3}
+      NEVER_STELLE_COOKIE_SECURE: ${NEVER_STELLE_COOKIE_SECURE:-0}
     volumes:
       - .local/data:/data
       - .local/scratch:/scratch
