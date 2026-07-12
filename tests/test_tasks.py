@@ -158,9 +158,12 @@ def test_extract_downloaded_path(line, expected):
 def test_is_media_file(tmp_path: Path):
     good = tmp_path / "clip.mp4"
     good.write_bytes(b"x")
+    audio = tmp_path / "clip.mp3"
+    audio.write_bytes(b"x")
     bad = tmp_path / "notes.txt"
     bad.write_bytes(b"x")
     assert is_media_file(good) is True
+    assert is_media_file(audio) is True
     assert is_media_file(bad) is False
     assert is_media_file(tmp_path / "missing.mp4") is False
 
@@ -226,6 +229,13 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
 
     operations_module.queue_task("https://example.test/watch?v=2", quality=None)
     assert captured["task"]["quality"] == saved_default
+
+    operations_module.queue_task(
+        "https://example.test/watch?v=3",
+        quality={"mode": "video", "video_container": "webm", "video_codec": "h264"},
+    )
+    assert captured["task"]["quality"]["video_container"] == "webm"
+    assert captured["task"]["quality"]["video_codec"] == "auto"
 
 
 def test_parse_filename_media_id_accepts_numbered_gallerydl_suffix():
@@ -1563,11 +1573,15 @@ def test_history_preserves_completed_engine(monkeypatch: pytest.MonkeyPatch):
             "resolved_folder": "/media/imgur",
             "resolved_filename": "clip [abc123].jpg",
             "resolved_full_path": "/media/imgur/clip [abc123].jpg",
+            "quality": {"mode": "audio", "audio_format": "opus", "audio_bitrate": "192"},
         },
     )
 
     assert saved["gallerydl:abc123"]["task_type"] == "gallerydl"
-    assert history_to_api("gallerydl:abc123", saved["gallerydl:abc123"])["task_type"] == "gallerydl"
+    assert saved["gallerydl:abc123"]["quality"]["mode"] == "audio"
+    api_task = history_to_api("gallerydl:abc123", saved["gallerydl:abc123"])
+    assert api_task["task_type"] == "gallerydl"
+    assert api_task["quality"]["audio_format"] == "opus"
 
 
 def test_resolve_task_file_zips_numbered_gallerydl_siblings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

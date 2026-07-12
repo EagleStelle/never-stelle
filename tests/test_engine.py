@@ -48,6 +48,7 @@ def test_normalize_quality_selection_defaults_and_validates():
         "audio_format": "opus",
         "audio_bitrate": "192",
     }
+    assert normalize_quality_selection({"video_container": "mp4", "video_codec": "vp9"})["video_codec"] == "auto"
 
 
 def test_quality_options_expose_all_pickers():
@@ -397,6 +398,18 @@ def test_gallerydl_command_honors_video_container(monkeypatch):
     )
 
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mkv")
+
+
+def test_gallerydl_command_honors_video_codec(monkeypatch):
+    monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "")
+    cmd = gallerydl.build_gallerydl_command(
+        "https://twitter.com/DohaVT/status/1",
+        "/media/twitter",
+        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        quality={"mode": "video", "video_container": "mkv", "video_codec": "vp9"},
+    )
+
+    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.format_sort=vcodec:vp09")
 
 
 def test_gallerydl_audio_mode_still_downloads_best_video(monkeypatch):

@@ -6,19 +6,20 @@ import {
 } from "../../components/ui/segmented-control";
 import IconGrid from "~icons/material-symbols/grid-view";
 import IconList from "~icons/material-symbols/list";
+import type { MediaFilter, MenuKey, ViewMode } from "../../types";
 
 defineProps<{
-  activeMenu: string;
+  activeMenu: MenuKey;
   navigationItems: any[];
-  mediaFilter: string;
+  mediaFilter: MediaFilter;
   mediaFilterItems: any[];
-  viewMode: string;
+  viewMode: ViewMode;
 }>();
 
 const emit = defineEmits<{
-  "update:activeMenu": [val: string];
-  "update:mediaFilter": [val: string];
-  "update:viewMode": [val: "grid" | "table"];
+  "update:activeMenu": [val: MenuKey];
+  "update:mediaFilter": [val: MediaFilter];
+  "update:viewMode": [val: ViewMode];
 }>();
 </script>
 
@@ -28,7 +29,7 @@ const emit = defineEmits<{
       size="lg"
       :model-value="activeMenu"
       :items="navigationItems"
-      @update:model-value="(val) => emit('update:activeMenu', val)"
+      @update:model-value="(val) => emit('update:activeMenu', val as MenuKey)"
       class="flex-1 min-w-0 sm:flex-none sm:w-44"
       placeholder="Search platform..."
       empty-text="No platforms found."
@@ -38,7 +39,7 @@ const emit = defineEmits<{
       size="lg"
       :model-value="mediaFilter"
       :items="mediaFilterItems"
-      @update:model-value="(val) => emit('update:mediaFilter', val)"
+      @update:model-value="(val) => emit('update:mediaFilter', val as MediaFilter)"
       class="flex-1 min-w-0 sm:flex-none sm:w-44"
       placeholder="Media type..."
       empty-text="No types."
@@ -49,7 +50,7 @@ const emit = defineEmits<{
       :model-value="viewMode"
       @update:model-value="
         (val) => {
-          if (val) emit('update:viewMode', val as 'grid' | 'table');
+          if (val) emit('update:viewMode', val as ViewMode);
         }
       "
       aria-label="View mode"

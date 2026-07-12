@@ -14,7 +14,7 @@ import {
 
 import { computed } from "vue";
 import type { QualityOptions, QualitySelection, SavedSettings } from "../../types";
-import { isCodecAllowed, isLosslessAudioFormat, resolveCodec } from "../../utils/dashboard";
+import { createQualitySelection, isCodecAllowed, isLosslessAudioFormat } from "../../utils/dashboard";
 
 const props = defineProps<{
   savedSettings: SavedSettings;
@@ -38,10 +38,7 @@ const codecItems = computed(() =>
 );
 
 function update(patch: Partial<QualitySelection>): void {
-  const next = { ...props.quality, ...patch };
-  // A container switch can invalidate the codec; fall back to Auto.
-  next.video_codec = resolveCodec(next.video_codec, next.video_container, props.qualityOptions.video_containers);
-  emit("update:quality", next);
+  emit("update:quality", createQualitySelection({ ...props.quality, ...patch }, props.qualityOptions));
 }
 
 const pasteFromClipboard = async () => {

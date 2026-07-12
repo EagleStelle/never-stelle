@@ -16,7 +16,9 @@ from .constants import (
     CREATOR_FIELDS,
     MEDIA_EXTENSIONS,
     TEMPLATE_RE,
+    VIDEO_CODEC_PRESETS,
     VIDEO_QUALITY_PRESETS,
+    codec_allowed_for_container,
     normalize_quality_selection,
 )
 from .formats import creator_from_url
@@ -56,6 +58,9 @@ def _ytdl_downloader_options(quality: dict[str, str] | None = None) -> list[str]
         "-o",
         f"downloader.ytdl.raw-options.merge_output_format={container}",
     ]
+    codec_sort = VIDEO_CODEC_PRESETS[selection["video_codec"]]["sort"]
+    if not audio_mode and codec_sort and codec_allowed_for_container(selection["video_codec"], container):
+        options.extend(["-o", f"downloader.ytdl.raw-options.format_sort=vcodec:{codec_sort}"])
     ffmpeg_location = detect_ffmpeg_location()
     if ffmpeg_location:
         # Forward slashes dodge gallery-dl JSON-escape parsing of the option value.

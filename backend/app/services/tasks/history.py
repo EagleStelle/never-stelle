@@ -5,6 +5,7 @@ from typing import Any
 
 from backend.app.core.sources import normalize_source_key
 
+from .constants import normalize_quality_selection
 from .formats import url_dedup_key
 from .store import load_history, load_task_store, save_history_entry_row
 from .urls import detect_source_key
@@ -28,6 +29,7 @@ def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
             "resolved_folder": str(task.get("resolved_folder") or ""),
             "resolved_filename": str(task.get("resolved_filename") or ""),
             "resolved_full_path": str(task.get("resolved_full_path") or ""),
+            "quality": normalize_quality_selection(task.get("quality")),
             "completed_at": datetime.now(UTC).isoformat(),
         },
     )

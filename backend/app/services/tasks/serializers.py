@@ -6,7 +6,7 @@ from typing import Any
 from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key
 from backend.app.services.settings import get_effective_source_profiles
 
-from .constants import STATUS_LABELS, STATUS_ORDER
+from .constants import STATUS_LABELS, STATUS_ORDER, normalize_quality_selection
 from .files import recover_task_path
 from .formats import creator_from_url
 from .naming import clean_gallerydl_display_filename
@@ -67,6 +67,7 @@ def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
         "source_candidates": list(task.get("source_candidates") or []),
         "error": str(task.get("error") or ""),
         "can_download": can_download,
+        "quality": normalize_quality_selection(task.get("quality")),
     }
 
 
@@ -84,6 +85,7 @@ def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "resolved_folder": entry.get("resolved_folder", ""),
         "resolved_filename": entry.get("resolved_filename", ""),
         "resolved_full_path": entry.get("resolved_full_path", ""),
+        "quality": entry.get("quality", {}),
     }
     return task_to_api(task_id, task)
 

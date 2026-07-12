@@ -74,20 +74,27 @@ export function useDownloadDashboard() {
   const qualityOptions = computed(() => settingsState.settings.quality_options);
   function setDownloadQuality(selection: QualitySelection): void {
     downloadQualityTouched.value = true;
-    Object.assign(downloadSelection, createQualitySelection(selection));
+    Object.assign(downloadSelection, createQualitySelection(selection, qualityOptions.value));
   }
   const taskQueue = useTaskQueue({
     getSavedSettings: settingsState.getSavedSettings,
-    getQuality: () => ({ ...downloadSelection }),
+    getQuality: () => createQualitySelection(downloadSelection, qualityOptions.value),
     toast: toastStack.toast,
     url,
   });
   watch(
     () => settingsState.settings.default_quality,
     (value) => {
-      if (!downloadQualityTouched.value) Object.assign(downloadSelection, createQualitySelection(value));
+      if (!downloadQualityTouched.value) Object.assign(downloadSelection, createQualitySelection(value, qualityOptions.value));
     },
     { deep: true, immediate: true },
+  );
+  watch(
+    qualityOptions,
+    (value) => {
+      Object.assign(downloadSelection, createQualitySelection(downloadSelection, value));
+    },
+    { deep: true },
   );
 
   const activePage = useLocalStorage<PageKey>("neverstelle.activePage", "downloads");

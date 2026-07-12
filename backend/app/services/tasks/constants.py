@@ -48,7 +48,7 @@ AUDIO_EXTENSIONS = {
     ".opus",
     ".wav",
 }
-MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS
+MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS | AUDIO_EXTENSIONS
 PROGRESS_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%")
 TEMPLATE_RE = re.compile(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}")
 # Template placeholders that resolve to the creator/uploader across engines.
@@ -130,13 +130,17 @@ def normalize_quality_selection(raw: Any) -> dict[str, str]:
         return key if key in table else fallback
 
     mode = str(data.get("mode") or "").strip().lower()
+    video_container = pick(
+        str(data.get("video_container") or "").lower(), VIDEO_CONTAINER_PRESETS, DEFAULT_VIDEO_CONTAINER
+    )
+    video_codec = pick(str(data.get("video_codec") or "").lower(), VIDEO_CODEC_PRESETS, DEFAULT_VIDEO_CODEC)
+    if not codec_allowed_for_container(video_codec, video_container):
+        video_codec = DEFAULT_VIDEO_CODEC
     return {
         "mode": mode if mode in {"video", "audio"} else DEFAULT_MEDIA_MODE,
         "video_quality": pick(data.get("video_quality"), VIDEO_QUALITY_PRESETS, DEFAULT_VIDEO_QUALITY),
-        "video_container": pick(
-            str(data.get("video_container") or "").lower(), VIDEO_CONTAINER_PRESETS, DEFAULT_VIDEO_CONTAINER
-        ),
-        "video_codec": pick(str(data.get("video_codec") or "").lower(), VIDEO_CODEC_PRESETS, DEFAULT_VIDEO_CODEC),
+        "video_container": video_container,
+        "video_codec": video_codec,
         "audio_format": pick(str(data.get("audio_format") or "").lower(), AUDIO_FORMAT_PRESETS, DEFAULT_AUDIO_FORMAT),
         "audio_bitrate": pick(data.get("audio_bitrate"), AUDIO_BITRATE_PRESETS, DEFAULT_AUDIO_BITRATE),
     }

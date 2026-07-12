@@ -18,6 +18,7 @@ import type {
 } from "../types";
 import {
   createCookiesStatus,
+  createQualityOptions,
   createQualitySelection,
   createSourceLocations,
   createSourceProfile,
@@ -66,7 +67,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_quality: createQualitySelection(),
     download_locations: [],
     ytdlp_cookies: createCookiesMap(),
-    quality_options: { video: [], video_containers: [], video_codecs: [], audio_formats: [], audio_bitrates: [] },
+    quality_options: createQualityOptions(),
   });
   const settingsDraft = reactive<SavedSettings>({
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
@@ -105,7 +106,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       site_locations: createSourceLocations(source.site_locations, profiles),
       template_settings: templateSettings,
       source_templates: createSourceTemplates(source.source_templates, profiles, templateSettings),
-      default_quality: createQualitySelection(source.default_quality),
+      default_quality: createQualitySelection(source.default_quality, settings.quality_options),
     };
   }
 
@@ -130,7 +131,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       default_quality: createQualitySelection({
         ...defaults.default_quality,
         ...settings.default_quality,
-      }),
+      }, settings.quality_options),
     };
   }
 
@@ -151,16 +152,12 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     replaceRecord(defaults.source_templates, templates);
     replaceRecord(settings.source_templates, templates);
 
-    const defaultQuality = createQualitySelection(data.default_quality || {});
+    const qualityOptions = createQualityOptions(data.quality_options || {});
+    settings.quality_options = qualityOptions;
+
+    const defaultQuality = createQualitySelection(data.default_quality || {}, qualityOptions);
     Object.assign(defaults.default_quality, defaultQuality);
     Object.assign(settings.default_quality, defaultQuality);
-    settings.quality_options = {
-      video: data.quality_options?.video || [],
-      video_containers: data.quality_options?.video_containers || [],
-      video_codecs: data.quality_options?.video_codecs || [],
-      audio_formats: data.quality_options?.audio_formats || [],
-      audio_bitrates: data.quality_options?.audio_bitrates || [],
-    };
 
     settings.download_locations = Array.isArray(data.download_locations) ? data.download_locations : [];
     replaceRecord(settings.ytdlp_cookies, createCookiesMap(data.ytdlp_cookies || {}, profiles));

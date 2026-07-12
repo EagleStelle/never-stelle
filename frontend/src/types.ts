@@ -113,6 +113,7 @@ export interface TaskItem {
   source_candidates?: string[];
   error: string;
   can_download: boolean;
+  quality?: QualitySelection;
 }
 
 export interface TaskCounts {
