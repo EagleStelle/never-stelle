@@ -129,6 +129,11 @@ export interface TasksResponse {
   counts_by_menu?: Partial<Record<string, TaskCounts>>;
 }
 
+export interface HistoryResponse {
+  entries: TaskItem[];
+  total: number;
+}
+
 export interface AddTaskResponse {
   created: TaskItem[];
   reused: boolean;

@@ -41,9 +41,11 @@ export const COUNT_ICONS: Record<"queued" | "running" | "completed" | "failed", 
 };
 
 export const TASKS_QUERY_KEY = ["tasks"] as const;
+export const HISTORY_QUERY_KEY = ["history"] as const;
 export const UI_CONFIG_QUERY_KEY = ["ui-config"] as const;
 export const POLL_RUNNING_MS = 2000;
 export const POLL_PENDING_MS = 5000;
+export const HISTORY_PAGE_SIZE = 30;
 export const PAGE_ROUTES = {
   downloads: "/downloads",
   history: "/history",

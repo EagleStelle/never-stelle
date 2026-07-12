@@ -16,11 +16,11 @@ from backend.app.services.settings import (
     save_ytdlp_cookies_upload,
 )
 from backend.app.services.tasks import (
+    build_counts,
     cancel_task,
     clear_pending_tasks,
-    count_tasks,
-    counts_by_menu,
-    fetch_tasks,
+    fetch_active_tasks,
+    fetch_history_page,
     probe_url,
     queue_task,
     remove_pending_task,
@@ -129,12 +129,16 @@ def delete_ytdlp_cookies(platform: str) -> dict[str, Any]:
 
 @router.get("/tasks")
 def list_tasks() -> dict[str, Any]:
-    tasks = fetch_tasks()
-    return {
-        "tasks": tasks,
-        "counts": count_tasks(tasks),
-        "counts_by_menu": counts_by_menu(tasks),
-    }
+    # Active rows (queued/running/failed) plus SQL-cheap counts. Completed downloads
+    # come from /history so this poll stays light regardless of history size.
+    return {"tasks": fetch_active_tasks(), **build_counts()}
+
+
+@router.get("/history")
+def list_history(offset: int = 0, limit: int = 30, source_key: str = "") -> dict[str, Any]:
+    limit = max(1, min(200, limit))
+    offset = max(0, offset)
+    return fetch_history_page(offset, limit, source_key)
 
 
 @router.post("/scan")

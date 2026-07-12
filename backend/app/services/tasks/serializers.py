@@ -11,7 +11,14 @@ from .files import recover_task_path
 from .formats import creator_from_url
 from .naming import clean_gallerydl_display_filename
 from .scan import parse_filename_media_id
-from .store import load_history, load_task_store
+from .store import (
+    active_counts_by_source,
+    history_counts_by_source,
+    load_active_task_store,
+    load_history,
+    load_history_entries_page,
+    load_task_store,
+)
 from .urls import detect_source_key
 
 
@@ -102,6 +109,51 @@ def fetch_tasks() -> list[dict[str, Any]]:
         tasks.append(history_to_api(task_id, entry))
     tasks.sort(key=lambda task: (STATUS_ORDER.get(task["status"], 99), task["vid"]))
     return tasks
+
+
+def fetch_active_tasks() -> list[dict[str, Any]]:
+    # Downloads-page payload: queued/running/failed only; completed is served via /history.
+    tasks = [task_to_api(task_id, task) for task_id, task in (load_active_task_store().get("tasks") or {}).items()]
+    tasks.sort(key=lambda task: (STATUS_ORDER.get(task["status"], 99), task["vid"]))
+    return tasks
+
+
+def fetch_history_page(offset: int, limit: int, source_key: str = "") -> dict[str, Any]:
+    rows, total = load_history_entries_page(limit, offset, normalize_source_key(source_key) if source_key else "")
+    entries = [history_to_api(task_id, entry) for task_id, entry in rows]
+    return {"entries": entries, "total": total}
+
+
+def build_counts() -> dict[str, Any]:
+    # Counts from SQL only (queue statuses + history COUNT); no per-row serialization or disk stat.
+    active = active_counts_by_source()
+    completed = history_counts_by_source()
+    keys: list[str] = []
+    for key in (
+        *[normalize_source_key(profile.get("key")) for profile in get_effective_source_profiles()],
+        *active.keys(),
+        *completed.keys(),
+    ):
+        key = normalize_source_key(key) or FALLBACK_SOURCE_KEY
+        if key not in keys:
+            keys.append(key)
+
+    def counts_for(key: str) -> dict[str, int]:
+        status = active.get(key, {})
+        return {
+            "queued": int(status.get("pending", 0)),
+            "running": int(status.get("running", 0)),
+            "completed": int(completed.get(key, 0)),
+            "failed": int(status.get("failed", 0)),
+        }
+
+    by_menu = {key: counts_for(key) for key in keys}
+    totals = {
+        field: sum(counts[field] for counts in by_menu.values())
+        for field in ("queued", "running", "completed", "failed")
+    }
+    by_menu["all"] = totals
+    return {"counts": totals, "counts_by_menu": by_menu}
 
 
 def count_tasks(tasks: list[dict[str, Any]]) -> dict[str, int]:

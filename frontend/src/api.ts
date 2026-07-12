@@ -1,6 +1,7 @@
 import type {
   AddTaskResponse,
   ClearTasksResponse,
+  HistoryResponse,
   ProbeResponse,
   SavedSettings,
   ScanMediaResponse,
@@ -75,6 +76,12 @@ export function deletePlatformCookies(platform: string): Promise<UiConfigRespons
 
 export function getTasks(): Promise<TasksResponse> {
   return jsonRequest<TasksResponse>("/api/tasks", {}, "Could not load tasks.");
+}
+
+export function getHistory(offset: number, limit: number, sourceKey = ""): Promise<HistoryResponse> {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  if (sourceKey) params.set("source_key", sourceKey);
+  return jsonRequest<HistoryResponse>(`/api/history?${params.toString()}`, {}, "Could not load history.");
 }
 
 export function probeUrl(url: string): Promise<ProbeResponse> {

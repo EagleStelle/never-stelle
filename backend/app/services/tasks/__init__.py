@@ -54,8 +54,11 @@ from .operations import (
 from .probe import probe_url
 from .scan import parse_filename_media_id, scan_media_library
 from .serializers import (
+    build_counts,
     count_tasks,
     counts_by_menu,
+    fetch_active_tasks,
+    fetch_history_page,
     fetch_tasks,
     history_to_api,
     task_to_api,
@@ -90,6 +93,7 @@ __all__ = [
     "canonicalize_source_url",
     "clear_pending_tasks",
     "convert_template_to_ytdlp",
+    "build_counts",
     "count_tasks",
     "counts_by_menu",
     "detect_ffmpeg_location",
@@ -98,6 +102,8 @@ __all__ = [
     "engine_for_task",
     "ensure_worker",
     "extract_downloaded_path",
+    "fetch_active_tasks",
+    "fetch_history_page",
     "fetch_tasks",
     "find_numbered_media_siblings",
     "find_active_by_source",

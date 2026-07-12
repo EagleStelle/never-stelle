@@ -8,6 +8,7 @@ import IconImage from "~icons/material-symbols/image";
 
 import { useDashboardSettings } from "./useDashboardSettings";
 import { useTaskQueue } from "./useTaskQueue";
+import { useHistory } from "./useHistory";
 import { useSonner } from "./useSonner";
 import {
   COUNT_ICONS,
@@ -22,11 +23,11 @@ import type {
   QualitySelection,
   SettingsSection,
   SourceProfile,
+  TaskCounts,
   TaskFilter,
   ViewMode,
 } from "../types";
 import {
-  countTasks,
   createQualitySelection,
   isFilterKey,
   isMediaFilter,
@@ -111,6 +112,11 @@ export function useDownloadDashboard() {
   if (!isViewMode(viewMode.value)) viewMode.value = "grid";
   if (themeMode.value !== "light") themeMode.value = "dark";
 
+  // History is server-paginated; source filter runs in SQL, media filter client-side below.
+  const historySourceKey = computed(() => (activeMenu.value === "all" ? "" : activeMenu.value));
+  const historyEnabled = computed(() => activePage.value === "history");
+  const history = useHistory({ sourceKey: historySourceKey, enabled: historyEnabled });
+
   const taskSourceProfiles = computed<SourceProfile[]>(() =>
     taskQueue.taskItems.value
       .map((task) => {
@@ -125,8 +131,14 @@ export function useDownloadDashboard() {
       })
       .filter((profile) => profile.key),
   );
+  // Nav chips for history-only platforms; server counts enumerate every source key.
+  const menuKeyProfiles = computed<SourceProfile[]>(() =>
+    Object.keys(taskQueue.countsByMenu.value)
+      .filter((key) => key !== "all")
+      .map((key) => ({ key, label: sourceLabelFromKey(key), hosts: [], icon: "", icon_url: "" })),
+  );
   const sourceProfiles = computed<SourceProfile[]>(() =>
-    mergeSourceProfiles(settingsState.sourceProfiles.value, taskSourceProfiles.value),
+    mergeSourceProfiles(settingsState.sourceProfiles.value, taskSourceProfiles.value, menuKeyProfiles.value),
   );
 
   const isLightMode = computed(() => themeMode.value === "light");
@@ -159,8 +171,15 @@ export function useDownloadDashboard() {
     { key: "image", label: "Images", icon: IconImage },
   ]);
   const activeTasks = computed(() => mediaTasks.value.filter((task) => ["pending", "running", "failed"].includes(task.status)));
-  const completedTasks = computed(() => mediaTasks.value.filter((task) => ["completed"].includes(task.status)));
-  const countsForActiveMenu = computed(() => countTasks(menuTasks.value));
+  // History entries arrive already source-filtered from the server; apply the media filter here.
+  const completedTasks = computed(() =>
+    mediaFilter.value === "all"
+      ? history.entries.value
+      : history.entries.value.filter((task) => mediaKindForTask(task) === mediaFilter.value),
+  );
+  const countsForActiveMenu = computed<TaskCounts>(
+    () => taskQueue.countsByMenu.value[activeMenu.value] || { queued: 0, running: 0, completed: 0, failed: 0 },
+  );
   const activeMenuLabel = computed(() => {
     if (activeMenu.value === "all") return "All";
     return sourceProfiles.value.find((profile) => profile.key === activeMenu.value)?.label || "matching";
@@ -235,6 +254,12 @@ export function useDownloadDashboard() {
     settingsState.openSettings(event, section);
   }
 
+  // Scan reconciles the history table, then the paginated query reloads page one.
+  async function refreshHistoryPage(): Promise<void> {
+    await taskQueue.refreshHistory();
+    await history.refresh();
+  }
+
   applyCurrentRoute();
 
   watch(
@@ -286,5 +311,11 @@ export function useDownloadDashboard() {
     openSettings,
     ...taskQueue,
     ...sonner,
+    historyLoading: history.loading,
+    historyError: history.historyError,
+    historyHasMore: history.hasMore,
+    historyFetchingMore: history.fetchingMore,
+    loadMoreHistory: history.loadMore,
+    refreshHistory: refreshHistoryPage,
   };
 }

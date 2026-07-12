@@ -250,6 +250,58 @@ def load_task_store_payload() -> dict[str, Any]:
     return {"tasks": {row["id"]: _decode(row["payload"], {}) for row in rows}}
 
 
+def load_active_task_store_payload() -> dict[str, Any]:
+    # Only non-completed rows: completed downloads live in history and are paginated there.
+    with transaction() as connection:
+        rows = connection.execute(
+            "SELECT id, payload FROM queue WHERE status != 'completed' ORDER BY created_at, id"
+        ).fetchall()
+    return {"tasks": {row["id"]: _decode(row["payload"], {}) for row in rows}}
+
+
+def count_active_by_source() -> dict[str, dict[str, int]]:
+    # Status tallies for queued/running/failed straight from SQL, no payload decode or disk I/O.
+    with transaction() as connection:
+        rows = connection.execute(
+            "SELECT source_key, status, COUNT(*) AS n FROM queue WHERE status != 'completed' GROUP BY source_key, status"
+        ).fetchall()
+    result: dict[str, dict[str, int]] = {}
+    for row in rows:
+        key = str(row["source_key"] or "others")
+        result.setdefault(key, {})[str(row["status"] or "pending")] = int(row["n"] or 0)
+    return result
+
+
+def count_history_by_source() -> dict[str, int]:
+    # Completed tally per source from SQL COUNT, no disk stat per row.
+    with transaction() as connection:
+        rows = connection.execute(
+            "SELECT source_key, COUNT(*) AS n FROM history GROUP BY source_key"
+        ).fetchall()
+    return {str(row["source_key"] or "others"): int(row["n"] or 0) for row in rows}
+
+
+def load_history_page(limit: int, offset: int, source_key: str = "") -> tuple[list[tuple[str, dict[str, Any]]], int]:
+    # One ordered page plus the filtered total, so infinite scroll knows when to stop.
+    limit = max(1, int(limit))
+    offset = max(0, int(offset))
+    where = "WHERE source_key = ?" if source_key else ""
+    params: tuple[Any, ...] = (source_key,) if source_key else ()
+    with transaction() as connection:
+        total = int(
+            connection.execute(f"SELECT COUNT(*) FROM history {where}", params).fetchone()[0] or 0
+        )
+        rows = connection.execute(
+            f"""
+            SELECT task_id, payload FROM history {where}
+            ORDER BY completed_at DESC, updated_at DESC, task_id
+            LIMIT ? OFFSET ?
+            """,
+            (*params, limit, offset),
+        ).fetchall()
+    return [(str(row["task_id"]), _decode(row["payload"], {})) for row in rows], total
+
+
 def activity_revision() -> tuple[int, str, int, str]:
     """Cheap fingerprint of tasks + history that changes on every write.
 

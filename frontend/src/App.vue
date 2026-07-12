@@ -38,6 +38,10 @@ const {
   countCards,
   downloadTask,
   historyRefreshing,
+  historyLoading,
+  historyError,
+  historyHasMore,
+  loadMoreHistory,
   activeTasks,
   completedTasks,
   isLightMode,
@@ -197,12 +201,14 @@ const { height: statusBarHeight } = useElementSize(
           <div class="flex-1 flex flex-col p-4">
             <DownloadPanel
               v-if="['downloads', 'history'].includes(activePage)"
-              :error-message="tasksErrorMessage"
-              :loading="tasksLoading"
+              :error-message="activePage === 'history' ? historyError : tasksErrorMessage"
+              :list-key="`${activePage}|${activeMenu}|${mediaFilter}`"
+              :loading="activePage === 'history' ? historyLoading : tasksLoading"
               :page-kind="activePage as 'downloads' | 'history'"
               :source-profiles="sourceProfiles"
               :tasks="activePage === 'downloads' ? activeTasks : completedTasks"
               :view-mode="viewMode"
+              :has-more="activePage === 'history' ? historyHasMore : undefined"
               @cancel="cancelTask"
               @clear-pending="clearPending"
               @download="downloadTask"
@@ -210,6 +216,7 @@ const { height: statusBarHeight } = useElementSize(
               @retry="retryTask"
               @set-source="setTaskSource"
               @set-view-mode="setViewMode"
+              @load-more="loadMoreHistory"
             />
           </div>
 

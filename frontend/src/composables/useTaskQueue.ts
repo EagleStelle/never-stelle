@@ -59,6 +59,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
 
   const rawTasks = computed(() => tasksQuery.data.value?.tasks || []);
   const taskItems = computed(() => mergeTaskData(rawTasks.value));
+  const countsByMenu = computed(() => tasksQuery.data.value?.counts_by_menu || {});
   const tasksLoading = computed(() => tasksQuery.isPending.value);
   const tasksErrorMessage = computed(() => (tasksQuery.error.value ? errorMessage(tasksQuery.error.value, "Could not load tasks.") : ""));
   const historyRefreshing = computed(() => scanMediaMutation.isPending.value);
@@ -293,6 +294,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     removeTask,
     setTaskSource,
     taskItems,
+    countsByMenu,
     tasksErrorMessage,
     tasksLoading,
   };

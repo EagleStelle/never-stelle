@@ -4,9 +4,13 @@ from typing import Any
 
 from backend.app.db.repositories import (
     claim_pending_task_payload,
+    count_active_by_source,
+    count_history_by_source,
     delete_history_row,
     delete_task_row,
     delete_task_row_if_status,
+    load_active_task_store_payload,
+    load_history_page,
     load_history_payload,
     load_learned_formats_payload,
     load_task_store_payload,
@@ -32,8 +36,24 @@ def load_task_store() -> dict[str, Any]:
     return _normalize_task_store(load_task_store_payload())
 
 
+def load_active_task_store() -> dict[str, Any]:
+    return _normalize_task_store(load_active_task_store_payload())
+
+
 def load_history() -> dict[str, Any]:
     return _normalize_history(load_history_payload())
+
+
+def load_history_entries_page(limit: int, offset: int, source_key: str = "") -> tuple[list[tuple[str, dict[str, Any]]], int]:
+    return load_history_page(limit, offset, source_key)
+
+
+def history_counts_by_source() -> dict[str, int]:
+    return count_history_by_source()
+
+
+def active_counts_by_source() -> dict[str, dict[str, int]]:
+    return count_active_by_source()
 
 
 def save_history_entry_row(task_id: str, entry: dict[str, Any]) -> None:
