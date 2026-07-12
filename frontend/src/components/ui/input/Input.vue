@@ -27,33 +27,33 @@ const SIZE_CLASS: Record<
   { wrapper: string; input: string; icon: string; gap: string }
 > = {
   xs: {
-    wrapper: "h-7 p-0.5 gap-0.5",
-    input: "text-xs",
-    icon: "w-6 h-6 ml-1",
-    gap: "w-2",
-  },
-  sm: {
     wrapper: "h-8 p-0.5 gap-1",
     input: "text-xs",
     icon: "w-7 h-7 ml-1",
     gap: "w-2",
   },
-  default: {
+  sm: {
     wrapper: "h-9 p-1 gap-1",
     input: "text-sm",
     icon: "w-7 h-7 ml-1",
     gap: "w-2.5",
   },
-  lg: {
+  default: {
     wrapper: "h-10 p-1 gap-1",
     input: "text-sm",
     icon: "w-8 h-8 ml-1.5",
     gap: "w-3",
   },
-  xl: {
+  lg: {
     wrapper: "h-11 p-1 gap-1.5",
     input: "text-base",
     icon: "w-9 h-9 ml-1.5",
+    gap: "w-4",
+  },
+  xl: {
+    wrapper: "h-12 p-1.5 gap-1.5",
+    input: "text-lg",
+    icon: "w-10 h-10 ml-2",
     gap: "w-4",
   },
 };

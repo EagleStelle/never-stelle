@@ -20,9 +20,14 @@ import { TabsContent, TabsList, TabsRoot, TabsTrigger } from "reka-ui";
 import { toast } from "vue-sonner";
 
 import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
 import { Combobox } from "../../components/ui/combobox";
 import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "../../components/ui/segmented-control";
 import {
   Sidebar,
   SidebarHeader,
@@ -416,7 +421,7 @@ watch(
             <template v-if="hasUnsavedChanges">
               <Button
                 variant="soft"
-                size="sm"
+ 
                 @click="emit('clear')"
                 title="Clear changes"
                 aria-label="Clear changes"
@@ -427,7 +432,7 @@ watch(
               </Button>
               <Button
                 variant="primary"
-                size="sm"
+ 
                 @click="emit('save')"
                 title="Save changes"
                 aria-label="Save changes"
@@ -450,7 +455,7 @@ watch(
 
         <SidebarHeader class="hidden sm:flex">
           <Input
-            size="lg"
+ 
             v-model="sectionSearch"
             type="text"
             placeholder="Search"
@@ -569,7 +574,7 @@ watch(
                     <Input
                       id="accountUsernameInput"
                       v-model="credentials.username"
-                      size="lg"
+ 
                       type="text"
                       autocomplete="username"
                       placeholder="Username"
@@ -581,7 +586,7 @@ watch(
                   <div class="settings-row-control">
                     <Input
                       v-model="credentials.current_password"
-                      size="lg"
+ 
                       type="password"
                       autocomplete="current-password"
                       placeholder="Current password"
@@ -593,7 +598,7 @@ watch(
                   <div class="settings-row-control">
                     <Input
                       v-model="credentials.new_password"
-                      size="lg"
+ 
                       type="password"
                       autocomplete="new-password"
                       placeholder="New password"
@@ -605,7 +610,7 @@ watch(
                   <div class="settings-row-control">
                     <Input
                       v-model="credentials.confirm_password"
-                      size="lg"
+ 
                       type="password"
                       autocomplete="new-password"
                       placeholder="Confirm password"
@@ -617,7 +622,7 @@ watch(
                   <Button
                     v-if="isAccountChanged"
                     variant="primary"
-                    size="lg"
+ 
                     type="submit"
                     :disabled="credentialSaving || auth.loading.value"
                   >
@@ -641,7 +646,7 @@ watch(
                   <span class="settings-row-label">{{ site.label }}</span>
                   <div class="settings-row-control">
                     <Input
-                      size="lg"
+ 
                       :id="`${site.key}LocationInput`"
                       v-model="settingsDraft.site_locations[site.key]"
                       list="downloadLocationSuggestions"
@@ -657,7 +662,7 @@ watch(
               <div class="settings-row">
                 <div class="flex w-full items-center gap-2">
                   <Input
-                    size="lg"
+ 
                     v-model="newCookie.source"
                     type="text"
                     inputmode="url"
@@ -673,7 +678,7 @@ watch(
                   />
                   <Button
                     variant="primary"
-                    size="lg"
+ 
                     type="button"
                     class="shrink-0"
                     title="Upload cookies for link"
@@ -722,7 +727,7 @@ watch(
                       </div>
                       <Button
                         variant="primary"
-                        size="lg"
+ 
                         type="button"
                         class="shrink-0"
                         :title="`Upload ${site.label} cookies`"
@@ -747,7 +752,7 @@ watch(
                       </div>
                       <Button
                         variant="soft"
-                        size="lg"
+ 
                         type="button"
                         class="shrink-0 bg-[#ef4444]! text-white! hover:bg-[#dc2626]!"
                         :title="`Delete ${site.label} cookies`"
@@ -782,7 +787,7 @@ watch(
                       (val) =>
                         (settingsDraft.default_quality.video_quality = val)
                     "
-                    size="lg"
+ 
                     layout="fill"
                     placeholder="Choose a quality"
                     empty-text="No presets."
@@ -798,7 +803,7 @@ watch(
                     @update:model-value="
                       (val) => setDefaultQuality({ video_container: val })
                     "
-                    size="lg"
+ 
                     layout="fill"
                     placeholder="Choose a container"
                     empty-text="No containers."
@@ -814,7 +819,7 @@ watch(
                     @update:model-value="
                       (val) => setDefaultQuality({ video_codec: val })
                     "
-                    size="lg"
+ 
                     layout="fill"
                     placeholder="Choose a codec"
                     empty-text="No codecs."
@@ -838,7 +843,7 @@ watch(
                       (val) =>
                         (settingsDraft.default_quality.audio_format = val)
                     "
-                    size="lg"
+ 
                     layout="fill"
                     placeholder="Choose a format"
                     empty-text="No formats."
@@ -862,7 +867,7 @@ watch(
                       (val) =>
                         (settingsDraft.default_quality.audio_bitrate = val)
                     "
-                    size="lg"
+ 
                     layout="fill"
                     placeholder="Choose a bitrate"
                     empty-text="No bitrates."
@@ -881,7 +886,7 @@ watch(
                 <span class="settings-row-label">{{ site.label }}</span>
                 <div class="settings-row-control">
                   <Input
-                    size="lg"
+ 
                     :id="`${site.key}FolderTemplateInput`"
                     v-model="
                       settingsDraft.source_templates[site.key].folder_template
@@ -902,7 +907,7 @@ watch(
                 <span class="settings-row-label">{{ site.label }}</span>
                 <div class="settings-row-control">
                   <Input
-                    size="lg"
+ 
                     :id="`${site.key}FilenameTemplateInput`"
                     v-model="
                       settingsDraft.source_templates[site.key].filename_template
@@ -920,22 +925,28 @@ watch(
                 :key="site.key"
                 class="scraper-card"
               >
-                <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center justify-between gap-3 mb-2">
                   <span class="settings-row-label">{{ site.label }}</span>
-                  <label class="scraper-toggle">
-                    <input
-                      :id="`${site.key}ScraperEnable`"
-                      type="checkbox"
-                      v-model="
-                        settingsDraft.source_scrape_rules[site.key].enabled
-                      "
-                    />
-                    <span>{{
-                      settingsDraft.source_scrape_rules[site.key].enabled
-                        ? "Enabled"
-                        : "Disabled"
-                    }}</span>
-                  </label>
+                  <div class="flex items-center gap-4">
+                    <Button
+                      v-if="settingsDraft.source_scrape_rules[site.key].enabled"
+                      variant="soft"
+                      type="button"
+                      @click="addScrapeRule(site.key)"
+                    >
+                      <template #icon>
+                        <IconAdd class="w-4 h-4" aria-hidden="true" />
+                      </template>
+                      Add rule
+                    </Button>
+                    <SegmentedControl
+                      :model-value="settingsDraft.source_scrape_rules[site.key].enabled ? 'enabled' : 'disabled'"
+                      @update:model-value="(val: string) => settingsDraft.source_scrape_rules[site.key].enabled = val === 'enabled'"
+                    >
+                      <SegmentedControlItem value="enabled">Enabled</SegmentedControlItem>
+                      <SegmentedControlItem value="disabled">Disabled</SegmentedControlItem>
+                    </SegmentedControl>
+                  </div>
                 </div>
 
                 <template
@@ -955,24 +966,21 @@ watch(
                       site.key
                     ].rules"
                     :key="index"
-                    class="scraper-rule"
+                    class="scraper-rule p-3 mb-3 rounded-xl bg-black/10 in-[.light-mode]:bg-white/40 border border-(--glass-border)"
                   >
                     <div class="scraper-rule-grid">
                       <Input
-                        size="sm"
                         v-model="rule.token"
                         placeholder="token"
                         aria-label="Token name"
                         input-class="font-mono"
                       />
                       <Input
-                        size="sm"
                         v-model="rule.match_label"
                         placeholder="label (optional)"
                         aria-label="Label to anchor on"
                       />
                       <Input
-                        size="sm"
                         v-model="rule.selector"
                         placeholder="CSS selector"
                         aria-label="CSS selector"
@@ -982,19 +990,20 @@ watch(
                         :model-value="rule.attr"
                         :items="SCRAPE_ATTR_ITEMS"
                         @update:model-value="(val) => (rule.attr = val)"
-                        size="sm"
                         layout="fill"
                         placeholder="Attribute"
                         empty-text="—"
                       />
                     </div>
-                    <div class="scraper-rule-actions">
-                      <label class="scraper-checkbox">
-                        <input type="checkbox" v-model="rule.multi" />
+                    <div class="scraper-rule-actions mt-2">
+                      <label class="flex items-center gap-2 cursor-pointer select-none text-sm shrink-0">
+                        <Checkbox
+                          :checked="rule.multi"
+                          @update:checked="(v: boolean) => rule.multi = v"
+                        />
                         <span>Multiple</span>
                       </label>
                       <Input
-                        size="sm"
                         v-model="rule.xpath"
                         placeholder="XPath (optional, overrides selector)"
                         aria-label="XPath"
@@ -1003,7 +1012,6 @@ watch(
                       />
                       <Button
                         variant="soft"
-                        size="sm"
                         type="button"
                         title="Remove rule"
                         aria-label="Remove rule"
@@ -1016,22 +1024,8 @@ watch(
                     </div>
                   </div>
 
-                  <Button
-                    variant="soft"
-                    size="sm"
-                    type="button"
-                    class="mt-1 self-start"
-                    @click="addScrapeRule(site.key)"
-                  >
-                    <template #icon>
-                      <IconAdd class="w-4 h-4" aria-hidden="true" />
-                    </template>
-                    Add rule
-                  </Button>
-
                   <div class="scraper-test">
                     <Input
-                      size="sm"
                       v-model="scrapeTests[site.key].url"
                       type="text"
                       inputmode="url"
@@ -1040,7 +1034,6 @@ watch(
                     />
                     <Button
                       variant="primary"
-                      size="sm"
                       type="button"
                       class="shrink-0"
                       :disabled="scrapeTests[site.key].loading"
@@ -1154,10 +1147,6 @@ watch(
 .scraper-rule {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.5rem;
-  border-radius: 0.6rem;
-  background: color-mix(in srgb, currentColor 6%, transparent);
 }
 
 .scraper-rule-grid {

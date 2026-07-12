@@ -88,11 +88,11 @@ const handleOpenChange = (isOpen: boolean) => {
 };
 
 const SIZE_CLASS: Record<Size, { anchor: string; input: string }> = {
-  xs: { anchor: "h-7", input: "text-xs" },
-  sm: { anchor: "h-8", input: "text-xs" },
-  default: { anchor: "h-9", input: "text-sm" },
-  lg: { anchor: "h-10", input: "text-sm" },
-  xl: { anchor: "h-11", input: "text-base" },
+  xs: { anchor: "h-8", input: "text-xs" },
+  sm: { anchor: "h-9", input: "text-sm" },
+  default: { anchor: "h-10", input: "text-sm" },
+  lg: { anchor: "h-11", input: "text-base" },
+  xl: { anchor: "h-12", input: "text-lg" },
 };
 
 const sizes = computed(() => SIZE_CLASS[props.size]);

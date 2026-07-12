@@ -20,11 +20,11 @@ const BASE =
 
 const SIZE_CLASS: Record<Size, { base: string; pad: string; square: string }> =
   {
-    xs: { base: "h-7 text-xs rounded-lg", pad: "px-2.5", square: "w-7" },
-    sm: { base: "h-8 text-xs rounded-lg", pad: "px-3", square: "w-8" },
-    default: { base: "h-9 text-sm rounded-lg", pad: "px-4", square: "w-9" },
-    lg: { base: "h-10 text-sm rounded-lg", pad: "px-5", square: "w-10" },
-    xl: { base: "h-11 text-base rounded-lg", pad: "px-6", square: "w-11" },
+    xs: { base: "h-8 text-xs rounded-lg", pad: "px-3", square: "w-8" },
+    sm: { base: "h-9 text-sm rounded-lg", pad: "px-4", square: "w-9" },
+    default: { base: "h-10 text-sm rounded-lg", pad: "px-5", square: "w-10" },
+    lg: { base: "h-11 text-base rounded-lg", pad: "px-6", square: "w-11" },
+    xl: { base: "h-12 text-lg rounded-lg", pad: "px-7", square: "w-12" },
   };
 
 const slots = useSlots();
