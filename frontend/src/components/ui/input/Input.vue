@@ -65,7 +65,7 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
 <template>
   <Label
     :class="[
-      'flex items-center min-w-0 rounded-lg glass-soft focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass',
+      'flex items-center min-w-0 rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-[var(--glass-border)] shadow-inner focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass',
       sizes.wrapper,
       attrs.class,
     ]"

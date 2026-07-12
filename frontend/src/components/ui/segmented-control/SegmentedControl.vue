@@ -32,7 +32,7 @@ const sizeClass = computed(() => SIZE_CLASS[props.size]);
     v-bind="props"
     @update:modelValue="emit('update:modelValue', $event)"
     :class="[
-      'inline-flex items-center gap-1 px-1 py-1 glass-soft rounded-lg',
+      'inline-flex items-center gap-1 px-1 py-1 bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-[var(--glass-border)] shadow-inner rounded-lg',
       sizeClass,
       props.class,
     ]"

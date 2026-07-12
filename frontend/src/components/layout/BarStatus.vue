@@ -14,7 +14,7 @@ const emit = defineEmits<{
 
 <template>
   <footer
-    class="z-40 glass-chrome glass-border-top py-2 px-3 flex items-center justify-between text-white in-[.light-mode]:text-black mb-(--nav-bottom-height) lg:mb-0 gap-3"
+    class="z-40 glass glass-border-top py-2 px-3 flex items-center justify-between text-white in-[.light-mode]:text-black mb-(--nav-bottom-height) lg:mb-0 gap-3"
     aria-label="Task counts"
   >
     <Button

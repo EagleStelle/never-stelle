@@ -112,7 +112,7 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
   >
     <ComboboxAnchor
       :class="[
-        'relative inline-flex w-full items-center rounded-lg glass-soft focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass',
+        'relative inline-flex max-w-full items-center rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-[var(--glass-border)] shadow-inner focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass',
         sizes.anchor,
       ]"
     >
@@ -134,16 +134,18 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
         />
         <span
           v-else-if="activeItem?.initials"
-          class="inline-flex h-5 min-w-5 items-center justify-center rounded-lg glass-soft px-1 text-[0.65rem] font-semibold text-white in-[.light-mode]:text-black"
+          class="inline-flex h-5 min-w-5 items-center justify-center rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-[var(--glass-border)] px-1 text-[0.65rem] font-semibold text-white in-[.light-mode]:text-black"
         >
           {{ activeItem.initials }}
         </span>
       </div>
       <ComboboxInput
         :class="[
-          'flex-1 bg-transparent outline-none min-w-0 text-white in-[.light-mode]:text-black placeholder:text-white in-[.light-mode]:placeholder:text-black',
+          'bg-transparent outline-none min-w-0 text-white in-[.light-mode]:text-black placeholder:text-white in-[.light-mode]:placeholder:text-black',
           sizes.input,
         ]"
+        style="field-sizing: content;"
+        :size="Math.max(1, (searchTerm || activeLabel || props.placeholder || 'Search...').length)"
         :placeholder="activeLabel || props.placeholder || 'Search...'"
       />
       <ComboboxTrigger

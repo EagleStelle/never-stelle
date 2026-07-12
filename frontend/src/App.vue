@@ -108,108 +108,199 @@ const { height: statusBarHeight } = useElementSize(
     />
 
     <div class="flex-1 min-w-0 flex flex-col h-dvh relative">
-      <main
-        id="mainContent"
-        class="flex-1 overflow-y-auto overflow-x-hidden p-4 flex flex-col"
-        tabindex="-1"
-      >
-        <template v-if="activePage === 'downloads'">
-          <DownloadInput
-            class="mb-2"
-            v-model:url="url"
-            :saved-settings="savedSettings"
-            :quality="downloadSelection"
-            :quality-options="qualityOptions"
-            @update:quality="setDownloadQuality"
-            @add-download="addDownloadTask"
-          >
-            <template #filters>
-              <DownloadFilters
-                :active-menu="activeMenu"
-                :navigation-items="navigationItems"
-                :media-filter="mediaFilter"
-                :media-filter-items="mediaFilterItems"
-                :view-mode="viewMode"
-                @update:active-menu="setActiveMenu"
-                @update:media-filter="setMediaFilter"
-                @update:view-mode="setViewMode"
-              />
+      <div class="flex-1 relative min-h-0 overflow-hidden">
+        <main
+          id="mainContent"
+          class="absolute inset-0 overflow-y-auto overflow-x-hidden flex flex-col"
+          tabindex="-1"
+        >
+          <!-- Desktop Header: Sticky Top -->
+          <div class="hidden lg:block sticky top-0 z-20 shrink-0 pt-4 pb-2 px-4 glass border-0 border-b border-[var(--glass-border)]">
+            <template v-if="activePage === 'downloads'">
+              <DownloadInput
+                v-model:url="url"
+                :saved-settings="savedSettings"
+                :quality="downloadSelection"
+                :quality-options="qualityOptions"
+                @update:quality="setDownloadQuality"
+                @add-download="addDownloadTask"
+              >
+                <template #filters>
+                  <DownloadFilters
+                    :active-menu="activeMenu"
+                    :navigation-items="navigationItems"
+                    :media-filter="mediaFilter"
+                    :media-filter-items="mediaFilterItems"
+                    :view-mode="viewMode"
+                    @update:active-menu="setActiveMenu"
+                    @update:media-filter="setMediaFilter"
+                    @update:view-mode="setViewMode"
+                  />
+                </template>
+              </DownloadInput>
             </template>
-          </DownloadInput>
-        </template>
 
-        <template v-else-if="activePage === 'history'">
-          <div class="flex flex-col gap-2 mb-2">
-            <section aria-label="Search history">
-              <div class="flex items-center gap-2">
-                <Input
-                  size="lg"
-                  class="flex-1 min-w-0"
-                  type="text"
-                  placeholder="Search history..."
+            <template v-else-if="activePage === 'history'">
+              <div class="flex flex-col-reverse lg:flex-col gap-2 w-full">
+                <section aria-label="Search history">
+                  <div class="flex items-center gap-2">
+                    <Input
+                      size="lg"
+                      class="flex-1 min-w-0"
+                      type="text"
+                      placeholder="Search history..."
+                    >
+                      <template #icon>
+                        <IconSearch class="w-5 h-5" aria-hidden="true" />
+                      </template>
+                    </Input>
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      type="button"
+                      class="shrink-0"
+                      aria-label="Refresh history"
+                      title="Refresh history"
+                      :disabled="historyRefreshing"
+                      @click="refreshHistory"
+                    >
+                      <template #icon>
+                        <IconRefresh
+                          aria-hidden="true"
+                          class="w-6 h-6 transition-transform duration-300 ease-glass group-hover:rotate-45"
+                          :class="{ 'animate-spin': historyRefreshing }"
+                        />
+                      </template>
+                    </Button>
+                  </div>
+                </section>
+                
+                <div class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-end gap-2 w-full pb-1">
+                  <div class="shrink-0 lg:ml-auto">
+                    <DownloadFilters
+                      :active-menu="activeMenu"
+                      :navigation-items="navigationItems"
+                      :media-filter="mediaFilter"
+                      :media-filter-items="mediaFilterItems"
+                      :view-mode="viewMode"
+                      @update:active-menu="setActiveMenu"
+                      @update:media-filter="setMediaFilter"
+                      @update:view-mode="setViewMode"
+                    />
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Scrollable Content -->
+          <div class="flex-1 flex flex-col p-4">
+            <DownloadPanel
+              v-if="['downloads', 'history'].includes(activePage)"
+              :error-message="tasksErrorMessage"
+              :loading="tasksLoading"
+              :page-kind="activePage as 'downloads' | 'history'"
+              :source-profiles="sourceProfiles"
+              :tasks="activePage === 'downloads' ? activeTasks : completedTasks"
+              :view-mode="viewMode"
+              @cancel="cancelTask"
+              @clear-pending="clearPending"
+              @download="downloadTask"
+              @remove="removeTask"
+              @retry="retryTask"
+              @set-source="setTaskSource"
+              @set-view-mode="setViewMode"
+            />
+          </div>
+
+          <!-- Mobile Header & Status Bar: Sticky Bottom -->
+          <div class="sticky bottom-0 z-20 flex flex-col shrink-0">
+            <div class="lg:hidden pt-2 pb-4 px-4 glass border-0 border-t border-[var(--glass-border)]">
+              <template v-if="activePage === 'downloads'">
+                <DownloadInput
+                  v-model:url="url"
+                  :saved-settings="savedSettings"
+                  :quality="downloadSelection"
+                  :quality-options="qualityOptions"
+                  @update:quality="setDownloadQuality"
+                  @add-download="addDownloadTask"
                 >
-                  <template #icon>
-                    <IconSearch class="w-5 h-5" aria-hidden="true" />
-                  </template>
-                </Input>
-                <Button
-                  variant="primary"
-                  size="lg"
-                  type="button"
-                  class="shrink-0"
-                  aria-label="Refresh history"
-                  title="Refresh history"
-                  :disabled="historyRefreshing"
-                  @click="refreshHistory"
-                >
-                  <template #icon>
-                    <IconRefresh
-                      aria-hidden="true"
-                      class="w-6 h-6 transition-transform duration-300 ease-glass group-hover:rotate-45"
-                      :class="{ 'animate-spin': historyRefreshing }"
+                  <template #filters>
+                    <DownloadFilters
+                      :active-menu="activeMenu"
+                      :navigation-items="navigationItems"
+                      :media-filter="mediaFilter"
+                      :media-filter-items="mediaFilterItems"
+                      :view-mode="viewMode"
+                      @update:active-menu="setActiveMenu"
+                      @update:media-filter="setMediaFilter"
+                      @update:view-mode="setViewMode"
                     />
                   </template>
-                </Button>
-              </div>
-            </section>
-            
-            <div class="flex flex-wrap items-center justify-end gap-2 pb-1">
-              <DownloadFilters
-                :active-menu="activeMenu"
-                :navigation-items="navigationItems"
-                :media-filter="mediaFilter"
-                :media-filter-items="mediaFilterItems"
-                :view-mode="viewMode"
-                @update:active-menu="setActiveMenu"
-                @update:media-filter="setMediaFilter"
-                @update:view-mode="setViewMode"
-              />
-            </div>
-          </div>
-        </template>
+                </DownloadInput>
+              </template>
 
-        <DownloadPanel
-          v-if="['downloads', 'history'].includes(activePage)"
-          :error-message="tasksErrorMessage"
-          :loading="tasksLoading"
-          :page-kind="activePage as 'downloads' | 'history'"
-          :source-profiles="sourceProfiles"
-          :tasks="activePage === 'downloads' ? activeTasks : completedTasks"
-          :view-mode="viewMode"
-          @cancel="cancelTask"
-          @clear-pending="clearPending"
-          @download="downloadTask"
-          @remove="removeTask"
-          @retry="retryTask"
-          @set-source="setTaskSource"
-          @set-view-mode="setViewMode"
-        />
-      </main>
-      <BarStatus
-        ref="statusBar"
-        :count-cards="countCards"
-        @clear-queue="clearPending"
-      />
+              <template v-else-if="activePage === 'history'">
+                <div class="flex flex-col-reverse lg:flex-col gap-2 w-full">
+                  <section aria-label="Search history">
+                    <div class="flex items-center gap-2">
+                      <Input
+                        size="lg"
+                        class="flex-1 min-w-0"
+                        type="text"
+                        placeholder="Search history..."
+                      >
+                        <template #icon>
+                          <IconSearch class="w-5 h-5" aria-hidden="true" />
+                        </template>
+                      </Input>
+                      <Button
+                        variant="primary"
+                        size="lg"
+                        type="button"
+                        class="shrink-0"
+                        aria-label="Refresh history"
+                        title="Refresh history"
+                        :disabled="historyRefreshing"
+                        @click="refreshHistory"
+                      >
+                        <template #icon>
+                          <IconRefresh
+                            aria-hidden="true"
+                            class="w-6 h-6 transition-transform duration-300 ease-glass group-hover:rotate-45"
+                            :class="{ 'animate-spin': historyRefreshing }"
+                          />
+                        </template>
+                      </Button>
+                    </div>
+                  </section>
+                  
+                  <div class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-end gap-2 w-full pb-1">
+                    <div class="shrink-0 lg:ml-auto">
+                      <DownloadFilters
+                        :active-menu="activeMenu"
+                        :navigation-items="navigationItems"
+                        :media-filter="mediaFilter"
+                        :media-filter-items="mediaFilterItems"
+                        :view-mode="viewMode"
+                        @update:active-menu="setActiveMenu"
+                        @update:media-filter="setMediaFilter"
+                        @update:view-mode="setViewMode"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <BarStatus
+              ref="statusBar"
+              :count-cards="countCards"
+              @clear-queue="clearPending"
+            />
+          </div>
+        </main>
+      </div>
     </div>
 
     <NavBottom

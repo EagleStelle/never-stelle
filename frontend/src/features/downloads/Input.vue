@@ -53,7 +53,7 @@ const pasteFromClipboard = async () => {
 
 <template>
   <section aria-label="Add download">
-    <form class="flex flex-col gap-2 w-full" @submit.prevent="emit('addDownload')">
+    <form class="flex flex-col-reverse lg:flex-col gap-2 w-full" @submit.prevent="emit('addDownload')">
       <div class="flex items-center gap-2 w-full">
         <Input
           size="lg"
@@ -97,8 +97,8 @@ const pasteFromClipboard = async () => {
         </Button>
       </div>
 
-      <div class="flex flex-wrap items-center justify-between gap-2 w-full">
-        <div class="flex flex-wrap items-center gap-2">
+      <div class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-start gap-2 w-full pb-1">
+        <div class="flex items-center gap-2 shrink-0">
           <SegmentedControl
             v-if="qualityOptions.video.length"
             :model-value="quality.mode"
@@ -122,7 +122,7 @@ const pasteFromClipboard = async () => {
               :items="qualityOptions.video"
               @update:model-value="(val) => update({ video_quality: val })"
               size="lg"
-              class="shrink-0 w-24 sm:w-28"
+              class="shrink-0"
               placeholder="Quality..."
               empty-text="No presets."
               aria-label="Video quality"
@@ -133,7 +133,7 @@ const pasteFromClipboard = async () => {
               :items="qualityOptions.video_containers"
               @update:model-value="(val) => update({ video_container: val })"
               size="lg"
-              class="shrink-0 w-24 sm:w-28"
+              class="shrink-0"
               placeholder="Container..."
               empty-text="No containers."
               aria-label="Video container"
@@ -144,7 +144,7 @@ const pasteFromClipboard = async () => {
               :items="codecItems"
               @update:model-value="(val) => update({ video_codec: val })"
               size="lg"
-              class="shrink-0 w-24 sm:w-28"
+              class="shrink-0"
               placeholder="Codec..."
               empty-text="No codecs."
               aria-label="Video codec"
@@ -158,7 +158,7 @@ const pasteFromClipboard = async () => {
               :items="qualityOptions.audio_formats"
               @update:model-value="(val) => update({ audio_format: val })"
               size="lg"
-              class="shrink-0 w-24 sm:w-28"
+              class="shrink-0"
               placeholder="Format..."
               empty-text="No formats."
               aria-label="Audio format"
@@ -169,7 +169,7 @@ const pasteFromClipboard = async () => {
               :items="qualityOptions.audio_bitrates"
               @update:model-value="(val) => update({ audio_bitrate: val })"
               size="lg"
-              class="shrink-0 w-28 sm:w-32"
+              class="shrink-0"
               placeholder="Bitrate..."
               empty-text="No bitrates."
               aria-label="Audio bitrate"
@@ -177,7 +177,9 @@ const pasteFromClipboard = async () => {
           </template>
         </div>
 
-        <slot name="filters" />
+        <div class="shrink-0 lg:ml-auto">
+          <slot name="filters" />
+        </div>
       </div>
     </form>
   </section>

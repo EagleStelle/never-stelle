@@ -30,7 +30,7 @@ const emit = defineEmits<{
       :model-value="activeMenu"
       :items="navigationItems"
       @update:model-value="(val) => emit('update:activeMenu', val as MenuKey)"
-      class="flex-1 min-w-0 sm:flex-none sm:w-44"
+      class="shrink-0"
       placeholder="Search platform..."
       empty-text="No platforms found."
     />
@@ -40,7 +40,7 @@ const emit = defineEmits<{
       :model-value="mediaFilter"
       :items="mediaFilterItems"
       @update:model-value="(val) => emit('update:mediaFilter', val as MediaFilter)"
-      class="flex-1 min-w-0 sm:flex-none sm:w-44"
+      class="shrink-0"
       placeholder="Media type..."
       empty-text="No types."
     />

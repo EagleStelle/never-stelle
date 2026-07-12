@@ -41,7 +41,7 @@ function toggle(set: Set<string>, id: string): void {
 </script>
 
 <template>
-  <Table>
+  <Table v-if="props.tasks.length > 0">
     <TableHeader>
       <TableRow>
         <TableHead class="w-1/2 min-w-72 whitespace-nowrap">Name</TableHead>
