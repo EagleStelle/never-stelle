@@ -19,7 +19,7 @@ from .constants import (
     is_lossless_audio,
     normalize_quality_selection,
 )
-from .formats import creator_from_url
+from .formats import derived_token_value
 from .naming import (
     clean_filename_title,
     clean_social_title,
@@ -60,43 +60,46 @@ def _safe_literal(value: str) -> str:
     return sanitize_path_literal(value).replace("%", "%%")
 
 
-def _yt_dlp_field(name: str, source_url: str = "") -> str:
+# Metadata specifiers for tokens yt-dlp fills itself, and the fallbacks for the
+# URL/selection-derived tokens (username handle, delivered quality format).
+_YTDLP_FIELD = {
+    "title": "%(title|Unknown)s",
+    "id": "%(id|NA)s",
+    "username": YTDLP_USERNAME_FIELD,
+    "nickname": YTDLP_NICKNAME_FIELD,
+    "quality": "%(format_id,format_note,resolution|Unknown)s",
+    "ext": "%(ext)s",
+}
+
+
+def _yt_dlp_field(name: str, source_url: str = "", quality: dict[str, str] | None = None) -> str:
     field = str(name or "").strip().lower()
-    if field == "username":
-        # Handle comes from the URL path when present, else the uploader handle.
-        creator = _safe_literal(creator_from_url(source_url))
-        if creator:
-            return creator
-        return YTDLP_USERNAME_FIELD
-    mapping = {
-        "title": "%(title|Unknown)s",
-        "id": "%(id|NA)s",
-        "nickname": YTDLP_NICKNAME_FIELD,
-        "quality": "%(format_id,format_note,resolution|Unknown)s",
-        "ext": "%(ext)s",
-    }
-    return mapping.get(field, f"%({name}|Unknown)s")
+    derived = derived_token_value(field, source_url, quality)
+    if derived is not None:
+        return _safe_literal(derived)
+    return _YTDLP_FIELD.get(field, f"%({name}|Unknown)s")
 
 
-def convert_template_to_ytdlp(template: str, source_url: str = "") -> str:
+def convert_template_to_ytdlp(template: str, source_url: str = "", quality: dict[str, str] | None = None) -> str:
     value = str(template or "").strip()
     if not value:
         return ""
-    return TEMPLATE_RE.sub(lambda match: _yt_dlp_field(match.group(1), source_url), value)
+    return TEMPLATE_RE.sub(lambda match: _yt_dlp_field(match.group(1), source_url, quality), value)
 
 
 def build_output_template(
     source_url: str,
     output_dir: str,
     template_settings: dict[str, str] | None = None,
+    quality: dict[str, str] | None = None,
 ) -> str:
     settings = (
         normalize_template_settings(template_settings)
         if template_settings is not None
         else get_effective_template_settings(source_url)
     )
-    folder_template = convert_template_to_ytdlp(settings["folder_template"], source_url)
-    filename_template = convert_template_to_ytdlp(settings["filename_template"], source_url)
+    folder_template = convert_template_to_ytdlp(settings["folder_template"], source_url, quality)
+    filename_template = convert_template_to_ytdlp(settings["filename_template"], source_url, quality)
     if "%(ext" not in filename_template:
         filename_template = f"{filename_template}.%(ext)s"
     base = Path(output_dir)

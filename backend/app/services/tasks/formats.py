@@ -6,6 +6,8 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunpa
 
 from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key, source_key_from_url
 
+from .constants import quality_label
+
 _ID_TOKEN = "{id}"
 _CREATOR_TOKEN = "{creator}"
 _VAR_TOKEN = "{var}"
@@ -165,12 +167,39 @@ def _clean_creator(value: str) -> str:
     return value.strip()
 
 
+def _looks_like_slug(value: str) -> bool:
+    # A descriptive title slug joins words with -, _, or space; single-word route
+    # segments (video, watch, posts) and bare ids have none, so they are skipped.
+    value = unquote(str(value or "")).strip()
+    if len(value) < 3 or not any(ch.isalpha() for ch in value):
+        return False
+    return any(sep in value for sep in ("-", "_", " "))
+
+
+def _slug_index_for_path_id(segments: list[str], id_index: int | None, creator_index: int | None) -> int | None:
+    # With an id anchor, the slug is the descriptive segment beside it (usually
+    # after) — anchoring keeps a hyphenated creator handle from being read as a slug.
+    if id_index is not None:
+        for candidate in (id_index + 1, id_index - 1):
+            if 0 <= candidate < len(segments) and candidate != creator_index and _looks_like_slug(segments[candidate]):
+                return candidate
+        return None
+    # No id resolved yet (download time): the last descriptive, non-creator segment.
+    for candidate in range(len(segments) - 1, -1, -1):
+        if candidate != creator_index and _looks_like_slug(segments[candidate]):
+            return candidate
+    return None
+
+
 def analyze_url(source_url: str, media_id: str = "") -> dict[str, Any]:
     canonical = canonicalize_url(source_url, media_id)
     try:
         parsed = urlparse(canonical)
     except Exception:
-        return {"canonical": canonical, "host": "", "id_part": "", "creator_part": "", "creator": ""}
+        return {
+            "canonical": canonical, "host": "", "id_part": "",
+            "creator_part": "", "creator": "", "slug_part": "", "slug": "",
+        }
     segments = _path_segments(parsed.path)
     id_index = _infer_path_id_index(segments, media_id)
     id_part = f"path:{id_index}" if id_index is not None else ""
@@ -180,17 +209,42 @@ def analyze_url(source_url: str, media_id: str = "") -> dict[str, Any]:
 
     creator_index = _creator_index_for_path_id(segments, id_index)
     creator = _clean_creator(segments[creator_index]) if creator_index is not None else ""
+    slug_index = _slug_index_for_path_id(segments, id_index, creator_index)
+    slug = unquote(str(segments[slug_index])).strip() if slug_index is not None else ""
     return {
         "canonical": canonical,
         "host": parsed.netloc.lower(),
         "id_part": id_part,
         "creator_part": f"path:{creator_index}" if creator_index is not None else "",
         "creator": creator,
+        "slug_part": f"path:{slug_index}" if slug_index is not None else "",
+        "slug": slug,
     }
 
 
 def creator_from_url(source_url: str, media_id: str = "") -> str:
     return str(analyze_url(source_url, media_id).get("creator") or "")
+
+
+def slug_from_url(source_url: str, media_id: str = "") -> str:
+    return str(analyze_url(source_url, media_id).get("slug") or "")
+
+
+def derived_token_value(field: str, source_url: str = "", quality: dict[str, str] | None = None) -> str | None:
+    """Value for a filename token that comes from the URL or the quality selection
+    rather than the engine's own metadata. Returns None when the engine should
+    resolve the token from its metadata fields instead ("" is a real, empty value).
+    Both engines share this so the URL/selection logic lives in one place."""
+    field = str(field or "").strip().lower()
+    if field == "username":
+        # URL handle when present; None lets each engine use its own handle field.
+        return creator_from_url(source_url) or None
+    if field == "slug":
+        return slug_from_url(source_url)
+    if field == "quality":
+        # Selected combo label when threaded; None falls back to delivered format.
+        return quality_label(quality) if quality is not None else None
+    return None
 
 
 def _media_id_from_analysis(analysis: dict[str, Any]) -> str:

@@ -80,7 +80,7 @@ def queue_task(
 
     engine = select_engine(source_url)
     task_id = f"{engine.id_prefix}:{uuid.uuid4().hex[:12]}"
-    output_template = engine.build_output_template(source_url, output_dir, resolved_settings.template_settings)
+    output_template = engine.build_output_template(source_url, output_dir, resolved_settings.template_settings, quality)
     task = {
         "engine": engine.name,
         "source_url": source_url,

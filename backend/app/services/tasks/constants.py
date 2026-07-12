@@ -152,6 +152,17 @@ def default_quality_selection() -> dict[str, str]:
     return normalize_quality_selection({})
 
 
+def quality_label(selection: Any = None) -> str:
+    # Human label for the selected combo — feeds the {{quality}} filename token.
+    # "best" reads as "source" (original, uncapped); other presets use their label.
+    sel = normalize_quality_selection(selection)
+    if sel["mode"] == "audio":
+        key = sel["audio_bitrate"]
+        return "source" if key == "best" else AUDIO_BITRATE_PRESETS[key]["label"].replace(" ", "")
+    key = sel["video_quality"]
+    return "source" if key == "best" else VIDEO_QUALITY_PRESETS[key]["label"]
+
+
 def _options(table: dict[str, dict[str, str]]) -> list[dict[str, str]]:
     return [{"key": key, "label": preset["label"]} for key, preset in table.items()]
 

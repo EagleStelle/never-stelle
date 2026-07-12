@@ -31,6 +31,7 @@ from backend.app.services.tasks.formats import (
     media_id_from_url,
     reconstruct_url,
     reconstruct_url_candidates,
+    slug_from_url,
     url_dedup_key,
 )
 from backend.app.services.tasks.naming import (
@@ -1468,6 +1469,43 @@ def test_reconstruct_url_candidates_needs_creator_and_id():
 def test_creator_from_url_uses_handle_segment_without_at_sign():
     assert creator_from_url("https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489") == "fzyahoo.com"
     assert creator_from_url("https://x.com/ININIinNINI/status/2073390288501166083") == "ININIinNINI"
+
+
+def test_slug_from_url_lifts_descriptive_path_segment():
+    # The site's own slug, not the metadata title, with no resolved id needed.
+    url = "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/"
+    assert slug_from_url(url) == "daiwa-scarlet-suokanawer"
+
+
+def test_slug_from_url_absent_when_no_descriptive_segment():
+    assert slug_from_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ") == ""
+    assert slug_from_url("https://twitter.com/someuser/status/1234567890123456") == ""
+
+
+def test_slug_from_url_does_not_read_hyphenated_creator_handle_as_slug():
+    # A hyphenated handle is the creator, not a title slug.
+    assert creator_from_url("https://example.com/user/john-doe/status/123") == "john-doe"
+    assert slug_from_url("https://example.com/user/john-doe/status/123") == ""
+
+
+def test_convert_template_fills_slug_token_from_url():
+    result = convert_template_to_ytdlp(
+        "{{username}} - {{slug}} [{{id}}]",
+        "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/",
+    )
+    assert " - daiwa-scarlet-suokanawer [" in result
+
+
+def test_convert_template_quality_uses_selected_label_best_reads_source():
+    tmpl = "{{slug}}_{{quality}}"
+    url = "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/"
+    assert convert_template_to_ytdlp(tmpl, url, {"mode": "video", "video_quality": "best"}).endswith("_source")
+    assert convert_template_to_ytdlp(tmpl, url, {"mode": "video", "video_quality": "1080p"}).endswith("_1080p")
+
+
+def test_convert_template_quality_without_selection_keeps_metadata_specifier():
+    # Direct callers with no quality threaded through fall back to the delivered format.
+    assert "%(format_id" in convert_template_to_ytdlp("{{quality}}", "https://example.com/x")
 
 
 def test_learn_download_ignores_unknown_host():

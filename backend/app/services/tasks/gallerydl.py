@@ -20,19 +20,23 @@ from .constants import (
     codec_allowed_for_container,
     normalize_quality_selection,
 )
-from .formats import creator_from_url
+from .formats import derived_token_value
 from .naming import detect_ffmpeg_location, sanitize_path_literal
 
-_GALLERYDL_FIELD = {
-    "title": '{title|content|"untitled"}',
-    "id": '{id|num|"NA"}',
-    "quality": '{width|"?"}x{height|"?"}',
-    "ext": "{extension}",
-}
 # {{username}} = the handle; {{nickname}} = the display name. Extractors nest these
 # differently, so each token tries a chain and falls back across engines' spellings.
 _GALLERYDL_USERNAME = '{username|user[name]|author|"unknown"}'
 _GALLERYDL_NICKNAME = '{author[nick]|user[nickname]|fullname|nickname|username|user[name]|"unknown"}'
+# Metadata specifiers for tokens gallery-dl fills itself, plus the fallbacks for the
+# URL/selection-derived tokens (username handle, delivered quality resolution).
+_GALLERYDL_FIELD = {
+    "title": '{title|content|"untitled"}',
+    "id": '{id|num|"NA"}',
+    "username": _GALLERYDL_USERNAME,
+    "nickname": _GALLERYDL_NICKNAME,
+    "quality": '{width|"?"}x{height|"?"}',
+    "ext": "{extension}",
+}
 # Directory and filename packed into one output_template; only the builder splits it.
 _TEMPLATE_SEP = "\x1f"
 _COUNT_TIMEOUT_SECONDS = 60
@@ -129,36 +133,34 @@ def _excluded_extension_filter(excluded_extensions: set[str] | None) -> str:
     return f"extension not in {tuple(values)!r}"
 
 
-def _gallerydl_field(name: str, source_url: str) -> str:
+def _gallerydl_field(name: str, source_url: str, quality: dict[str, str] | None = None) -> str:
     field = str(name or "").strip().lower()
-    if field == "username":
-        # Handle from the URL path when present, else the account's username field.
-        creator = sanitize_path_literal(creator_from_url(source_url))
-        return _escape_literal(creator) if creator else _GALLERYDL_USERNAME
-    if field == "nickname":
-        return _GALLERYDL_NICKNAME
+    derived = derived_token_value(field, source_url, quality)
+    if derived is not None:
+        return _escape_literal(sanitize_path_literal(derived))
     return _GALLERYDL_FIELD.get(field, "")
 
 
-def convert_template_to_gallerydl(template: str, source_url: str = "") -> str:
+def convert_template_to_gallerydl(template: str, source_url: str = "", quality: dict[str, str] | None = None) -> str:
     value = str(template or "").strip()
     if not value:
         return ""
-    return TEMPLATE_RE.sub(lambda match: _gallerydl_field(match.group(1), source_url), value)
+    return TEMPLATE_RE.sub(lambda match: _gallerydl_field(match.group(1), source_url, quality), value)
 
 
 def build_gallerydl_output_template(
     source_url: str,
     output_dir: str,
     template_settings: dict[str, str] | None = None,
+    quality: dict[str, str] | None = None,
 ) -> str:
     settings = (
         normalize_template_settings(template_settings)
         if template_settings is not None
         else get_effective_template_settings(source_url)
     )
-    folder = convert_template_to_gallerydl(settings["folder_template"], source_url)
-    stem = convert_template_to_gallerydl(settings["filename_template"], source_url)
+    folder = convert_template_to_gallerydl(settings["folder_template"], source_url, quality)
+    stem = convert_template_to_gallerydl(settings["filename_template"], source_url, quality)
     stem = stem.replace(".{extension}", "").replace("{extension}", "").rstrip(". ")
     # {num} keeps every image in a multi-file post (slideshow) unique.
     if "{num" not in stem:

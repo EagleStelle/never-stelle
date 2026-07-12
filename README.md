@@ -217,13 +217,19 @@ Output folders and filenames are built from placeholders. Supported placeholders
 | `{{username}}` | Uploader handle.                |
 | `{{nickname}}` | Uploader display name.          |
 | `{{title}}`    | Media title.                    |
+| `{{slug}}`     | Descriptive slug from the URL.  |
 | `{{id}}`       | Media id.                       |
-| `{{quality}}`  | Selected quality or resolution. |
+| `{{quality}}`  | Selected quality (`source` for best). |
 | `{{ext}}`      | File extension.                 |
 
 `{{username}}` resolves to the handle from the URL when present, else the engine's
 handle field; `{{nickname}}` resolves to the display name. On platforms without a
 distinct handle or display name, both fall back to whatever the extractor provides.
+
+`{{slug}}` resolves to the descriptive slug in the URL path (e.g. a
+`.../video/<id>/<slug>/` path yields the `<slug>` segment), detected dynamically
+with no per-site rules. It is empty for URLs that carry no slug, so pair it with a
+fallback like `{{title}}`.
 
 Defaults:
 

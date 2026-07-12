@@ -1292,7 +1292,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             if index == 0 and str(task.get("output_template") or ""):
                 output_template = str(task["output_template"])
             else:
-                output_template = engine.build_output_template(source_url, output_dir, template_settings)
+                output_template = engine.build_output_template(source_url, output_dir, template_settings, quality)
             excluded_extensions = _fallback_excluded_extensions(engine, output_records)
             total_items = (
                 0
