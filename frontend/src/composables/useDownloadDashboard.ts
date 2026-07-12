@@ -50,6 +50,7 @@ const SETTINGS_ROUTE_BY_SECTION: Record<SettingsSection, string> = {
   quality: "/settings/quality",
   "folder-template": "/settings/folder",
   "filename-template": "/settings/filename",
+  scraper: "/settings/scraper",
 };
 
 function settingsSectionFromPath(path: string): SettingsSection {

@@ -5,3 +5,5 @@ PyYAML
 yt-dlp
 gallery-dl
 httpx
+lxml
+cssselect

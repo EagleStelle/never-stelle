@@ -256,6 +256,20 @@ def get_effective_template_settings(source_url: str = "") -> dict[str, str]:
     return source_templates.get(profile["key"], base)
 
 
+# --- Scrape rules ---
+def get_effective_scrape_rules(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    # Per-platform, user-defined HTML extraction rules. Normalized on read so a
+    # hand-edited or legacy payload can never feed the scraper malformed rules.
+    from backend.app.services.tasks.enrich import normalize_scrape_rules
+
+    payload = payload if isinstance(payload, dict) else load_saved_settings_file()
+    return normalize_scrape_rules(payload.get("source_scrape_rules") or payload.get("scrape_rules"))
+
+
+def load_scrape_rules() -> dict[str, Any]:
+    return get_effective_scrape_rules()
+
+
 # --- Locations ---
 def normalize_source_location_selection(
     raw: Any,
@@ -416,6 +430,7 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
         ),
         "default_quality": normalize_quality_selection(payload.get("default_quality")),
         "ytdlp_cookies": get_ytdlp_cookies_status(source_profiles),
+        "source_scrape_rules": get_effective_scrape_rules(payload),
     }
 
 
@@ -426,8 +441,10 @@ def persist_settings(
     raw_source_profiles: Any = None,
     raw_source_templates: Any = None,
     raw_default_quality: Any = None,
+    raw_scrape_rules: Any = None,
 ) -> dict[str, Any]:
     from backend.app.services.tasks.constants import normalize_quality_selection
+    from backend.app.services.tasks.enrich import normalize_scrape_rules
 
     existing = load_saved_settings_file()
     source_profiles = get_effective_source_profiles(
@@ -463,6 +480,11 @@ def persist_settings(
             "default_quality": normalize_quality_selection(
                 raw_default_quality if raw_default_quality is not None else existing.get("default_quality")
             ),
+            "source_scrape_rules": normalize_scrape_rules(
+                raw_scrape_rules
+                if raw_scrape_rules is not None
+                else existing.get("source_scrape_rules") or existing.get("scrape_rules")
+            ),
         }
     )
     save_saved_settings_file(existing)
@@ -489,5 +511,6 @@ def build_settings_response(
         "default_quality": saved.get("default_quality", default_quality_selection()),
         "quality_options": quality_options(),
         "ytdlp_cookies": saved.get("ytdlp_cookies", get_ytdlp_cookies_status(saved.get("source_profiles"))),
+        "source_scrape_rules": saved.get("source_scrape_rules", get_effective_scrape_rules()),
         "settings_loaded_at": int(time.time()),
     }

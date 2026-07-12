@@ -74,7 +74,15 @@ def _identifier_score(value: str, key: str = "", *, path_context: bool = False) 
     if classes & {"-", "_"}:
         score += 1
     if token.isdigit() and not _is_identifier_key(key):
-        score += 1 if len(token) >= 10 else -1
+        # A bare number is a strong id well below 10 digits (tube-site /video/<id>/).
+        score += 1 if len(token) >= 6 else -1
+    # Many-worded hyphenated segments are descriptive title slugs, not ids, even
+    # though length/separators otherwise score them high (/video/<id>/<slug>/). An
+    # incidental digit inside a word (ep-7) must not disqualify it from being a slug.
+    parts = [part for part in re.split(r"[-_]", token) if part]
+    is_wordy_slug = len(parts) >= 3 and sum(1 for part in parts if part.isalpha()) >= 2
+    if is_wordy_slug and not _is_identifier_key(key):
+        score -= 4
     if _is_route_segment(token) and not _is_identifier_key(key):
         score -= 2
     if path_context and token.startswith("@"):
@@ -230,12 +238,23 @@ def slug_from_url(source_url: str, media_id: str = "") -> str:
     return str(analyze_url(source_url, media_id).get("slug") or "")
 
 
-def derived_token_value(field: str, source_url: str = "", quality: dict[str, str] | None = None) -> str | None:
-    """Value for a filename token that comes from the URL or the quality selection
-    rather than the engine's own metadata. Returns None when the engine should
-    resolve the token from its metadata fields instead ("" is a real, empty value).
-    Both engines share this so the URL/selection logic lives in one place."""
+def derived_token_value(
+    field: str,
+    source_url: str = "",
+    quality: dict[str, str] | None = None,
+    extra_tokens: dict[str, str] | None = None,
+) -> str | None:
+    """Value for a filename token that comes from the URL, the quality selection,
+    or scraped page metadata rather than the engine's own fields. Returns None when
+    the engine should resolve the token from its metadata fields instead ("" is a
+    real, empty value). Both engines share this so the logic lives in one place."""
     field = str(field or "").strip().lower()
+    if extra_tokens:
+        # User scrape rules win over engine fields, so a broken/absent extractor
+        # value (uploader/artist) can be overridden with the page's own markup.
+        override = extra_tokens.get(field)
+        if override is not None and str(override).strip():
+            return str(override)
     if field == "username":
         # URL handle when present; None lets each engine use its own handle field.
         return creator_from_url(source_url) or None

@@ -14,6 +14,8 @@ import IconTrash from "~icons/material-symbols/delete";
 import IconQuality from "~icons/material-symbols/high-quality";
 import IconUpload from "~icons/material-symbols/upload";
 import IconUndo from "~icons/material-symbols/undo";
+import IconScraper from "~icons/material-symbols/travel-explore";
+import IconAdd from "~icons/material-symbols/add";
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from "reka-ui";
 import { toast } from "vue-sonner";
 
@@ -35,13 +37,19 @@ import { SETTINGS_SECTIONS } from "../../ui";
 import { useAuth } from "../../composables/useAuth";
 import type {
   CookiesMap,
+  PlatformScrapeRules,
   QualitySelection,
   RuntimeSettings,
   SavedSettings,
+  ScrapeTestResult,
   SettingsSection,
   SourceProfile,
 } from "../../types";
+import { FALLBACK_SOURCE_KEY } from "../../types";
+import { testScrapeRules } from "../../api";
 import {
+  createPlatformScrapeRules,
+  createScrapeRule,
   createTemplateSettings,
   errorMessage,
   isCodecAllowed,
@@ -78,12 +86,30 @@ const SECTION_ICONS: Record<SettingsSection, Component> = {
   quality: IconQuality,
   "folder-template": IconRuleFolder,
   "filename-template": IconDescription,
+  scraper: IconScraper,
 };
 
 const SECTION_GROUPS: Array<{ label: string; keys: SettingsSection[] }> = [
   { label: "Settings", keys: ["account", "downloads", "cookies", "quality"] },
-  { label: "Templates", keys: ["folder-template", "filename-template"] },
+  {
+    label: "Templates",
+    keys: ["folder-template", "filename-template", "scraper"],
+  },
 ];
+
+const SCRAPE_ATTR_ITEMS = [
+  { key: "text", label: "Text" },
+  { key: "href", label: "Link (href)" },
+  { key: "src", label: "src" },
+  { key: "alt", label: "alt" },
+  { key: "title", label: "title" },
+];
+
+// Built in script so the literal braces never reach the template tokenizer.
+const ARTIST_TOKEN_EXAMPLE = "{{artist}}";
+function tokenLabel(token: string): string {
+  return `{{${token}}}`;
+}
 
 const auth = useAuth();
 const cookieFiles = reactive<Record<string, File | null>>({});
@@ -101,8 +127,12 @@ const credentialSaving = ref(false);
 const sectionSearch = ref("");
 
 const isAccountChanged = computed(() => {
-  const originalUsername = auth.username.value || props.settings.auth.username || "";
-  return credentials.username !== originalUsername || credentials.new_password.length > 0;
+  const originalUsername =
+    auth.username.value || props.settings.auth.username || "";
+  return (
+    credentials.username !== originalUsername ||
+    credentials.new_password.length > 0
+  );
 });
 
 // Grey out codecs the chosen container can't hold.
@@ -166,7 +196,11 @@ const sourceProfiles = computed<SourceProfile[]>(() => {
   );
 });
 const editableSourceProfiles = computed<SourceProfile[]>(() =>
-  settingsManagedSourceProfiles(sourceProfiles.value),
+  [...settingsManagedSourceProfiles(sourceProfiles.value)].sort((a, b) => {
+    if (a.key === FALLBACK_SOURCE_KEY) return 1;
+    if (b.key === FALLBACK_SOURCE_KEY) return -1;
+    return a.label.localeCompare(b.label);
+  }),
 );
 
 watch(
@@ -184,6 +218,18 @@ watch(
         props.settingsDraft.source_templates[profile.key] =
           createTemplateSettings(props.settingsDraft.template_settings);
       }
+      if (!props.settingsDraft.source_scrape_rules[profile.key]) {
+        props.settingsDraft.source_scrape_rules[profile.key] =
+          createPlatformScrapeRules();
+      }
+      if (!scrapeTests[profile.key]) {
+        scrapeTests[profile.key] = {
+          url: "",
+          loading: false,
+          results: [],
+          message: "",
+        };
+      }
       if (!(profile.key in props.settingsDraft.site_locations))
         props.settingsDraft.site_locations[profile.key] =
           props.settings.site_locations[profile.key] || "";
@@ -194,7 +240,8 @@ watch(
 
 function selectSection(section: SettingsSection): void {
   sectionModel.value = section;
-  const firstEditableSource = editableSourceProfiles.value[0]?.key || "settings";
+  const firstEditableSource =
+    editableSourceProfiles.value[0]?.key || "settings";
   const focusTargets: Record<SettingsSection, string> = {
     account: "accountUsernameInput",
     downloads: `${firstEditableSource}LocationInput`,
@@ -202,8 +249,54 @@ function selectSection(section: SettingsSection): void {
     quality: "defaultQualityMode",
     "folder-template": `${firstEditableSource}FolderTemplateInput`,
     "filename-template": `${firstEditableSource}FilenameTemplateInput`,
+    scraper: `${firstEditableSource}ScraperEnable`,
   };
   void nextTick(() => document.getElementById(focusTargets[section])?.focus());
+}
+
+interface ScrapeTestState {
+  url: string;
+  loading: boolean;
+  results: ScrapeTestResult[];
+  message: string;
+}
+const scrapeTests = reactive<Record<string, ScrapeTestState>>({});
+
+function platformRules(key: string): PlatformScrapeRules {
+  return props.settingsDraft.source_scrape_rules[key];
+}
+
+function addScrapeRule(key: string): void {
+  platformRules(key).rules.push(createScrapeRule());
+}
+
+function removeScrapeRule(key: string, index: number): void {
+  platformRules(key).rules.splice(index, 1);
+}
+
+async function runScrapeTest(key: string): Promise<void> {
+  const state = scrapeTests[key];
+  const url = state.url.trim();
+  if (!url) {
+    toast.error("Paste a sample URL to test.");
+    return;
+  }
+  state.loading = true;
+  state.message = "";
+  try {
+    const response = await testScrapeRules(url, key, platformRules(key).rules);
+    state.results = response.results;
+    state.message = response.fetched
+      ? response.results.length
+        ? ""
+        : "Add a rule to test."
+      : response.detail || "Could not fetch that page.";
+  } catch (error) {
+    state.results = [];
+    state.message = errorMessage(error, "Could not test scrape rules.");
+  } finally {
+    state.loading = false;
+  }
 }
 
 function resetCredentials(): void {
@@ -321,11 +414,27 @@ watch(
           <div class="flex items-center gap-2">
             <span class="text-lg font-bold ml-1">Settings</span>
             <template v-if="hasUnsavedChanges">
-              <Button variant="soft" size="sm" @click="emit('clear')" title="Clear changes" aria-label="Clear changes">
-                <template #icon><IconUndo class="w-4 h-4" aria-hidden="true" /></template>
+              <Button
+                variant="soft"
+                size="sm"
+                @click="emit('clear')"
+                title="Clear changes"
+                aria-label="Clear changes"
+              >
+                <template #icon
+                  ><IconUndo class="w-4 h-4" aria-hidden="true"
+                /></template>
               </Button>
-              <Button variant="primary" size="sm" @click="emit('save')" title="Save changes" aria-label="Save changes">
-                <template #icon><IconSave class="w-4 h-4" aria-hidden="true" /></template>
+              <Button
+                variant="primary"
+                size="sm"
+                @click="emit('save')"
+                title="Save changes"
+                aria-label="Save changes"
+              >
+                <template #icon
+                  ><IconSave class="w-4 h-4" aria-hidden="true"
+                /></template>
               </Button>
             </template>
           </div>
@@ -359,7 +468,11 @@ watch(
             class="flex gap-1 overflow-x-auto pb-1 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:pb-0"
             aria-label="Settings sections"
           >
-            <SidebarGroup v-for="group in sectionGroups" :key="group.label" class="flex-row sm:flex-col w-auto sm:w-full gap-1">
+            <SidebarGroup
+              v-for="group in sectionGroups"
+              :key="group.label"
+              class="flex-row sm:flex-col w-auto sm:w-full gap-1"
+            >
               <SidebarGroupLabel class="hidden sm:block sm:not-first:mt-3">
                 {{ group.label }}
               </SidebarGroupLabel>
@@ -374,7 +487,10 @@ watch(
                     :value="item.key"
                     @click="selectSection(item.key)"
                   >
-                    <SidebarMenuButton as="div" class="cursor-pointer w-auto sm:w-full justify-center sm:justify-start px-3.5 sm:px-3.5 h-8 sm:h-10">
+                    <SidebarMenuButton
+                      as="div"
+                      class="cursor-pointer w-auto sm:w-full justify-center sm:justify-start px-3.5 sm:px-3.5 h-8 sm:h-10"
+                    >
                       <component
                         :is="SECTION_ICONS[item.key]"
                         class="hidden sm:block h-5 w-5 shrink-0 opacity-80 group-data-[state=active]:opacity-100"
@@ -395,15 +511,21 @@ watch(
       <!-- Content -->
       <div class="relative min-h-0 min-w-0 flex-1 flex flex-col">
         <!-- Desktop Header & Close Button -->
-        <div class="hidden sm:flex h-14 shrink-0 items-center justify-between px-4 gap-2 border-0 border-b border-(--glass-border) mb-4 sm:mb-0 sm:border-0">
+        <div
+          class="hidden sm:flex h-14 shrink-0 items-center justify-between px-4 gap-2 border-0 border-b border-(--glass-border) mb-4 sm:mb-0 sm:border-0"
+        >
           <div class="flex items-center gap-2">
             <template v-if="hasUnsavedChanges">
               <Button variant="soft" @click="emit('clear')">
-                <template #icon><IconUndo class="w-5 h-5" aria-hidden="true" /></template>
+                <template #icon
+                  ><IconUndo class="w-5 h-5" aria-hidden="true"
+                /></template>
                 Clear
               </Button>
               <Button variant="primary" @click="emit('save')">
-                <template #icon><IconSave class="w-5 h-5" aria-hidden="true" /></template>
+                <template #icon
+                  ><IconSave class="w-5 h-5" aria-hidden="true"
+                /></template>
                 Save
               </Button>
             </template>
@@ -424,7 +546,7 @@ watch(
             v-for="item in SETTINGS_SECTIONS"
             :key="item.key"
             :value="item.key"
-            class="pr-10 focus:outline-none"
+            class="focus:outline-none"
           >
             <p
               v-if="
@@ -771,7 +893,7 @@ watch(
             </template>
 
             <!-- Filename template -->
-            <template v-else>
+            <template v-else-if="item.key === 'filename-template'">
               <div
                 v-for="site in editableSourceProfiles"
                 :key="site.key"
@@ -788,6 +910,175 @@ watch(
                     input-class="font-mono"
                   />
                 </div>
+              </div>
+            </template>
+
+            <!-- Scraper -->
+            <template v-else>
+              <div
+                v-for="site in editableSourceProfiles"
+                :key="site.key"
+                class="scraper-card"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <span class="settings-row-label">{{ site.label }}</span>
+                  <label class="scraper-toggle">
+                    <input
+                      :id="`${site.key}ScraperEnable`"
+                      type="checkbox"
+                      v-model="
+                        settingsDraft.source_scrape_rules[site.key].enabled
+                      "
+                    />
+                    <span>{{
+                      settingsDraft.source_scrape_rules[site.key].enabled
+                        ? "Enabled"
+                        : "Disabled"
+                    }}</span>
+                  </label>
+                </div>
+
+                <template
+                  v-if="settingsDraft.source_scrape_rules[site.key].enabled"
+                >
+                  <p
+                    v-if="
+                      !settingsDraft.source_scrape_rules[site.key].rules.length
+                    "
+                    class="text-xs text-white/50 in-[.light-mode]:text-black/50"
+                  >
+                    No rules yet.
+                  </p>
+
+                  <div
+                    v-for="(rule, index) in settingsDraft.source_scrape_rules[
+                      site.key
+                    ].rules"
+                    :key="index"
+                    class="scraper-rule"
+                  >
+                    <div class="scraper-rule-grid">
+                      <Input
+                        size="sm"
+                        v-model="rule.token"
+                        placeholder="token"
+                        aria-label="Token name"
+                        input-class="font-mono"
+                      />
+                      <Input
+                        size="sm"
+                        v-model="rule.match_label"
+                        placeholder="label (optional)"
+                        aria-label="Label to anchor on"
+                      />
+                      <Input
+                        size="sm"
+                        v-model="rule.selector"
+                        placeholder="CSS selector"
+                        aria-label="CSS selector"
+                        input-class="font-mono"
+                      />
+                      <Combobox
+                        :model-value="rule.attr"
+                        :items="SCRAPE_ATTR_ITEMS"
+                        @update:model-value="(val) => (rule.attr = val)"
+                        size="sm"
+                        layout="fill"
+                        placeholder="Attribute"
+                        empty-text="—"
+                      />
+                    </div>
+                    <div class="scraper-rule-actions">
+                      <label class="scraper-checkbox">
+                        <input type="checkbox" v-model="rule.multi" />
+                        <span>Multiple</span>
+                      </label>
+                      <Input
+                        size="sm"
+                        v-model="rule.xpath"
+                        placeholder="XPath (optional, overrides selector)"
+                        aria-label="XPath"
+                        input-class="font-mono"
+                        class="flex-1"
+                      />
+                      <Button
+                        variant="soft"
+                        size="sm"
+                        type="button"
+                        title="Remove rule"
+                        aria-label="Remove rule"
+                        @click="removeScrapeRule(site.key, index)"
+                      >
+                        <template #icon>
+                          <IconTrash class="w-4 h-4" aria-hidden="true" />
+                        </template>
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="soft"
+                    size="sm"
+                    type="button"
+                    class="mt-1 self-start"
+                    @click="addScrapeRule(site.key)"
+                  >
+                    <template #icon>
+                      <IconAdd class="w-4 h-4" aria-hidden="true" />
+                    </template>
+                    Add rule
+                  </Button>
+
+                  <div class="scraper-test">
+                    <Input
+                      size="sm"
+                      v-model="scrapeTests[site.key].url"
+                      type="text"
+                      inputmode="url"
+                      placeholder="Sample URL to test"
+                      class="flex-1"
+                    />
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      type="button"
+                      class="shrink-0"
+                      :disabled="scrapeTests[site.key].loading"
+                      @click="runScrapeTest(site.key)"
+                    >
+                      <template #icon>
+                        <IconSearch class="w-4 h-4" aria-hidden="true" />
+                      </template>
+                      {{
+                        scrapeTests[site.key].loading ? "Testing..." : "Test"
+                      }}
+                    </Button>
+                  </div>
+
+                  <p
+                    v-if="scrapeTests[site.key].message"
+                    class="text-xs text-white/60 in-[.light-mode]:text-black/60"
+                  >
+                    {{ scrapeTests[site.key].message }}
+                  </p>
+                  <ul
+                    v-if="scrapeTests[site.key].results.length"
+                    class="scraper-results"
+                  >
+                    <li
+                      v-for="result in scrapeTests[site.key].results"
+                      :key="result.token"
+                    >
+                      <span class="font-mono shrink-0">{{
+                        tokenLabel(result.token)
+                      }}</span>
+                      <span v-if="result.matched" class="scraper-value">{{
+                        result.value
+                      }}</span>
+                      <span v-else class="scraper-nomatch">no match</span>
+                    </li>
+                  </ul>
+                </template>
               </div>
             </template>
           </TabsContent>
@@ -829,6 +1120,94 @@ watch(
   .settings-row-control {
     flex: 1 1 auto;
     width: 100%;
+  }
+}
+
+.scraper-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 0.75rem;
+}
+
+.scraper-toggle,
+.scraper-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.scraper-toggle input,
+.scraper-checkbox input {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+  accent-color: var(--accent, #6366f1);
+}
+
+.scraper-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.scraper-rule-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.4rem;
+}
+
+.scraper-rule-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.scraper-test {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.scraper-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+}
+
+.scraper-results li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.scraper-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.scraper-nomatch {
+  opacity: 0.5;
+  font-style: italic;
+}
+
+@media (min-width: 640px) {
+  .scraper-rule-grid {
+    grid-template-columns:
+      minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1.2fr)
+      minmax(0, 0.9fr);
   }
 }
 </style>

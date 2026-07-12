@@ -9,7 +9,14 @@ export type TaskFilter = "all" | "active" | "done";
 export type MediaFilter = "all" | "image" | "video";
 export type ViewMode = "grid" | "table";
 export type MediaMode = "video" | "audio";
-export type SettingsSection = "account" | "downloads" | "cookies" | "quality" | "folder-template" | "filename-template";
+export type SettingsSection =
+  | "account"
+  | "downloads"
+  | "cookies"
+  | "quality"
+  | "folder-template"
+  | "filename-template"
+  | "scraper";
 export type ToastType = "success" | "error";
 
 export type SourceLocations = Record<string, string>;
@@ -31,6 +38,34 @@ export interface SourceProfile {
 }
 
 export type SourceTemplates = Record<string, TemplateSettings>;
+
+export interface ScrapeRule {
+  token: string;
+  match_label: string;
+  selector: string;
+  attr: string;
+  multi: boolean;
+  xpath: string;
+}
+
+export interface PlatformScrapeRules {
+  enabled: boolean;
+  rules: ScrapeRule[];
+}
+
+export type SourceScrapeRules = Record<string, PlatformScrapeRules>;
+
+export interface ScrapeTestResult {
+  token: string;
+  value: string;
+  matched: boolean;
+}
+
+export interface ScrapeTestResponse {
+  fetched: boolean;
+  results: ScrapeTestResult[];
+  detail?: string;
+}
 
 export interface QualityPreset {
   key: string;
@@ -75,6 +110,7 @@ export interface SavedSettings {
   template_settings: TemplateSettings;
   source_templates: SourceTemplates;
   default_quality: QualitySelection;
+  source_scrape_rules: SourceScrapeRules;
 }
 
 export interface RuntimeSettings extends SavedSettings {
@@ -92,6 +128,7 @@ export interface UiConfigResponse {
   site_default_locations?: SourceLocations;
   template_settings?: Partial<TemplateSettings>;
   source_templates?: Record<string, Partial<TemplateSettings>>;
+  source_scrape_rules?: Record<string, Partial<PlatformScrapeRules>>;
   ytdlp_cookies?: Record<string, Partial<CookiesStatus>>;
   default_quality?: Partial<QualitySelection>;
   quality_options?: Partial<QualityOptions>;

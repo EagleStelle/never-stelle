@@ -10,10 +10,13 @@ import {
   type QualityOptions,
   type QualityPreset,
   type QualitySelection,
+  type PlatformScrapeRules,
   type SavedSettings,
+  type ScrapeRule,
   type SettingsSection,
   type SourceLocations,
   type SourceProfile,
+  type SourceScrapeRules,
   type SourceTemplates,
   type TaskCounts,
   type TaskFilter,
@@ -273,6 +276,34 @@ export function createSourceTemplates(
   return out;
 }
 
+export function createScrapeRule(source: Partial<ScrapeRule> = {}): ScrapeRule {
+  return {
+    token: String(source.token || "").trim(),
+    match_label: String(source.match_label || ""),
+    selector: String(source.selector || ""),
+    attr: String(source.attr || "").trim() || "text",
+    multi: Boolean(source.multi),
+    xpath: String(source.xpath || ""),
+  };
+}
+
+export function createPlatformScrapeRules(source: Partial<PlatformScrapeRules> = {}): PlatformScrapeRules {
+  return {
+    enabled: Boolean(source.enabled),
+    rules: Array.isArray(source.rules) ? source.rules.map(createScrapeRule) : [],
+  };
+}
+
+export function createSourceScrapeRules(
+  source: Record<string, Partial<PlatformScrapeRules>> = {},
+  profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
+): SourceScrapeRules {
+  const out: SourceScrapeRules = {};
+  for (const profile of profiles) out[profile.key] = createPlatformScrapeRules(source[profile.key] || {});
+  for (const [key, value] of Object.entries(source)) out[normalizeSourceKey(key)] = createPlatformScrapeRules(value);
+  return out;
+}
+
 export function createCookiesStatus(source: Partial<CookiesStatus> = {}): CookiesStatus {
   return {
     configured: Boolean(source.configured),
@@ -298,7 +329,8 @@ export function isSettingsSection(value: string | null): value is SettingsSectio
     value === "cookies" ||
     value === "quality" ||
     value === "folder-template" ||
-    value === "filename-template"
+    value === "filename-template" ||
+    value === "scraper"
   );
 }
 

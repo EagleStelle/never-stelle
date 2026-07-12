@@ -32,6 +32,7 @@ export const SETTINGS_SECTIONS: Array<{ key: SettingsSection; label: string; rou
   { key: "quality", label: "Quality", route: "/settings/quality" },
   { key: "folder-template", label: "Folder", route: "/settings/folder" },
   { key: "filename-template", label: "Filename", route: "/settings/filename" },
+  { key: "scraper", label: "Scraper", route: "/settings/scraper" },
 ];
 
 export const COUNT_ICONS: Record<"queued" | "running" | "completed" | "failed", Component> = {

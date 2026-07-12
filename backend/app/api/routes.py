@@ -61,6 +61,13 @@ class SettingsPayload(BaseModel):
     source_profiles: list[dict[str, Any]] | dict[str, Any] = Field(default_factory=list)
     source_templates: dict[str, dict[str, str]] = Field(default_factory=dict)
     default_quality: dict[str, str] = Field(default_factory=dict)
+    source_scrape_rules: dict[str, Any] = Field(default_factory=dict)
+
+
+class ScrapeTestPayload(BaseModel):
+    url: str = ""
+    source_key: str = ""
+    rules: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AddTaskPayload(BaseModel):
@@ -159,8 +166,29 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
         payload.source_profiles,
         payload.source_templates,
         payload.default_quality,
+        payload.source_scrape_rules,
     )
     return build_settings_response(cfg, saved)
+
+
+@router.post("/settings/scrape-test")
+def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
+    # Dry-run the user's rules against a live page so the UI can show what each
+    # selector grabs before the rules are saved. Never persists anything.
+    from backend.app.services.settings import detect_cookie_source
+    from backend.app.services.tasks.enrich import fetch_html, normalize_scrape_rule, scrape_tokens
+
+    url = payload.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Paste a sample URL first.")
+    rules = [rule for rule in (normalize_scrape_rule(item) for item in payload.rules) if rule]
+    cookie_key = payload.source_key.strip() or detect_cookie_source(url)
+    html = fetch_html(url, cookie_key)
+    if not html:
+        return {"fetched": False, "results": [], "detail": "Could not fetch that page."}
+    tokens = scrape_tokens(html, rules)
+    results = [{"token": rule["token"], "value": tokens.get(rule["token"], ""), "matched": rule["token"] in tokens} for rule in rules]
+    return {"fetched": True, "results": results}
 
 
 @router.post("/settings/ytdlp-cookies/{platform}")

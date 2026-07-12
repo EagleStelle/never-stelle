@@ -23,6 +23,7 @@ import {
   createQualitySelection,
   createSourceLocations,
   createSourceProfile,
+  createSourceScrapeRules,
   createSourceTemplates,
   createTemplateSettings,
   errorMessage,
@@ -68,6 +69,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
     default_quality: createQualitySelection(),
+    source_scrape_rules: createSourceScrapeRules(),
   });
   const settings = reactive<RuntimeSettings>({
     auth: { username: "", password_configured: false },
@@ -76,6 +78,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
     default_quality: createQualitySelection(),
+    source_scrape_rules: createSourceScrapeRules(),
     download_locations: [],
     ytdlp_cookies: createCookiesMap(),
     quality_options: createQualityOptions(),
@@ -86,6 +89,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
     default_quality: createQualitySelection(),
+    source_scrape_rules: createSourceScrapeRules(),
   });
 
   const settingsOpen = ref(false);
@@ -119,6 +123,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       template_settings: templateSettings,
       source_templates: createSourceTemplates(recordForProfiles(source.source_templates, profiles), profiles, templateSettings),
       default_quality: createQualitySelection(source.default_quality, settings.quality_options),
+      source_scrape_rules: createSourceScrapeRules(recordForProfiles(source.source_scrape_rules, profiles), profiles),
     };
   }
 
@@ -146,6 +151,10 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         ...defaults.default_quality,
         ...settings.default_quality,
       }, settings.quality_options),
+      source_scrape_rules: createSourceScrapeRules(
+        recordForProfiles({ ...defaults.source_scrape_rules, ...settings.source_scrape_rules }, profiles),
+        profiles,
+      ),
     };
   }
 
@@ -176,6 +185,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     replaceRecord(defaults.source_templates, templates);
     replaceRecord(settings.source_templates, templates);
 
+    const scrapeRules = createSourceScrapeRules(
+      recordForProfiles(data.source_scrape_rules || {}, managedProfiles),
+      managedProfiles,
+    );
+    replaceRecord(defaults.source_scrape_rules, scrapeRules);
+    replaceRecord(settings.source_scrape_rules, scrapeRules);
+
     const qualityOptions = createQualityOptions(data.quality_options || {});
     settings.quality_options = qualityOptions;
 
@@ -205,6 +221,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     Object.assign(settingsDraft.template_settings, normalized.template_settings);
     replaceRecord(settingsDraft.source_templates, normalized.source_templates);
     Object.assign(settingsDraft.default_quality, normalized.default_quality);
+    replaceRecord(settingsDraft.source_scrape_rules, normalized.source_scrape_rules);
     lastSavedSnapshot = JSON.stringify(normalizeSavedPayload(settingsDraft));
   }
 
@@ -219,6 +236,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       quality: "defaultQualityMode",
       "folder-template": `${firstSource}FolderTemplateInput`,
       "filename-template": `${firstSource}FilenameTemplateInput`,
+      scraper: `${firstSource}ScraperEnable`,
     };
     void nextTick(() => document.getElementById(focusTargets[settingsSection.value])?.focus());
   }

@@ -364,11 +364,19 @@ def _field_value(fields: dict[str, str], *names: str) -> str:
     return ""
 
 
-def _render_template_stem(filename_template: str, fields: dict[str, str]) -> str:
+def _render_template_stem(
+    filename_template: str,
+    fields: dict[str, str],
+    extra_tokens: dict[str, str] | None = None,
+) -> str:
     template = _template_stem(filename_template)
 
     def replace(match: re.Match[str]) -> str:
         field = match.group(1).strip().lower()
+        if extra_tokens:
+            override = extra_tokens.get(field)
+            if override is not None and str(override).strip():
+                return sanitize_path_literal(override)
         value = fields.get(field, "")
         if field in CREATOR_FIELDS and not value:
             value = _field_value(fields, "username", "nickname")
@@ -383,6 +391,22 @@ def _render_template_stem(filename_template: str, fields: dict[str, str]) -> str
     return value
 
 
+def _extra_tokens_change_fields(
+    filename_template: str,
+    fields: dict[str, str],
+    extra_tokens: dict[str, str] | None,
+) -> bool:
+    if not extra_tokens:
+        return False
+    referenced = {match.group(1).strip().lower() for match in TEMPLATE_RE.finditer(str(filename_template or ""))}
+    for token, value in extra_tokens.items():
+        token = str(token or "").strip().lower()
+        value = sanitize_path_literal(value)
+        if token in referenced and value and fields.get(token, "") != value:
+            return True
+    return False
+
+
 def clean_template_filename(
     filename: str,
     filename_template: str,
@@ -392,6 +416,7 @@ def clean_template_filename(
     media_id: str = "",
     source_key: str = "",
     keep_numbered_suffix: bool = True,
+    extra_tokens: dict[str, str] | None = None,
 ) -> str:
     value = str(filename or "").strip()
     if not value:
@@ -411,7 +436,7 @@ def clean_template_filename(
             rendered_fields["nickname"] = fallback_nickname or fallback_username
         if fallback_media_id:
             rendered_fields["id"] = fallback_media_id
-        stem = _render_template_stem(filename_template, rendered_fields)
+        stem = _render_template_stem(filename_template, rendered_fields, extra_tokens)
         numbered = re.search(r"_\d+$", path.stem)
         if keep_numbered_suffix and numbered:
             stem = f"{stem}{numbered.group(0)}"
@@ -447,10 +472,14 @@ def clean_template_filename(
         (resolved_username and original_username and resolved_username != original_username)
         or (resolved_nickname and original_nickname and resolved_nickname != original_nickname)
     )
+    # A scraped token whose value differs from what the filename already carries
+    # must force a re-render, so recovery paths still pick up uploader/artist.
+    extra_changed = _extra_tokens_change_fields(filename_template, fields, extra_tokens)
     if (
         shortened_title == raw_title
         and not media_id_changed
         and not creator_changed
+        and not extra_changed
         and (keep_numbered_suffix or not numbered_suffix)
     ):
         return value
@@ -463,7 +492,7 @@ def clean_template_filename(
         rendered_fields["username"] = resolved_username
     if resolved_nickname:
         rendered_fields["nickname"] = resolved_nickname
-    stem = _render_template_stem(filename_template, rendered_fields)
+    stem = _render_template_stem(filename_template, rendered_fields, extra_tokens)
     if not stem:
         stem = sanitize_path_literal(
             resolved_media_id or resolved_username or resolved_nickname or strip_numbered_suffix(path.stem)

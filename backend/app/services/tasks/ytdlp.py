@@ -72,19 +72,29 @@ _YTDLP_FIELD = {
 }
 
 
-def _yt_dlp_field(name: str, source_url: str = "", quality: dict[str, str] | None = None) -> str:
+def _yt_dlp_field(
+    name: str,
+    source_url: str = "",
+    quality: dict[str, str] | None = None,
+    extra_tokens: dict[str, str] | None = None,
+) -> str:
     field = str(name or "").strip().lower()
-    derived = derived_token_value(field, source_url, quality)
+    derived = derived_token_value(field, source_url, quality, extra_tokens)
     if derived is not None:
         return _safe_literal(derived)
     return _YTDLP_FIELD.get(field, f"%({name}|Unknown)s")
 
 
-def convert_template_to_ytdlp(template: str, source_url: str = "", quality: dict[str, str] | None = None) -> str:
+def convert_template_to_ytdlp(
+    template: str,
+    source_url: str = "",
+    quality: dict[str, str] | None = None,
+    extra_tokens: dict[str, str] | None = None,
+) -> str:
     value = str(template or "").strip()
     if not value:
         return ""
-    return TEMPLATE_RE.sub(lambda match: _yt_dlp_field(match.group(1), source_url, quality), value)
+    return TEMPLATE_RE.sub(lambda match: _yt_dlp_field(match.group(1), source_url, quality, extra_tokens), value)
 
 
 def build_output_template(
@@ -92,14 +102,15 @@ def build_output_template(
     output_dir: str,
     template_settings: dict[str, str] | None = None,
     quality: dict[str, str] | None = None,
+    extra_tokens: dict[str, str] | None = None,
 ) -> str:
     settings = (
         normalize_template_settings(template_settings)
         if template_settings is not None
         else get_effective_template_settings(source_url)
     )
-    folder_template = convert_template_to_ytdlp(settings["folder_template"], source_url, quality)
-    filename_template = convert_template_to_ytdlp(settings["filename_template"], source_url, quality)
+    folder_template = convert_template_to_ytdlp(settings["folder_template"], source_url, quality, extra_tokens)
+    filename_template = convert_template_to_ytdlp(settings["filename_template"], source_url, quality, extra_tokens)
     if "%(ext" not in filename_template:
         filename_template = f"{filename_template}.%(ext)s"
     base = Path(output_dir)

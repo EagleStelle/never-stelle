@@ -36,6 +36,7 @@ class Engine:
         output_dir: str,
         template_settings: dict[str, str] | None = None,
         quality: dict[str, str] | None = None,
+        extra_tokens: dict[str, str] | None = None,
     ) -> str:
         raise NotImplementedError
 
@@ -80,8 +81,9 @@ class YtdlpEngine(Engine):
         output_dir: str,
         template_settings: dict[str, str] | None = None,
         quality: dict[str, str] | None = None,
+        extra_tokens: dict[str, str] | None = None,
     ) -> str:
-        return ytdlp.build_output_template(source_url, output_dir, template_settings, quality)
+        return ytdlp.build_output_template(source_url, output_dir, template_settings, quality, extra_tokens)
 
     def build_command(
         self,
@@ -150,8 +152,11 @@ class GallerydlEngine(Engine):
         output_dir: str,
         template_settings: dict[str, str] | None = None,
         quality: dict[str, str] | None = None,
+        extra_tokens: dict[str, str] | None = None,
     ) -> str:
-        return gallerydl.build_gallerydl_output_template(source_url, output_dir, template_settings, quality)
+        return gallerydl.build_gallerydl_output_template(
+            source_url, output_dir, template_settings, quality, extra_tokens
+        )
 
     def build_command(
         self,

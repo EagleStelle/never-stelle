@@ -14,7 +14,7 @@ from typing import Any
 
 from backend.app.core.config import max_concurrent_downloads
 from backend.app.core.sources import apex_host, host_from_url, normalize_source_key
-from backend.app.services.settings import detect_cookie_source, has_cookies_for_source
+from backend.app.services.settings import detect_cookie_source, has_cookies_for_source, load_scrape_rules
 
 from .constants import (
     AUDIO_EXTENSIONS,
@@ -24,6 +24,7 @@ from .constants import (
     normalize_quality_selection,
 )
 from .engine import Engine, all_engines, engine_for_task
+from .enrich import resolve_scraped_tokens
 from .files import find_newest_media_file, find_numbered_media_siblings, is_media_file, recover_task_path
 from .formats import creator_from_url, learn_download, media_id_from_url, reconstruct_url
 from .history import save_history_entry
@@ -915,6 +916,7 @@ def _rename_gallerydl_numbered_siblings(
     source_key: str,
     filename_template: str = "",
     media_id: str = "",
+    extra_tokens: dict[str, str] | None = None,
 ) -> Path:
     selected = path
     siblings = find_numbered_media_siblings(path) or [path]
@@ -928,6 +930,7 @@ def _rename_gallerydl_numbered_siblings(
                 media_id=media_id,
                 source_key=source_key,
                 keep_numbered_suffix=True,
+                extra_tokens=extra_tokens,
             )
         if not target_name:
             target_name = clean_gallerydl_disk_filename(sibling.name, creator, source_key)
@@ -944,6 +947,7 @@ def _rename_gallerydl_group_paths(
     source_key: str,
     filename_template: str = "",
     media_id: str = "",
+    extra_tokens: dict[str, str] | None = None,
 ) -> Path:
     selected = selected_path
     selected_key = _path_key(selected_path)
@@ -957,6 +961,7 @@ def _rename_gallerydl_group_paths(
                 media_id=media_id,
                 source_key=source_key,
                 keep_numbered_suffix=True,
+                extra_tokens=extra_tokens,
             )
         if not target_name:
             target_name = clean_gallerydl_disk_filename(path.name, creator, source_key)
@@ -975,6 +980,7 @@ def _clean_resolved_filename(
     creator_hint: str = "",
     media_id_hint: str = "",
     nickname_hint: str = "",
+    extra_tokens: dict[str, str] | None = None,
 ) -> tuple[Path, str]:
     filename_template = _filename_template(template_settings)
     source_key = source_key or detect_source_key(source_url)
@@ -991,6 +997,7 @@ def _clean_resolved_filename(
             media_id=media_id_hint,
             source_key=source_key,
             keep_numbered_suffix=False,
+            extra_tokens=extra_tokens,
         )
         disk_filename = clean_template_filename(
             path.name,
@@ -1000,6 +1007,7 @@ def _clean_resolved_filename(
             media_id=media_id_hint,
             source_key=source_key,
             keep_numbered_suffix=True,
+            extra_tokens=extra_tokens,
         )
         if disk_filename:
             if group_paths and len(group_paths) > 1:
@@ -1010,6 +1018,7 @@ def _clean_resolved_filename(
                     source_key,
                     filename_template,
                     media_id_hint,
+                    extra_tokens,
                 )
                 return renamed, display_filename or f"{strip_numbered_suffix(renamed.stem)}{renamed.suffix}"
             if strip_numbered_suffix(path.stem) != path.stem:
@@ -1021,6 +1030,7 @@ def _clean_resolved_filename(
                         source_key,
                         filename_template,
                         media_id_hint,
+                        extra_tokens,
                     )
                 else:
                     renamed = _rename_gallerydl_numbered_siblings(
@@ -1029,6 +1039,7 @@ def _clean_resolved_filename(
                         source_key,
                         filename_template,
                         media_id_hint,
+                        extra_tokens,
                     )
                 return renamed, display_filename or f"{strip_numbered_suffix(renamed.stem)}{renamed.suffix}"
             renamed = _rename_path(path, disk_filename)
@@ -1061,6 +1072,7 @@ def _render_template_folder(
     creator: str,
     media_id: str,
     nickname: str = "",
+    extra_tokens: dict[str, str] | None = None,
 ) -> Path | None:
     folder_template = str((template_settings or {}).get("folder_template") or "").strip()
     if not folder_template:
@@ -1071,6 +1083,10 @@ def _render_template_folder(
 
     def replace(match: re.Match[str]) -> str:
         field = match.group(1).strip().lower()
+        if extra_tokens:
+            override = extra_tokens.get(field)
+            if override is not None and str(override).strip():
+                return str(override)
         if field == "nickname":
             return nickname
         if field == "username":
@@ -1099,8 +1115,9 @@ def _move_group_to_template_folder(
     creator: str,
     media_id: str,
     nickname: str = "",
+    extra_tokens: dict[str, str] | None = None,
 ) -> Path:
-    target_dir = _render_template_folder(output_root, template_settings, creator, media_id, nickname)
+    target_dir = _render_template_folder(output_root, template_settings, creator, media_id, nickname, extra_tokens)
     if target_dir is None or _path_key(selected_path.parent) == _path_key(target_dir):
         return selected_path
     try:
@@ -1258,6 +1275,12 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
 
+    # Page-scraped tokens (uploader/artist/etc.) for platforms with enabled rules;
+    # {} when disabled or none of the rule tokens appear in the templates.
+    extra_tokens = resolve_scraped_tokens(
+        source_url, task_source_key, template_settings, load_scrape_rules(), cookie_source_key
+    )
+
     sidecar_handle, creator_sidecar = tempfile.mkstemp(prefix="nvs-creator-", suffix=".txt")
     os.close(sidecar_handle)
     metadata_handle, metadata_sidecar = tempfile.mkstemp(prefix="nvs-downloads-", suffix=".tsv")
@@ -1289,10 +1312,13 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 ffmpeg_location = ""
 
             # Stored template is the primary engine's; a fallback builds its own.
-            if index == 0 and str(task.get("output_template") or ""):
+            # Scraped tokens are resolved at run time, so rebuild when present.
+            if index == 0 and str(task.get("output_template") or "") and not extra_tokens:
                 output_template = str(task["output_template"])
             else:
-                output_template = engine.build_output_template(source_url, output_dir, template_settings, quality)
+                output_template = engine.build_output_template(
+                    source_url, output_dir, template_settings, quality, extra_tokens
+                )
             excluded_extensions = _fallback_excluded_extensions(engine, output_records)
             total_items = (
                 0
@@ -1411,6 +1437,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     creator_hint,
                     media_id,
                     nickname_hint,
+                    extra_tokens,
                 )
                 media_id = (
                     media_id
@@ -1424,6 +1451,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     creator_hint,
                     media_id,
                     nickname_hint,
+                    extra_tokens,
                 )
                 keep_paths = find_numbered_media_siblings(final_path) or [final_path]
                 _cleanup_duplicate_library_media(output_root, media_id, keep_paths)

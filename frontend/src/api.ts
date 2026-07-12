@@ -8,6 +8,8 @@ import type {
   ProbeResponse,
   SavedSettings,
   ScanMediaResponse,
+  ScrapeRule,
+  ScrapeTestResponse,
   TasksResponse,
   UiConfigResponse,
 } from "./types";
@@ -84,6 +86,18 @@ export function saveSettings(settings: SavedSettings): Promise<UiConfigResponse>
       body: JSON.stringify(settings),
     },
     "Could not save settings.",
+  );
+}
+
+export function testScrapeRules(url: string, sourceKey: string, rules: ScrapeRule[]): Promise<ScrapeTestResponse> {
+  return jsonRequest<ScrapeTestResponse>(
+    "/api/settings/scrape-test",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, source_key: sourceKey, rules }),
+    },
+    "Could not test scrape rules.",
   );
 }
 

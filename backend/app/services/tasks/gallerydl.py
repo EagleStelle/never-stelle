@@ -133,19 +133,29 @@ def _excluded_extension_filter(excluded_extensions: set[str] | None) -> str:
     return f"extension not in {tuple(values)!r}"
 
 
-def _gallerydl_field(name: str, source_url: str, quality: dict[str, str] | None = None) -> str:
+def _gallerydl_field(
+    name: str,
+    source_url: str,
+    quality: dict[str, str] | None = None,
+    extra_tokens: dict[str, str] | None = None,
+) -> str:
     field = str(name or "").strip().lower()
-    derived = derived_token_value(field, source_url, quality)
+    derived = derived_token_value(field, source_url, quality, extra_tokens)
     if derived is not None:
         return _escape_literal(sanitize_path_literal(derived))
     return _GALLERYDL_FIELD.get(field, "")
 
 
-def convert_template_to_gallerydl(template: str, source_url: str = "", quality: dict[str, str] | None = None) -> str:
+def convert_template_to_gallerydl(
+    template: str,
+    source_url: str = "",
+    quality: dict[str, str] | None = None,
+    extra_tokens: dict[str, str] | None = None,
+) -> str:
     value = str(template or "").strip()
     if not value:
         return ""
-    return TEMPLATE_RE.sub(lambda match: _gallerydl_field(match.group(1), source_url, quality), value)
+    return TEMPLATE_RE.sub(lambda match: _gallerydl_field(match.group(1), source_url, quality, extra_tokens), value)
 
 
 def build_gallerydl_output_template(
@@ -153,14 +163,15 @@ def build_gallerydl_output_template(
     output_dir: str,
     template_settings: dict[str, str] | None = None,
     quality: dict[str, str] | None = None,
+    extra_tokens: dict[str, str] | None = None,
 ) -> str:
     settings = (
         normalize_template_settings(template_settings)
         if template_settings is not None
         else get_effective_template_settings(source_url)
     )
-    folder = convert_template_to_gallerydl(settings["folder_template"], source_url, quality)
-    stem = convert_template_to_gallerydl(settings["filename_template"], source_url, quality)
+    folder = convert_template_to_gallerydl(settings["folder_template"], source_url, quality, extra_tokens)
+    stem = convert_template_to_gallerydl(settings["filename_template"], source_url, quality, extra_tokens)
     stem = stem.replace(".{extension}", "").replace("{extension}", "").rstrip(". ")
     # {num} keeps every image in a multi-file post (slideshow) unique.
     if "{num" not in stem:
