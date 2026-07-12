@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, useTemplateRef } from "vue";
+import { computed, onMounted, useTemplateRef } from "vue";
 import { useElementSize } from "@vueuse/core";
 
 import DownloadInput from "./features/downloads/Input.vue";
 import DownloadPanel from "./features/downloads/Panel.vue";
 import DownloadFilters from "./features/downloads/Filters.vue";
 import PlaylistDialog from "./features/downloads/PlaylistDialog.vue";
+import Login from "./features/auth/Login.vue";
 import NavSide from "./components/layout/NavSide.vue";
 import BarStatus from "./components/layout/BarStatus.vue";
 import NavBottom from "./components/layout/NavBottom.vue";
@@ -24,6 +25,15 @@ import IconRefresh from "~icons/material-symbols/sync";
 import IconSearch from "~icons/material-symbols/search";
 
 import { useDownloadDashboard } from "./composables/useDownloadDashboard";
+import { useAuth } from "./composables/useAuth";
+
+const auth = useAuth();
+const authReady = auth.ready;
+const authenticated = auth.authenticated;
+
+onMounted(() => {
+  void auth.refreshSession();
+});
 
 const {
   activeMenu,
@@ -41,6 +51,7 @@ const {
   historyLoading,
   historyError,
   historyHasMore,
+  historySearch,
   loadMoreHistory,
   activeTasks,
   completedTasks,
@@ -92,6 +103,19 @@ const { height: statusBarHeight } = useElementSize(
 
 <template>
   <div
+    v-if="!authReady"
+    class="flex h-dvh w-full items-center justify-center bg-primary text-white in-[.light-mode]:text-black"
+  >
+    <div class="glass-chrome flex items-center gap-3 rounded-lg px-4 py-3">
+      <img src="/assets/logo.png" alt="" class="h-8 w-8 rounded-md" />
+      <span class="font-display text-base font-semibold">Never Stelle</span>
+    </div>
+  </div>
+
+  <Login v-else-if="!authenticated" />
+
+  <div
+    v-else
     class="w-full max-w-full h-dvh overflow-hidden bg-primary text-white in-[.light-mode]:text-black lg:flex"
   >
     <a
@@ -149,6 +173,7 @@ const { height: statusBarHeight } = useElementSize(
                 <section aria-label="Search history">
                   <div class="flex items-center gap-2">
                     <Input
+                      v-model="historySearch"
                       size="lg"
                       class="flex-1 min-w-0"
                       type="text"
@@ -252,6 +277,7 @@ const { height: statusBarHeight } = useElementSize(
                   <section aria-label="Search history">
                     <div class="flex items-center gap-2">
                       <Input
+                        v-model="historySearch"
                         size="lg"
                         class="flex-1 min-w-0"
                         type="text"

@@ -3,6 +3,7 @@ import { watchDebounced } from "@vueuse/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 
 import { deletePlatformCookies, getUiConfig, saveSettings, uploadPlatformCookies } from "../api";
+import { useAuth } from "./useAuth";
 import { DEFAULT_SOURCE_PROFILES, UI_CONFIG_QUERY_KEY } from "../ui";
 import type {
   CookiesMap,
@@ -51,6 +52,7 @@ interface UseDashboardSettingsOptions {
 }
 
 export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
+  const auth = useAuth();
   const queryClient = useQueryClient();
   const defaults = reactive<SavedSettings>({
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
@@ -60,6 +62,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_quality: createQualitySelection(),
   });
   const settings = reactive<RuntimeSettings>({
+    auth: { username: "", password_configured: false },
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
     site_locations: createSourceLocations(),
     template_settings: createTemplateSettings(),
@@ -85,6 +88,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   const uiConfigQuery = useQuery<UiConfigResponse>({
     queryKey: UI_CONFIG_QUERY_KEY,
     queryFn: getUiConfig,
+    enabled: auth.authenticated,
     staleTime: 60_000,
   });
   const saveSettingsMutation = useMutation({ mutationFn: saveSettings });
@@ -136,6 +140,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   }
 
   function applyServerSettings(data: UiConfigResponse): void {
+    settings.auth = {
+      username: String(data.auth?.username || ""),
+      password_configured: Boolean(data.auth?.password_configured),
+    };
+
     const profiles = mergeSourceProfiles(DEFAULT_SOURCE_PROFILES, data.source_profiles);
     replaceProfiles(defaults.source_profiles, profiles);
     replaceProfiles(settings.source_profiles, profiles);
@@ -189,6 +198,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     if (!shouldFocus) return;
     const firstSource = sourceProfiles.value[0]?.key || "settings";
     const focusTargets: Record<SettingsSection, string> = {
+      account: "accountUsernameInput",
       downloads: `${firstSource}LocationInput`,
       cookies: `${firstSource}CookiesInput`,
       quality: "defaultQualityMode",

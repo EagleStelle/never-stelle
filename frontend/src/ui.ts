@@ -26,6 +26,7 @@ export const FILTER_LABELS: Record<TaskFilter, string> = {
 };
 
 export const SETTINGS_SECTIONS: Array<{ key: SettingsSection; label: string; route: string }> = [
+  { key: "account", label: "Account", route: "/settings/account" },
   { key: "downloads", label: "Locations", route: "/settings/locations" },
   { key: "cookies", label: "Cookies", route: "/settings/cookies" },
   { key: "quality", label: "Quality", route: "/settings/quality" },

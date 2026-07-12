@@ -45,9 +45,10 @@ const offset = computed(() => ({
 </script>
 
 <template>
-  <Sonner
-    v-bind="forwarded"
-    :class="cn('toaster group', props.class)"
+  <Teleport to="body">
+    <Sonner
+      v-bind="forwarded"
+    :class="cn('toaster group z-[100]', props.class)"
     :position="position"
     :duration="3200"
     :offset="offset"
@@ -90,10 +91,15 @@ const offset = computed(() => ({
     <template #close-icon>
       <XIcon class="size-4" />
     </template>
-  </Sonner>
+    </Sonner>
+  </Teleport>
 </template>
 
 <style>
+[data-sonner-toaster] {
+  z-index: 9999 !important;
+}
+
 /* Force sonner toasts to use glass chrome backgrounds instead of default state colors */
 .toaster [data-sonner-toast] {
   background: linear-gradient(

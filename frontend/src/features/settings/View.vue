@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from "vue";
 import type { Component } from "vue";
+import IconAccount from "~icons/material-symbols/admin-panel-settings";
 import IconClose from "~icons/material-symbols/close";
 import IconCookie from "~icons/material-symbols/cookie";
 import IconDescription from "~icons/material-symbols/description";
 import IconFolder from "~icons/material-symbols/folder";
+import IconLogout from "~icons/material-symbols/logout";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
+import IconSave from "~icons/material-symbols/save";
 import IconSearch from "~icons/material-symbols/search";
 import IconTrash from "~icons/material-symbols/delete";
 import IconQuality from "~icons/material-symbols/high-quality";
 import IconUpload from "~icons/material-symbols/upload";
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from "reka-ui";
+import { toast } from "vue-sonner";
 
 import { Button } from "../../components/ui/button";
 import { Combobox } from "../../components/ui/combobox";
@@ -27,6 +31,7 @@ import {
   SidebarMenuButton,
 } from "../../components/ui/sidebar";
 import { SETTINGS_SECTIONS } from "../../ui";
+import { useAuth } from "../../composables/useAuth";
 import type {
   CookiesMap,
   QualitySelection,
@@ -37,6 +42,7 @@ import type {
 } from "../../types";
 import {
   createTemplateSettings,
+  errorMessage,
   isCodecAllowed,
   isLosslessAudioFormat,
   mergeSourceProfiles,
@@ -61,6 +67,7 @@ const emit = defineEmits<{
 }>();
 
 const SECTION_ICONS: Record<SettingsSection, Component> = {
+  account: IconAccount,
   downloads: IconFolder,
   cookies: IconCookie,
   quality: IconQuality,
@@ -69,16 +76,29 @@ const SECTION_ICONS: Record<SettingsSection, Component> = {
 };
 
 const SECTION_GROUPS: Array<{ label: string; keys: SettingsSection[] }> = [
-  { label: "Settings", keys: ["downloads", "cookies", "quality"] },
+  { label: "Settings", keys: ["account", "downloads", "cookies", "quality"] },
   { label: "Templates", keys: ["folder-template", "filename-template"] },
 ];
 
+const auth = useAuth();
 const cookieFiles = reactive<Record<string, File | null>>({});
 const newCookie = reactive<{ source: string; file: File | null }>({
   source: "",
   file: null,
 });
+const credentials = reactive({
+  username: "",
+  current_password: "",
+  new_password: "",
+  confirm_password: "",
+});
+const credentialSaving = ref(false);
 const sectionSearch = ref("");
+
+const isAccountChanged = computed(() => {
+  const originalUsername = auth.username.value || props.settings.auth.username || "";
+  return credentials.username !== originalUsername || credentials.new_password.length > 0;
+});
 
 // Grey out codecs the chosen container can't hold.
 const codecItems = computed(() =>
@@ -167,6 +187,7 @@ watch(
 function selectSection(section: SettingsSection): void {
   sectionModel.value = section;
   const focusTargets: Record<SettingsSection, string> = {
+    account: "accountUsernameInput",
     downloads: `${sourceProfiles.value[0]?.key || "settings"}LocationInput`,
     cookies: `${sourceProfiles.value[0]?.key || "settings"}CookiesInput`,
     quality: "defaultQualityMode",
@@ -174,6 +195,47 @@ function selectSection(section: SettingsSection): void {
     "filename-template": `${sourceProfiles.value[0]?.key || "settings"}FilenameTemplateInput`,
   };
   void nextTick(() => document.getElementById(focusTargets[section])?.focus());
+}
+
+function resetCredentials(): void {
+  credentials.username =
+    auth.username.value || props.settings.auth.username || credentials.username;
+  credentials.current_password = "";
+  credentials.new_password = "";
+  credentials.confirm_password = "";
+}
+
+async function saveCredentials(): Promise<void> {
+  if (!credentials.current_password) {
+    toast.error("Enter your current password.");
+    return;
+  }
+  if (credentials.new_password !== credentials.confirm_password) {
+    toast.error("New passwords do not match.");
+    return;
+  }
+  credentialSaving.value = true;
+  try {
+    await auth.updateCredentials({
+      username: credentials.username,
+      current_password: credentials.current_password,
+      new_password: credentials.new_password || "",
+    });
+    credentials.username = auth.username.value || credentials.username;
+    credentials.current_password = "";
+    credentials.new_password = "";
+    credentials.confirm_password = "";
+    toast.success("Account saved.");
+  } catch (error) {
+    toast.error(errorMessage(error, "Could not save account."));
+  } finally {
+    credentialSaving.value = false;
+  }
+}
+
+async function signOut(): Promise<void> {
+  await auth.logout();
+  openModel.value = false;
 }
 
 function onCookieFile(site: string, event: Event): void {
@@ -201,6 +263,21 @@ function connectNew(): void {
   newCookie.source = "";
   newCookie.file = null;
 }
+
+watch(
+  () => props.open,
+  (open) => {
+    if (open) resetCredentials();
+  },
+  { immediate: true },
+);
+
+watch(
+  () => [props.settings.auth.username, auth.username.value],
+  () => {
+    if (!credentials.username) resetCredentials();
+  },
+);
 </script>
 
 <template>
@@ -318,6 +395,7 @@ function connectNew(): void {
             <p
               v-if="
                 sourceProfiles.length === 0 &&
+                item.key !== 'account' &&
                 item.key !== 'cookies' &&
                 item.key !== 'quality'
               "
@@ -326,8 +404,78 @@ function connectNew(): void {
               No sources yet.
             </p>
 
+            <!-- Account -->
+            <template v-if="item.key === 'account'">
+              <form class="flex flex-col" @submit.prevent="saveCredentials">
+                <div class="settings-row">
+                  <span class="settings-row-label">Username</span>
+                  <div class="settings-row-control">
+                    <Input
+                      id="accountUsernameInput"
+                      v-model="credentials.username"
+                      size="lg"
+                      type="text"
+                      autocomplete="username"
+                      placeholder="Username"
+                    />
+                  </div>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-row-label">Current Password</span>
+                  <div class="settings-row-control">
+                    <Input
+                      v-model="credentials.current_password"
+                      size="lg"
+                      type="password"
+                      autocomplete="current-password"
+                      placeholder="Current password"
+                    />
+                  </div>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-row-label">New Password</span>
+                  <div class="settings-row-control">
+                    <Input
+                      v-model="credentials.new_password"
+                      size="lg"
+                      type="password"
+                      autocomplete="new-password"
+                      placeholder="New password"
+                    />
+                  </div>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-row-label">Confirm Password</span>
+                  <div class="settings-row-control">
+                    <Input
+                      v-model="credentials.confirm_password"
+                      size="lg"
+                      type="password"
+                      autocomplete="new-password"
+                      placeholder="Confirm password"
+                    />
+                  </div>
+                </div>
+
+                <div class="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    v-if="isAccountChanged"
+                    variant="primary"
+                    size="lg"
+                    type="submit"
+                    :disabled="credentialSaving || auth.loading.value"
+                  >
+                    <template #icon>
+                      <IconSave class="h-5 w-5" aria-hidden="true" />
+                    </template>
+                    {{ credentialSaving ? "Saving..." : "Save" }}
+                  </Button>
+                </div>
+              </form>
+            </template>
+
             <!-- Locations -->
-            <template v-if="item.key === 'downloads'">
+            <template v-else-if="item.key === 'downloads'">
               <div class="flex flex-col">
                 <div
                   v-for="site in sourceProfiles"
@@ -479,6 +627,7 @@ function connectNew(): void {
                         (settingsDraft.default_quality.video_quality = val)
                     "
                     size="lg"
+                    layout="fill"
                     placeholder="Choose a quality"
                     empty-text="No presets."
                   />
@@ -494,6 +643,7 @@ function connectNew(): void {
                       (val) => setDefaultQuality({ video_container: val })
                     "
                     size="lg"
+                    layout="fill"
                     placeholder="Choose a container"
                     empty-text="No containers."
                   />
@@ -509,6 +659,7 @@ function connectNew(): void {
                       (val) => setDefaultQuality({ video_codec: val })
                     "
                     size="lg"
+                    layout="fill"
                     placeholder="Choose a codec"
                     empty-text="No codecs."
                   />
@@ -532,6 +683,7 @@ function connectNew(): void {
                         (settingsDraft.default_quality.audio_format = val)
                     "
                     size="lg"
+                    layout="fill"
                     placeholder="Choose a format"
                     empty-text="No formats."
                   />
@@ -555,6 +707,7 @@ function connectNew(): void {
                         (settingsDraft.default_quality.audio_bitrate = val)
                     "
                     size="lg"
+                    layout="fill"
                     placeholder="Choose a bitrate"
                     empty-text="No bitrates."
                   />

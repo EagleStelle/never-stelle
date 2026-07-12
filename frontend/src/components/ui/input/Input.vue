@@ -88,7 +88,7 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
         emit('update:modelValue', ($event.target as HTMLInputElement).value)
       "
       :class="[
-        'flex-1 min-w-0 h-full bg-transparent outline-none text-white in-[.light-mode]:text-black pr-2 placeholder:text-white in-[.light-mode]:placeholder:text-black',
+        'flex-1 min-w-0 h-full bg-transparent outline-none text-white in-[.light-mode]:text-black pr-2 placeholder:text-white/50 in-[.light-mode]:placeholder:text-black/50',
         sizes.input,
         props.inputClass,
       ]"

@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import IconMoon from "~icons/material-symbols/dark-mode";
-import IconGear from "~icons/material-symbols/settings";
-import IconSun from "~icons/material-symbols/light-mode";
+import { ref } from "vue";
 import IconPanelOpen from "~icons/material-symbols/left-panel-open";
 import IconPanelClose from "~icons/material-symbols/left-panel-close";
-import { ref } from "vue";
 import type { Component } from "vue";
 
-import type { PageKey } from "../../types";
+import type { PageKey, SettingsSection } from "../../types";
+import AccountMenu from "./AccountMenu.vue";
 import {
   Sidebar,
   SidebarHeader,
@@ -26,7 +24,7 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
-  openSettings: [event: Event];
+  openSettings: [event: Event, section?: SettingsSection];
   selectPage: [page: PageKey];
   toggleTheme: [];
 }>();
@@ -103,45 +101,13 @@ const isExpanded = ref(true);
     <SidebarFooter
       :class="isExpanded ? 'w-full' : 'items-center w-full'"
     >
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            @click="emit('toggleTheme')"
-            :aria-label="isLightMode ? 'Dark Mode' : 'Light Mode'"
-            :title="!isExpanded ? (isLightMode ? 'Dark Mode' : 'Light Mode') : undefined"
-            :class="!isExpanded ? 'w-10 px-0 justify-center' : ''"
-          >
-            <IconMoon
-              v-if="isLightMode"
-              class="shrink-0 w-5 h-5"
-              aria-hidden="true"
-            />
-            <IconSun v-else class="shrink-0 w-5 h-5" aria-hidden="true" />
-            <span
-              v-show="isExpanded"
-              class="whitespace-nowrap overflow-hidden font-medium"
-              >{{ isLightMode ? "Dark Mode" : "Light Mode" }}</span
-            >
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            @click="emit('openSettings', $event)"
-            :aria-pressed="settingsOpen"
-            aria-label="Open settings"
-            :title="!isExpanded ? 'Settings' : undefined"
-            :class="!isExpanded ? 'w-10 px-0 justify-center' : ''"
-          >
-            <IconGear class="shrink-0 w-5 h-5" aria-hidden="true" />
-            <span
-              v-show="isExpanded"
-              class="whitespace-nowrap overflow-hidden font-medium"
-              >Settings</span
-            >
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
+      <AccountMenu
+        :is-light-mode="isLightMode"
+        :settings-open="settingsOpen"
+        :variant="isExpanded ? 'sidebar' : 'sidebar-collapsed'"
+        @open-settings="(event, section) => emit('openSettings', event, section)"
+        @toggle-theme="emit('toggleTheme')"
+      />
     </SidebarFooter>
   </Sidebar>
 </template>

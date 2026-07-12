@@ -273,6 +273,7 @@ export function isPageKey(value: string | null): value is PageKey {
 
 export function isSettingsSection(value: string | null): value is SettingsSection {
   return (
+    value === "account" ||
     value === "downloads" ||
     value === "cookies" ||
     value === "quality" ||

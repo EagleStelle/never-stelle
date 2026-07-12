@@ -20,7 +20,9 @@ param(
     [int]$FrontendPort = 5173,
     [string]$HostAddress = "127.0.0.1",
     [switch]$Reinstall,
-    [switch]$Prod
+    [switch]$Prod,
+    [string]$Username = "",
+    [string]$Password = ""
 )
 
 $Dev = -not $Prod
@@ -48,6 +50,23 @@ $FrontendDistDir = Join-Path $DataDir "frontend-dist"
 foreach ($Path in @($LocalDir, $DataDir, $MediaDir, $ScratchDir, $BuildDir, $LogDir, $TempDir, $PipCacheDir, $NpmCacheDir, $FrontendWorkDir, $FrontendDistDir)) {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
 }
+
+$SeedUsername = if ($Username.Trim()) {
+    $Username.Trim()
+} elseif ($env:NEVER_STELLE_USERNAME) {
+    $env:NEVER_STELLE_USERNAME.Trim()
+} else {
+    "root"
+}
+$SeedPassword = if ($Password) {
+    $Password
+} elseif ($env:NEVER_STELLE_PASSWORD) {
+    $env:NEVER_STELLE_PASSWORD
+} else {
+    "never-stelle"
+}
+$env:NEVER_STELLE_USERNAME = $SeedUsername
+$env:NEVER_STELLE_PASSWORD = $SeedPassword
 
 function Assert-UnderLocal {
     param([string]$Path)
@@ -236,6 +255,7 @@ Write-Host "  Media:    $MediaDir"
 Write-Host "  Scratch:  $ScratchDir"
 Write-Host "  Database: $DatabasePath"
 Write-Host "  Frontend: $FrontendDistDir"
+Write-Host "  Auth:     $SeedUsername (seed user; first run only)"
 Write-Host ""
 Write-Host "Press Ctrl+C to stop."
 Write-Host ""

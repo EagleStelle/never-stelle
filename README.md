@@ -16,6 +16,25 @@ Open:
 http://127.0.0.1:5173
 ```
 
+Default first-run login:
+
+```text
+Username: root
+Password: never-stelle
+```
+
+Override the seed credentials before the first run with environment variables or launcher flags:
+
+```powershell
+$env:NEVER_STELLE_USERNAME = "root"
+$env:NEVER_STELLE_PASSWORD = "change-this-password"
+.\run.cmd
+
+.\run.cmd -Username root -Password change-this-password
+```
+
+After the account exists, change the username or password in Settings -> Account.
+
 Use another backend/API or frontend port:
 
 ```powershell
@@ -45,6 +64,8 @@ http://127.0.0.1:8840
 ```
 
 Docker state is stored in the bind-mounted `data/`, `media/`, and `scratch/` directories.
+
+Docker seeds the same first-run account from `NEVER_STELLE_USERNAME` and `NEVER_STELLE_PASSWORD` in [docker-compose.yml](docker-compose.yml). Environment seed values only apply when no account exists yet.
 
 ### Media library layout
 

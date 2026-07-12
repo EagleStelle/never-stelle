@@ -9,7 +9,7 @@ export type TaskFilter = "all" | "active" | "done";
 export type MediaFilter = "all" | "image" | "video";
 export type ViewMode = "grid" | "table";
 export type MediaMode = "video" | "audio";
-export type SettingsSection = "downloads" | "cookies" | "quality" | "folder-template" | "filename-template";
+export type SettingsSection = "account" | "downloads" | "cookies" | "quality" | "folder-template" | "filename-template";
 export type ToastType = "success" | "error";
 
 export type SourceLocations = Record<string, string>;
@@ -61,6 +61,11 @@ export interface CookiesStatus {
 
 export type CookiesMap = Record<string, CookiesStatus>;
 
+export interface AuthSettings {
+  username: string;
+  password_configured: boolean;
+}
+
 export interface SavedSettings {
   source_profiles: SourceProfile[];
   site_locations: SourceLocations;
@@ -70,12 +75,14 @@ export interface SavedSettings {
 }
 
 export interface RuntimeSettings extends SavedSettings {
+  auth: AuthSettings;
   download_locations: string[];
   ytdlp_cookies: CookiesMap;
   quality_options: QualityOptions;
 }
 
 export interface UiConfigResponse {
+  auth?: Partial<AuthSettings>;
   download_locations?: string[];
   source_profiles?: Array<Partial<SourceProfile>>;
   source_default_locations?: SourceLocations;
@@ -168,3 +175,18 @@ export interface ScanMediaResponse {
   added: number;
 }
 
+export interface AuthSessionResponse {
+  authenticated: boolean;
+  username: string;
+}
+
+export interface LoginPayload {
+  username: string;
+  password: string;
+}
+
+export interface CredentialsPayload {
+  username: string;
+  current_password: string;
+  new_password?: string;
+}

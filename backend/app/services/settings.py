@@ -448,11 +448,13 @@ def build_settings_response(
     cfg: dict[str, Any] | None = None,
     saved: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    from backend.app.services.auth import auth_public_payload
     from backend.app.services.tasks.constants import default_quality_selection, quality_options
 
     cfg = cfg or load_app_config()
     saved = saved or get_effective_saved_settings(cfg)
     return {
+        "auth": auth_public_payload(),
         "download_locations": normalize_download_locations(cfg),
         "source_profiles": saved.get("source_profiles", get_effective_source_profiles(cfg)),
         "source_default_locations": saved.get("site_locations", {}),

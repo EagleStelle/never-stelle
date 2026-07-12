@@ -1,5 +1,5 @@
 import { computed, nextTick, reactive, ref, watch } from "vue";
-import { useEventListener, useLocalStorage } from "@vueuse/core";
+import { refDebounced, useEventListener, useLocalStorage } from "@vueuse/core";
 import IconHistory from "~icons/material-symbols/schedule";
 import IconTray from "~icons/material-symbols/inbox";
 import IconMedia from "~icons/material-symbols/perm-media";
@@ -7,6 +7,7 @@ import IconVideo from "~icons/material-symbols/movie";
 import IconImage from "~icons/material-symbols/image";
 
 import { useDashboardSettings } from "./useDashboardSettings";
+import { useAuth } from "./useAuth";
 import { useTaskQueue } from "./useTaskQueue";
 import { useHistory } from "./useHistory";
 import { useSonner } from "./useSonner";
@@ -43,6 +44,7 @@ import {
 import { mediaKindForTask } from "../utils/task";
 
 const SETTINGS_ROUTE_BY_SECTION: Record<SettingsSection, string> = {
+  account: "/settings/account",
   downloads: "/settings/locations",
   cookies: "/settings/cookies",
   quality: "/settings/quality",
@@ -52,6 +54,7 @@ const SETTINGS_ROUTE_BY_SECTION: Record<SettingsSection, string> = {
 
 function settingsSectionFromPath(path: string): SettingsSection {
   const last = path.split("/").filter(Boolean).at(-1) || "";
+  if (last === "account") return "account";
   if (last === "locations") return "downloads";
   if (last === "folder") return "folder-template";
   if (last === "filename") return "filename-template";
@@ -65,6 +68,7 @@ function sourceInitials(label: string): string {
 }
 
 export function useDownloadDashboard() {
+  const auth = useAuth();
   const sonner = useSonner();
   const settingsState = useDashboardSettings({ toast: sonner.toast });
   const url = ref("");
@@ -112,10 +116,17 @@ export function useDownloadDashboard() {
   if (!isViewMode(viewMode.value)) viewMode.value = "grid";
   if (themeMode.value !== "light") themeMode.value = "dark";
 
-  // History is server-paginated; source filter runs in SQL, media filter client-side below.
+  // History is server-paginated; source + text search run in SQL, media filter client-side below.
   const historySourceKey = computed(() => (activeMenu.value === "all" ? "" : activeMenu.value));
-  const historyEnabled = computed(() => activePage.value === "history");
-  const history = useHistory({ sourceKey: historySourceKey, enabled: historyEnabled });
+  const historyEnabled = computed(() => auth.authenticated.value && activePage.value === "history");
+  // Debounced so each keystroke doesn't refetch; the debounced ref drives the query key.
+  const historySearch = ref("");
+  const historySearchDebounced = refDebounced(historySearch, 300);
+  const history = useHistory({
+    sourceKey: historySourceKey,
+    search: historySearchDebounced,
+    enabled: historyEnabled,
+  });
 
   const taskSourceProfiles = computed<SourceProfile[]>(() =>
     taskQueue.taskItems.value
@@ -311,6 +322,7 @@ export function useDownloadDashboard() {
     openSettings,
     ...taskQueue,
     ...sonner,
+    historySearch,
     historyLoading: history.loading,
     historyError: history.historyError,
     historyHasMore: history.hasMore,

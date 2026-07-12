@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import type { Component } from "vue";
-import IconMoon from "~icons/material-symbols/dark-mode";
-import IconGear from "~icons/material-symbols/settings";
-import IconSun from "~icons/material-symbols/light-mode";
 
-import type { PageKey } from "../../types";
+import type { PageKey, SettingsSection } from "../../types";
+import AccountMenu from "./AccountMenu.vue";
 
 defineProps<{
   activePage: PageKey;
@@ -14,7 +12,7 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
-  openSettings: [event: Event];
+  openSettings: [event: Event, section?: SettingsSection];
   selectPage: [page: PageKey];
   toggleTheme: [];
 }>();
@@ -38,24 +36,14 @@ const emit = defineEmits<{
         item.label
       }}</span>
     </button>
-    <button
-      type="button"
-      class="inline-flex flex-col items-center justify-center gap-1 flex-1 w-full min-w-0 h-14 px-0 rounded-lg bg-transparent leading-none text-white/65 in-[.light-mode]:text-black/65 transition-all duration-200 ease-glass active:scale-[0.94] hover:text-white in-[.light-mode]:hover:text-black"
-      @click="emit('toggleTheme')"
-    >
-      <IconSun v-if="isLightMode" class="w-6 h-6" aria-hidden="true" />
-      <IconMoon v-else class="w-6 h-6" aria-hidden="true" />
-      <span class="text-10px font-medium tracking-wide">Theme</span>
-    </button>
-    <button
-      type="button"
-      class="inline-flex flex-col items-center justify-center gap-1 flex-1 w-full min-w-0 h-14 px-0 rounded-lg bg-transparent leading-none text-white/65 in-[.light-mode]:text-black/65 transition-all duration-200 ease-glass active:scale-[0.94] hover:text-white in-[.light-mode]:hover:text-black aria-pressed:bg-accent aria-pressed:text-black"
-      :aria-pressed="settingsOpen"
-      @click="emit('openSettings', $event)"
-    >
-      <IconGear class="w-6 h-6" aria-hidden="true" />
-      <span class="text-10px font-medium tracking-wide">Settings</span>
-    </button>
+    <AccountMenu
+      class="flex-1 min-w-0"
+      :is-light-mode="isLightMode"
+      :settings-open="settingsOpen"
+      variant="bottom"
+      @open-settings="(event, section) => emit('openSettings', event, section)"
+      @toggle-theme="emit('toggleTheme')"
+    />
   </nav>
 </template>
 

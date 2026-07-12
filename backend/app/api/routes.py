@@ -2,12 +2,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from backend.app.core.config import load_app_config
+from backend.app.services.auth import (
+    AuthError,
+    InvalidCredentials,
+    authenticate_user,
+    clear_session_cookie,
+    create_session_token,
+    current_auth_session,
+    set_session_cookie,
+    update_auth_credentials,
+)
 from backend.app.services.settings import (
     build_settings_response,
     clear_ytdlp_cookies_upload,
@@ -31,6 +41,17 @@ from backend.app.services.tasks import (
 )
 
 router = APIRouter()
+
+
+class LoginPayload(BaseModel):
+    username: str = ""
+    password: str = ""
+
+
+class CredentialsPayload(BaseModel):
+    username: str = ""
+    current_password: str = ""
+    new_password: str = ""
 
 
 class SettingsPayload(BaseModel):
@@ -62,6 +83,46 @@ class SetSourcePayload(BaseModel):
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/auth/session")
+def auth_session(request: Request) -> dict[str, Any]:
+    session = current_auth_session(request)
+    if not session:
+        return {"authenticated": False, "username": ""}
+    return {"authenticated": True, "username": session["username"]}
+
+
+@router.post("/auth/login")
+def auth_login(payload: LoginPayload, response: Response) -> dict[str, Any]:
+    try:
+        auth = authenticate_user(payload.username, payload.password)
+    except InvalidCredentials as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    set_session_cookie(response, create_session_token(auth))
+    return {"authenticated": True, "username": auth["username"]}
+
+
+@router.post("/auth/logout")
+def auth_logout(response: Response) -> dict[str, Any]:
+    clear_session_cookie(response)
+    return {"authenticated": False, "username": ""}
+
+
+@router.post("/auth/credentials")
+def auth_credentials(payload: CredentialsPayload, response: Response) -> dict[str, Any]:
+    try:
+        auth = update_auth_credentials(
+            payload.current_password,
+            payload.username,
+            payload.new_password,
+        )
+    except InvalidCredentials as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except AuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    set_session_cookie(response, create_session_token(auth))
+    return {"authenticated": True, "username": auth["username"]}
 
 
 @router.get("/ui-config")
@@ -135,10 +196,10 @@ def list_tasks() -> dict[str, Any]:
 
 
 @router.get("/history")
-def list_history(offset: int = 0, limit: int = 30, source_key: str = "") -> dict[str, Any]:
+def list_history(offset: int = 0, limit: int = 30, source_key: str = "", search: str = "") -> dict[str, Any]:
     limit = max(1, min(200, limit))
     offset = max(0, offset)
-    return fetch_history_page(offset, limit, source_key)
+    return fetch_history_page(offset, limit, source_key, search)
 
 
 @router.post("/scan")

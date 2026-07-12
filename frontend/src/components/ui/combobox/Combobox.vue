@@ -35,8 +35,9 @@ const props = withDefaults(
     emptyText?: string;
     class?: string;
     size?: Size;
+    layout?: "fit" | "fill";
   }>(),
-  { size: "default" },
+  { size: "default", layout: "fit" },
 );
 
 const emit = defineEmits<{
@@ -112,7 +113,8 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
   >
     <ComboboxAnchor
       :class="[
-        'relative inline-flex max-w-full items-center rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-(--glass-border) shadow-inner focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass',
+        'relative items-center rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-(--glass-border) shadow-inner focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass',
+        props.layout === 'fill' ? 'flex w-full' : 'inline-flex max-w-full',
         sizes.anchor,
       ]"
     >
@@ -142,10 +144,11 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
       <ComboboxInput
         :class="[
           'bg-transparent outline-none min-w-0 text-white in-[.light-mode]:text-black placeholder:text-white in-[.light-mode]:placeholder:text-black',
+          props.layout === 'fill' ? 'flex-1 w-full' : '',
           sizes.input,
         ]"
-        style="field-sizing: content;"
-        :size="Math.max(1, (searchTerm || activeLabel || props.placeholder || 'Search...').length)"
+        :style="props.layout === 'fit' ? { 'field-sizing': 'content' } : undefined"
+        :size="props.layout === 'fit' ? Math.max(1, (searchTerm || activeLabel || props.placeholder || 'Search...').length) : undefined"
         :placeholder="activeLabel || props.placeholder || 'Search...'"
       />
       <ComboboxTrigger

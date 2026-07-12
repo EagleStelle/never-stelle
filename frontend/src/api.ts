@@ -1,7 +1,10 @@
 import type {
   AddTaskResponse,
+  AuthSessionResponse,
   ClearTasksResponse,
+  CredentialsPayload,
   HistoryResponse,
+  LoginPayload,
   ProbeResponse,
   SavedSettings,
   ScanMediaResponse,
@@ -29,11 +32,43 @@ async function readError(response: Response, fallback: string): Promise<string> 
 }
 
 async function jsonRequest<T>(path: string, init: RequestInit = {}, fallback = "Request failed."): Promise<T> {
-  const response = await fetch(path, init);
+  const response = await fetch(path, { credentials: "same-origin", ...init });
   if (!response.ok) {
     throw new Error(await readError(response, fallback));
   }
   return (await response.json()) as T;
+}
+
+export function getAuthSession(): Promise<AuthSessionResponse> {
+  return jsonRequest<AuthSessionResponse>("/api/auth/session", {}, "Could not check login.");
+}
+
+export function login(payload: LoginPayload): Promise<AuthSessionResponse> {
+  return jsonRequest<AuthSessionResponse>(
+    "/api/auth/login",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Could not sign in.",
+  );
+}
+
+export function logout(): Promise<AuthSessionResponse> {
+  return jsonRequest<AuthSessionResponse>("/api/auth/logout", { method: "POST" }, "Could not sign out.");
+}
+
+export function updateCredentials(payload: CredentialsPayload): Promise<AuthSessionResponse> {
+  return jsonRequest<AuthSessionResponse>(
+    "/api/auth/credentials",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Could not save account.",
+  );
 }
 
 export function getUiConfig(): Promise<UiConfigResponse> {
@@ -78,9 +113,10 @@ export function getTasks(): Promise<TasksResponse> {
   return jsonRequest<TasksResponse>("/api/tasks", {}, "Could not load tasks.");
 }
 
-export function getHistory(offset: number, limit: number, sourceKey = ""): Promise<HistoryResponse> {
+export function getHistory(offset: number, limit: number, sourceKey = "", search = ""): Promise<HistoryResponse> {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   if (sourceKey) params.set("source_key", sourceKey);
+  if (search) params.set("search", search);
   return jsonRequest<HistoryResponse>(`/api/history?${params.toString()}`, {}, "Could not load history.");
 }
 

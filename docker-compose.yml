@@ -4,6 +4,9 @@ services:
     build: .
     container_name: never-stelle
     restart: unless-stopped
+    environment:
+      NEVER_STELLE_USERNAME: ${NEVER_STELLE_USERNAME:-root}
+      NEVER_STELLE_PASSWORD: ${NEVER_STELLE_PASSWORD:-never-stelle}
     volumes:
       - .local/data:/data
       - .local/scratch:/scratch

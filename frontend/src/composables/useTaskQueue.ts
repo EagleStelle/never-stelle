@@ -14,6 +14,7 @@ import {
   scanMediaLibrary,
   setTaskSource as setTaskSourceRequest,
 } from "../api";
+import { useAuth } from "./useAuth";
 import { POLL_PENDING_MS, POLL_RUNNING_MS, TASKS_QUERY_KEY } from "../ui";
 import type { PlaylistEntry, QualitySelection, SavedSettings, TaskItem, TasksResponse, ToastType } from "../types";
 import { countTasks, errorMessage, filenameFromContentDisposition } from "../utils/dashboard";
@@ -37,6 +38,7 @@ function looksLikePlaylist(sourceUrl: string): boolean {
 }
 
 export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTaskQueueOptions) {
+  const auth = useAuth();
   const taskCache = new Map<string, Partial<TaskItem>>();
   const pollingIntervalMs = ref(POLL_PENDING_MS);
 
@@ -47,6 +49,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   const tasksQuery = useQuery<TasksResponse>({
     queryKey: TASKS_QUERY_KEY,
     queryFn: getTasks,
+    enabled: auth.authenticated,
     staleTime: 1000,
   });
   const addTaskMutation = useMutation({ mutationFn: createTask });
