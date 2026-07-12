@@ -155,9 +155,10 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
 
     <ComboboxPortal>
       <ComboboxContent
-        class="z-50 min-w-40 glass-chrome rounded-lg overflow-hidden"
+        class="z-[100] glass-chrome rounded-lg overflow-hidden"
         position="popper"
         :side-offset="6"
+        style="width: var(--reka-popper-anchor-width, var(--reka-combobox-trigger-width, 100%));"
       >
         <ComboboxViewport class="p-1">
           <ComboboxEmpty

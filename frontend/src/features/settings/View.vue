@@ -1,29 +1,21 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from "vue";
 import type { Component } from "vue";
+import IconClose from "~icons/material-symbols/close";
 import IconCookie from "~icons/material-symbols/cookie";
 import IconDescription from "~icons/material-symbols/description";
 import IconFolder from "~icons/material-symbols/folder";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconSearch from "~icons/material-symbols/search";
 import IconTrash from "~icons/material-symbols/delete";
-import IconTune from "~icons/material-symbols/tune";
+import IconQuality from "~icons/material-symbols/high-quality";
 import IconUpload from "~icons/material-symbols/upload";
-import {
-  TabsContent,
-  TabsList,
-  TabsRoot,
-  TabsTrigger,
-} from "reka-ui";
+import { TabsContent, TabsList, TabsRoot, TabsTrigger } from "reka-ui";
 
 import { Button } from "../../components/ui/button";
 import { Combobox } from "../../components/ui/combobox";
 import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
-import {
-  SegmentedControl,
-  SegmentedControlItem,
-} from "../../components/ui/segmented-control";
 import {
   Sidebar,
   SidebarHeader,
@@ -71,7 +63,7 @@ const emit = defineEmits<{
 const SECTION_ICONS: Record<SettingsSection, Component> = {
   downloads: IconFolder,
   cookies: IconCookie,
-  quality: IconTune,
+  quality: IconQuality,
   "folder-template": IconRuleFolder,
   "filename-template": IconDescription,
 };
@@ -216,414 +208,405 @@ function connectNew(): void {
     v-model:open="openModel"
     title="Settings"
     hide-title
+    :show-close="false"
     description="Configure download locations, cookies, and naming templates."
     overlay-class="settings-overlay fixed inset-0 z-60 bg-black/50 backdrop-blur-sm"
     content-class="settings-content fixed left-1/2 top-1/2 z-70 flex w-[min(980px,96vw)] h-[min(700px,92vh)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none sm:flex-row"
   >
-        <datalist id="downloadLocationSuggestions">
-          <option
-            v-for="location in settings.download_locations"
-            :key="location"
-            :value="location"
-          ></option>
-        </datalist>
+    <datalist id="downloadLocationSuggestions">
+      <option
+        v-for="location in settings.download_locations"
+        :key="location"
+        :value="location"
+      ></option>
+    </datalist>
 
-        <TabsRoot
-          v-model="sectionModel"
-          class="flex min-h-0 flex-1 flex-col sm:flex-row"
-          orientation="vertical"
+    <TabsRoot
+      v-model="sectionModel"
+      class="flex min-h-0 flex-1 flex-col sm:flex-row"
+      orientation="vertical"
+    >
+      <!-- Sidebar -->
+      <Sidebar
+        class="relative pl-3 pt-3 pb-3 pr-12 sm:h-full sm:w-60 sm:p-4 gap-3"
+      >
+        <!-- Mobile Close Button -->
+        <button
+          type="button"
+          @click="openModel = false"
+          class="absolute right-2 top-2 z-10 inline-flex sm:hidden h-9 w-9 items-center justify-center rounded-lg bg-transparent text-white/70 in-[.light-mode]:text-black/70 hover:text-white in-[.light-mode]:hover:text-black active:scale-[0.96] transition-all"
+          aria-label="Close"
         >
-          <!-- Sidebar -->
-          <Sidebar class="p-3 sm:h-full sm:w-60 sm:p-4 gap-3">
-            <SidebarHeader>
-              <Input
-                size="lg"
-                v-model="sectionSearch"
-                type="text"
-                placeholder="Search"
-                aria-label="Search settings"
-                class="hidden sm:flex"
-              >
-                <template #icon>
-                  <IconSearch class="h-5 w-5" aria-hidden="true" />
-                </template>
-              </Input>
-            </SidebarHeader>
+          <IconClose class="h-6 w-6" aria-hidden="true" />
+        </button>
 
-            <SidebarContent>
-              <TabsList
-                class="flex gap-1 overflow-x-auto pb-1 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:pb-0"
-                aria-label="Settings sections"
-              >
-                <SidebarGroup v-for="group in sectionGroups" :key="group.label">
-                  <SidebarGroupLabel
-                    class="hidden sm:block sm:not-first:mt-3"
-                  >
-                    {{ group.label }}
-                  </SidebarGroupLabel>
-                  <SidebarMenu class="flex-row sm:flex-col gap-1">
-                    <SidebarMenuItem
-                      v-for="item in group.items"
-                      :key="item.key"
-                      class="flex-none sm:w-full"
-                    >
-                      <TabsTrigger
-                        as-child
-                        :value="item.key"
-                        @click="selectSection(item.key)"
-                      >
-                        <SidebarMenuButton as="div" class="cursor-pointer">
-                          <component
-                            :is="SECTION_ICONS[item.key]"
-                            class="h-5 w-5 shrink-0 opacity-80 group-data-[state=active]:opacity-100"
-                            aria-hidden="true"
-                          />
-                          <span class="whitespace-nowrap font-medium">{{
-                            item.label
-                          }}</span>
-                        </SidebarMenuButton>
-                      </TabsTrigger>
-                    </SidebarMenuItem>
-                  </SidebarMenu>
-                </SidebarGroup>
-              </TabsList>
-            </SidebarContent>
-          </Sidebar>
+        <SidebarHeader class="hidden sm:flex">
+          <Input
+            size="lg"
+            v-model="sectionSearch"
+            type="text"
+            placeholder="Search"
+            aria-label="Search settings"
+            class="hidden sm:flex"
+          >
+            <template #icon>
+              <IconSearch class="h-5 w-5" aria-hidden="true" />
+            </template>
+          </Input>
+        </SidebarHeader>
 
-          <!-- Content -->
-          <div class="relative min-h-0 min-w-0 flex-1">
-            <div class="h-full overflow-y-auto px-5 py-6 sm:px-8">
-              <TabsContent
-                v-for="item in SETTINGS_SECTIONS"
-                :key="item.key"
-                :value="item.key"
-                class="pr-10 focus:outline-none"
-              >
-                <p
-                  v-if="
-                    sourceProfiles.length === 0 &&
-                    item.key !== 'cookies' &&
-                    item.key !== 'quality'
-                  "
-                  class="rounded-lg glass p-4 text-white in-[.light-mode]:text-black"
+        <SidebarContent>
+          <TabsList
+            class="flex gap-1 overflow-x-auto pb-1 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:pb-0"
+            aria-label="Settings sections"
+          >
+            <SidebarGroup v-for="group in sectionGroups" :key="group.label">
+              <SidebarGroupLabel class="hidden sm:block sm:not-first:mt-3">
+                {{ group.label }}
+              </SidebarGroupLabel>
+              <SidebarMenu class="flex-row sm:flex-col gap-1">
+                <SidebarMenuItem
+                  v-for="item in group.items"
+                  :key="item.key"
+                  class="flex-none sm:w-full"
                 >
-                  No sources yet.
-                </p>
+                  <TabsTrigger
+                    as-child
+                    :value="item.key"
+                    @click="selectSection(item.key)"
+                  >
+                    <SidebarMenuButton as="div" class="cursor-pointer">
+                      <component
+                        :is="SECTION_ICONS[item.key]"
+                        class="h-5 w-5 shrink-0 opacity-80 group-data-[state=active]:opacity-100"
+                        aria-hidden="true"
+                      />
+                      <span class="whitespace-nowrap font-medium">{{
+                        item.label
+                      }}</span>
+                    </SidebarMenuButton>
+                  </TabsTrigger>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroup>
+          </TabsList>
+        </SidebarContent>
+      </Sidebar>
 
-                <!-- Locations -->
-                <template v-if="item.key === 'downloads'">
-                  <div class="flex flex-col">
-                    <div
-                      v-for="site in sourceProfiles"
-                      :key="site.key"
-                      class="settings-row"
-                    >
-                      <span class="settings-row-label">{{ site.label }}</span>
-                      <div class="settings-row-control">
-                        <Input
-                          size="lg"
-                          :id="`${site.key}LocationInput`"
-                          v-model="settingsDraft.site_locations[site.key]"
-                          list="downloadLocationSuggestions"
-                          placeholder="Enter a save path"
-                        />
-                      </div>
-                    </div>
+      <!-- Content -->
+      <div class="relative min-h-0 min-w-0 flex-1 flex flex-col">
+        <!-- Desktop Header & Close Button -->
+        <div class="hidden sm:flex h-14 shrink-0 items-center justify-end px-4">
+          <button
+            type="button"
+            @click="openModel = false"
+            class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-transparent text-white/70 in-[.light-mode]:text-black/70 transition-all duration-300 ease-glass hover:text-white in-[.light-mode]:hover:text-black active:scale-[0.96]"
+            aria-label="Close"
+          >
+            <IconClose class="h-6 w-6" aria-hidden="true" />
+          </button>
+        </div>
+
+        <!-- Scrollable Settings -->
+        <div class="flex-1 overflow-y-auto px-5 pb-6 pt-4 sm:pt-0 sm:px-8">
+          <TabsContent
+            v-for="item in SETTINGS_SECTIONS"
+            :key="item.key"
+            :value="item.key"
+            class="pr-10 focus:outline-none"
+          >
+            <p
+              v-if="
+                sourceProfiles.length === 0 &&
+                item.key !== 'cookies' &&
+                item.key !== 'quality'
+              "
+              class="rounded-lg glass p-4 text-white in-[.light-mode]:text-black"
+            >
+              No sources yet.
+            </p>
+
+            <!-- Locations -->
+            <template v-if="item.key === 'downloads'">
+              <div class="flex flex-col">
+                <div
+                  v-for="site in sourceProfiles"
+                  :key="site.key"
+                  class="settings-row"
+                >
+                  <span class="settings-row-label">{{ site.label }}</span>
+                  <div class="settings-row-control">
+                    <Input
+                      size="lg"
+                      :id="`${site.key}LocationInput`"
+                      v-model="settingsDraft.site_locations[site.key]"
+                      list="downloadLocationSuggestions"
+                      placeholder="Enter a save path"
+                    />
                   </div>
-                </template>
+                </div>
+              </div>
+            </template>
 
-                <!-- Cookies -->
-                <template v-else-if="item.key === 'cookies'">
-                  <div class="settings-row">
-                    <div class="flex w-full items-center gap-2">
-                      <Input
-                        size="lg"
-                        v-model="newCookie.source"
-                        type="text"
-                        inputmode="url"
-                        placeholder="Paste a link or domain"
-                        class="flex-1"
-                      />
-                      <input
-                        id="newSourceCookiesInput"
-                        type="file"
-                        accept=".txt,.cookies,text/plain"
-                        class="hidden"
-                        @change="onNewCookieFile"
-                      />
+            <!-- Cookies -->
+            <template v-else-if="item.key === 'cookies'">
+              <div class="settings-row">
+                <div class="flex w-full items-center gap-2">
+                  <Input
+                    size="lg"
+                    v-model="newCookie.source"
+                    type="text"
+                    inputmode="url"
+                    placeholder="Paste a link or domain"
+                    class="flex-1"
+                  />
+                  <input
+                    id="newSourceCookiesInput"
+                    type="file"
+                    accept=".txt,.cookies,text/plain"
+                    class="hidden"
+                    @change="onNewCookieFile"
+                  />
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    type="button"
+                    class="shrink-0"
+                    title="Upload cookies for link"
+                    aria-label="Upload cookies for link"
+                    @click="openNewPicker"
+                  >
+                    <template #icon>
+                      <IconUpload class="w-5 h-5" aria-hidden="true" />
+                    </template>
+                  </Button>
+                </div>
+              </div>
+
+              <p
+                v-if="sourceProfiles.length === 0"
+                class="mt-3 rounded-lg glass p-4 text-white in-[.light-mode]:text-black"
+              >
+                No sources yet.
+              </p>
+
+              <div
+                v-for="site in sourceProfiles"
+                :key="site.key"
+                class="settings-row"
+              >
+                <span class="settings-row-label">{{ site.label }}</span>
+                <div class="settings-row-control">
+                  <div class="flex items-center gap-2">
+                    <input
+                      :id="`${site.key}CookiesInput`"
+                      type="file"
+                      accept=".txt,.cookies,text/plain"
+                      class="hidden"
+                      @change="onCookieFile(site.key, $event)"
+                    />
+                    <template v-if="!cookieStatuses[site.key]?.configured">
+                      <div
+                        class="flex flex-1 items-center min-w-0 h-10 rounded-lg glass-soft px-3 text-sm"
+                      >
+                        <span
+                          class="truncate text-white/60 in-[.light-mode]:text-black/60"
+                          >{{
+                            cookieFiles[site.key]?.name || "No cookies file"
+                          }}</span
+                        >
+                      </div>
                       <Button
                         variant="primary"
                         size="lg"
                         type="button"
                         class="shrink-0"
-                        title="Upload cookies for link"
-                        aria-label="Upload cookies for link"
-                        @click="openNewPicker"
+                        :title="`Upload ${site.label} cookies`"
+                        :aria-label="`Upload ${site.label} cookies`"
+                        @click="openPicker(site.key)"
                       >
                         <template #icon>
                           <IconUpload class="w-5 h-5" aria-hidden="true" />
                         </template>
                       </Button>
-                    </div>
-                  </div>
-
-                  <p
-                    v-if="sourceProfiles.length === 0"
-                    class="mt-3 rounded-lg glass p-4 text-white in-[.light-mode]:text-black"
-                  >
-                    No sources yet.
-                  </p>
-
-                  <div
-                    v-for="site in sourceProfiles"
-                    :key="site.key"
-                    class="settings-row"
-                  >
-                    <span class="settings-row-label">{{ site.label }}</span>
-                    <div class="settings-row-control">
-                      <div class="flex items-center gap-2">
-                        <input
-                          :id="`${site.key}CookiesInput`"
-                          type="file"
-                          accept=".txt,.cookies,text/plain"
-                          class="hidden"
-                          @change="onCookieFile(site.key, $event)"
-                        />
-                        <template v-if="!cookieStatuses[site.key]?.configured">
-                          <div
-                            class="flex flex-1 items-center min-w-0 h-10 rounded-lg glass-soft px-3 text-sm"
-                          >
-                            <span
-                              class="truncate text-white/60 in-[.light-mode]:text-black/60"
-                              >{{
-                                cookieFiles[site.key]?.name || "No cookies file"
-                              }}</span
-                            >
-                          </div>
-                          <Button
-                            variant="primary"
-                            size="lg"
-                            type="button"
-                            class="shrink-0"
-                            :title="`Upload ${site.label} cookies`"
-                            :aria-label="`Upload ${site.label} cookies`"
-                            @click="openPicker(site.key)"
-                          >
-                            <template #icon>
-                              <IconUpload class="w-5 h-5" aria-hidden="true" />
-                            </template>
-                          </Button>
-                        </template>
-                        <template v-else>
-                          <div
-                            class="flex flex-1 items-center min-w-0 h-10 rounded-lg glass-soft px-3 text-sm"
-                          >
-                            <span
-                              class="truncate text-white in-[.light-mode]:text-black"
-                              >{{
-                                cookieStatuses[site.key].filename ||
-                                "cookies.txt"
-                              }}</span
-                            >
-                          </div>
-                          <Button
-                            variant="soft"
-                            size="lg"
-                            type="button"
-                            class="shrink-0 bg-[#ef4444]! text-white! hover:bg-[#dc2626]!"
-                            :title="`Delete ${site.label} cookies`"
-                            :aria-label="`Delete ${site.label} cookies`"
-                            @click="emit('removeCookies', site.key)"
-                          >
-                            <template #icon>
-                              <IconTrash class="w-5 h-5" aria-hidden="true" />
-                            </template>
-                          </Button>
-                        </template>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-
-                <!-- Quality -->
-                <template v-else-if="item.key === 'quality'">
-                  <div class="settings-row">
-                    <span class="settings-row-label">Media type</span>
-                    <div class="settings-row-control">
-                      <SegmentedControl
-                        size="lg"
-                        id="defaultQualityMode"
-                        :model-value="settingsDraft.default_quality.mode"
-                        @update:model-value="
-                          (val) => {
-                            if (val)
-                              settingsDraft.default_quality.mode =
-                                val as 'video' | 'audio';
-                          }
-                        "
-                        aria-label="Default media type"
+                    </template>
+                    <template v-else>
+                      <div
+                        class="flex flex-1 items-center min-w-0 h-10 rounded-lg glass-soft px-3 text-sm"
                       >
-                        <SegmentedControlItem value="video">
-                          Video
-                        </SegmentedControlItem>
-                        <SegmentedControlItem value="audio">
-                          Audio
-                        </SegmentedControlItem>
-                      </SegmentedControl>
-                    </div>
-                  </div>
-
-                  <template
-                    v-if="settingsDraft.default_quality.mode === 'video'"
-                  >
-                    <div class="settings-row">
-                      <span class="settings-row-label">Video quality</span>
-                      <div class="settings-row-control">
-                        <Combobox
-                          :model-value="
-                            settingsDraft.default_quality.video_quality
-                          "
-                          :items="settings.quality_options.video"
-                          @update:model-value="
-                            (val) =>
-                              (settingsDraft.default_quality.video_quality = val)
-                          "
-                          size="lg"
-                          placeholder="Choose a quality"
-                          empty-text="No presets."
-                        />
+                        <span
+                          class="truncate text-white in-[.light-mode]:text-black"
+                          >{{
+                            cookieStatuses[site.key].filename || "cookies.txt"
+                          }}</span
+                        >
                       </div>
-                    </div>
-                    <div class="settings-row">
-                      <span class="settings-row-label">Container</span>
-                      <div class="settings-row-control">
-                        <Combobox
-                          :model-value="
-                            settingsDraft.default_quality.video_container
-                          "
-                          :items="settings.quality_options.video_containers"
-                          @update:model-value="
-                            (val) => setDefaultQuality({ video_container: val })
-                          "
-                          size="lg"
-                          placeholder="Choose a container"
-                          empty-text="No containers."
-                        />
-                      </div>
-                    </div>
-                    <div class="settings-row">
-                      <span class="settings-row-label">Codec</span>
-                      <div class="settings-row-control">
-                        <Combobox
-                          :model-value="
-                            settingsDraft.default_quality.video_codec
-                          "
-                          :items="codecItems"
-                          @update:model-value="
-                            (val) => setDefaultQuality({ video_codec: val })
-                          "
-                          size="lg"
-                          placeholder="Choose a codec"
-                          empty-text="No codecs."
-                        />
-                      </div>
-                    </div>
-                  </template>
-
-                  <template v-else>
-                    <div class="settings-row">
-                      <span class="settings-row-label">Audio format</span>
-                      <div class="settings-row-control">
-                        <Combobox
-                          :model-value="
-                            settingsDraft.default_quality.audio_format
-                          "
-                          :items="settings.quality_options.audio_formats"
-                          @update:model-value="
-                            (val) =>
-                              (settingsDraft.default_quality.audio_format = val)
-                          "
-                          size="lg"
-                          placeholder="Choose a format"
-                          empty-text="No formats."
-                        />
-                      </div>
-                    </div>
-                    <div
-                      v-if="
-                        !isLosslessAudioFormat(
-                          settingsDraft.default_quality.audio_format,
-                        )
-                      "
-                      class="settings-row"
-                    >
-                      <span class="settings-row-label">Audio bitrate</span>
-                      <div class="settings-row-control">
-                        <Combobox
-                          :model-value="
-                            settingsDraft.default_quality.audio_bitrate
-                          "
-                          :items="settings.quality_options.audio_bitrates"
-                          @update:model-value="
-                            (val) =>
-                              (settingsDraft.default_quality.audio_bitrate = val)
-                          "
-                          size="lg"
-                          placeholder="Choose a bitrate"
-                          empty-text="No bitrates."
-                        />
-                      </div>
-                    </div>
-                  </template>
-                </template>
-
-                <!-- Folder template -->
-                <template v-else-if="item.key === 'folder-template'">
-                  <div
-                    v-for="site in sourceProfiles"
-                    :key="site.key"
-                    class="settings-row"
-                  >
-                    <span class="settings-row-label">{{ site.label }}</span>
-                    <div class="settings-row-control">
-                      <Input
+                      <Button
+                        variant="soft"
                         size="lg"
-                        :id="`${site.key}FolderTemplateInput`"
-                        v-model="
-                          settingsDraft.source_templates[site.key]
-                            .folder_template
-                        "
-                        input-class="font-mono"
-                      />
-                    </div>
+                        type="button"
+                        class="shrink-0 bg-[#ef4444]! text-white! hover:bg-[#dc2626]!"
+                        :title="`Delete ${site.label} cookies`"
+                        :aria-label="`Delete ${site.label} cookies`"
+                        @click="emit('removeCookies', site.key)"
+                      >
+                        <template #icon>
+                          <IconTrash class="w-5 h-5" aria-hidden="true" />
+                        </template>
+                      </Button>
+                    </template>
                   </div>
-                </template>
+                </div>
+              </div>
+            </template>
 
-                <!-- Filename template -->
-                <template v-else>
-                  <div
-                    v-for="site in sourceProfiles"
-                    :key="site.key"
-                    class="settings-row"
-                  >
-                    <span class="settings-row-label">{{ site.label }}</span>
-                    <div class="settings-row-control">
-                      <Input
-                        size="lg"
-                        :id="`${site.key}FilenameTemplateInput`"
-                        v-model="
-                          settingsDraft.source_templates[site.key]
-                            .filename_template
-                        "
-                        input-class="font-mono"
-                      />
-                    </div>
-                  </div>
-                </template>
-              </TabsContent>
-            </div>
-          </div>
-        </TabsRoot>
+            <!-- Quality -->
+            <template v-else-if="item.key === 'quality'">
+              <h3
+                class="mb-2 text-xs font-bold text-white/50 in-[.light-mode]:text-black/50 uppercase tracking-wider"
+              >
+                Video
+              </h3>
+
+              <div class="settings-row">
+                <span class="settings-row-label">Quality</span>
+                <div class="settings-row-control">
+                  <Combobox
+                    :model-value="settingsDraft.default_quality.video_quality"
+                    :items="settings.quality_options.video"
+                    @update:model-value="
+                      (val) =>
+                        (settingsDraft.default_quality.video_quality = val)
+                    "
+                    size="lg"
+                    placeholder="Choose a quality"
+                    empty-text="No presets."
+                  />
+                </div>
+              </div>
+              <div class="settings-row">
+                <span class="settings-row-label">Container</span>
+                <div class="settings-row-control">
+                  <Combobox
+                    :model-value="settingsDraft.default_quality.video_container"
+                    :items="settings.quality_options.video_containers"
+                    @update:model-value="
+                      (val) => setDefaultQuality({ video_container: val })
+                    "
+                    size="lg"
+                    placeholder="Choose a container"
+                    empty-text="No containers."
+                  />
+                </div>
+              </div>
+              <div class="settings-row">
+                <span class="settings-row-label">Codec</span>
+                <div class="settings-row-control">
+                  <Combobox
+                    :model-value="settingsDraft.default_quality.video_codec"
+                    :items="codecItems"
+                    @update:model-value="
+                      (val) => setDefaultQuality({ video_codec: val })
+                    "
+                    size="lg"
+                    placeholder="Choose a codec"
+                    empty-text="No codecs."
+                  />
+                </div>
+              </div>
+
+              <h3
+                class="mb-2 mt-6 text-xs font-bold text-white/50 in-[.light-mode]:text-black/50 uppercase tracking-wider"
+              >
+                Audio
+              </h3>
+
+              <div class="settings-row">
+                <span class="settings-row-label">Format</span>
+                <div class="settings-row-control">
+                  <Combobox
+                    :model-value="settingsDraft.default_quality.audio_format"
+                    :items="settings.quality_options.audio_formats"
+                    @update:model-value="
+                      (val) =>
+                        (settingsDraft.default_quality.audio_format = val)
+                    "
+                    size="lg"
+                    placeholder="Choose a format"
+                    empty-text="No formats."
+                  />
+                </div>
+              </div>
+              <div
+                v-if="
+                  !isLosslessAudioFormat(
+                    settingsDraft.default_quality.audio_format,
+                  )
+                "
+                class="settings-row"
+              >
+                <span class="settings-row-label">Bitrate</span>
+                <div class="settings-row-control">
+                  <Combobox
+                    :model-value="settingsDraft.default_quality.audio_bitrate"
+                    :items="settings.quality_options.audio_bitrates"
+                    @update:model-value="
+                      (val) =>
+                        (settingsDraft.default_quality.audio_bitrate = val)
+                    "
+                    size="lg"
+                    placeholder="Choose a bitrate"
+                    empty-text="No bitrates."
+                  />
+                </div>
+              </div>
+            </template>
+
+            <!-- Folder template -->
+            <template v-else-if="item.key === 'folder-template'">
+              <div
+                v-for="site in sourceProfiles"
+                :key="site.key"
+                class="settings-row"
+              >
+                <span class="settings-row-label">{{ site.label }}</span>
+                <div class="settings-row-control">
+                  <Input
+                    size="lg"
+                    :id="`${site.key}FolderTemplateInput`"
+                    v-model="
+                      settingsDraft.source_templates[site.key].folder_template
+                    "
+                    input-class="font-mono"
+                  />
+                </div>
+              </div>
+            </template>
+
+            <!-- Filename template -->
+            <template v-else>
+              <div
+                v-for="site in sourceProfiles"
+                :key="site.key"
+                class="settings-row"
+              >
+                <span class="settings-row-label">{{ site.label }}</span>
+                <div class="settings-row-control">
+                  <Input
+                    size="lg"
+                    :id="`${site.key}FilenameTemplateInput`"
+                    v-model="
+                      settingsDraft.source_templates[site.key].filename_template
+                    "
+                    input-class="font-mono"
+                  />
+                </div>
+              </div>
+            </template>
+          </TabsContent>
+        </div>
+      </div>
+    </TabsRoot>
   </Dialog>
 </template>
 
@@ -631,13 +614,8 @@ function connectNew(): void {
 .settings-row {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.375rem 0;
-  border-bottom: 1px solid var(--glass-border);
-}
-
-.settings-row:last-child {
-  border-bottom: 0;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
 }
 
 .settings-row-label {
