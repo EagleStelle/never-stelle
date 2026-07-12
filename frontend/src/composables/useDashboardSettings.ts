@@ -18,6 +18,7 @@ import type {
 } from "../types";
 import {
   createCookiesStatus,
+  createQualitySelection,
   createSourceLocations,
   createSourceProfile,
   createSourceTemplates,
@@ -55,20 +56,24 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     site_locations: createSourceLocations(),
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
+    default_quality: createQualitySelection(),
   });
   const settings = reactive<RuntimeSettings>({
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
     site_locations: createSourceLocations(),
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
+    default_quality: createQualitySelection(),
     download_locations: [],
     ytdlp_cookies: createCookiesMap(),
+    quality_options: { video: [], video_containers: [], video_codecs: [], audio_formats: [], audio_bitrates: [] },
   });
   const settingsDraft = reactive<SavedSettings>({
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
     site_locations: createSourceLocations(),
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
+    default_quality: createQualitySelection(),
   });
 
   const settingsOpen = ref(false);
@@ -100,6 +105,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       site_locations: createSourceLocations(source.site_locations, profiles),
       template_settings: templateSettings,
       source_templates: createSourceTemplates(source.source_templates, profiles, templateSettings),
+      default_quality: createQualitySelection(source.default_quality),
     };
   }
 
@@ -121,6 +127,10 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         profiles,
         templateSettings,
       ),
+      default_quality: createQualitySelection({
+        ...defaults.default_quality,
+        ...settings.default_quality,
+      }),
     };
   }
 
@@ -140,6 +150,17 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     const templates = createSourceTemplates(data.source_templates || {}, profiles, templateSettings);
     replaceRecord(defaults.source_templates, templates);
     replaceRecord(settings.source_templates, templates);
+
+    const defaultQuality = createQualitySelection(data.default_quality || {});
+    Object.assign(defaults.default_quality, defaultQuality);
+    Object.assign(settings.default_quality, defaultQuality);
+    settings.quality_options = {
+      video: data.quality_options?.video || [],
+      video_containers: data.quality_options?.video_containers || [],
+      video_codecs: data.quality_options?.video_codecs || [],
+      audio_formats: data.quality_options?.audio_formats || [],
+      audio_bitrates: data.quality_options?.audio_bitrates || [],
+    };
 
     settings.download_locations = Array.isArray(data.download_locations) ? data.download_locations : [];
     replaceRecord(settings.ytdlp_cookies, createCookiesMap(data.ytdlp_cookies || {}, profiles));
@@ -162,6 +183,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     replaceRecord(settingsDraft.site_locations, normalized.site_locations);
     Object.assign(settingsDraft.template_settings, normalized.template_settings);
     replaceRecord(settingsDraft.source_templates, normalized.source_templates);
+    Object.assign(settingsDraft.default_quality, normalized.default_quality);
     lastSavedSnapshot = JSON.stringify(normalizeSavedPayload(settingsDraft));
   }
 
@@ -172,6 +194,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     const focusTargets: Record<SettingsSection, string> = {
       downloads: `${firstSource}LocationInput`,
       cookies: `${firstSource}CookiesInput`,
+      quality: "defaultQualityMode",
       "folder-template": `${firstSource}FolderTemplateInput`,
       "filename-template": `${firstSource}FilenameTemplateInput`,
     };

@@ -9,7 +9,9 @@ from typing import Any
 
 from backend.app.core.config import is_allowed_location, load_app_config
 from backend.app.core.sources import normalize_source_key
+from backend.app.services.settings import get_effective_saved_settings
 
+from .constants import normalize_quality_selection
 from .engine import select_engine
 from .files import find_numbered_media_siblings, recover_task_path
 from .formats import learn_media_id, reconstruct_url_candidates
@@ -37,6 +39,7 @@ def queue_task(
     template_settings: dict[str, str] | None = None,
     source_profiles: list[dict[str, Any]] | dict[str, Any] | None = None,
     source_templates: dict[str, dict[str, str]] | None = None,
+    quality: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     ensure_worker()
     source_url = canonicalize_source_url(resolve_redirect_url(source_url))
@@ -61,6 +64,9 @@ def queue_task(
         source_templates=source_templates,
         cfg=cfg,
     )
+    # An empty request quality falls back to the saved default; frontend normally
+    # sends the effective value already, so this only guards direct API callers.
+    quality = normalize_quality_selection(quality or get_effective_saved_settings(cfg).get("default_quality"))
     source_key = resolved_settings.source_key
     output_dir = resolved_settings.output_dir
     if not is_allowed_location(output_dir):
@@ -80,6 +86,7 @@ def queue_task(
         "output_dir": output_dir,
         "output_template": output_template,
         "template_settings": resolved_settings.template_settings,
+        "quality": quality,
         "resolved_folder": output_dir,
         "resolved_filename": "",
         "resolved_full_path": "",

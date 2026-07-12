@@ -12,9 +12,15 @@ from backend.app.services.settings import (
     normalize_template_settings,
 )
 
-from .constants import CREATOR_FIELDS, MEDIA_EXTENSIONS, TEMPLATE_RE
+from .constants import (
+    CREATOR_FIELDS,
+    MEDIA_EXTENSIONS,
+    TEMPLATE_RE,
+    VIDEO_QUALITY_PRESETS,
+    normalize_quality_selection,
+)
 from .formats import creator_from_url
-from .naming import sanitize_path_literal
+from .naming import detect_ffmpeg_location, sanitize_path_literal
 
 _GALLERYDL_FIELD = {
     "title": '{title|content|"untitled"}',
@@ -28,6 +34,34 @@ _TEMPLATE_SEP = "\x1f"
 _COUNT_TIMEOUT_SECONDS = 60
 _MAX_COUNT = 5000
 _TIKTOK_NO_AUDIO_OPTION = "extractor.tiktok.audio=false"
+# HLS/DASH streams gallery-dl can't fetch itself are handed to yt-dlp via its
+# `ytdl` downloader (ytdl-scheme URLs only; image files still use http). Match
+# the primary engine's format so both engines produce the same quality output.
+_YTDL_MODULE_OPTION = "downloader.ytdl.module=yt_dlp"
+
+
+def _ytdl_downloader_options(quality: dict[str, str] | None = None) -> list[str]:
+    # gallery-dl handles images/galleries, not audio extraction; audio mode still
+    # pulls video here (the worker drops any stray audio), so use the video format.
+    selection = normalize_quality_selection(quality)
+    audio_mode = selection["mode"] == "audio"
+    video_quality = "best" if audio_mode else selection["video_quality"]
+    format_string = VIDEO_QUALITY_PRESETS[video_quality]["ytdlp"]
+    container = "mp4" if audio_mode else selection["video_container"]
+    options = [
+        "-o",
+        _YTDL_MODULE_OPTION,
+        "-o",
+        f"downloader.ytdl.format={format_string}",
+        "-o",
+        f"downloader.ytdl.raw-options.merge_output_format={container}",
+    ]
+    ffmpeg_location = detect_ffmpeg_location()
+    if ffmpeg_location:
+        # Forward slashes dodge gallery-dl JSON-escape parsing of the option value.
+        normalized = ffmpeg_location.replace("\\", "/")
+        options.extend(["-o", f"downloader.ytdl.raw-options.ffmpeg_location={normalized}"])
+    return options
 
 
 def _directory_segments(folder: str) -> list[str]:
@@ -130,6 +164,7 @@ def build_gallerydl_command(
     with_cookies: bool = False,
     cookie_source_key: str = "",
     excluded_extensions: set[str] | None = None,
+    quality: dict[str, str] | None = None,
 ) -> list[str]:
     folder, _, filename = str(output_template or "").partition(_TEMPLATE_SEP)
     directory = json.dumps(_directory_segments(folder), ensure_ascii=False)
@@ -141,6 +176,7 @@ def build_gallerydl_command(
         _TIKTOK_NO_AUDIO_OPTION,
         "-o",
         f"directory={directory}",
+        *_ytdl_downloader_options(quality),
     ]
     if filename:
         cmd.extend(["--filename", filename])

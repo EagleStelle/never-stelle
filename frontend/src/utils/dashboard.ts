@@ -4,8 +4,11 @@ import {
   PAGE_KEYS,
   type CookiesStatus,
   type MediaFilter,
+  type MediaMode,
   type MenuKey,
   type PageKey,
+  type QualityPreset,
+  type QualitySelection,
   type SavedSettings,
   type SettingsSection,
   type SourceLocations,
@@ -124,6 +127,36 @@ export function createTemplateSettings(source: Partial<SavedSettings["template_s
   };
 }
 
+export const LOSSLESS_AUDIO_FORMATS = new Set(["flac", "wav", "alac"]);
+
+export function isLosslessAudioFormat(format: string): boolean {
+  return LOSSLESS_AUDIO_FORMATS.has(String(format || "").toLowerCase());
+}
+
+export function containerCodecs(container: string, containers: QualityPreset[]): Set<string> {
+  return new Set(containers.find((item) => item.key === container)?.codecs || []);
+}
+
+export function isCodecAllowed(codec: string, container: string, containers: QualityPreset[]): boolean {
+  return codec === "auto" || containerCodecs(container, containers).has(codec);
+}
+
+export function resolveCodec(codec: string, container: string, containers: QualityPreset[]): string {
+  return isCodecAllowed(codec, container, containers) ? codec : "auto";
+}
+
+export function createQualitySelection(source: Partial<QualitySelection> = {}): QualitySelection {
+  const mode: MediaMode = source.mode === "audio" ? "audio" : "video";
+  return {
+    mode,
+    video_quality: source.video_quality || "best",
+    video_container: source.video_container || "mp4",
+    video_codec: source.video_codec || "auto",
+    audio_format: source.audio_format || "mp3",
+    audio_bitrate: source.audio_bitrate || "best",
+  };
+}
+
 export function createSourceTemplates(
   source: Record<string, Partial<SavedSettings["template_settings"]>> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
@@ -158,7 +191,13 @@ export function isPageKey(value: string | null): value is PageKey {
 }
 
 export function isSettingsSection(value: string | null): value is SettingsSection {
-  return value === "downloads" || value === "cookies" || value === "folder-template" || value === "filename-template";
+  return (
+    value === "downloads" ||
+    value === "cookies" ||
+    value === "quality" ||
+    value === "folder-template" ||
+    value === "filename-template"
+  );
 }
 
 export function isFilterKey(value: string | null): value is TaskFilter {

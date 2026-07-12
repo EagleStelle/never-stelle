@@ -15,11 +15,12 @@ import {
   setTaskSource as setTaskSourceRequest,
 } from "../api";
 import { POLL_PENDING_MS, POLL_RUNNING_MS, TASKS_QUERY_KEY } from "../ui";
-import type { PlaylistEntry, SavedSettings, TaskItem, TasksResponse, ToastType } from "../types";
+import type { PlaylistEntry, QualitySelection, SavedSettings, TaskItem, TasksResponse, ToastType } from "../types";
 import { countTasks, errorMessage, filenameFromContentDisposition } from "../utils/dashboard";
 
 interface UseTaskQueueOptions {
   getSavedSettings: () => SavedSettings;
+  getQuality: () => QualitySelection;
   toast: (message: string, type?: ToastType) => void;
   url: Ref<string>;
 }
@@ -35,7 +36,7 @@ function looksLikePlaylist(sourceUrl: string): boolean {
   }
 }
 
-export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptions) {
+export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTaskQueueOptions) {
   const taskCache = new Map<string, Partial<TaskItem>>();
   const pollingIntervalMs = ref(POLL_PENDING_MS);
 
@@ -114,6 +115,7 @@ export function useTaskQueue({ getSavedSettings, toast, url }: UseTaskQueueOptio
       template_settings: currentSettings.template_settings,
       source_profiles: currentSettings.source_profiles,
       source_templates: currentSettings.source_templates,
+      quality: getQuality(),
     });
     const created = Array.isArray(data.created) ? data.created : [];
     if (urls.length > 1) {

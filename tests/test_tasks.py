@@ -172,6 +172,62 @@ def test_parse_filename_media_id_uses_last_bracketed_id():
     )
 
 
+def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from backend.app.services.tasks.planning import ResolvedTaskSettings
+
+    resolved = ResolvedTaskSettings(
+        source_key="others",
+        source_profile={"key": "others", "label": "Others"},
+        source_profiles=[{"key": "others", "label": "Others", "hosts": []}],
+        site_locations={"others": str(tmp_path)},
+        output_dir=str(tmp_path),
+        template_settings={"folder_template": "{{creator}}", "filename_template": "{{title}}"},
+    )
+    captured: dict[str, dict] = {}
+
+    monkeypatch.setattr(operations_module, "ensure_worker", lambda: None)
+    monkeypatch.setattr(operations_module, "resolve_redirect_url", lambda url: url)
+    monkeypatch.setattr(operations_module, "find_active_by_source", lambda url: (None, None))
+    monkeypatch.setattr(operations_module, "find_history_by_source", lambda url: (None, None))
+    monkeypatch.setattr(operations_module, "load_app_config", lambda: {})
+    monkeypatch.setattr(operations_module, "resolve_task_settings", lambda *a, **k: resolved)
+    monkeypatch.setattr(operations_module, "is_allowed_location", lambda location: True)
+    saved_default = {
+        "mode": "video",
+        "video_quality": "1080p",
+        "video_container": "mp4",
+        "video_codec": "auto",
+        "audio_format": "mp3",
+        "audio_bitrate": "best",
+    }
+    monkeypatch.setattr(
+        operations_module, "get_effective_saved_settings", lambda cfg: {"default_quality": saved_default}
+    )
+    monkeypatch.setattr(operations_module, "task_to_api", lambda task_id, task: task)
+
+    def fake_update_task(task_id, **kwargs):
+        captured["task"] = kwargs
+        return kwargs
+
+    monkeypatch.setattr(operations_module, "update_task", fake_update_task)
+
+    operations_module.queue_task(
+        "https://example.test/watch?v=1",
+        quality={"mode": "audio", "audio_format": "opus", "audio_bitrate": "320"},
+    )
+    assert captured["task"]["quality"] == {
+        "mode": "audio",
+        "video_quality": "best",
+        "video_container": "mp4",
+        "video_codec": "auto",
+        "audio_format": "opus",
+        "audio_bitrate": "320",
+    }
+
+    operations_module.queue_task("https://example.test/watch?v=2", quality=None)
+    assert captured["task"]["quality"] == saved_default
+
+
 def test_parse_filename_media_id_accepts_numbered_gallerydl_suffix():
     assert parse_filename_media_id("Creator - Cap [id]_8.jpg") == ("id", "Creator - Cap")
 

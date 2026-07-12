@@ -38,6 +38,7 @@ class SettingsPayload(BaseModel):
     template_settings: dict[str, str] = Field(default_factory=dict)
     source_profiles: list[dict[str, Any]] | dict[str, Any] = Field(default_factory=list)
     source_templates: dict[str, dict[str, str]] = Field(default_factory=dict)
+    default_quality: dict[str, str] = Field(default_factory=dict)
 
 
 class AddTaskPayload(BaseModel):
@@ -47,6 +48,7 @@ class AddTaskPayload(BaseModel):
     template_settings: dict[str, str] | None = None
     source_profiles: list[dict[str, Any]] | dict[str, Any] | None = None
     source_templates: dict[str, dict[str, str]] | None = None
+    quality: dict[str, str] | None = None
 
 
 class ProbePayload(BaseModel):
@@ -94,6 +96,7 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
         payload.template_settings,
         payload.source_profiles,
         payload.source_templates,
+        payload.default_quality,
     )
     return build_settings_response(cfg, saved)
 
@@ -169,6 +172,7 @@ def add_task(payload: AddTaskPayload) -> dict[str, Any]:
                 payload.template_settings,
                 payload.source_profiles,
                 payload.source_templates,
+                payload.quality,
             )
         except Exception as exc:
             errors.append(str(exc))

@@ -10,7 +10,16 @@ from backend.app.services.settings import (
     normalize_template_settings,
 )
 
-from .constants import CREATOR_FIELDS, TEMPLATE_RE
+from .constants import (
+    AUDIO_BITRATE_PRESETS,
+    CREATOR_FIELDS,
+    TEMPLATE_RE,
+    VIDEO_CODEC_PRESETS,
+    VIDEO_QUALITY_PRESETS,
+    codec_allowed_for_container,
+    is_lossless_audio,
+    normalize_quality_selection,
+)
 from .formats import creator_from_url
 from .naming import (
     clean_filename_title,
@@ -113,8 +122,11 @@ def build_ytdlp_command(
     cookie_source_key: str = "",
     creator_sidecar: str = "",
     metadata_sidecar: str = "",
+    quality: dict[str, str] | None = None,
 ) -> list[str]:
-    selected_format = "bestvideo*+bestaudio/best"
+    selection = normalize_quality_selection(quality)
+    audio_mode = selection["mode"] == "audio"
+    selected_format = "bestaudio/best" if audio_mode else VIDEO_QUALITY_PRESETS[selection["video_quality"]]["ytdlp"]
     cmd = [
         "yt-dlp",
         "--newline",
@@ -124,9 +136,19 @@ def build_ytdlp_command(
         selected_format,
         "--ffmpeg-location",
         ffmpeg_location,
-        "--merge-output-format",
-        "mp4",
     ]
+    if audio_mode:
+        # Extract the audio track in the chosen format; lossless ignores bitrate.
+        cmd.extend(["--extract-audio", "--audio-format", selection["audio_format"]])
+        if not is_lossless_audio(selection["audio_format"]):
+            cmd.extend(["--audio-quality", AUDIO_BITRATE_PRESETS[selection["audio_bitrate"]]["ytdlp"]])
+    else:
+        cmd.extend(["--merge-output-format", selection["video_container"]])
+        codec_sort = VIDEO_CODEC_PRESETS[selection["video_codec"]]["sort"]
+        # Skip the preference when the container can't hold it — avoids forcing a re-encode.
+        if codec_sort and codec_allowed_for_container(selection["video_codec"], selection["video_container"]):
+            # Soft codec preference: prefer this vcodec, fall back when unavailable.
+            cmd.extend(["-S", f"vcodec:{codec_sort}"])
     if _is_youtube_url(source_url):
         cmd.extend(["--js-runtimes", "node", "--remote-components", "ejs:github"])
     # --print-to-file (unlike --print) keeps normal progress output intact; the

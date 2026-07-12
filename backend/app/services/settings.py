@@ -369,6 +369,9 @@ def clear_ytdlp_cookies_upload(source_key: str) -> None:
 
 # --- Aggregate settings API ---
 def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    # Lazy import breaks the tasks<->settings module cycle.
+    from backend.app.services.tasks.constants import normalize_quality_selection
+
     cfg = cfg or load_app_config()
     payload = load_saved_settings_file()
     source_profiles = get_effective_source_profiles(cfg, payload)
@@ -387,6 +390,7 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
             source_profiles,
             template_settings,
         ),
+        "default_quality": normalize_quality_selection(payload.get("default_quality")),
         "ytdlp_cookies": get_ytdlp_cookies_status(source_profiles),
     }
 
@@ -397,7 +401,10 @@ def persist_settings(
     raw_template_settings: Any = None,
     raw_source_profiles: Any = None,
     raw_source_templates: Any = None,
+    raw_default_quality: Any = None,
 ) -> dict[str, Any]:
+    from backend.app.services.tasks.constants import normalize_quality_selection
+
     existing = load_saved_settings_file()
     source_profiles = get_effective_source_profiles(
         cfg,
@@ -428,6 +435,9 @@ def persist_settings(
                 source_profiles,
                 template_settings,
             ),
+            "default_quality": normalize_quality_selection(
+                raw_default_quality if raw_default_quality is not None else existing.get("default_quality")
+            ),
         }
     )
     save_saved_settings_file(existing)
@@ -438,6 +448,8 @@ def build_settings_response(
     cfg: dict[str, Any] | None = None,
     saved: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    from backend.app.services.tasks.constants import default_quality_selection, quality_options
+
     cfg = cfg or load_app_config()
     saved = saved or get_effective_saved_settings(cfg)
     return {
@@ -447,6 +459,8 @@ def build_settings_response(
         "site_default_locations": saved.get("site_locations", {}),
         "template_settings": saved.get("template_settings", normalize_template_settings({})),
         "source_templates": saved.get("source_templates", {}),
+        "default_quality": saved.get("default_quality", default_quality_selection()),
+        "quality_options": quality_options(),
         "ytdlp_cookies": saved.get("ytdlp_cookies", get_ytdlp_cookies_status(saved.get("source_profiles"))),
         "settings_loaded_at": int(time.time()),
     }

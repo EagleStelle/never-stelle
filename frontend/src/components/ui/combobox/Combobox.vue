@@ -22,6 +22,7 @@ type ComboboxItemOption = {
   icon?: Component;
   iconUrl?: string;
   initials?: string;
+  disabled?: boolean;
 };
 
 type Size = "xs" | "sm" | "default" | "lg" | "xl";
@@ -169,7 +170,8 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
             v-for="item in filteredItems"
             :key="item.key"
             :value="item"
-            class="glass-option relative flex w-full cursor-pointer select-none items-center rounded-lg py-2 pl-8 pr-2 text-sm outline-none text-white in-[.light-mode]:text-black transition-all duration-300 ease-glass"
+            :disabled="item.disabled"
+            class="glass-option relative flex w-full cursor-pointer select-none items-center rounded-lg py-2 pl-8 pr-2 text-sm outline-none text-white in-[.light-mode]:text-black transition-all duration-300 ease-glass data-disabled:cursor-not-allowed data-disabled:opacity-40"
           >
             <ComboboxItemIndicator
               class="absolute left-2 flex h-4 w-4 items-center justify-center"

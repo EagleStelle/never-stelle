@@ -15,7 +15,14 @@ from typing import Any
 from backend.app.core.sources import apex_host, host_from_url, normalize_source_key
 from backend.app.services.settings import detect_cookie_source, has_cookies_for_source
 
-from .constants import AUDIO_EXTENSIONS, CREATOR_FIELDS, IMAGE_EXTENSIONS, TEMPLATE_RE, VIDEO_EXTENSIONS
+from .constants import (
+    AUDIO_EXTENSIONS,
+    CREATOR_FIELDS,
+    IMAGE_EXTENSIONS,
+    TEMPLATE_RE,
+    VIDEO_EXTENSIONS,
+    normalize_quality_selection,
+)
 from .engine import Engine, all_engines, engine_for_task
 from .files import find_newest_media_file, find_numbered_media_siblings, is_media_file, recover_task_path
 from .formats import creator_from_url, learn_download, media_id_from_url, reconstruct_url
@@ -1011,6 +1018,7 @@ def _run_engine_attempts(
     metadata_sidecar: str,
     total_items: int,
     excluded_extensions: set[str] | None = None,
+    quality: dict[str, str] | None = None,
 ) -> tuple[int, str, list[str]]:
     # Anonymous first; retry authenticated + paced only when a cookie jar exists.
     attempts = [False]
@@ -1033,6 +1041,7 @@ def _run_engine_attempts(
             creator_sidecar=creator_sidecar,
             metadata_sidecar=metadata_sidecar,
             excluded_extensions=excluded_extensions,
+            quality=quality,
         )
         rc, last_dest, emitted_paths = _run_engine_to_task(engine, task_id, cmd, total_items=total_items)
         if rc == 0 or _has_output_media(last_dest, emitted_paths) or _cancel_pending(task_id):
@@ -1059,6 +1068,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
 
     candidates = _engine_run_order(task)
     template_settings = _task_template_settings(task)
+    quality = normalize_quality_selection(task.get("quality"))
     raw_source_key = str(task.get("source_key") or "").strip()
     task_source_key = raw_source_key or detect_source_key(source_url)
     cookie_source_key = normalize_source_key(raw_source_key) if raw_source_key else detect_cookie_source(source_url)
@@ -1126,6 +1136,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 metadata_sidecar,
                 total_items,
                 excluded_extensions,
+                quality,
             )
             if _cancel_pending(task_id):
                 break

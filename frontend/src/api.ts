@@ -96,6 +96,7 @@ export function addTask(payload: {
   template_settings?: SavedSettings["template_settings"];
   source_profiles?: SavedSettings["source_profiles"];
   source_templates?: SavedSettings["source_templates"];
+  quality?: SavedSettings["default_quality"];
 }): Promise<AddTaskResponse> {
   return jsonRequest<AddTaskResponse>(
     "/api/tasks",

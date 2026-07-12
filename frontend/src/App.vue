@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import DownloadInput from "./features/downloads/Input.vue";
 import DownloadPanel from "./features/downloads/Panel.vue";
+import DownloadFilters from "./features/downloads/Filters.vue";
 import PlaylistDialog from "./features/downloads/PlaylistDialog.vue";
 import NavSide from "./components/layout/NavSide.vue";
 import BarStatus from "./components/layout/BarStatus.vue";
@@ -61,6 +62,9 @@ const {
   settingsSection,
   sourceProfiles,
   srStatus,
+  downloadSelection,
+  qualityOptions,
+  setDownloadQuality,
   tasksErrorMessage,
   tasksLoading,
   toasts,
@@ -102,123 +106,92 @@ const {
             class="mb-2"
             v-model:url="url"
             :saved-settings="savedSettings"
+            :quality="downloadSelection"
+            :quality-options="qualityOptions"
+            @update:quality="setDownloadQuality"
             @add-download="addDownloadTask"
-          />
+          >
+            <template #filters>
+              <DownloadFilters
+                :active-menu="activeMenu"
+                :navigation-items="navigationItems"
+                :media-filter="mediaFilter"
+                :media-filter-items="mediaFilterItems"
+                :view-mode="viewMode"
+                @update:active-menu="setActiveMenu"
+                @update:media-filter="setMediaFilter"
+                @update:view-mode="setViewMode"
+              />
+            </template>
+          </DownloadInput>
         </template>
 
         <template v-else-if="activePage === 'history'">
-          <section aria-label="Search history" class="mb-2">
-            <div class="flex items-center gap-2">
-              <Input
-                size="lg"
-                class="flex-1 min-w-0"
-                type="text"
-                placeholder="Search history..."
-              >
-                <template #icon>
-                  <IconSearch class="w-5 h-5" aria-hidden="true" />
-                </template>
-              </Input>
-              <Button
-                variant="primary"
-                size="lg"
-                type="button"
-                class="shrink-0"
-                aria-label="Refresh history"
-                title="Refresh history"
-                :disabled="historyRefreshing"
-                @click="refreshHistory"
-              >
-                <template #icon>
-                  <IconRefresh
-                    aria-hidden="true"
-                    class="w-6 h-6 transition-transform duration-300 ease-glass group-hover:rotate-45"
-                    :class="{ 'animate-spin': historyRefreshing }"
-                  />
-                </template>
-              </Button>
+          <div class="flex flex-col gap-2 mb-2">
+            <section aria-label="Search history">
+              <div class="flex items-center gap-2">
+                <Input
+                  size="lg"
+                  class="flex-1 min-w-0"
+                  type="text"
+                  placeholder="Search history..."
+                >
+                  <template #icon>
+                    <IconSearch class="w-5 h-5" aria-hidden="true" />
+                  </template>
+                </Input>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  type="button"
+                  class="shrink-0"
+                  aria-label="Refresh history"
+                  title="Refresh history"
+                  :disabled="historyRefreshing"
+                  @click="refreshHistory"
+                >
+                  <template #icon>
+                    <IconRefresh
+                      aria-hidden="true"
+                      class="w-6 h-6 transition-transform duration-300 ease-glass group-hover:rotate-45"
+                      :class="{ 'animate-spin': historyRefreshing }"
+                    />
+                  </template>
+                </Button>
+              </div>
+            </section>
+            
+            <div class="flex flex-wrap items-center justify-end gap-2 pb-1">
+              <DownloadFilters
+                :active-menu="activeMenu"
+                :navigation-items="navigationItems"
+                :media-filter="mediaFilter"
+                :media-filter-items="mediaFilterItems"
+                :view-mode="viewMode"
+                @update:active-menu="setActiveMenu"
+                @update:media-filter="setMediaFilter"
+                @update:view-mode="setViewMode"
+              />
             </div>
-          </section>
-        </template>
-
-        <div
-          v-if="['downloads', 'history'].includes(activePage)"
-          class="flex items-center justify-end gap-2 mb-2 pb-1"
-        >
-          <div class="flex items-center gap-2 w-full sm:w-auto">
-            <Combobox
-              :model-value="activeMenu"
-              :items="navigationItems"
-              @update:model-value="(val) => setActiveMenu(val as any)"
-              class="flex-1 min-w-0 sm:flex-none sm:w-44"
-              placeholder="Search platform..."
-              empty-text="No platforms found."
-            />
-
-            <Combobox
-              :model-value="mediaFilter"
-              :items="mediaFilterItems"
-              @update:model-value="(val) => setMediaFilter(val as any)"
-              class="flex-1 min-w-0 sm:flex-none sm:w-44"
-              placeholder="Media type..."
-              empty-text="No types."
-            />
-
-            <SegmentedControl
-              :model-value="viewMode"
-              @update:model-value="
-                (val) => {
-                  if (val) setViewMode(val as 'grid' | 'table');
-                }
-              "
-              aria-label="View mode"
-              class="shrink-0"
-            >
-              <SegmentedControlItem value="grid" aria-label="Grid view">
-                <IconGrid class="w-4 h-4" aria-hidden="true" />
-              </SegmentedControlItem>
-              <SegmentedControlItem value="table" aria-label="Table view">
-                <IconList class="w-4 h-4" aria-hidden="true" />
-              </SegmentedControlItem>
-            </SegmentedControl>
           </div>
-        </div>
-
-        <template v-if="activePage === 'downloads'">
-          <DownloadPanel
-            :error-message="tasksErrorMessage"
-            :loading="tasksLoading"
-            page-kind="downloads"
-            :source-profiles="sourceProfiles"
-            :tasks="activeTasks"
-            :view-mode="viewMode"
-            @cancel="cancelTask"
-            @clear-pending="clearPending"
-            @download="downloadTask"
-            @remove="removeTask"
-            @retry="retryTask"
-            @set-source="setTaskSource"
-            @set-view-mode="setViewMode"
-          />
         </template>
 
-        <template v-else-if="activePage === 'history'">
-          <DownloadPanel
-            :error-message="tasksErrorMessage"
-            :loading="tasksLoading"
-            page-kind="history"
-            :source-profiles="sourceProfiles"
-            :tasks="completedTasks"
-            :view-mode="viewMode"
-            @cancel="cancelTask"
-            @clear-pending="clearPending"
-            @download="downloadTask"
-            @remove="removeTask"
-            @retry="retryTask"
-            @set-source="setTaskSource"
-            @set-view-mode="setViewMode"
-          />
-        </template>
+        <DownloadPanel
+          v-if="['downloads', 'history'].includes(activePage)"
+          :error-message="tasksErrorMessage"
+          :loading="tasksLoading"
+          :page-kind="activePage as 'downloads' | 'history'"
+          :source-profiles="sourceProfiles"
+          :tasks="activePage === 'downloads' ? activeTasks : completedTasks"
+          :view-mode="viewMode"
+          @cancel="cancelTask"
+          @clear-pending="clearPending"
+          @download="downloadTask"
+          @remove="removeTask"
+          @retry="retryTask"
+          @set-source="setTaskSource"
+          @set-view-mode="setViewMode"
+        />
       </main>
       <BarStatus :count-cards="countCards" @clear-queue="clearPending" />
     </div>

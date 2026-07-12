@@ -8,7 +8,8 @@ export type TaskStatus = "pending" | "running" | "completed" | "failed" | string
 export type TaskFilter = "all" | "active" | "done";
 export type MediaFilter = "all" | "image" | "video";
 export type ViewMode = "grid" | "table";
-export type SettingsSection = "downloads" | "cookies" | "folder-template" | "filename-template";
+export type MediaMode = "video" | "audio";
+export type SettingsSection = "downloads" | "cookies" | "quality" | "folder-template" | "filename-template";
 export type ToastType = "success" | "error";
 
 export type SourceLocations = Record<string, string>;
@@ -28,6 +29,29 @@ export interface SourceProfile {
 
 export type SourceTemplates = Record<string, TemplateSettings>;
 
+export interface QualityPreset {
+  key: string;
+  label: string;
+  codecs?: string[];
+}
+
+export interface QualitySelection {
+  mode: MediaMode;
+  video_quality: string;
+  video_container: string;
+  video_codec: string;
+  audio_format: string;
+  audio_bitrate: string;
+}
+
+export interface QualityOptions {
+  video: QualityPreset[];
+  video_containers: QualityPreset[];
+  video_codecs: QualityPreset[];
+  audio_formats: QualityPreset[];
+  audio_bitrates: QualityPreset[];
+}
+
 export interface CookiesStatus {
   configured: boolean;
   source: "uploaded" | "none" | string;
@@ -42,11 +66,13 @@ export interface SavedSettings {
   site_locations: SourceLocations;
   template_settings: TemplateSettings;
   source_templates: SourceTemplates;
+  default_quality: QualitySelection;
 }
 
 export interface RuntimeSettings extends SavedSettings {
   download_locations: string[];
   ytdlp_cookies: CookiesMap;
+  quality_options: QualityOptions;
 }
 
 export interface UiConfigResponse {
@@ -57,6 +83,8 @@ export interface UiConfigResponse {
   template_settings?: Partial<TemplateSettings>;
   source_templates?: Record<string, Partial<TemplateSettings>>;
   ytdlp_cookies?: Record<string, Partial<CookiesStatus>>;
+  default_quality?: Partial<QualitySelection>;
+  quality_options?: Partial<QualityOptions>;
   default_filename_template?: string;
   default_folder_template?: string;
   default_general_location?: string;

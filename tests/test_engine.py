@@ -7,8 +7,79 @@ import pytest
 import backend.app.services.tasks.gallerydl as gallerydl
 import backend.app.services.tasks.ytdlp as ytdlp
 from backend.app.services.tasks import engine_by_name, engine_for_task, select_engine
+from backend.app.services.tasks.constants import (
+    codec_allowed_for_container,
+    default_quality_selection,
+    normalize_quality_selection,
+    quality_options,
+)
 from backend.app.services.tasks.engine import all_engines
 from backend.app.services.tasks.worker import _count_progress, _looks_unsupported, _should_try_next_engine
+
+
+def test_normalize_quality_selection_defaults_and_validates():
+    assert default_quality_selection() == {
+        "mode": "video",
+        "video_quality": "best",
+        "video_container": "mp4",
+        "video_codec": "auto",
+        "audio_format": "mp3",
+        "audio_bitrate": "best",
+    }
+    assert normalize_quality_selection(None) == default_quality_selection()
+    assert normalize_quality_selection(
+        {"mode": "bogus", "video_quality": "bogus", "video_container": "iso", "video_codec": "xyz"}
+    ) == default_quality_selection()
+    selection = normalize_quality_selection(
+        {
+            "mode": "audio",
+            "audio_format": "OPUS",
+            "audio_bitrate": "192",
+            "video_quality": "720p",
+            "video_container": "MKV",
+            "video_codec": "AV1",
+        }
+    )
+    assert selection == {
+        "mode": "audio",
+        "video_quality": "720p",
+        "video_container": "mkv",
+        "video_codec": "av1",
+        "audio_format": "opus",
+        "audio_bitrate": "192",
+    }
+
+
+def test_quality_options_expose_all_pickers():
+    options = quality_options()
+    assert {o["key"] for o in options["video"]} == {"best", "1080p", "720p", "480p"}
+    assert {o["key"] for o in options["video_containers"]} == {"mp4", "mkv", "webm"}
+    assert {o["key"] for o in options["video_codecs"]} == {"auto", "av1", "vp9", "h264", "h265"}
+    assert {o["key"] for o in options["audio_formats"]} == {"mp3", "m4a", "opus", "aac", "flac", "wav"}
+    assert {o["key"] for o in options["audio_bitrates"]} == {"best", "320", "192", "128"}
+    by_key = {o["key"]: o for o in options["video_containers"]}
+    assert set(by_key["webm"]["codecs"]) == {"av1", "vp9"}
+    assert "vp9" not in by_key["mp4"]["codecs"]
+
+
+def test_codec_allowed_for_container_matrix():
+    assert codec_allowed_for_container("auto", "webm") is True
+    assert codec_allowed_for_container("av1", "mp4") is True
+    assert codec_allowed_for_container("vp9", "mp4") is False
+    assert codec_allowed_for_container("h264", "webm") is False
+    assert codec_allowed_for_container("vp9", "mkv") is True
+
+
+def test_ytdlp_command_drops_codec_pref_incompatible_with_container():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://www.youtube.com/watch?v=x",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        quality={"mode": "video", "video_container": "webm", "video_codec": "h264"},
+    )
+
+    assert cmd[cmd.index("--merge-output-format") + 1] == "webm"
+    assert "-S" not in cmd
 
 
 def _has_cli_pair(cmd: list[str], option: str, value: str) -> bool:
@@ -175,6 +246,171 @@ def test_build_gallerydl_command_can_filter_extensions():
     assert "extension not in" in filter_expr
     assert "mp4" in filter_expr
     assert "webm" in filter_expr
+
+
+def test_build_gallerydl_command_routes_streams_through_ytdlp(monkeypatch):
+    monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    cmd = gallerydl.build_gallerydl_command(
+        "https://twitter.com/DohaVT/status/1",
+        "/media/twitter",
+        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+    )
+
+    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.module=yt_dlp")
+    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.format=bestvideo*+bestaudio/best")
+    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mp4")
+    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.ffmpeg_location=/usr/bin/ffmpeg")
+
+
+def test_build_gallerydl_command_omits_ffmpeg_option_when_absent(monkeypatch):
+    monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "")
+    cmd = gallerydl.build_gallerydl_command(
+        "https://twitter.com/DohaVT/status/1",
+        "/media/twitter",
+        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+    )
+
+    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.module=yt_dlp")
+    assert not any(str(arg).startswith("downloader.ytdl.raw-options.ffmpeg_location=") for arg in cmd)
+
+
+def test_build_gallerydl_command_normalizes_windows_ffmpeg_path(monkeypatch):
+    monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: r"C:\tools\ffmpeg\ffmpeg.exe")
+    cmd = gallerydl.build_gallerydl_command(
+        "https://twitter.com/DohaVT/status/1",
+        "/media/twitter",
+        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+    )
+
+    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.ffmpeg_location=C:/tools/ffmpeg/ffmpeg.exe")
+
+
+def test_ytdlp_command_defaults_to_best_video_merge():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://www.youtube.com/watch?v=x",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+    )
+
+    assert cmd[cmd.index("--format") + 1] == "bestvideo*+bestaudio/best"
+    assert cmd[cmd.index("--merge-output-format") + 1] == "mp4"
+    assert "--extract-audio" not in cmd
+
+
+def test_ytdlp_command_caps_resolution():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://www.youtube.com/watch?v=x",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        quality={"mode": "video", "video_quality": "720p"},
+    )
+
+    assert cmd[cmd.index("--format") + 1] == "bestvideo*[height<=720]+bestaudio/best[height<=720]/best"
+    assert cmd[cmd.index("--merge-output-format") + 1] == "mp4"
+    assert "-S" not in cmd
+
+
+def test_ytdlp_command_sets_container_and_codec_preference():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://www.youtube.com/watch?v=x",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        quality={"mode": "video", "video_quality": "best", "video_container": "mkv", "video_codec": "av1"},
+    )
+
+    assert cmd[cmd.index("--merge-output-format") + 1] == "mkv"
+    assert cmd[cmd.index("-S") + 1] == "vcodec:av01"
+
+
+def test_ytdlp_command_auto_codec_omits_sort():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://www.youtube.com/watch?v=x",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        quality={"mode": "video", "video_codec": "auto", "video_container": "webm"},
+    )
+
+    assert cmd[cmd.index("--merge-output-format") + 1] == "webm"
+    assert "-S" not in cmd
+
+
+def test_ytdlp_command_lossless_audio_omits_bitrate():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://www.youtube.com/watch?v=x",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        quality={"mode": "audio", "audio_format": "flac", "audio_bitrate": "320"},
+    )
+
+    assert cmd[cmd.index("--audio-format") + 1] == "flac"
+    assert "--audio-quality" not in cmd
+
+
+def test_ytdlp_command_audio_mode_extracts_chosen_format_and_bitrate():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://www.youtube.com/watch?v=x",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        quality={"mode": "audio", "audio_format": "opus", "audio_bitrate": "192"},
+    )
+
+    assert cmd[cmd.index("--format") + 1] == "bestaudio/best"
+    assert cmd[cmd.index("--audio-format") + 1] == "opus"
+    assert cmd[cmd.index("--audio-quality") + 1] == "192K"
+    assert "--extract-audio" in cmd
+    assert "--merge-output-format" not in cmd
+
+
+def test_ytdlp_command_audio_mode_best_bitrate_uses_vbr_zero():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://www.youtube.com/watch?v=x",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        quality={"mode": "audio", "audio_format": "mp3", "audio_bitrate": "best"},
+    )
+
+    assert cmd[cmd.index("--audio-quality") + 1] == "0"
+
+
+def test_gallerydl_command_applies_capped_quality_to_ytdl_downloader(monkeypatch):
+    monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    cmd = gallerydl.build_gallerydl_command(
+        "https://twitter.com/DohaVT/status/1",
+        "/media/twitter",
+        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        quality={"mode": "video", "video_quality": "480p"},
+    )
+
+    assert _has_cli_pair(
+        cmd, "-o", "downloader.ytdl.format=bestvideo*[height<=480]+bestaudio/best[height<=480]/best"
+    )
+    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mp4")
+
+
+def test_gallerydl_command_honors_video_container(monkeypatch):
+    monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "")
+    cmd = gallerydl.build_gallerydl_command(
+        "https://twitter.com/DohaVT/status/1",
+        "/media/twitter",
+        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        quality={"mode": "video", "video_quality": "best", "video_container": "mkv"},
+    )
+
+    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mkv")
+
+
+def test_gallerydl_audio_mode_still_downloads_best_video(monkeypatch):
+    # gallery-dl handles images/galleries, not audio extraction: audio mode must
+    # not leave the ytdl downloader empty, so it maps to best video there.
+    monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "")
+    cmd = gallerydl.build_gallerydl_command(
+        "https://twitter.com/DohaVT/status/1",
+        "/media/twitter",
+        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        quality={"mode": "audio", "audio_format": "mp3", "audio_bitrate": "320"},
+    )
+
+    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.format=bestvideo*+bestaudio/best")
 
 
 def test_count_gallerydl_items_disables_tiktok_audio(monkeypatch):

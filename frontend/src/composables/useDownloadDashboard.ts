@@ -1,4 +1,4 @@
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, reactive, ref, watch } from "vue";
 import { useEventListener, useLocalStorage } from "@vueuse/core";
 import IconHistory from "~icons/material-symbols/schedule";
 import IconTray from "~icons/material-symbols/inbox";
@@ -15,9 +15,19 @@ import {
   PAGE_ROUTES,
   SOURCE_ICON_COMPONENTS,
 } from "../ui";
-import type { MediaFilter, MenuKey, PageKey, SettingsSection, SourceProfile, TaskFilter, ViewMode } from "../types";
+import type {
+  MediaFilter,
+  MenuKey,
+  PageKey,
+  QualitySelection,
+  SettingsSection,
+  SourceProfile,
+  TaskFilter,
+  ViewMode,
+} from "../types";
 import {
   countTasks,
+  createQualitySelection,
   isFilterKey,
   isMediaFilter,
   isMenuKey,
@@ -34,6 +44,7 @@ import { mediaKindForTask } from "../utils/task";
 const SETTINGS_ROUTE_BY_SECTION: Record<SettingsSection, string> = {
   downloads: "/settings/locations",
   cookies: "/settings/cookies",
+  quality: "/settings/quality",
   "folder-template": "/settings/folder",
   "filename-template": "/settings/filename",
 };
@@ -56,11 +67,28 @@ export function useDownloadDashboard() {
   const toastStack = useToastStack();
   const settingsState = useDashboardSettings({ toast: toastStack.toast });
   const url = ref("");
+  // Per-download override: follows the settings default until the user edits it,
+  // then sticks for the session and never writes back to settings.
+  const downloadSelection = reactive<QualitySelection>(createQualitySelection());
+  const downloadQualityTouched = ref(false);
+  const qualityOptions = computed(() => settingsState.settings.quality_options);
+  function setDownloadQuality(selection: QualitySelection): void {
+    downloadQualityTouched.value = true;
+    Object.assign(downloadSelection, createQualitySelection(selection));
+  }
   const taskQueue = useTaskQueue({
     getSavedSettings: settingsState.getSavedSettings,
+    getQuality: () => ({ ...downloadSelection }),
     toast: toastStack.toast,
     url,
   });
+  watch(
+    () => settingsState.settings.default_quality,
+    (value) => {
+      if (!downloadQualityTouched.value) Object.assign(downloadSelection, createQualitySelection(value));
+    },
+    { deep: true, immediate: true },
+  );
 
   const activePage = useLocalStorage<PageKey>("neverstelle.activePage", "downloads");
   const activeMenu = useLocalStorage<MenuKey>("neverstelle.activeMenu", "all");
@@ -241,6 +269,9 @@ export function useDownloadDashboard() {
     setViewMode,
     toggleThemeMode,
     url,
+    downloadSelection,
+    qualityOptions,
+    setDownloadQuality,
     viewMode,
     ...settingsState,
     sourceProfiles,

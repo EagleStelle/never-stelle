@@ -7,6 +7,7 @@ import IconFolder from "~icons/material-symbols/folder";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconSearch from "~icons/material-symbols/search";
 import IconTrash from "~icons/material-symbols/delete";
+import IconTune from "~icons/material-symbols/tune";
 import IconUpload from "~icons/material-symbols/upload";
 import {
   TabsContent,
@@ -16,8 +17,13 @@ import {
 } from "reka-ui";
 
 import { Button } from "../../components/ui/button";
+import { Combobox } from "../../components/ui/combobox";
 import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "../../components/ui/segmented-control";
 import {
   Sidebar,
   SidebarHeader,
@@ -31,6 +37,7 @@ import {
 import { SETTINGS_SECTIONS } from "../../ui";
 import type {
   CookiesMap,
+  QualitySelection,
   RuntimeSettings,
   SavedSettings,
   SettingsSection,
@@ -38,7 +45,10 @@ import type {
 } from "../../types";
 import {
   createTemplateSettings,
+  isCodecAllowed,
+  isLosslessAudioFormat,
   mergeSourceProfiles,
+  resolveCodec,
 } from "../../utils/dashboard";
 
 const props = defineProps<{
@@ -61,12 +71,13 @@ const emit = defineEmits<{
 const SECTION_ICONS: Record<SettingsSection, Component> = {
   downloads: IconFolder,
   cookies: IconCookie,
+  quality: IconTune,
   "folder-template": IconRuleFolder,
   "filename-template": IconDescription,
 };
 
 const SECTION_GROUPS: Array<{ label: string; keys: SettingsSection[] }> = [
-  { label: "Settings", keys: ["downloads", "cookies"] },
+  { label: "Settings", keys: ["downloads", "cookies", "quality"] },
   { label: "Templates", keys: ["folder-template", "filename-template"] },
 ];
 
@@ -76,6 +87,29 @@ const newCookie = reactive<{ source: string; file: File | null }>({
   file: null,
 });
 const sectionSearch = ref("");
+
+// Grey out codecs the chosen container can't hold.
+const codecItems = computed(() =>
+  props.settings.quality_options.video_codecs.map((codec) => ({
+    ...codec,
+    disabled: !isCodecAllowed(
+      codec.key,
+      props.settingsDraft.default_quality.video_container,
+      props.settings.quality_options.video_containers,
+    ),
+  })),
+);
+
+// Mutate the draft in place; a container switch may invalidate the codec -> Auto.
+function setDefaultQuality(patch: Partial<QualitySelection>): void {
+  const quality = props.settingsDraft.default_quality;
+  Object.assign(quality, patch);
+  quality.video_codec = resolveCodec(
+    quality.video_codec,
+    quality.video_container,
+    props.settings.quality_options.video_containers,
+  );
+}
 
 const openModel = computed({
   get: () => props.open,
@@ -143,6 +177,7 @@ function selectSection(section: SettingsSection): void {
   const focusTargets: Record<SettingsSection, string> = {
     downloads: `${sourceProfiles.value[0]?.key || "settings"}LocationInput`,
     cookies: `${sourceProfiles.value[0]?.key || "settings"}CookiesInput`,
+    quality: "defaultQualityMode",
     "folder-template": `${sourceProfiles.value[0]?.key || "settings"}FolderTemplateInput`,
     "filename-template": `${sourceProfiles.value[0]?.key || "settings"}FilenameTemplateInput`,
   };
@@ -265,7 +300,11 @@ function connectNew(): void {
                 class="pr-10 focus:outline-none"
               >
                 <p
-                  v-if="sourceProfiles.length === 0 && item.key !== 'cookies'"
+                  v-if="
+                    sourceProfiles.length === 0 &&
+                    item.key !== 'cookies' &&
+                    item.key !== 'quality'
+                  "
                   class="rounded-lg glass p-4 text-white in-[.light-mode]:text-black"
                 >
                   No sources yet.
@@ -282,6 +321,7 @@ function connectNew(): void {
                       <span class="settings-row-label">{{ site.label }}</span>
                       <div class="settings-row-control">
                         <Input
+                          size="lg"
                           :id="`${site.key}LocationInput`"
                           v-model="settingsDraft.site_locations[site.key]"
                           list="downloadLocationSuggestions"
@@ -405,6 +445,138 @@ function connectNew(): void {
                   </div>
                 </template>
 
+                <!-- Quality -->
+                <template v-else-if="item.key === 'quality'">
+                  <div class="settings-row">
+                    <span class="settings-row-label">Media type</span>
+                    <div class="settings-row-control">
+                      <SegmentedControl
+                        size="lg"
+                        id="defaultQualityMode"
+                        :model-value="settingsDraft.default_quality.mode"
+                        @update:model-value="
+                          (val) => {
+                            if (val)
+                              settingsDraft.default_quality.mode =
+                                val as 'video' | 'audio';
+                          }
+                        "
+                        aria-label="Default media type"
+                      >
+                        <SegmentedControlItem value="video">
+                          Video
+                        </SegmentedControlItem>
+                        <SegmentedControlItem value="audio">
+                          Audio
+                        </SegmentedControlItem>
+                      </SegmentedControl>
+                    </div>
+                  </div>
+
+                  <template
+                    v-if="settingsDraft.default_quality.mode === 'video'"
+                  >
+                    <div class="settings-row">
+                      <span class="settings-row-label">Video quality</span>
+                      <div class="settings-row-control">
+                        <Combobox
+                          :model-value="
+                            settingsDraft.default_quality.video_quality
+                          "
+                          :items="settings.quality_options.video"
+                          @update:model-value="
+                            (val) =>
+                              (settingsDraft.default_quality.video_quality = val)
+                          "
+                          size="lg"
+                          placeholder="Choose a quality"
+                          empty-text="No presets."
+                        />
+                      </div>
+                    </div>
+                    <div class="settings-row">
+                      <span class="settings-row-label">Container</span>
+                      <div class="settings-row-control">
+                        <Combobox
+                          :model-value="
+                            settingsDraft.default_quality.video_container
+                          "
+                          :items="settings.quality_options.video_containers"
+                          @update:model-value="
+                            (val) => setDefaultQuality({ video_container: val })
+                          "
+                          size="lg"
+                          placeholder="Choose a container"
+                          empty-text="No containers."
+                        />
+                      </div>
+                    </div>
+                    <div class="settings-row">
+                      <span class="settings-row-label">Codec</span>
+                      <div class="settings-row-control">
+                        <Combobox
+                          :model-value="
+                            settingsDraft.default_quality.video_codec
+                          "
+                          :items="codecItems"
+                          @update:model-value="
+                            (val) => setDefaultQuality({ video_codec: val })
+                          "
+                          size="lg"
+                          placeholder="Choose a codec"
+                          empty-text="No codecs."
+                        />
+                      </div>
+                    </div>
+                  </template>
+
+                  <template v-else>
+                    <div class="settings-row">
+                      <span class="settings-row-label">Audio format</span>
+                      <div class="settings-row-control">
+                        <Combobox
+                          :model-value="
+                            settingsDraft.default_quality.audio_format
+                          "
+                          :items="settings.quality_options.audio_formats"
+                          @update:model-value="
+                            (val) =>
+                              (settingsDraft.default_quality.audio_format = val)
+                          "
+                          size="lg"
+                          placeholder="Choose a format"
+                          empty-text="No formats."
+                        />
+                      </div>
+                    </div>
+                    <div
+                      v-if="
+                        !isLosslessAudioFormat(
+                          settingsDraft.default_quality.audio_format,
+                        )
+                      "
+                      class="settings-row"
+                    >
+                      <span class="settings-row-label">Audio bitrate</span>
+                      <div class="settings-row-control">
+                        <Combobox
+                          :model-value="
+                            settingsDraft.default_quality.audio_bitrate
+                          "
+                          :items="settings.quality_options.audio_bitrates"
+                          @update:model-value="
+                            (val) =>
+                              (settingsDraft.default_quality.audio_bitrate = val)
+                          "
+                          size="lg"
+                          placeholder="Choose a bitrate"
+                          empty-text="No bitrates."
+                        />
+                      </div>
+                    </div>
+                  </template>
+                </template>
+
                 <!-- Folder template -->
                 <template v-else-if="item.key === 'folder-template'">
                   <div
@@ -415,6 +587,7 @@ function connectNew(): void {
                     <span class="settings-row-label">{{ site.label }}</span>
                     <div class="settings-row-control">
                       <Input
+                        size="lg"
                         :id="`${site.key}FolderTemplateInput`"
                         v-model="
                           settingsDraft.source_templates[site.key]
@@ -436,6 +609,7 @@ function connectNew(): void {
                     <span class="settings-row-label">{{ site.label }}</span>
                     <div class="settings-row-control">
                       <Input
+                        size="lg"
                         :id="`${site.key}FilenameTemplateInput`"
                         v-model="
                           settingsDraft.source_templates[site.key]
