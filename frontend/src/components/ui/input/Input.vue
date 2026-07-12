@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Label } from "reka-ui";
 import { computed, useAttrs } from "vue";
 
 type Size = "xs" | "sm" | "default" | "lg" | "xl";
@@ -63,7 +62,7 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
 </script>
 
 <template>
-  <Label
+  <div
     :class="[
       'flex items-center min-w-0 rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-(--glass-border) shadow-inner focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass',
       sizes.wrapper,
@@ -87,6 +86,10 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
       @input="
         emit('update:modelValue', ($event.target as HTMLInputElement).value)
       "
+      @click="
+        ($event as MouseEvent).detail === 3 &&
+          ($event.target as HTMLInputElement).select()
+      "
       :class="[
         'flex-1 min-w-0 h-full bg-transparent outline-none text-white in-[.light-mode]:text-black pr-2 placeholder:text-white/50 in-[.light-mode]:placeholder:text-black/50',
         sizes.input,
@@ -95,5 +98,5 @@ const sizes = computed(() => SIZE_CLASS[props.size]);
     />
 
     <slot name="action" />
-  </Label>
+  </div>
 </template>

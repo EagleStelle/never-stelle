@@ -51,8 +51,10 @@ AUDIO_EXTENSIONS = {
 MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS | AUDIO_EXTENSIONS
 PROGRESS_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%")
 TEMPLATE_RE = re.compile(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}")
-# Template placeholders that resolve to the creator/uploader across engines.
-CREATOR_FIELDS = {"creator", "author", "author_nickname"}
+# Template placeholders that identify the uploader across engines: the handle
+# ({{username}}) and the display name ({{nickname}}). Both feed creator-cleaning
+# and the folder/filename creator group; the engines map each to distinct fields.
+CREATOR_FIELDS = {"username", "nickname"}
 
 # Download quality is a media mode plus per-mode pickers. Video mode caps
 # resolution (`--format`), sets the merge container (`--merge-output-format`), and

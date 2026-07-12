@@ -107,20 +107,20 @@ Runtime files live under `.local/`: SQLite database, Vue build output, temporary
 
 Never Stelle is configured with environment variables. Set them inline in Docker Compose or pass them to the Windows launcher. Seed credentials only apply on first run, before any account exists; change them afterward in **Settings → Account**.
 
-| Variable                     |    Default     | Description                                                                 |
-| ---------------------------- | :------------: | --------------------------------------------------------------------------- |
-| `NEVER_STELLE_USERNAME`      |     `root`     | Username seeded for the first-run account.                                  |
-| `NEVER_STELLE_PASSWORD`      | `never-stelle` | Password seeded for the first-run account. Set a strong value.              |
-| `NEVER_STELLE_MAX_CONCURRENT`|      `3`       | Maximum concurrent downloads.                                               |
-| `NEVER_STELLE_COOKIE_SECURE` |    `false`     | Set `true` to mark the session cookie `Secure` when served over HTTPS.      |
+| Variable                      |    Default     | Description                                                            |
+| ----------------------------- | :------------: | ---------------------------------------------------------------------- |
+| `NEVER_STELLE_USERNAME`       |     `root`     | Username seeded for the first-run account.                             |
+| `NEVER_STELLE_PASSWORD`       | `never-stelle` | Password seeded for the first-run account. Set a strong value.         |
+| `NEVER_STELLE_MAX_CONCURRENT` |      `3`       | Maximum concurrent downloads.                                          |
+| `NEVER_STELLE_COOKIE_SECURE`  |    `false`     | Set `true` to mark the session cookie `Secure` when served over HTTPS. |
 
 Storage is configured with Docker bind mounts. Container paths are fixed:
 
-| Purpose        | Docker Compose | Windows `run.cmd`  | Container Path |
-| -------------- | -------------- | ------------------ | -------------- |
-| Database       | `./data`       | `.local/data`      | `/data`        |
-| Media output   | `./media`      | `.local/media`     | `/media`       |
-| Temporary work | `./scratch`    | `.local/scratch`   | `/scratch`     |
+| Purpose        | Docker Compose | Windows `run.cmd` | Container Path |
+| -------------- | -------------- | ----------------- | -------------- |
+| Database       | `./data`       | `.local/data`     | `/data`        |
+| Media output   | `./media`      | `.local/media`    | `/media`       |
+| Temporary work | `./scratch`    | `.local/scratch`  | `/scratch`     |
 
 ### Media library layout
 
@@ -130,8 +130,8 @@ To send one platform to a different disk, add an overlay mount whose container p
 
 ```yaml
 volumes:
-  - ./media:/media                     # base (required)
-  - /volume1/facebook:/media/facebook  # facebook only → /volume1/facebook
+  - ./media:/media # base (required)
+  - /volume1/facebook:/media/facebook # facebook only → /volume1/facebook
 ```
 
 The overlay shadows `/media/facebook`: facebook files go to `/volume1/facebook` and never appear under the base. Everything else stays under the base mount. No duplicates.
@@ -146,36 +146,36 @@ The container path stays `/media/youtube`, so history entries remain valid. Skip
 
 ## Architecture
 
-| Layer           | Path                          | Technology                                    | Responsibility                                                                                                       |
-| --------------- | ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Runtime service | `backend/app/main.py`         | FastAPI, Uvicorn                              | Starts the API server, serves the built frontend and assets, opens SQLite, and handles startup/shutdown.            |
-| API layer       | `backend/app/api`             | FastAPI                                       | Defines HTTP routes, session authentication, JSON responses, history pagination, settings, and scan orchestration.  |
-| Download worker | `backend/app/services/tasks`  | `yt-dlp`, `gallery-dl`                        | Probes URLs, queues work, routes engines dynamically, parses progress, moves completed media, and reconciles files. |
-| Persistence     | `backend/app/db`              | SQLite                                        | Stores task and history records, deduplication, status counts, and offset/limit pagination.                        |
-| Frontend app    | `frontend/src`                | Vue 3, TypeScript, TanStack Query, shadcn-vue, Tailwind CSS v4 | Provides the Downloads, History, and Settings screens, a same-origin API client, polling, and mutations.           |
-| Tests           | `tests`, `.github/workflows`  | pytest, Ruff, Vite build                      | Covers services, persistence, and reconciliation; CI also builds the frontend on every push and pull request.       |
+| Layer           | Path                         | Technology                                                     | Responsibility                                                                                                      |
+| --------------- | ---------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Runtime service | `backend/app/main.py`        | FastAPI, Uvicorn                                               | Starts the API server, serves the built frontend and assets, opens SQLite, and handles startup/shutdown.            |
+| API layer       | `backend/app/api`            | FastAPI                                                        | Defines HTTP routes, session authentication, JSON responses, history pagination, settings, and scan orchestration.  |
+| Download worker | `backend/app/services/tasks` | `yt-dlp`, `gallery-dl`                                         | Probes URLs, queues work, routes engines dynamically, parses progress, moves completed media, and reconciles files. |
+| Persistence     | `backend/app/db`             | SQLite                                                         | Stores task and history records, deduplication, status counts, and offset/limit pagination.                         |
+| Frontend app    | `frontend/src`               | Vue 3, TypeScript, TanStack Query, shadcn-vue, Tailwind CSS v4 | Provides the Downloads, History, and Settings screens, a same-origin API client, polling, and mutations.            |
+| Tests           | `tests`, `.github/workflows` | pytest, Ruff, Vite build                                       | Covers services, persistence, and reconciliation; CI also builds the frontend on every push and pull request.       |
 
 ## API
 
 The app authenticates with a session cookie set by `POST /api/login`. All routes are served under the `/api` prefix.
 
-| Method   | Endpoint                                              | Description                                                       |
-| -------- | ---------------------------------------------------- | ---------------------------------------------------------------- |
-| `GET`    | `/api/health`                                        | Liveness check.                                                  |
-| `GET`    | `/api/auth/session`                                  | Returns the current session state.                              |
-| `POST`   | `/api/auth/login`                                    | Logs in and sets the session cookie.                            |
-| `POST`   | `/api/auth/logout`                                   | Clears the session cookie.                                      |
-| `POST`   | `/api/auth/credentials`                              | Changes the account username or password.                      |
-| `POST`   | `/api/tasks/probe`                                   | Previews metadata for a URL before queueing.                   |
-| `POST`   | `/api/tasks`                                          | Queues one or more URLs.                                         |
-| `GET`    | `/api/tasks`                                          | Lists active tasks (queued, running, failed) with counts.       |
-| `GET`    | `/api/history?offset=0&limit=30&source_key=&search=` | Lists completed records, with offset pagination and search.     |
-| `POST`   | `/api/scan`                                           | Reconciles database history with files present in `/media`.     |
-| `DELETE` | `/api/tasks/{id}`                                     | Removes a pending task.                                          |
-| `POST`   | `/api/tasks/{id}/cancel`                              | Cancels a running task.                                          |
-| `POST`   | `/api/tasks/{id}/retry`                               | Retries a failed task.                                           |
-| `PATCH`  | `/api/tasks/{id}/source`                             | Reassigns a task's source key.                                  |
-| `GET`    | `/api/tasks/{id}/file`                                | Downloads the completed file.                                   |
+| Method   | Endpoint                                             | Description                                                 |
+| -------- | ---------------------------------------------------- | ----------------------------------------------------------- |
+| `GET`    | `/api/health`                                        | Liveness check.                                             |
+| `GET`    | `/api/auth/session`                                  | Returns the current session state.                          |
+| `POST`   | `/api/auth/login`                                    | Logs in and sets the session cookie.                        |
+| `POST`   | `/api/auth/logout`                                   | Clears the session cookie.                                  |
+| `POST`   | `/api/auth/credentials`                              | Changes the account username or password.                   |
+| `POST`   | `/api/tasks/probe`                                   | Previews metadata for a URL before queueing.                |
+| `POST`   | `/api/tasks`                                         | Queues one or more URLs.                                    |
+| `GET`    | `/api/tasks`                                         | Lists active tasks (queued, running, failed) with counts.   |
+| `GET`    | `/api/history?offset=0&limit=30&source_key=&search=` | Lists completed records, with offset pagination and search. |
+| `POST`   | `/api/scan`                                          | Reconciles database history with files present in `/media`. |
+| `DELETE` | `/api/tasks/{id}`                                    | Removes a pending task.                                     |
+| `POST`   | `/api/tasks/{id}/cancel`                             | Cancels a running task.                                     |
+| `POST`   | `/api/tasks/{id}/retry`                              | Retries a failed task.                                      |
+| `PATCH`  | `/api/tasks/{id}/source`                             | Reassigns a task's source key.                              |
+| `GET`    | `/api/tasks/{id}/file`                               | Downloads the completed file.                               |
 
 Queue example (log in first to obtain the session cookie):
 
@@ -200,22 +200,24 @@ http://localhost:8840/redoc
 
 Output folders and filenames are built from placeholders. Supported placeholders:
 
-| Placeholder           | Description                        |
-| --------------------- | ---------------------------------- |
-| `{{creator}}`         | Resolved creator or uploader.      |
-| `{{author}}`          | Alias for the creator.             |
-| `{{author_nickname}}` | Alias for the creator.             |
-| `{{title}}`           | Media title.                       |
-| `{{id}}`              | Media id.                          |
-| `{{video_id}}`        | Alias for the media id.            |
-| `{{quality}}`         | Selected quality or resolution.    |
-| `{{ext}}`             | File extension.                    |
+| Placeholder    | Description                     |
+| -------------- | ------------------------------- |
+| `{{username}}` | Uploader handle.                |
+| `{{nickname}}` | Uploader display name.          |
+| `{{title}}`    | Media title.                    |
+| `{{id}}`       | Media id.                       |
+| `{{quality}}`  | Selected quality or resolution. |
+| `{{ext}}`      | File extension.                 |
+
+`{{username}}` resolves to the handle from the URL when present, else the engine's
+handle field; `{{nickname}}` resolves to the display name. On platforms without a
+distinct handle or display name, both fall back to whatever the extractor provides.
 
 Defaults:
 
 ```text
-Folder:   {{creator}}
-Filename: {{creator}} - {{title}} [{{id}}]
+Folder:   {{username}}
+Filename: {{username}} - {{title}} [{{id}}]
 ```
 
 ## Requirements

@@ -33,7 +33,7 @@ from .store import (
 
 FILENAME_ID_RE = re.compile(r"^(.*) \[([A-Za-z0-9_-]+)\](?:_\d+)?$")
 UNRECOVERABLE_MEDIA_IDS = {"", "na", "n-a", "n/a", "none", "null", "unknown"}
-_ID_TOKENS = {"id", "video_id"}
+_ID_TOKENS = {"id"}
 _EXT_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$")
 _COMMON_SOURCE_FOLDER_KEYS = {
     "bilibili",
@@ -202,7 +202,7 @@ def _creator_for_file(
     folder_pattern: re.Pattern[str] | None,
     filename_pattern: re.Pattern[str] | None,
 ) -> str:
-    # Follow the templates: creator from the {{creator}} folder first, then the filename.
+    # Follow the templates: creator from the {{username}} folder first, then the filename.
     folder_text = _relative_folder(_folder_base(root, path, source_folders), path.parent)
     creator = _match_template(folder_pattern, folder_text).get("creator", "")
     return creator or _match_template(filename_pattern, path.stem).get("creator", "")
@@ -342,7 +342,7 @@ def _scan_template_map() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
         )
         return base, per_source
     except Exception:
-        return {"folder_template": "{{creator}}", "filename_template": "{{creator}} - {{title}} [{{id}}]"}, {}
+        return {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"}, {}
 
 
 def _scan_source_profile_keys() -> set[str]:

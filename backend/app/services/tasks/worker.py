@@ -18,7 +18,6 @@ from backend.app.services.settings import detect_cookie_source, has_cookies_for_
 
 from .constants import (
     AUDIO_EXTENSIONS,
-    CREATOR_FIELDS,
     IMAGE_EXTENSIONS,
     TEMPLATE_RE,
     VIDEO_EXTENSIONS,
@@ -36,6 +35,7 @@ from .naming import (
     filename_template_fields,
     sanitize_path_literal,
     strip_numbered_suffix,
+    template_fields,
 )
 from .scan import parse_filename_media_id
 from .store import (
@@ -56,8 +56,6 @@ _worker_started = False
 # Guarded by _worker_lock. A dying thread still reports is_alive(), so the pool
 # tracks its own count here instead of polling threading.enumerate().
 _active_worker_count = 0
-_YOUTUBE_HOSTS = ("youtube.com", "youtube-nocookie.com", "youtu.be")
-_YOUTUBE_CHANNEL_ID_RE = re.compile(r"UC[A-Za-z0-9_-]{20,}")
 
 # Cancellation shares process memory with the API thread: a request flags a task
 # and kills its live subprocess; the worker sees the flag and drops the row.
@@ -395,6 +393,11 @@ def _read_metadata_sidecar(path: str) -> dict[str, dict[str, str]]:
         "channel_url",
         "uploader_id",
         "channel_id",
+        "display_name",
+        "full_name",
+        "nickname",
+        "author",
+        "username",
     ]
     for line in lines:
         parts = str(line or "").split("\t")
@@ -423,38 +426,101 @@ def _clean_creator_candidate(value: str) -> str:
     return "" if value.lower() in {"", "unknown", "none", "null", "undefined", "na", "n/a"} else value
 
 
-def _is_youtube_url(source_url: str) -> bool:
-    host = host_from_url(source_url)
-    return any(host == candidate or host.endswith(f".{candidate}") for candidate in _YOUTUBE_HOSTS)
+def _creator_value_key(value: str) -> str:
+    return _clean_creator_candidate(value).casefold()
 
 
-def _metadata_is_youtube(metadata: dict[str, str]) -> bool:
-    return any(
-        _is_youtube_url(str(metadata.get(key) or ""))
-        for key in ("webpage_url", "original_url", "uploader_url", "channel_url")
-    )
+def _same_creator_value(left: str, right: str) -> bool:
+    left_key = _creator_value_key(left)
+    right_key = _creator_value_key(right)
+    return bool(left_key and right_key and left_key == right_key)
 
 
-def _creator_from_url_unless_youtube(source_url: str, media_id: str = "") -> str:
-    return "" if _is_youtube_url(source_url) else creator_from_url(source_url, media_id)
+def _is_handle_key(key: str) -> bool:
+    key = str(key or "").strip().lower()
+    return any(token in key for token in ("username", "handle", "screen_name", "login"))
 
 
-def _is_youtube_channel_id(value: str) -> bool:
+def _is_creatorish_key(key: str) -> bool:
+    key = str(key or "").strip().lower()
+    return any(token in key for token in ("channel", "uploader", "owner", "user", "creator", "author"))
+
+
+def _looks_like_opaque_identifier(value: str) -> bool:
     value = _clean_creator_candidate(value)
-    return bool(_YOUTUBE_CHANNEL_ID_RE.fullmatch(value))
+    if not value:
+        return False
+    if value.isdigit():
+        return True
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        return False
+    has_lower = any(ch.islower() for ch in value)
+    has_upper = any(ch.isupper() for ch in value)
+    has_digit = any(ch.isdigit() for ch in value)
+    return len(value) >= 20 and has_lower and has_upper and has_digit
 
 
-def _youtube_metadata_creator(metadata: dict[str, str]) -> str:
-    for key in ("channel", "uploader", "creator", "playlist_uploader"):
-        creator = _clean_creator_candidate(str(metadata.get(key) or ""))
-        if creator and not _is_youtube_channel_id(creator):
-            return creator
-    return ""
+def _clean_handle_candidate(value: str, key: str = "") -> str:
+    raw_value = str(value or "").strip()
+    value = _clean_creator_candidate(raw_value)
+    key = str(key or "").strip().lower()
+    if not value or any(ch.isspace() for ch in value) or _looks_like_opaque_identifier(value):
+        return ""
+    if key.endswith("_id") and not raw_value.startswith("@") and not _is_handle_key(key):
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", value):
+        return ""
+    return value
+
+
+def _looks_like_handle_value(value: str) -> bool:
+    value = _clean_handle_candidate(value)
+    if not value:
+        return False
+    if re.search(r"[._-]|\d", value):
+        return True
+    return bool(re.fullmatch(r"[a-z][a-z0-9]{1,39}", value))
+
+
+def _metadata_nickname(metadata: dict[str, str], username_hint: str = "") -> str:
+    username_hint = _clean_creator_candidate(username_hint)
+    preferred_keys = (
+        "nickname",
+        "display_name",
+        "full_name",
+        "channel",
+        "uploader",
+        "author",
+        "creator",
+        "playlist_uploader",
+        "artist",
+        "artists",
+        "album_artist",
+    )
+    fallback = ""
+    for key in preferred_keys:
+        value = _clean_creator_candidate(str(metadata.get(key) or ""))
+        if not value or _looks_like_opaque_identifier(value):
+            continue
+        fallback = fallback or value
+        if not _same_creator_value(value, username_hint):
+            return value
+    for key, raw_value in metadata.items():
+        key = str(key or "").strip().lower()
+        if key in {"filepath", "id"} or key.endswith("_url") or key.endswith("_id") or _is_handle_key(key):
+            continue
+        value = _clean_creator_candidate(str(raw_value or ""))
+        if not value or _looks_like_opaque_identifier(value):
+            continue
+        fallback = fallback or value
+        if not _same_creator_value(value, username_hint):
+            return value
+    return fallback
 
 
 def _creator_candidate_score(key: str, value: str) -> int:
     value = _clean_creator_candidate(value)
-    if not value or value.isdigit():
+    if not value or _looks_like_opaque_identifier(value):
         return -100
     key = str(key or "").lower()
     score = 0
@@ -514,10 +580,14 @@ def _metadata_profile_urls(metadata: dict[str, str]) -> list[str]:
         value = str(metadata.get(key) or "").strip()
         if value and value not in urls:
             urls.append(value)
-    profile_ids = [
-        str(metadata.get(key) or "").strip().lstrip("@")
-        for key in ("uploader_id", "channel_id", "artist_id", "owner_id")
-    ]
+    profile_ids: list[str] = []
+    for key in ("uploader_id", "channel_id", "artist_id", "owner_id"):
+        profile_id = _clean_creator_candidate(str(metadata.get(key) or ""))
+        if not profile_id:
+            continue
+        if _looks_like_opaque_identifier(profile_id) and not profile_id.isdigit():
+            continue
+        profile_ids.append(profile_id)
     for host in _profile_host_candidates(metadata):
         for profile_id in profile_ids:
             if not profile_id:
@@ -530,16 +600,13 @@ def _metadata_profile_urls(metadata: dict[str, str]) -> list[str]:
 
 def _resolved_profile_handle(metadata: dict[str, str]) -> str:
     for profile_url in _metadata_profile_urls(metadata):
-        handle = resolve_creator_handle(profile_url)
+        handle = _clean_handle_candidate(resolve_creator_handle(profile_url))
         if handle:
             return handle
     return ""
 
 
 def _metadata_creator(metadata: dict[str, str], media_id: str) -> str:
-    if _metadata_is_youtube(metadata):
-        return _youtube_metadata_creator(metadata)
-
     candidates: list[tuple[str, str]] = []
     for key in ("webpage_url", "original_url", "uploader_url", "channel_url", "author_url", "owner_url"):
         creator = creator_from_url(str(metadata.get(key) or ""), media_id)
@@ -550,16 +617,24 @@ def _metadata_creator(metadata: dict[str, str], media_id: str) -> str:
     if handle:
         candidates.append(("username_handle", handle))
     for key, value in metadata.items():
-        if key in {"filepath", "id", "webpage_url", "original_url"} or key.endswith("_url") or key.endswith("_id"):
+        raw_value = str(value or "").strip()
+        if key in {"filepath", "id", "webpage_url", "original_url"} or key.endswith("_url"):
             continue
-        candidates.append((key, value))
+        if key.endswith("_id") and not raw_value.startswith("@") and not _is_handle_key(key):
+            continue
+        if _is_handle_key(key) or raw_value.startswith("@") or (
+            _is_creatorish_key(key) and _looks_like_handle_value(raw_value)
+        ):
+            creator = _clean_handle_candidate(raw_value, key)
+            if creator:
+                candidates.append((key, creator))
     return _best_creator_candidate(candidates)
 
 
 def _filename_media_id(path: Path, filename_template: str, metadata: dict[str, str]) -> str:
     if filename_template:
         fields = filename_template_fields(path.name, filename_template)
-        media_id = _field_value(fields, "id", "video_id")
+        media_id = _field_value(fields, "id")
         if media_id:
             return media_id
     media_id, _ = parse_filename_media_id(path.name)
@@ -582,19 +657,7 @@ def _filename_creator(
     source_url: str,
     media_id: str,
 ) -> str:
-    is_youtube = _is_youtube_url(source_url) or _metadata_is_youtube(metadata)
-    if is_youtube:
-        creator = _youtube_metadata_creator(metadata)
-        if creator:
-            return creator
-        if filename_template:
-            fields = filename_template_fields(path.name, filename_template)
-            creator = _field_value(fields, *CREATOR_FIELDS)
-            if creator and not _is_youtube_channel_id(creator):
-                return creator
-        return ""
-
-    creator = creator_from_url(source_url, media_id)
+    creator = _clean_handle_candidate(creator_from_url(source_url, media_id))
     if creator:
         return creator
     creator = _metadata_creator(metadata, media_id)
@@ -602,14 +665,47 @@ def _filename_creator(
         return creator
     if filename_template:
         fields = filename_template_fields(path.name, filename_template)
-        creator = _field_value(fields, *CREATOR_FIELDS)
+        creator = _clean_handle_candidate(_field_value(fields, "username"))
         if creator:
             return creator
     for key in ("webpage_url", "original_url"):
-        creator = creator_from_url(str(metadata.get(key) or ""), media_id)
+        creator = _clean_handle_candidate(creator_from_url(str(metadata.get(key) or ""), media_id))
         if creator:
             return creator
     return ""
+
+
+def _template_folder_text(output_root: Path, path: Path) -> str:
+    # The relative folder the engine wrote the file into, matched later against folder_template.
+    try:
+        relative = path.parent.relative_to(output_root)
+    except ValueError:
+        return path.parent.name
+    return "" if relative == Path(".") else relative.as_posix()
+
+
+def _filename_nickname(
+    path: Path,
+    filename_template: str,
+    folder_template: str,
+    folder_text: str,
+    metadata: dict[str, str],
+    username_hint: str = "",
+) -> str:
+    # Display name for {{nickname}}: prefer the value the engine already wrote to disk
+    # (filename token, then folder token), then yt-dlp display-name metadata. gallery-dl
+    # ships no metadata sidecar, so its display name only survives on disk.
+    fallback = ""
+    for text, template in ((path.stem, filename_template), (folder_text, folder_template)):
+        if not template:
+            continue
+        value = _clean_creator_candidate(template_fields(text, template).get("nickname", ""))
+        if not value:
+            continue
+        fallback = fallback or value
+        if not _same_creator_value(value, username_hint):
+            return value
+    return _metadata_nickname(metadata, username_hint) or fallback
 
 
 def _reconstruct_item_url(source_url: str, source_key: str, media_id: str, creator: str) -> str:
@@ -878,16 +974,18 @@ def _clean_resolved_filename(
     group_paths: list[Path] | None = None,
     creator_hint: str = "",
     media_id_hint: str = "",
+    nickname_hint: str = "",
 ) -> tuple[Path, str]:
     filename_template = _filename_template(template_settings)
     source_key = source_key or detect_source_key(source_url)
     media_id_hint = str(media_id_hint or "").strip() or media_id_from_url(source_url)
-    creator_hint = str(creator_hint or "").strip() or _creator_from_url_unless_youtube(source_url, media_id_hint)
+    creator_hint = str(creator_hint or "").strip() or _clean_handle_candidate(creator_from_url(source_url, media_id_hint))
     if filename_template:
         display_filename = clean_template_filename(
             path.name,
             filename_template,
             creator=creator_hint,
+            nickname=nickname_hint,
             media_id=media_id_hint,
             source_key=source_key,
             keep_numbered_suffix=False,
@@ -896,6 +994,7 @@ def _clean_resolved_filename(
             path.name,
             filename_template,
             creator=creator_hint,
+            nickname=nickname_hint,
             media_id=media_id_hint,
             source_key=source_key,
             keep_numbered_suffix=True,
@@ -959,18 +1058,22 @@ def _render_template_folder(
     template_settings: dict[str, str] | None,
     creator: str,
     media_id: str,
+    nickname: str = "",
 ) -> Path | None:
     folder_template = str((template_settings or {}).get("folder_template") or "").strip()
     if not folder_template:
         return None
     creator = _clean_creator_candidate(creator)
+    nickname = _clean_creator_candidate(nickname) or creator
     media_id = str(media_id or "").strip()
 
     def replace(match: re.Match[str]) -> str:
         field = match.group(1).strip().lower()
-        if field in CREATOR_FIELDS:
+        if field == "nickname":
+            return nickname
+        if field == "username":
             return creator
-        if field in {"id", "video_id"}:
+        if field == "id":
             return media_id
         return ""
 
@@ -993,8 +1096,9 @@ def _move_group_to_template_folder(
     template_settings: dict[str, str] | None,
     creator: str,
     media_id: str,
+    nickname: str = "",
 ) -> Path:
-    target_dir = _render_template_folder(output_root, template_settings, creator, media_id)
+    target_dir = _render_template_folder(output_root, template_settings, creator, media_id, nickname)
     if target_dir is None or _path_key(selected_path.parent) == _path_key(target_dir):
         return selected_path
     try:
@@ -1028,7 +1132,7 @@ def _move_group_to_template_folder(
 
 def _resolved_task_creator(engine: Engine, sidecar_path: str, source_url: str, filename: str) -> str:
     media_id, _ = parse_filename_media_id(filename)
-    return _creator_from_url_unless_youtube(source_url, media_id) or engine.read_creator(sidecar_path, source_url)
+    return _clean_handle_candidate(creator_from_url(source_url, media_id)) or engine.read_creator(sidecar_path, source_url)
 
 
 # Log markers meaning the backend has no extractor or no downloadable media
@@ -1282,6 +1386,16 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 raw_path = Path(group["path"])
                 metadata = group.get("metadata") or {}
                 creator_hint = _filename_creator(raw_path, filename_template, metadata, source_url, media_id)
+                folder_template = str((template_settings or {}).get("folder_template") or "").strip()
+                folder_text = _template_folder_text(output_root, raw_path)
+                nickname_hint = _filename_nickname(
+                    raw_path,
+                    filename_template,
+                    folder_template,
+                    folder_text,
+                    metadata,
+                    creator_hint,
+                )
                 item_source_url = _item_source_url(source_url, task_source_key, media_id, creator_hint, metadata)
                 item_source_key = normalize_source_key(task_source_key or detect_source_key(item_source_url))
                 final_path, display_filename = _clean_resolved_filename(
@@ -1292,6 +1406,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     list(group.get("paths") or []),
                     creator_hint,
                     media_id,
+                    nickname_hint,
                 )
                 media_id = (
                     media_id
@@ -1304,13 +1419,15 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     template_settings,
                     creator_hint,
                     media_id,
+                    nickname_hint,
                 )
                 keep_paths = find_numbered_media_siblings(final_path) or [final_path]
                 _cleanup_duplicate_library_media(output_root, media_id, keep_paths)
                 creator = (
-                    _creator_from_url_unless_youtube(item_source_url, media_id)
+                    _clean_handle_candidate(creator_from_url(item_source_url, media_id))
                     or creator_hint
                     or _resolved_task_creator(used_engine, creator_sidecar, item_source_url, display_filename)
+                    or nickname_hint
                 )
                 row_task_id = task_id if index == 0 else _child_task_id(task_id, media_id, final_path)
                 row_engine = used_engine.name

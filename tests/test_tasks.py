@@ -41,7 +41,12 @@ from backend.app.services.tasks.naming import (
     strip_placeholder_title,
 )
 from backend.app.services.tasks.serializers import history_to_api, task_to_api
-from backend.app.services.tasks.ytdlp import YTDLP_YOUTUBE_CREATOR_FIELD, clean_filename_title, clean_social_title
+from backend.app.services.tasks.ytdlp import (
+    YTDLP_NICKNAME_FIELD,
+    YTDLP_USERNAME_FIELD,
+    clean_filename_title,
+    clean_social_title,
+)
 
 
 @pytest.mark.parametrize(
@@ -116,7 +121,7 @@ def test_detect_source_key(url, expected):
 
 
 def test_convert_template_to_ytdlp_maps_placeholders():
-    result = convert_template_to_ytdlp("{{creator}} - {{title}} [{{id}}]")
+    result = convert_template_to_ytdlp("{{username}} - {{title}} [{{id}}]")
     assert "%(title|Unknown)s" in result
     assert "%(id|NA)s" in result
     assert "{{" not in result
@@ -128,7 +133,7 @@ def test_convert_template_unknown_placeholder_falls_back():
 
 def test_convert_template_prefers_creator_from_url():
     result = convert_template_to_ytdlp(
-        "{{creator}} - {{title}} [{{id}}]",
+        "{{username}} - {{title}} [{{id}}]",
         "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
     )
 
@@ -136,15 +141,24 @@ def test_convert_template_prefers_creator_from_url():
     assert "%(creator" not in result
 
 
-def test_convert_template_youtube_creator_uses_channel_display_field():
+def test_convert_template_username_without_url_handle_uses_handle_field():
+    # With no handle in the URL, fall back to the handle-first metadata field.
     result = convert_template_to_ytdlp(
-        "{{creator}} - {{title}} [{{id}}]",
-        "https://www.youtube.com/channel/UC-wNqHVYS82PF4mkaQb0Alg",
+        "{{username}} - {{title}} [{{id}}]",
+        "https://video.example/channel/UC-wNqHVYS82PF4mkaQb0Alg",
     )
 
-    assert result.startswith(YTDLP_YOUTUBE_CREATOR_FIELD)
-    assert "artist" not in result
+    assert result.startswith(YTDLP_USERNAME_FIELD)
     assert "UC-wNqHVYS82PF4mkaQb0Alg" not in result
+
+
+def test_convert_template_nickname_uses_display_name_field():
+    result = convert_template_to_ytdlp(
+        "{{nickname}}",
+        "https://video.example/channel/UC-wNqHVYS82PF4mkaQb0Alg",
+    )
+
+    assert result == YTDLP_NICKNAME_FIELD
 
 
 def test_convert_template_empty():
@@ -195,7 +209,7 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
         source_profiles=[{"key": "others", "label": "Others", "hosts": []}],
         site_locations={"others": str(tmp_path)},
         output_dir=str(tmp_path),
-        template_settings={"folder_template": "{{creator}}", "filename_template": "{{title}}"},
+        template_settings={"folder_template": "{{username}}", "filename_template": "{{title}}"},
     )
     captured: dict[str, dict] = {}
 
@@ -336,17 +350,166 @@ def test_clean_social_title_drops_generic_post_caption():
 def test_clean_template_filename_redacts_duplicate_display_name():
     result = clean_template_filename(
         "Charess - Bakit kadiri pag ako？ ｜ Charess [891576008993182].mp4",
-        "{{creator}} - {{title}} [{{id}}]",
+        "{{username}} - {{title}} [{{id}}]",
         creator="charechii",
         media_id="891576008993182",
     )
     assert result == "charechii - Bakit kadiri pag ako？ [891576008993182].mp4"
 
 
+def test_clean_template_filename_keeps_username_and_nickname_distinct():
+    # {{username}} renders the handle, {{nickname}} the display name; no collapse.
+    result = clean_template_filename(
+        "nasa - NASA - Cool Rocket [ABC123].jpg",
+        "{{username}} - {{nickname}} - {{title}} [{{id}}]",
+        creator="nasa",
+        nickname="NASA",
+        media_id="ABC123",
+    )
+    assert result == "nasa - NASA - Cool Rocket [ABC123].jpg"
+
+
+def test_clean_template_filename_nickname_token_not_overwritten_by_handle():
+    # A {{nickname}} filename keeps the display name even when a handle is supplied.
+    result = clean_template_filename(
+        "NASA - Cool Rocket [ABC123].jpg",
+        "{{nickname}} - {{title}} [{{id}}]",
+        creator="nasa",
+        nickname="NASA",
+        media_id="ABC123",
+    )
+    assert result == "NASA - Cool Rocket [ABC123].jpg"
+
+
+def test_filename_creator_ignores_nickname_token_for_handle():
+    # A {{nickname}} filename must NOT feed the {{username}} handle with the display name.
+    path = Path("/media/instagram/nasa/NASA - Cool Rocket [ABC123].jpg")
+    creator = worker_module._filename_creator(
+        path,
+        "{{nickname}} - {{title}} [{{id}}]",
+        {},
+        "https://www.instagram.com/p/Cxyz/",
+        "ABC123",
+    )
+    assert creator == ""
+
+
+def test_username_folder_not_clobbered_by_nickname_filename():
+    # No handle known -> {{username}} folder unresolved -> no move, keeping the engine's handle folder.
+    folder = worker_module._render_template_folder(
+        Path("/media/instagram"),
+        {"folder_template": "{{username}}"},
+        creator="",
+        media_id="ABC123",
+        nickname="NASA",
+    )
+    assert folder is None
+
+
+def test_render_template_folder_renders_nickname_distinct_from_username():
+    folder = worker_module._render_template_folder(
+        Path("/media/instagram"),
+        {"folder_template": "{{nickname}}"},
+        creator="nasa",
+        media_id="ABC123",
+        nickname="NASA",
+    )
+    assert folder == Path("/media/instagram/NASA")
+
+
+def test_filename_nickname_recovers_display_name_from_gallerydl_folder():
+    # gallery-dl ships no metadata; the display name only survives in the folder it wrote.
+    root = Path("/media/instagram")
+    path = root / "NASA" / "nasa - Cool Rocket [ABC123].jpg"
+    nickname = worker_module._filename_nickname(
+        path,
+        "{{username}} - {{title}} [{{id}}]",
+        "{{nickname}}",
+        worker_module._template_folder_text(root, path),
+        {},
+    )
+    assert nickname == "NASA"
+
+
+def test_filename_nickname_skips_username_value_and_uses_display_metadata():
+    root = Path("/media/tiktok")
+    path = root / "fzyahoo.com" / "fzyahoo.com - Clip [7493558766131039489].mp4"
+    metadata = {
+        "webpage_url": "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
+        "channel": "FZ Yahoo",
+        "uploader": "fzyahoo.com",
+        "uploader_url": "https://www.tiktok.com/@fzyahoo.com",
+    }
+
+    nickname = worker_module._filename_nickname(
+        path,
+        "{{nickname}} - {{title}} [{{id}}]",
+        "{{username}}",
+        worker_module._template_folder_text(root, path),
+        metadata,
+        "fzyahoo.com",
+    )
+
+    assert nickname == "FZ Yahoo"
+
+
+def test_username_folder_and_nickname_filename_stay_distinct_for_handle_metadata(tmp_path: Path):
+    media_id = "7493558766131039489"
+    source_url = f"https://www.tiktok.com/@fzyahoo.com/video/{media_id}"
+    template_settings = {
+        "folder_template": "{{username}}",
+        "filename_template": "{{nickname}} - {{title}} [{{id}}]",
+    }
+    raw_path = tmp_path / "fzyahoo.com" / f"fzyahoo.com - Clip [{media_id}].mp4"
+    raw_path.parent.mkdir()
+    raw_path.write_bytes(b"video")
+    metadata = {
+        "webpage_url": source_url,
+        "channel": "FZ Yahoo",
+        "uploader": "fzyahoo.com",
+        "uploader_url": "https://www.tiktok.com/@fzyahoo.com",
+    }
+
+    creator = worker_module._filename_creator(raw_path, template_settings["filename_template"], metadata, source_url, media_id)
+    nickname = worker_module._filename_nickname(
+        raw_path,
+        template_settings["filename_template"],
+        template_settings["folder_template"],
+        worker_module._template_folder_text(tmp_path, raw_path),
+        metadata,
+        creator,
+    )
+    final_path, display_filename = worker_module._clean_resolved_filename(
+        source_url,
+        raw_path,
+        template_settings,
+        "tiktok",
+        creator_hint=creator,
+        media_id_hint=media_id,
+        nickname_hint=nickname,
+    )
+    final_path = worker_module._move_group_to_template_folder(
+        final_path,
+        tmp_path,
+        template_settings,
+        creator,
+        media_id,
+        nickname,
+    )
+
+    expected = tmp_path / "fzyahoo.com" / f"FZ Yahoo - Clip [{media_id}].mp4"
+    assert creator == "fzyahoo.com"
+    assert nickname == "FZ Yahoo"
+    assert final_path == expected
+    assert display_filename == expected.name
+    assert expected.is_file()
+    assert not raw_path.exists()
+
+
 def test_clean_template_filename_drops_generic_post_caption():
     result = clean_template_filename(
         "charechii - Photos from Charess's post [pfbid02xDjH4VegXX]_1.jpg",
-        "{{creator}} - {{title}} [{{id}}]",
+        "{{username}} - {{title}} [{{id}}]",
         creator="charechii",
         media_id="pfbid02xDjH4VegXX",
     )
@@ -404,50 +567,61 @@ def test_metadata_creator_skips_mobile_host_wall(monkeypatch):
     assert worker_module._metadata_creator(metadata, "1727302008412891") == "charechii"
 
 
-def test_metadata_creator_youtube_prefers_channel_display_name():
+def test_metadata_creator_prefers_at_handle_metadata():
     metadata = {
         "channel": "Mili",
         "uploader": "Mili",
         "creator": "Mili",
+        "uploader_id": "@mili",
         "channel_id": "UC-wNqHVYS82PF4mkaQb0Alg",
-        "channel_url": "https://www.youtube.com/channel/UC-wNqHVYS82PF4mkaQb0Alg",
-        "webpage_url": "https://www.youtube.com/watch?v=In5Du5x6MZM",
+        "webpage_url": "https://video.example/watch?v=In5Du5x6MZM",
     }
 
-    assert worker_module._metadata_creator(metadata, "In5Du5x6MZM") == "Mili"
+    assert worker_module._metadata_creator(metadata, "In5Du5x6MZM") == "mili"
 
 
-def test_metadata_creator_youtube_rejects_channel_id_as_creator():
+def test_metadata_creator_rejects_opaque_id_metadata():
     metadata = {
         "channel": "UC-wNqHVYS82PF4mkaQb0Alg",
         "uploader": "",
         "channel_id": "UC-wNqHVYS82PF4mkaQb0Alg",
-        "channel_url": "https://www.youtube.com/channel/UC-wNqHVYS82PF4mkaQb0Alg",
-        "webpage_url": "https://www.youtube.com/watch?v=In5Du5x6MZM",
+        "webpage_url": "https://video.example/watch?v=In5Du5x6MZM",
     }
 
     assert worker_module._metadata_creator(metadata, "In5Du5x6MZM") == ""
 
 
-def test_filename_creator_youtube_uses_channel_display_name():
+def test_filename_creator_uses_handle_metadata_without_at():
     metadata = {
         "channel": "Mili",
         "uploader": "Mili",
         "creator": "Mili",
+        "uploader_id": "@mili",
         "channel_id": "UC-wNqHVYS82PF4mkaQb0Alg",
-        "channel_url": "https://www.youtube.com/channel/UC-wNqHVYS82PF4mkaQb0Alg",
-        "webpage_url": "https://www.youtube.com/watch?v=In5Du5x6MZM",
+        "webpage_url": "https://video.example/watch?v=In5Du5x6MZM",
     }
 
     creator = worker_module._filename_creator(
-        Path("UC-wNqHVYS82PF4mkaQb0Alg - Iron Lotus [In5Du5x6MZM].mp4"),
-        "{{creator}} - {{title}} [{{id}}]",
+        Path("@mili - Iron Lotus [In5Du5x6MZM].mp4"),
+        "{{username}} - {{title}} [{{id}}]",
         metadata,
-        "https://www.youtube.com/channel/UC-wNqHVYS82PF4mkaQb0Alg",
+        "https://video.example/watch?v=In5Du5x6MZM",
         "In5Du5x6MZM",
     )
 
-    assert creator == "Mili"
+    assert creator == "mili"
+
+
+def test_filename_creator_strips_at_from_filename_username():
+    creator = worker_module._filename_creator(
+        Path("@mili - Iron Lotus [In5Du5x6MZM].mp4"),
+        "{{username}} - {{title}} [{{id}}]",
+        {},
+        "https://video.example/watch?v=In5Du5x6MZM",
+        "In5Du5x6MZM",
+    )
+
+    assert creator == "mili"
 
 
 def test_clean_filename_title_drops_empty_title_sentinels():
@@ -459,7 +633,7 @@ def test_clean_filename_title_drops_empty_title_sentinels():
 def test_clean_template_filename_drops_none_title_segment():
     result = clean_template_filename(
         "Poster - None [abc123]_1.jpg",
-        "{{creator}} - {{title}} [{{id}}]",
+        "{{username}} - {{title}} [{{id}}]",
         creator="Poster",
         media_id="abc123",
     )
@@ -471,7 +645,7 @@ def test_clean_template_filename_truncates_long_title():
     title = "A" * 80
     result = clean_template_filename(
         f"Poster - {title} [abc123]_1.jpg",
-        "{{creator}} - {{title}} [{{id}}]",
+        "{{username}} - {{title}} [{{id}}]",
         creator="Poster",
         media_id="abc123",
     )
@@ -487,7 +661,7 @@ def test_clean_resolved_filename_renames_real_file_using_settings_template(tmp_p
     final_path, display_filename = worker_module._clean_resolved_filename(
         source_url,
         media_file,
-        {"folder_template": "", "filename_template": "{{creator}} - {{id}} - {{title}}"},
+        {"folder_template": "", "filename_template": "{{username}} - {{id}} - {{title}}"},
         "twitter",
     )
 
@@ -517,21 +691,22 @@ def test_clean_resolved_filename_title_only_template_falls_back_to_media_id(tmp_
     assert not media_file.exists()
 
 
-def test_clean_resolved_filename_youtube_renames_channel_id_to_display_name(tmp_path: Path):
-    source_url = "https://www.youtube.com/watch?v=In5Du5x6MZM"
-    media_file = tmp_path / "UC-wNqHVYS82PF4mkaQb0Alg - Iron Lotus [In5Du5x6MZM].mp4"
+def test_clean_resolved_filename_strips_at_from_username(tmp_path: Path):
+    source_url = "https://video.example/watch?v=In5Du5x6MZM"
+    media_file = tmp_path / "@mili - Iron Lotus [In5Du5x6MZM].mp4"
     media_file.write_bytes(b"video")
 
     final_path, display_filename = worker_module._clean_resolved_filename(
         source_url,
         media_file,
-        {"folder_template": "{{creator}}", "filename_template": "{{creator}} - {{title}} [{{id}}]"},
-        "youtube",
-        creator_hint="Mili",
+        {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
+        "others",
+        creator_hint="mili",
         media_id_hint="In5Du5x6MZM",
+        nickname_hint="Mili",
     )
 
-    expected = tmp_path / "Mili - Iron Lotus [In5Du5x6MZM].mp4"
+    expected = tmp_path / "mili - Iron Lotus [In5Du5x6MZM].mp4"
     assert final_path == expected
     assert display_filename == expected.name
     assert expected.is_file()
@@ -558,7 +733,7 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
                 "resolved_folder": str(tmp_path),
                 "template_settings": {
                     "folder_template": "",
-                    "filename_template": "{{creator}} - {{title}} [{{id}}]",
+                    "filename_template": "{{username}} - {{title}} [{{id}}]",
                 },
             }
         }
@@ -627,7 +802,7 @@ def test_gallerydl_same_source_assets_share_one_row_and_source_id(
                 "resolved_folder": str(tmp_path),
                 "template_settings": {
                     "folder_template": "",
-                    "filename_template": "{{creator}} - {{title}} [{{id}}]",
+                    "filename_template": "{{username}} - {{title}} [{{id}}]",
                 },
             }
         }
@@ -699,7 +874,7 @@ def test_gallerydl_distinct_metadata_urls_split_rows_dynamically(tmp_path: Path)
     groups = worker_module._download_groups(
         [first, second],
         engine_by_name("gallerydl"),
-        "{{creator}} - {{title}} [{{id}}]",
+        "{{username}} - {{title}} [{{id}}]",
         metadata,
         "https://www.example.test/post/root123",
     )
@@ -727,7 +902,7 @@ def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(
                 "resolved_folder": str(tmp_path),
                 "template_settings": {
                     "folder_template": "",
-                    "filename_template": "{{creator}} - {{title}} [{{id}}]",
+                    "filename_template": "{{username}} - {{title}} [{{id}}]",
                 },
             }
         }
@@ -802,7 +977,7 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
                 "resolved_folder": str(tmp_path),
                 "template_settings": {
                     "folder_template": "",
-                    "filename_template": "{{creator}} - {{title}} [{{id}}]",
+                    "filename_template": "{{username}} - {{title}} [{{id}}]",
                 },
             }
         }
@@ -900,8 +1075,8 @@ def test_worker_renames_display_creator_to_handle_and_template_folder(
                 "output_dir": str(tmp_path),
                 "resolved_folder": str(tmp_path),
                 "template_settings": {
-                    "folder_template": "{{creator}}",
-                    "filename_template": "{{creator}} - {{title}} [{{id}}]",
+                    "folder_template": "{{username}}",
+                    "filename_template": "{{username}} - {{title}} [{{id}}]",
                 },
             }
         }
@@ -1000,7 +1175,7 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
                 "resolved_folder": str(tmp_path),
                 "template_settings": {
                     "folder_template": "",
-                    "filename_template": "{{creator}} - {{title}} [{{id}}]",
+                    "filename_template": "{{username}} - {{title}} [{{id}}]",
                 },
             }
         }
@@ -1495,7 +1670,7 @@ def test_scan_media_library_creator_from_folder_template(
     monkeypatch.setattr(
         scan_module,
         "_scan_template_map",
-        lambda: ({"folder_template": "{{creator}}", "filename_template": "{{title}} [{{id}}]"}, {}),
+        lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
     )
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
     monkeypatch.setattr(

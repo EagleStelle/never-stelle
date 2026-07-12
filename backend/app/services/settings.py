@@ -38,8 +38,8 @@ from backend.app.db.repositories import (
     save_settings_payload,
 )
 
-BUILTIN_FOLDER_TEMPLATE = "{{creator}}"
-BUILTIN_FILENAME_TEMPLATE = "{{creator}} - {{title}} [{{id}}]"
+BUILTIN_FOLDER_TEMPLATE = "{{username}}"
+BUILTIN_FILENAME_TEMPLATE = "{{username}} - {{title}} [{{id}}]"
 
 # One cookies.txt per source; the FALLBACK_SOURCE_KEY jar is the catch-all.
 COOKIE_BLOB_PREFIX = "ytdlp_cookies::"

@@ -161,7 +161,7 @@ def test_gallerydl_engine_progress_and_path_parsing():
 
 def test_convert_template_to_gallerydl_maps_fields_and_resolves_creator():
     result = gallerydl.convert_template_to_gallerydl(
-        "{{creator}} - {{title}} [{{id}}]",
+        "{{username}} - {{title}} [{{id}}]",
         "https://twitter.com/DohaVT/status/2073635724684054528",
     )
     assert result.startswith("DohaVT - ")
@@ -171,7 +171,7 @@ def test_convert_template_to_gallerydl_maps_fields_and_resolves_creator():
 
 def test_convert_template_to_gallerydl_falls_back_to_metadata_creator():
     # No creator segment in the URL -> emit a gallery-dl field with fallbacks.
-    result = gallerydl.convert_template_to_gallerydl("{{creator}}", "https://imgur.com/abc")
+    result = gallerydl.convert_template_to_gallerydl("{{username}}", "https://imgur.com/abc")
     assert result == '{username|user[name]|author|"unknown"}'
 
 
@@ -202,8 +202,8 @@ def test_build_gallerydl_output_template_adds_num_for_slideshows():
 
 def test_engines_build_output_templates_from_same_settings_snapshot():
     settings = {
-        "folder_template": "{{creator}}/{{id}}",
-        "filename_template": "{{creator}} - {{title}} [{{id}}]",
+        "folder_template": "{{username}}/{{id}}",
+        "filename_template": "{{username}} - {{title}} [{{id}}]",
     }
     url = "https://twitter.com/DohaVT/status/2073635724684054528"
 

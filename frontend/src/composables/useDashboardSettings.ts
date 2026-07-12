@@ -219,20 +219,26 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     setSettingsSection(section, true);
   }
 
+
   function closeSettings(): void {
     settingsOpen.value = false;
   }
 
-  async function autoSaveSettings(): Promise<void> {
+  async function saveSettingsDraft(): Promise<void> {
     const payload = normalizeSavedPayload(settingsDraft);
     const snapshot = JSON.stringify(payload);
     if (snapshot === lastSavedSnapshot) return;
     lastSavedSnapshot = snapshot;
     try {
-      await persistSettings(payload);
+      await persistSettings(payload, "Settings saved.");
     } catch (error) {
       toast(errorMessage(error, "Could not save settings."), "error");
     }
+  }
+
+  function clearSettingsDraft(): void {
+    copySettingsToDraft();
+    toast("Changes cleared.");
   }
 
   async function connectCookies(platform: string, file?: File): Promise<void> {
@@ -294,15 +300,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     if (!open) lastFocusedTrigger.value?.focus();
   });
 
-  watchDebounced(
-    settingsDraft,
-    () => {
-      if (settingsOpen.value) void autoSaveSettings();
-    },
-    { deep: true, debounce: 500, maxWait: 2000 },
-  );
-
-  onBeforeUnmount(() => document.body.classList.remove("dialog-open"));
+  const hasUnsavedChanges = computed(() => {
+    return JSON.stringify(normalizeSavedPayload(settingsDraft)) !== lastSavedSnapshot;
+  });
 
   return {
     closeSettings,
@@ -310,6 +310,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     connectCookiesForSource,
     cookieStatuses,
     getSavedSettings,
+    hasUnsavedChanges,
     openSettings,
     removeCookies,
     savedSettings,
@@ -319,5 +320,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     settingsOpen,
     settingsSection,
     sourceProfiles,
+    saveSettingsDraft,
+    clearSettingsDraft,
   };
 }

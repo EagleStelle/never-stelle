@@ -12,7 +12,6 @@ from backend.app.services.settings import (
 
 from .constants import (
     AUDIO_BITRATE_PRESETS,
-    CREATOR_FIELDS,
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
     VIDEO_QUALITY_PRESETS,
@@ -31,8 +30,8 @@ from .naming import (
 
 # Re-exported so callers keep importing naming helpers from this module.
 __all__ = [
-    "YTDLP_CREATOR_FIELD",
-    "YTDLP_YOUTUBE_CREATOR_FIELD",
+    "YTDLP_USERNAME_FIELD",
+    "YTDLP_NICKNAME_FIELD",
     "build_output_template",
     "build_ytdlp_command",
     "clean_filename_title",
@@ -43,11 +42,12 @@ __all__ = [
     "sanitize_filename_component",
 ]
 
-# Same precedence the {{creator}} template resolves. Prefer handle-like fields
-# over display-name/music metadata; the worker still validates and can rename
-# from sidecar metadata when an extractor's field meanings differ.
-YTDLP_CREATOR_FIELD = "%(channel,uploader,creator,playlist_uploader,artist,artists,album_artist|Unknown)s"
-YTDLP_YOUTUBE_CREATOR_FIELD = "%(channel,uploader,creator,playlist_uploader|Unknown)s"
+# {{username}} = the handle (uploader_id is "@handle" on YouTube); {{nickname}} =
+# the display name. Same fields the old creator token used, now split by intent.
+# The worker still validates and can rename from sidecar metadata when an
+# extractor's field meanings differ.
+YTDLP_USERNAME_FIELD = "%(uploader_id,uploader,channel,creator|Unknown)s"
+YTDLP_NICKNAME_FIELD = "%(uploader,channel,creator,artist,artists,album_artist|Unknown)s"
 YOUTUBE_HOSTS = ("youtube.com", "youtube-nocookie.com", "youtu.be")
 
 
@@ -60,26 +60,18 @@ def _safe_literal(value: str) -> str:
     return sanitize_path_literal(value).replace("%", "%%")
 
 
-def _creator_field(source_url: str) -> str:
-    return YTDLP_YOUTUBE_CREATOR_FIELD if _is_youtube_url(source_url) else YTDLP_CREATOR_FIELD
-
-
 def _yt_dlp_field(name: str, source_url: str = "") -> str:
     field = str(name or "").strip().lower()
-    if field in CREATOR_FIELDS:
-        if _is_youtube_url(source_url):
-            return YTDLP_YOUTUBE_CREATOR_FIELD
+    if field == "username":
+        # Handle comes from the URL path when present, else the uploader handle.
         creator = _safe_literal(creator_from_url(source_url))
         if creator:
             return creator
-    creator_field = _creator_field(source_url)
+        return YTDLP_USERNAME_FIELD
     mapping = {
         "title": "%(title|Unknown)s",
         "id": "%(id|NA)s",
-        "video_id": "%(id|NA)s",
-        "creator": creator_field,
-        "author": creator_field,
-        "author_nickname": creator_field,
+        "nickname": YTDLP_NICKNAME_FIELD,
         "quality": "%(format_id,format_note,resolution|Unknown)s",
         "ext": "%(ext)s",
     }
@@ -163,7 +155,7 @@ def build_ytdlp_command(
     # --print-to-file (unlike --print) keeps normal progress output intact; the
     # after_move stage runs on real downloads, never in simulate mode.
     if creator_sidecar:
-        cmd.extend(["--print-to-file", f"after_move:{_creator_field(source_url)}", creator_sidecar])
+        cmd.extend(["--print-to-file", f"after_move:{YTDLP_NICKNAME_FIELD}", creator_sidecar])
     if metadata_sidecar:
         item_template = "\t".join(
             [
@@ -182,6 +174,11 @@ def build_ytdlp_command(
                 "%(channel_url|)j",
                 "%(uploader_id|)j",
                 "%(channel_id|)j",
+                "%(display_name|)j",
+                "%(full_name|)j",
+                "%(nickname|)j",
+                "%(author|)j",
+                "%(username|)j",
             ]
         )
         cmd.extend(["--print-to-file", f"after_move:{item_template}", metadata_sidecar])

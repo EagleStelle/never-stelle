@@ -79,6 +79,9 @@ const {
   settingsOpen,
   settingsSection,
   sourceProfiles,
+  saveSettingsDraft,
+  clearSettingsDraft,
+  hasUnsavedChanges,
   downloadSelection,
   qualityOptions,
   setDownloadQuality,
@@ -356,6 +359,9 @@ const { height: statusBarHeight } = useElementSize(
       @connect-cookies="connectCookies"
       @connect-cookies-source="connectCookiesForSource"
       @remove-cookies="removeCookies"
+      @save="saveSettingsDraft"
+      @clear="clearSettingsDraft"
+      :has-unsaved-changes="hasUnsavedChanges"
     />
 
     <PlaylistDialog

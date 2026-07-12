@@ -13,7 +13,6 @@ from backend.app.services.settings import (
 )
 
 from .constants import (
-    CREATOR_FIELDS,
     MEDIA_EXTENSIONS,
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
@@ -27,10 +26,13 @@ from .naming import detect_ffmpeg_location, sanitize_path_literal
 _GALLERYDL_FIELD = {
     "title": '{title|content|"untitled"}',
     "id": '{id|num|"NA"}',
-    "video_id": '{id|num|"NA"}',
     "quality": '{width|"?"}x{height|"?"}',
     "ext": "{extension}",
 }
+# {{username}} = the handle; {{nickname}} = the display name. Extractors nest these
+# differently, so each token tries a chain and falls back across engines' spellings.
+_GALLERYDL_USERNAME = '{username|user[name]|author|"unknown"}'
+_GALLERYDL_NICKNAME = '{author[nick]|user[nickname]|fullname|nickname|username|user[name]|"unknown"}'
 # Directory and filename packed into one output_template; only the builder splits it.
 _TEMPLATE_SEP = "\x1f"
 _COUNT_TIMEOUT_SECONDS = 60
@@ -129,9 +131,12 @@ def _excluded_extension_filter(excluded_extensions: set[str] | None) -> str:
 
 def _gallerydl_field(name: str, source_url: str) -> str:
     field = str(name or "").strip().lower()
-    if field in CREATOR_FIELDS:
+    if field == "username":
+        # Handle from the URL path when present, else the account's username field.
         creator = sanitize_path_literal(creator_from_url(source_url))
-        return _escape_literal(creator) if creator else '{username|user[name]|author|"unknown"}'
+        return _escape_literal(creator) if creator else _GALLERYDL_USERNAME
+    if field == "nickname":
+        return _GALLERYDL_NICKNAME
     return _GALLERYDL_FIELD.get(field, "")
 
 

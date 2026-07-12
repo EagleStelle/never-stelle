@@ -46,7 +46,7 @@ _NUMBERED_SUFFIX_RE = re.compile(r"_\d+$")
 _DISPLAY_FILENAME_ID_RE = re.compile(r"^(?P<title>.*) \[(?P<id>[A-Za-z0-9_-]+)\](?:_\d+)?$")
 _PLACEHOLDER_PREFIX_RE = re.compile(r"^\s*(?P<prefix>[^|:\n\[\]]{1,100}?)\s*[-|:]\s+(?P<body>.+)$")
 _EXT_TEMPLATE_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$", re.IGNORECASE)
-_ID_TEMPLATE_FIELDS = {"id", "video_id"}
+_ID_TEMPLATE_FIELDS = {"id"}
 _EMPTY_TITLE_VALUES = {"none", "null", "undefined", "unknown", "untitled", "n/a", "na"}
 TITLE_MAX_CHARS = 50
 
@@ -350,6 +350,12 @@ def filename_template_fields(filename: str, filename_template: str) -> dict[str,
     return fields
 
 
+def template_fields(text: str, template: str) -> dict[str, str]:
+    """Match raw text (a filename stem or a relative folder) against a {{token}} template."""
+    fields, _ = _match_template_fields(str(text or "").strip(), template)
+    return fields
+
+
 def _field_value(fields: dict[str, str], *names: str) -> str:
     for name in names:
         value = str(fields.get(name) or "").strip()
@@ -365,7 +371,7 @@ def _render_template_stem(filename_template: str, fields: dict[str, str]) -> str
         field = match.group(1).strip().lower()
         value = fields.get(field, "")
         if field in CREATOR_FIELDS and not value:
-            value = _field_value(fields, *CREATOR_FIELDS)
+            value = _field_value(fields, "username", "nickname")
         if field in _ID_TEMPLATE_FIELDS and not value:
             value = _field_value(fields, *_ID_TEMPLATE_FIELDS)
         return sanitize_path_literal(value)
@@ -382,6 +388,7 @@ def clean_template_filename(
     filename_template: str,
     *,
     creator: str = "",
+    nickname: str = "",
     media_id: str = "",
     source_key: str = "",
     keep_numbered_suffix: bool = True,
@@ -394,15 +401,16 @@ def clean_template_filename(
     raw_title = _field_value(fields, "title")
     fallback_match = _DISPLAY_FILENAME_ID_RE.match(path.stem.strip())
     fallback_media_id = str(media_id or "").strip() or (fallback_match.group("id").strip() if fallback_match else "")
-    fallback_creator = str(creator or "").strip()
-    if (not fields or not raw_title) and (fallback_creator or fallback_media_id):
+    fallback_username = str(creator or "").strip()
+    fallback_nickname = str(nickname or "").strip()
+    if (not fields or not raw_title) and (fallback_username or fallback_nickname or fallback_media_id):
         rendered_fields: dict[str, str] = {"title": ""}
-        if fallback_creator:
-            for creator_field in CREATOR_FIELDS:
-                rendered_fields[creator_field] = fallback_creator
+        if fallback_username:
+            rendered_fields["username"] = fallback_username
+        if fallback_nickname or fallback_username:
+            rendered_fields["nickname"] = fallback_nickname or fallback_username
         if fallback_media_id:
             rendered_fields["id"] = fallback_media_id
-            rendered_fields["video_id"] = fallback_media_id
         stem = _render_template_stem(filename_template, rendered_fields)
         numbered = re.search(r"_\d+$", path.stem)
         if keep_numbered_suffix and numbered:
@@ -410,21 +418,35 @@ def clean_template_filename(
         return f"{stem}{path.suffix}" if stem else value
     if not fields or not raw_title:
         return ""
-    original_media_id = _field_value(fields, "id", "video_id")
-    original_creator = _field_value(fields, *CREATOR_FIELDS)
+    original_media_id = _field_value(fields, "id")
+    original_username = _field_value(fields, "username", "nickname")
+    original_nickname = _field_value(fields, "nickname", "username")
     resolved_media_id = str(media_id or "").strip() or original_media_id
-    resolved_creator = str(creator or "").strip() or _field_value(fields, *CREATOR_FIELDS)
+    # {{username}} keeps the handle; {{nickname}} keeps the display name. Each falls
+    # back to the other so a template using only one token still resolves.
+    resolved_username = str(creator or "").strip() or original_username or original_nickname
+    resolved_nickname = str(nickname or "").strip() or original_nickname or resolved_username
+    creator_aliases = tuple(
+        dict.fromkeys(
+            alias
+            for alias in (original_username, original_nickname, resolved_username, resolved_nickname)
+            if alias
+        )
+    )
     # The on-disk creator segment often holds the display name; redact it from the title too.
     cleaned_title = clean_filename_title(
         raw_title,
-        resolved_creator,
+        resolved_username or resolved_nickname,
         resolved_media_id,
         source_key,
-        creator_aliases=(original_creator,),
+        creator_aliases=creator_aliases,
     )
     shortened_title = shorten_filename_title(cleaned_title)
     media_id_changed = bool(resolved_media_id and original_media_id and resolved_media_id != original_media_id)
-    creator_changed = bool(resolved_creator and original_creator and resolved_creator != original_creator)
+    creator_changed = bool(
+        (resolved_username and original_username and resolved_username != original_username)
+        or (resolved_nickname and original_nickname and resolved_nickname != original_nickname)
+    )
     if (
         shortened_title == raw_title
         and not media_id_changed
@@ -437,13 +459,15 @@ def clean_template_filename(
     rendered_fields["title"] = shortened_title
     if resolved_media_id:
         rendered_fields["id"] = resolved_media_id
-        rendered_fields["video_id"] = resolved_media_id
-    if resolved_creator:
-        for creator_field in CREATOR_FIELDS:
-            rendered_fields[creator_field] = resolved_creator
+    if resolved_username:
+        rendered_fields["username"] = resolved_username
+    if resolved_nickname:
+        rendered_fields["nickname"] = resolved_nickname
     stem = _render_template_stem(filename_template, rendered_fields)
     if not stem:
-        stem = sanitize_path_literal(resolved_media_id or resolved_creator or strip_numbered_suffix(path.stem))
+        stem = sanitize_path_literal(
+            resolved_media_id or resolved_username or resolved_nickname or strip_numbered_suffix(path.stem)
+        )
     if keep_numbered_suffix and numbered_suffix:
         stem = f"{stem}{numbered_suffix}"
     return f"{stem}{path.suffix}" if stem else value

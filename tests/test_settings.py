@@ -25,9 +25,9 @@ def test_normalize_template_defaults_when_not_a_dict():
 
 def test_normalize_template_keeps_custom_values():
     result = normalize_template_settings(
-        {"folder_template": "  {{author}}  ", "filename_template": "{{title}}"}
+        {"folder_template": "  {{username}}  ", "filename_template": "{{title}}"}
     )
-    assert result["folder_template"] == "{{author}}"
+    assert result["folder_template"] == "{{username}}"
     assert result["filename_template"] == "{{title}}"
 
 
@@ -69,8 +69,8 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
             "source_profiles": [{"key": "others", "label": "Others", "hosts": []}],
             "site_locations": {"others": "/library/others"},
             "template_settings": {
-                "folder_template": "{{creator}}",
-                "filename_template": "{{creator}} - {{title}} [{{id}}]",
+                "folder_template": "{{username}}",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
             },
             "source_templates": {},
         },
@@ -79,12 +79,12 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
     resolved = planning_module.resolve_task_settings(
         "https://twitter.com/DohaVT/status/2073635724684054528",
         site_locations={"twitter": "/library/twitter", "others": "/library/others"},
-        template_settings={"folder_template": "{{creator}}", "filename_template": "{{title}}"},
+        template_settings={"folder_template": "{{username}}", "filename_template": "{{title}}"},
         source_profiles=[{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
         source_templates={
             "twitter": {
-                "folder_template": "{{creator}}/{{id}}",
-                "filename_template": "{{creator}} - {{id}}",
+                "folder_template": "{{username}}/{{id}}",
+                "filename_template": "{{username}} - {{id}}",
             }
         },
         cfg={"downloadLocations": ["/library"]},
@@ -93,6 +93,6 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
     assert resolved.source_key == "twitter"
     assert resolved.output_dir == "/library/twitter"
     assert resolved.template_settings == {
-        "folder_template": "{{creator}}/{{id}}",
-        "filename_template": "{{creator}} - {{id}}",
+        "folder_template": "{{username}}/{{id}}",
+        "filename_template": "{{username}} - {{id}}",
     }

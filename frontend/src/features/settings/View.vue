@@ -13,6 +13,7 @@ import IconSearch from "~icons/material-symbols/search";
 import IconTrash from "~icons/material-symbols/delete";
 import IconQuality from "~icons/material-symbols/high-quality";
 import IconUpload from "~icons/material-symbols/upload";
+import IconUndo from "~icons/material-symbols/undo";
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from "reka-ui";
 import { toast } from "vue-sonner";
 
@@ -56,6 +57,7 @@ const props = defineProps<{
   settings: RuntimeSettings;
   settingsDraft: SavedSettings;
   sourceProfiles: SourceProfile[];
+  hasUnsavedChanges: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -64,6 +66,8 @@ const emit = defineEmits<{
   removeCookies: [platform: string];
   "update:open": [open: boolean];
   "update:section": [section: SettingsSection];
+  save: [];
+  clear: [];
 }>();
 
 const SECTION_ICONS: Record<SettingsSection, Component> = {
@@ -305,17 +309,30 @@ watch(
     >
       <!-- Sidebar -->
       <Sidebar
-        class="relative pl-3 pt-3 pb-3 pr-12 sm:h-full sm:w-60 sm:p-4 gap-3"
+        class="relative p-3 sm:h-full sm:w-60 sm:p-4 gap-3 flex flex-col"
       >
-        <!-- Mobile Close Button -->
-        <button
-          type="button"
-          @click="openModel = false"
-          class="absolute right-2 top-2 z-10 inline-flex sm:hidden h-9 w-9 items-center justify-center rounded-lg bg-transparent text-white/70 in-[.light-mode]:text-black/70 hover:text-white in-[.light-mode]:hover:text-black active:scale-[0.96] transition-all"
-          aria-label="Close"
-        >
-          <IconClose class="h-6 w-6" aria-hidden="true" />
-        </button>
+        <!-- Mobile Header -->
+        <div class="flex sm:hidden items-center justify-between px-1">
+          <div class="flex items-center gap-2">
+            <span class="text-lg font-bold ml-1">Settings</span>
+            <template v-if="hasUnsavedChanges">
+              <Button variant="soft" size="sm" @click="emit('clear')" title="Clear changes" aria-label="Clear changes">
+                <template #icon><IconUndo class="w-4 h-4" aria-hidden="true" /></template>
+              </Button>
+              <Button variant="primary" size="sm" @click="emit('save')" title="Save changes" aria-label="Save changes">
+                <template #icon><IconSave class="w-4 h-4" aria-hidden="true" /></template>
+              </Button>
+            </template>
+          </div>
+          <button
+            type="button"
+            @click="openModel = false"
+            class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-transparent text-white/70 in-[.light-mode]:text-black/70 hover:text-white in-[.light-mode]:hover:text-black active:scale-[0.96] transition-all"
+            aria-label="Close"
+          >
+            <IconClose class="h-6 w-6" aria-hidden="true" />
+          </button>
+        </div>
 
         <SidebarHeader class="hidden sm:flex">
           <Input
@@ -337,11 +354,11 @@ watch(
             class="flex gap-1 overflow-x-auto pb-1 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:pb-0"
             aria-label="Settings sections"
           >
-            <SidebarGroup v-for="group in sectionGroups" :key="group.label">
+            <SidebarGroup v-for="group in sectionGroups" :key="group.label" class="flex-row sm:flex-col w-auto sm:w-full gap-1">
               <SidebarGroupLabel class="hidden sm:block sm:not-first:mt-3">
                 {{ group.label }}
               </SidebarGroupLabel>
-              <SidebarMenu class="flex-row sm:flex-col gap-1">
+              <SidebarMenu class="flex-row sm:flex-col gap-1 w-auto sm:w-full">
                 <SidebarMenuItem
                   v-for="item in group.items"
                   :key="item.key"
@@ -352,13 +369,13 @@ watch(
                     :value="item.key"
                     @click="selectSection(item.key)"
                   >
-                    <SidebarMenuButton as="div" class="cursor-pointer">
+                    <SidebarMenuButton as="div" class="cursor-pointer w-auto sm:w-full justify-center sm:justify-start px-3.5 sm:px-3.5 h-8 sm:h-10">
                       <component
                         :is="SECTION_ICONS[item.key]"
-                        class="h-5 w-5 shrink-0 opacity-80 group-data-[state=active]:opacity-100"
+                        class="hidden sm:block h-5 w-5 shrink-0 opacity-80 group-data-[state=active]:opacity-100"
                         aria-hidden="true"
                       />
-                      <span class="whitespace-nowrap font-medium">{{
+                      <span class="whitespace-nowrap font-medium text-sm">{{
                         item.label
                       }}</span>
                     </SidebarMenuButton>
@@ -373,7 +390,19 @@ watch(
       <!-- Content -->
       <div class="relative min-h-0 min-w-0 flex-1 flex flex-col">
         <!-- Desktop Header & Close Button -->
-        <div class="hidden sm:flex h-14 shrink-0 items-center justify-end px-4">
+        <div class="hidden sm:flex h-14 shrink-0 items-center justify-between px-4 gap-2 border-0 border-b border-(--glass-border) mb-4 sm:mb-0 sm:border-0">
+          <div class="flex items-center gap-2">
+            <template v-if="hasUnsavedChanges">
+              <Button variant="soft" @click="emit('clear')">
+                <template #icon><IconUndo class="w-5 h-5" aria-hidden="true" /></template>
+                Clear
+              </Button>
+              <Button variant="primary" @click="emit('save')">
+                <template #icon><IconSave class="w-5 h-5" aria-hidden="true" /></template>
+                Save
+              </Button>
+            </template>
+          </div>
           <button
             type="button"
             @click="openModel = false"

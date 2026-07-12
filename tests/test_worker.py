@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from backend.app.services.tasks.worker import _read_creator_sidecar
-from backend.app.services.tasks.ytdlp import YTDLP_CREATOR_FIELD, YTDLP_YOUTUBE_CREATOR_FIELD, build_ytdlp_command
+from backend.app.services.tasks.ytdlp import YTDLP_NICKNAME_FIELD, build_ytdlp_command
 
 
 def test_read_creator_sidecar_returns_last_non_empty_line(tmp_path: Path):
@@ -34,13 +34,14 @@ def test_build_ytdlp_command_adds_creator_sidecar_print():
     )
     assert "--print-to-file" in cmd
     idx = cmd.index("--print-to-file")
-    assert cmd[idx + 1] == f"after_move:{YTDLP_YOUTUBE_CREATOR_FIELD}"
+    assert cmd[idx + 1] == f"after_move:{YTDLP_NICKNAME_FIELD}"
     assert cmd[idx + 2] == "/tmp/creator.txt"
     # Output template and source URL stay at the tail.
     assert cmd[-2:] == ["/media/out.%(ext)s", "https://youtu.be/abc"]
 
 
-def test_build_ytdlp_command_keeps_generic_creator_sidecar_for_non_youtube():
+def test_build_ytdlp_command_creator_sidecar_uses_display_name_field_for_non_youtube():
+    # Consolidated: the sidecar records the display name (nickname field) everywhere.
     cmd = build_ytdlp_command(
         "https://x.com/DohaVT/status/2073635724684054528",
         "/usr/bin/ffmpeg",
@@ -49,7 +50,7 @@ def test_build_ytdlp_command_keeps_generic_creator_sidecar_for_non_youtube():
     )
 
     idx = cmd.index("--print-to-file")
-    assert cmd[idx + 1] == f"after_move:{YTDLP_CREATOR_FIELD}"
+    assert cmd[idx + 1] == f"after_move:{YTDLP_NICKNAME_FIELD}"
     assert cmd[idx + 2] == "/tmp/creator.txt"
 
 
