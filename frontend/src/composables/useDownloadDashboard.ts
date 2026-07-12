@@ -8,7 +8,7 @@ import IconImage from "~icons/material-symbols/image";
 
 import { useDashboardSettings } from "./useDashboardSettings";
 import { useTaskQueue } from "./useTaskQueue";
-import { useToastStack } from "./useToastStack";
+import { useSonner } from "./useSonner";
 import {
   COUNT_ICONS,
   FALLBACK_SOURCE_ICON,
@@ -64,8 +64,8 @@ function sourceInitials(label: string): string {
 }
 
 export function useDownloadDashboard() {
-  const toastStack = useToastStack();
-  const settingsState = useDashboardSettings({ toast: toastStack.toast });
+  const sonner = useSonner();
+  const settingsState = useDashboardSettings({ toast: sonner.toast });
   const url = ref("");
   // Per-download override: follows the settings default until the user edits it,
   // then sticks for the session and never writes back to settings.
@@ -79,7 +79,7 @@ export function useDownloadDashboard() {
   const taskQueue = useTaskQueue({
     getSavedSettings: settingsState.getSavedSettings,
     getQuality: () => createQualitySelection(downloadSelection, qualityOptions.value),
-    toast: toastStack.toast,
+    toast: sonner.toast,
     url,
   });
   watch(
@@ -285,6 +285,6 @@ export function useDownloadDashboard() {
     setSettingsSection,
     openSettings,
     ...taskQueue,
-    ...toastStack,
+    ...sonner,
   };
 }

@@ -163,8 +163,3 @@ export interface ScanMediaResponse {
   added: number;
 }
 
-export interface ToastMessage {
-  id: number;
-  message: string;
-  type: ToastType;
-}

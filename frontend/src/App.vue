@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { computed, useTemplateRef } from "vue";
+import { useElementSize } from "@vueuse/core";
+
 import DownloadInput from "./features/downloads/Input.vue";
 import DownloadPanel from "./features/downloads/Panel.vue";
 import DownloadFilters from "./features/downloads/Filters.vue";
@@ -7,7 +10,7 @@ import NavSide from "./components/layout/NavSide.vue";
 import BarStatus from "./components/layout/BarStatus.vue";
 import NavBottom from "./components/layout/NavBottom.vue";
 import SettingsView from "./features/settings/View.vue";
-import ToastStack from "./components/ToastStack.vue";
+import { Toaster } from "./components/ui/sonner";
 import { Button } from "./components/ui/button";
 import { Combobox } from "./components/ui/combobox";
 import { Input } from "./components/ui/input";
@@ -61,17 +64,26 @@ const {
   settingsOpen,
   settingsSection,
   sourceProfiles,
-  srStatus,
   downloadSelection,
   qualityOptions,
   setDownloadQuality,
   tasksErrorMessage,
   tasksLoading,
-  toasts,
   toggleThemeMode,
   url,
   viewMode,
 } = useDownloadDashboard();
+
+// Live status-bar height so toasts dock above it instead of covering it.
+const statusBar = useTemplateRef<InstanceType<typeof BarStatus>>("statusBar");
+const statusBarEl = computed(
+  () => (statusBar.value?.$el as HTMLElement | null) ?? null,
+);
+const { height: statusBarHeight } = useElementSize(
+  statusBarEl,
+  { width: 0, height: 0 },
+  { box: "border-box" },
+);
 </script>
 
 <template>
@@ -193,7 +205,11 @@ const {
           @set-view-mode="setViewMode"
         />
       </main>
-      <BarStatus :count-cards="countCards" @clear-queue="clearPending" />
+      <BarStatus
+        ref="statusBar"
+        :count-cards="countCards"
+        @clear-queue="clearPending"
+      />
     </div>
 
     <NavBottom
@@ -225,9 +241,9 @@ const {
       @confirm="confirmPlaylistSelection"
     />
 
-    <ToastStack :toasts="toasts" />
-    <div class="sr-only" aria-live="polite" aria-atomic="true">
-      {{ srStatus }}
-    </div>
+    <Toaster
+      :theme="isLightMode ? 'light' : 'dark'"
+      :status-bar-clearance="statusBarHeight"
+    />
   </div>
 </template>
