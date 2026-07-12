@@ -5,7 +5,7 @@
 
   <p>
     Paste a link, get the file. Never Stelle is a self-hosted web app that downloads videos,
-    images, and galleries from anywhere, then keeps them organized and searchable in one library.
+    images, and audios from anywhere, then keeps them organized and searchable in one library.
   </p>
 </div>
 

@@ -141,9 +141,9 @@
     border: var(--glass-border-rule);
     color: inherit;
     outline: none;
-    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
       contrast(1.04);
+    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     background-clip: padding-box;
     box-shadow: var(--glass-shadow);
     transition:
@@ -202,9 +202,9 @@
       var(--glass-surface-2)
     );
     border: var(--glass-border-rule);
-    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
       contrast(1.04);
+    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     background-clip: padding-box;
     box-shadow: var(--glass-shadow);
   }
@@ -217,9 +217,9 @@
       var(--glass-strong-2)
     );
     border: var(--glass-border-rule);
-    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
       contrast(1.04);
+    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     background-clip: padding-box;
     box-shadow: var(--glass-shadow);
   }
@@ -247,9 +247,9 @@
       var(--glass-surface-2)
     );
     border: var(--glass-border-rule);
-    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
       contrast(1.04);
+    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     background-clip: padding-box;
     box-shadow: var(--glass-shadow);
   }
@@ -257,9 +257,9 @@
   .glass-primary {
     background: var(--accent);
     border: var(--glass-border-rule);
-    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
       contrast(1.04);
+    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     background-clip: padding-box;
     box-shadow: var(--glass-shadow-solid);
     color: #1b1931;
@@ -268,9 +268,9 @@
   .glass-danger {
     background: #ef4444;
     border: var(--glass-border-rule);
-    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
       contrast(1.04);
+    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     background-clip: padding-box;
     box-shadow: var(--glass-shadow-solid);
     color: #f8f4f5;
@@ -285,9 +285,9 @@
   .glass-selected[data-state="on"] {
     background: var(--accent);
     border: var(--glass-border-rule);
-    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
       contrast(1.04);
+    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
     background-clip: padding-box;
     box-shadow: var(--glass-shadow-solid);
     color: #1b1931;
