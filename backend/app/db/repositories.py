@@ -283,12 +283,32 @@ def count_history_by_source() -> dict[str, int]:
     return {str(row["source_key"] or "others"): int(row["n"] or 0) for row in rows}
 
 
-def load_history_page(limit: int, offset: int, source_key: str = "") -> tuple[list[tuple[str, dict[str, Any]]], int]:
+def load_history_page(
+    limit: int, offset: int, source_key: str = "", search: str = ""
+) -> tuple[list[tuple[str, dict[str, Any]]], int]:
     # One ordered page plus the filtered total, so infinite scroll knows when to stop.
     limit = max(1, int(limit))
     offset = max(0, int(offset))
-    where = "WHERE source_key = ?" if source_key else ""
-    params: tuple[Any, ...] = (source_key,) if source_key else ()
+    clauses: list[str] = []
+    params: list[Any] = []
+    if source_key:
+        clauses.append("source_key = ?")
+        params.append(source_key)
+    term = search.strip().lower()
+    if term:
+        # Match the user-visible fields (url, creator, filename, folder, media id) via JSON1.
+        like = f"%{term}%"
+        clauses.append(
+            "("
+            "LOWER(source_url) LIKE ?"
+            " OR LOWER(COALESCE(json_extract(payload, '$.creator'), '')) LIKE ?"
+            " OR LOWER(COALESCE(json_extract(payload, '$.resolved_filename'), '')) LIKE ?"
+            " OR LOWER(COALESCE(json_extract(payload, '$.resolved_folder'), '')) LIKE ?"
+            " OR LOWER(COALESCE(json_extract(payload, '$.media_id'), '')) LIKE ?"
+            ")"
+        )
+        params.extend([like, like, like, like, like])
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     with transaction() as connection:
         total = int(
             connection.execute(f"SELECT COUNT(*) FROM history {where}", params).fetchone()[0] or 0

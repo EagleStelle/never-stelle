@@ -91,3 +91,43 @@ def test_learned_formats_migrate_legacy_settings_row(tmp_path, monkeypatch):
     assert loaded["youtube"]["template"] == "https://www.youtube.com/watch?v={id}"
     assert format_row["template"] == "https://www.youtube.com/watch?v={id}"
     assert legacy_row is None
+
+
+def _seed_history(monkeypatch, tmp_path):
+    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    rows = [
+        ("t1", {"source_url": "https://youtube.com/watch?v=1", "source_key": "youtube",
+                "creator": "Hoshimachi Suisei", "resolved_filename": "Comet [1].mp4",
+                "resolved_folder": "Hoshimachi", "media_id": "1", "completed_at": "2026-07-10T00:00:00+00:00"}),
+        ("t2", {"source_url": "https://tiktok.com/@a/video/2", "source_key": "tiktok",
+                "creator": "Gawr Gura", "resolved_filename": "Shark Dance [2].mp4",
+                "resolved_folder": "Gura", "media_id": "2", "completed_at": "2026-07-09T00:00:00+00:00"}),
+    ]
+    for task_id, payload in rows:
+        repositories.save_history_row(task_id, payload)
+
+
+def test_load_history_page_search_matches_creator(tmp_path, monkeypatch):
+    _seed_history(monkeypatch, tmp_path)
+    rows, total = repositories.load_history_page(30, 0, search="hoshi")
+    assert total == 1
+    assert [task_id for task_id, _ in rows] == ["t1"]
+
+
+def test_load_history_page_search_matches_filename_and_url(tmp_path, monkeypatch):
+    _seed_history(monkeypatch, tmp_path)
+    assert repositories.load_history_page(30, 0, search="shark")[1] == 1
+    assert repositories.load_history_page(30, 0, search="tiktok.com")[1] == 1
+
+
+def test_load_history_page_search_combines_with_source_key(tmp_path, monkeypatch):
+    _seed_history(monkeypatch, tmp_path)
+    # Source filter + a term that only the other source matches -> no rows.
+    assert repositories.load_history_page(30, 0, source_key="youtube", search="gura")[1] == 0
+    assert repositories.load_history_page(30, 0, source_key="youtube", search="comet")[1] == 1
+
+
+def test_load_history_page_empty_search_returns_all(tmp_path, monkeypatch):
+    _seed_history(monkeypatch, tmp_path)
+    assert repositories.load_history_page(30, 0, search="")[1] == 2

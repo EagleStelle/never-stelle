@@ -118,8 +118,10 @@ def fetch_active_tasks() -> list[dict[str, Any]]:
     return tasks
 
 
-def fetch_history_page(offset: int, limit: int, source_key: str = "") -> dict[str, Any]:
-    rows, total = load_history_entries_page(limit, offset, normalize_source_key(source_key) if source_key else "")
+def fetch_history_page(offset: int, limit: int, source_key: str = "", search: str = "") -> dict[str, Any]:
+    rows, total = load_history_entries_page(
+        limit, offset, normalize_source_key(source_key) if source_key else "", search
+    )
     entries = [history_to_api(task_id, entry) for task_id, entry in rows]
     return {"entries": entries, "total": total}
 

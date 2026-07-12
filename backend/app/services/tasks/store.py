@@ -48,8 +48,9 @@ def load_history_entries_page(
     limit: int,
     offset: int,
     source_key: str = "",
+    search: str = "",
 ) -> tuple[list[tuple[str, dict[str, Any]]], int]:
-    return load_history_page(limit, offset, source_key)
+    return load_history_page(limit, offset, source_key, search)
 
 
 def history_counts_by_source() -> dict[str, int]:

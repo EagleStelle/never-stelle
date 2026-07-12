@@ -8,14 +8,15 @@ import { errorMessage } from "../utils/dashboard";
 
 interface UseHistoryOptions {
   sourceKey: Ref<string>;
+  search: Ref<string>;
   enabled: Ref<boolean>;
 }
 
 // Paginated history: one page per fetch, appended on scroll, so the browser never holds the whole table.
-export function useHistory({ sourceKey, enabled }: UseHistoryOptions) {
+export function useHistory({ sourceKey, search, enabled }: UseHistoryOptions) {
   const query = useInfiniteQuery<HistoryResponse>({
-    queryKey: [...HISTORY_QUERY_KEY, sourceKey],
-    queryFn: ({ pageParam }) => getHistory(pageParam as number, HISTORY_PAGE_SIZE, sourceKey.value),
+    queryKey: [...HISTORY_QUERY_KEY, sourceKey, search],
+    queryFn: ({ pageParam }) => getHistory(pageParam as number, HISTORY_PAGE_SIZE, sourceKey.value, search.value),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
       const loaded = allPages.reduce((sum, page) => sum + page.entries.length, 0);
