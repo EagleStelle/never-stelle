@@ -1,31 +1,65 @@
-FROM node:24-slim AS frontend-builder
+# syntax=docker/dockerfile:1.7
+
+ARG APP_VERSION=1.0.0
+ARG NODE_VERSION=24
+ARG PYTHON_VERSION=3.12
+
+FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-alpine AS frontend-builder
 
 WORKDIR /app/frontend
+ENV CI=1
 
-COPY frontend/package*.json ./
-RUN npm ci
+COPY --link frontend/package.json frontend/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --fund=false
 
-COPY frontend/index.html frontend/tsconfig.json frontend/vite.config.ts ./
-COPY frontend/src ./src
-COPY frontend/public ./public
+COPY --link frontend/index.html frontend/tsconfig.json frontend/vite.config.ts ./
+COPY --link frontend/src ./src
+COPY --link frontend/public ./public
 RUN npm run build
 
-FROM python:3.12-alpine
+FROM python:${PYTHON_VERSION}-alpine AS python-wheels
+
+WORKDIR /build
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+COPY --link requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip wheel --only-binary=:all: --wheel-dir /wheels -r requirements.txt
+
+FROM python:${PYTHON_VERSION}-alpine AS runtime
+
+ARG APP_VERSION
+
+LABEL org.opencontainers.image.title="Never Stelle" \
+      org.opencontainers.image.description="Self-hosted media download manager" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.licenses="Apache-2.0"
 
 WORKDIR /app
 
-RUN apk add --no-cache ffmpeg ca-certificates
-
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt \
-    && find /usr/local/lib/python3.12 -name '__pycache__' -type d -prune -exec rm -rf '{}' +
-
-COPY backend /app/backend
-COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
-
 ENV PYTHONPATH=/app \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apk add --no-cache ca-certificates ffmpeg \
+    && mkdir -p /data /media /scratch
+
+COPY --link requirements.txt .
+COPY --link --from=python-wheels /wheels /wheels
+RUN pip install --root-user-action=ignore --no-index --find-links=/wheels --no-compile -r requirements.txt \
+    && python -m pip uninstall --root-user-action=ignore -y pip setuptools wheel \
+    && rm -rf /wheels \
+    && find /usr/local -type d -name '__pycache__' -prune -exec rm -rf '{}' +
+
+COPY --link backend ./backend
+COPY --link --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 EXPOSE 8840
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8840"]
+STOPSIGNAL SIGTERM
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD wget -qO- http://127.0.0.1:8840/api/health >/dev/null || exit 1
+
+CMD ["python", "-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8840"]

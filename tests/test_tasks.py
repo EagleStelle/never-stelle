@@ -470,7 +470,13 @@ def test_username_folder_and_nickname_filename_stay_distinct_for_handle_metadata
         "uploader_url": "https://www.tiktok.com/@fzyahoo.com",
     }
 
-    creator = worker_module._filename_creator(raw_path, template_settings["filename_template"], metadata, source_url, media_id)
+    creator = worker_module._filename_creator(
+        raw_path,
+        template_settings["filename_template"],
+        metadata,
+        source_url,
+        media_id,
+    )
     nickname = worker_module._filename_nickname(
         raw_path,
         template_settings["filename_template"],

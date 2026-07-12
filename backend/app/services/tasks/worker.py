@@ -979,7 +979,9 @@ def _clean_resolved_filename(
     filename_template = _filename_template(template_settings)
     source_key = source_key or detect_source_key(source_url)
     media_id_hint = str(media_id_hint or "").strip() or media_id_from_url(source_url)
-    creator_hint = str(creator_hint or "").strip() or _clean_handle_candidate(creator_from_url(source_url, media_id_hint))
+    creator_hint = str(creator_hint or "").strip() or _clean_handle_candidate(
+        creator_from_url(source_url, media_id_hint)
+    )
     if filename_template:
         display_filename = clean_template_filename(
             path.name,
@@ -1132,7 +1134,9 @@ def _move_group_to_template_folder(
 
 def _resolved_task_creator(engine: Engine, sidecar_path: str, source_url: str, filename: str) -> str:
     media_id, _ = parse_filename_media_id(filename)
-    return _clean_handle_candidate(creator_from_url(source_url, media_id)) or engine.read_creator(sidecar_path, source_url)
+    return _clean_handle_candidate(creator_from_url(source_url, media_id)) or engine.read_creator(
+        sidecar_path, source_url
+    )
 
 
 # Log markers meaning the backend has no extractor or no downloadable media

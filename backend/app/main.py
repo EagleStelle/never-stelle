@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Never Stelle API", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Never Stelle API", version="1.0.0", lifespan=lifespan)
 app.include_router(router, prefix="/api")
 
 PUBLIC_API_PATHS = {
