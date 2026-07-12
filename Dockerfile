@@ -60,6 +60,5 @@ COPY --link --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 EXPOSE 8840
 STOPSIGNAL SIGTERM
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD wget -qO- http://127.0.0.1:8840/api/health >/dev/null || exit 1
 
-CMD ["python", "-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8840"]
+CMD ["python", "-m", "backend.app.server"]
