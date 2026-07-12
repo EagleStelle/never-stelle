@@ -217,10 +217,7 @@ if ($Dev) {
 $env:PYTHONPATH = $RepoRoot
 $env:PYTHONDONTWRITEBYTECODE = "1"
 $env:PYTHONUNBUFFERED = "1"
-$env:APP_DATA_DIR = $DataDir
-$env:APP_MEDIA_DIR = $MediaDir
-$env:APP_SCRATCH_DIR = $ScratchDir
-$env:FRONTEND_DIR = $FrontendDistDir
+# Path roots are auto-derived by backend config (.local locally, / in container).
 $env:TEMP = $TempDir
 $env:TMP = $TempDir
 $env:TMPDIR = $TempDir

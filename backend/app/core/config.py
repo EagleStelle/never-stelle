@@ -15,19 +15,8 @@ from backend.app.core.sources import FALLBACK_SOURCE_KEY, merge_source_profiles,
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
-def _truthy(value: str) -> bool:
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _running_in_container() -> bool:
-    """Best-effort detection of a containerized runtime.
-
-    Honors an explicit APP_IN_CONTAINER override, then falls back to the
-    standard Docker markers. Detection only decides the default root.
-    """
-    flag = os.environ.get("APP_IN_CONTAINER", "")
-    if flag:
-        return _truthy(flag)
+    """Detect a container runtime via Docker markers; decides root only."""
     if Path("/.dockerenv").exists():
         return True
     # Image is built with WORKDIR /app and no checked-out repo.
@@ -37,58 +26,40 @@ def _running_in_container() -> bool:
 
 
 def _runtime_root() -> Path:
-    """Root that holds the data/media/scratch trio.
-
-    - Container  -> ``/`` so the trio resolves to ``/data /media /scratch``.
-    - Local/dev  -> ``<repo>/.local`` (Windows constraint: everything under .local).
-    """
+    """Root of the data/media/scratch trio: ``/`` in container, ``<repo>/.local`` local."""
     if _running_in_container():
         return Path("/")
     return (PROJECT_ROOT / ".local").resolve()
 
 
-def _role_dir(env_name: str, root: Path, name: str) -> Path:
-    override = os.environ.get(env_name, "").strip()
-    if override:
-        return Path(override).expanduser().resolve()
-    return (root / name).resolve()
-
-
 RUNTIME_ROOT = _runtime_root()
-# Persistent app state: sqlite db, config.yaml, built frontend.
-DATA_DIR = _role_dir("APP_DATA_DIR", RUNTIME_ROOT, "data")
-# Downloaded media library (also the default download root).
-MEDIA_DIR = _role_dir("APP_MEDIA_DIR", RUNTIME_ROOT, "media")
-# Ephemeral scratch: temp files, partial downloads, caches.
-SCRATCH_DIR = _role_dir("APP_SCRATCH_DIR", RUNTIME_ROOT, "scratch")
+# Fixed container-relative roots; the host side is remapped via volume mounts only.
+DATA_DIR = (RUNTIME_ROOT / "data").resolve()  # sqlite db, config.yaml, built frontend
+MEDIA_DIR = (RUNTIME_ROOT / "media").resolve()  # download library (also the default download root)
+SCRATCH_DIR = (RUNTIME_ROOT / "scratch").resolve()  # temp files, partial downloads, caches
 
 # Back-compat alias: code/scripts still reference RUNTIME_DIR.
 RUNTIME_DIR = DATA_DIR
 
-DATABASE_PATH = Path(os.environ.get("APP_DATABASE_PATH") or DATA_DIR / "never-stelle.sqlite3").resolve()
+DATABASE_PATH = (DATA_DIR / "never-stelle.sqlite3").resolve()
 DEFAULT_LIBRARY_DIR = MEDIA_DIR
 
 
-def _resolve_existing_path(env_name: str, candidates: list[Path]) -> Path:
-    override = os.environ.get(env_name, "").strip()
-    if override:
-        return Path(override).resolve()
+def _first_existing(candidates: list[Path]) -> Path:
     for candidate in candidates:
         if candidate.exists():
             return candidate.resolve()
     return candidates[0].resolve()
 
 
-FRONTEND_DIR = _resolve_existing_path(
-    "FRONTEND_DIR",
+FRONTEND_DIR = _first_existing(
     [
         DATA_DIR / "frontend-dist",
         PROJECT_ROOT / "frontend" / "dist",
         PROJECT_ROOT / "frontend",
     ],
 )
-APP_CONFIG_PATH = _resolve_existing_path(
-    "APP_CONFIG_PATH",
+APP_CONFIG_PATH = _first_existing(
     [
         DATA_DIR / "config.yaml",
         PROJECT_ROOT / "config.yaml",
