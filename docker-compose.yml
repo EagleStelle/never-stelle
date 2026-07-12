@@ -9,6 +9,8 @@ services:
       NEVER_STELLE_PASSWORD: ${NEVER_STELLE_PASSWORD:-never-stelle}
       NEVER_STELLE_MAX_CONCURRENT: ${NEVER_STELLE_MAX_CONCURRENT:-3}
       NEVER_STELLE_COOKIE_SECURE: ${NEVER_STELLE_COOKIE_SECURE:-0}
+      SWARATELLE_URL: ${SWARATELLE_URL:-http://localhost:8842}
+      SWARATELLE_API_TOKEN: ${SWARATELLE_API_TOKEN:-replace-this-with-a-long-random-token}
     volumes:
       - .local/data:/data
       - .local/scratch:/scratch

@@ -14,6 +14,7 @@
 - Queue one or many URLs from a browser UI, with a probe step that previews metadata before download.
 - Track active downloads with live progress parsed from the engines.
 - Route downloads dynamically: `yt-dlp` by default, automatic fallback to `gallery-dl` for image posts, slideshows, and galleries.
+- Optionally delegate Iwara and Oreno3D downloads to Swaratelle when configured, while showing them in the same queue and history UI.
 - Learn source keys from downloads and file each platform under `/media/<source-key>`.
 - Deduplicate downloads so repeated URLs reuse the existing record.
 - Browse, paginate, and search completed download history.
@@ -38,6 +39,9 @@ services:
       NEVER_STELLE_PASSWORD: "change-this-password"
       NEVER_STELLE_MAX_CONCURRENT: "3"
       NEVER_STELLE_COOKIE_SECURE: "false"
+      # Optional: enable Iwara/Oreno3D delegation through Swaratelle.
+      # SWARATELLE_URL: "http://swaratelle:8842"
+      # SWARATELLE_API_TOKEN: "change-this-token"
     volumes:
       - ./data:/data
       - ./media:/media
@@ -107,12 +111,19 @@ Runtime files live under `.local/`: SQLite database, Vue build output, temporary
 
 Never Stelle is configured with environment variables. Set them inline in Docker Compose or pass them to the Windows launcher. Seed credentials only apply on first run, before any account exists; change them afterward in **Settings → Account**.
 
-| Variable                      |    Default     | Description                                                            |
-| ----------------------------- | :------------: | ---------------------------------------------------------------------- |
-| `NEVER_STELLE_USERNAME`       |     `root`     | Username seeded for the first-run account.                             |
-| `NEVER_STELLE_PASSWORD`       | `never-stelle` | Password seeded for the first-run account. Set a strong value.         |
-| `NEVER_STELLE_MAX_CONCURRENT` |      `3`       | Maximum concurrent downloads.                                          |
-| `NEVER_STELLE_COOKIE_SECURE`  |    `false`     | Set `true` to mark the session cookie `Secure` when served over HTTPS. |
+| Variable                      |    Default     | Description                                                                   |
+| ----------------------------- | :------------: | ----------------------------------------------------------------------------- |
+| `NEVER_STELLE_USERNAME`       |     `root`     | Username seeded for the first-run account.                                    |
+| `NEVER_STELLE_PASSWORD`       | `never-stelle` | Password seeded for the first-run account. Set a strong value.                |
+| `NEVER_STELLE_MAX_CONCURRENT` |      `3`       | Maximum concurrent Never Stelle downloads.                                    |
+| `NEVER_STELLE_COOKIE_SECURE`  |    `false`     | Set `true` to mark the session cookie `Secure` when served over HTTPS.        |
+| `SWARATELLE_URL`              |       ``       | Optional Swaratelle base URL, for example `http://swaratelle:8842`.           |
+| `SWARATELLE_API_TOKEN`        |       ``       | Optional token Never Stelle sends to Swaratelle with `Authorization: Bearer`. |
+
+Swaratelle is optional. Leave `SWARATELLE_URL` empty to run Never Stelle without Iwara/Oreno3D
+delegation. When `SWARATELLE_URL` is set, Never Stelle treats Iwara and Oreno3D links as
+Swaratelle-backed downloads. Queue, active download, history, count, and scan requests are
+delegated to Swaratelle; Never Stelle does not write those Iwara records to its own database.
 
 Storage is configured with Docker bind mounts. Container paths are fixed:
 
@@ -146,14 +157,15 @@ The container path stays `/media/youtube`, so history entries remain valid. Skip
 
 ## Architecture
 
-| Layer           | Path                         | Technology                                                     | Responsibility                                                                                                      |
-| --------------- | ---------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Runtime service | `backend/app/main.py`        | FastAPI, Uvicorn                                               | Starts the API server, serves the built frontend and assets, opens SQLite, and handles startup/shutdown.            |
-| API layer       | `backend/app/api`            | FastAPI                                                        | Defines HTTP routes, session authentication, JSON responses, history pagination, settings, and scan orchestration.  |
-| Download worker | `backend/app/services/tasks` | `yt-dlp`, `gallery-dl`                                         | Probes URLs, queues work, routes engines dynamically, parses progress, moves completed media, and reconciles files. |
-| Persistence     | `backend/app/db`             | SQLite                                                         | Stores task and history records, deduplication, status counts, and offset/limit pagination.                         |
-| Frontend app    | `frontend/src`               | Vue 3, TypeScript, TanStack Query, shadcn-vue, Tailwind CSS v4 | Provides the Downloads, History, and Settings screens, a same-origin API client, polling, and mutations.            |
-| Tests           | `tests`, `.github/workflows` | pytest, Ruff, Vite build                                       | Covers services, persistence, and reconciliation; CI also builds the frontend on every push and pull request.       |
+| Layer           | Path                                 | Technology                                                     | Responsibility                                                                                                      |
+| --------------- | ------------------------------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Runtime service | `backend/app/main.py`                | FastAPI, Uvicorn                                               | Starts the API server, serves the built frontend and assets, opens SQLite, and handles startup/shutdown.            |
+| API layer       | `backend/app/api`                    | FastAPI                                                        | Defines HTTP routes, session authentication, JSON responses, history pagination, settings, and scan orchestration.  |
+| Swaratelle link | `backend/app/services/swaratelle.py` | HTTPX                                                          | Delegates Iwara/Oreno3D queue, active, history, and scan operations to Swaratelle when configured.                  |
+| Download worker | `backend/app/services/tasks`         | `yt-dlp`, `gallery-dl`                                         | Probes URLs, queues work, routes engines dynamically, parses progress, moves completed media, and reconciles files. |
+| Persistence     | `backend/app/db`                     | SQLite                                                         | Stores task and history records, deduplication, status counts, and offset/limit pagination.                         |
+| Frontend app    | `frontend/src`                       | Vue 3, TypeScript, TanStack Query, shadcn-vue, Tailwind CSS v4 | Provides the Downloads, History, and Settings screens, a same-origin API client, polling, and mutations.            |
+| Tests           | `tests`, `.github/workflows`         | pytest, Ruff, Vite build                                       | Covers services, persistence, and reconciliation; CI also builds the frontend on every push and pull request.       |
 
 ## API
 

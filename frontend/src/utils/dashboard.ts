@@ -73,13 +73,33 @@ export function faviconUrlForHost(host: string): string {
 
 export function createSourceProfile(source: Partial<SourceProfile> = {}): SourceProfile {
   const key = normalizeSourceKey(source.key || source.label || "");
-  return {
+  const raw = source as Partial<SourceProfile> & {
+    externalBackend?: string;
+    settingsManaged?: boolean;
+  };
+  const profile: SourceProfile = {
     key,
     label: String(source.label || sourceLabelFromKey(key)),
     hosts: Array.isArray(source.hosts) ? source.hosts.map(String).filter(Boolean) : [],
     icon: source.icon || "",
     icon_url: source.icon_url || "",
   };
+  if (source.external !== undefined) profile.external = Boolean(source.external);
+  if (source.settings_managed !== undefined || raw.settingsManaged !== undefined) {
+    profile.settings_managed = Boolean(source.settings_managed ?? raw.settingsManaged);
+  }
+  const externalBackend = source.external_backend || raw.externalBackend || "";
+  if (externalBackend) profile.external_backend = String(externalBackend);
+  return profile;
+}
+
+export function isSourceSettingsManaged(source: Partial<SourceProfile>): boolean {
+  if (source.settings_managed !== undefined) return source.settings_managed !== false;
+  return !source.external;
+}
+
+export function settingsManagedSourceProfiles(profiles: SourceProfile[]): SourceProfile[] {
+  return profiles.filter(isSourceSettingsManaged);
 }
 
 export function mergeSourceProfiles(...sources: Array<Array<Partial<SourceProfile>> | undefined>): SourceProfile[] {

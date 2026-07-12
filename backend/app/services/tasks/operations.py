@@ -9,6 +9,7 @@ from typing import Any
 
 from backend.app.core.config import is_allowed_location, load_app_config
 from backend.app.core.sources import normalize_source_key
+from backend.app.services import swaratelle
 from backend.app.services.settings import get_effective_saved_settings
 
 from .constants import normalize_quality_selection
@@ -41,9 +42,13 @@ def queue_task(
     source_templates: dict[str, dict[str, str]] | None = None,
     quality: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
-    source_url = canonicalize_source_url(resolve_redirect_url(source_url))
+    source_url = canonicalize_source_url(source_url)
     if not source_url:
         raise ValueError("Paste a URL first.")
+    if swaratelle.is_swaratelle_url(source_url):
+        return swaratelle.queue_urls([source_url])
+
+    source_url = canonicalize_source_url(resolve_redirect_url(source_url))
 
     active_id, active_task = find_active_by_source(source_url)
     if active_id and active_task:

@@ -28,6 +28,7 @@ import {
   errorMessage,
   mergeSourceProfiles,
   normalizeSourceKey,
+  settingsManagedSourceProfiles,
 } from "../utils/dashboard";
 
 function replaceRecord<T>(target: Record<string, T>, source: Record<string, T>): void {
@@ -37,6 +38,13 @@ function replaceRecord<T>(target: Record<string, T>, source: Record<string, T>):
 
 function replaceProfiles(target: SourceProfile[], source: SourceProfile[]): void {
   target.splice(0, target.length, ...source.map((profile) => createSourceProfile(profile)));
+}
+
+function recordForProfiles<T>(source: Record<string, T> = {}, profiles: SourceProfile[]): Record<string, T> {
+  const keys = new Set(profiles.map((profile) => profile.key));
+  return Object.fromEntries(
+    Object.entries(source).filter(([key]) => keys.has(normalizeSourceKey(key))),
+  ) as Record<string, T>;
 }
 
 function createCookiesMap(
@@ -103,19 +111,21 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   const cookieStatuses = computed<CookiesMap>(() => settings.ytdlp_cookies);
 
   function normalizeSavedPayload(source: SavedSettings): SavedSettings {
-    const profiles = mergeSourceProfiles(DEFAULT_SOURCE_PROFILES, source.source_profiles);
+    const profiles = settingsManagedSourceProfiles(mergeSourceProfiles(DEFAULT_SOURCE_PROFILES, source.source_profiles));
     const templateSettings = createTemplateSettings(source.template_settings);
     return {
       source_profiles: profiles,
-      site_locations: createSourceLocations(source.site_locations, profiles),
+      site_locations: createSourceLocations(recordForProfiles(source.site_locations, profiles), profiles),
       template_settings: templateSettings,
-      source_templates: createSourceTemplates(source.source_templates, profiles, templateSettings),
+      source_templates: createSourceTemplates(recordForProfiles(source.source_templates, profiles), profiles, templateSettings),
       default_quality: createQualitySelection(source.default_quality, settings.quality_options),
     };
   }
 
   function getSavedSettings(): SavedSettings {
-    const profiles = mergeSourceProfiles(DEFAULT_SOURCE_PROFILES, defaults.source_profiles, settings.source_profiles);
+    const profiles = settingsManagedSourceProfiles(
+      mergeSourceProfiles(DEFAULT_SOURCE_PROFILES, defaults.source_profiles, settings.source_profiles),
+    );
     const templateSettings = createTemplateSettings({
       ...defaults.template_settings,
       ...settings.template_settings,
@@ -123,12 +133,12 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     return {
       source_profiles: profiles,
       site_locations: createSourceLocations(
-        { ...defaults.site_locations, ...settings.site_locations } as SourceLocations,
+        recordForProfiles({ ...defaults.site_locations, ...settings.site_locations } as SourceLocations, profiles),
         profiles,
       ),
       template_settings: templateSettings,
       source_templates: createSourceTemplates(
-        { ...defaults.source_templates, ...settings.source_templates } as SourceTemplates,
+        recordForProfiles({ ...defaults.source_templates, ...settings.source_templates } as SourceTemplates, profiles),
         profiles,
         templateSettings,
       ),
@@ -146,18 +156,23 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     };
 
     const profiles = mergeSourceProfiles(DEFAULT_SOURCE_PROFILES, data.source_profiles);
+    const managedProfiles = settingsManagedSourceProfiles(profiles);
     replaceProfiles(defaults.source_profiles, profiles);
     replaceProfiles(settings.source_profiles, profiles);
 
     const locations = data.source_default_locations || data.site_default_locations || {};
-    replaceRecord(defaults.site_locations, createSourceLocations(locations, profiles));
-    replaceRecord(settings.site_locations, createSourceLocations(locations, profiles));
+    replaceRecord(defaults.site_locations, createSourceLocations(recordForProfiles(locations, managedProfiles), managedProfiles));
+    replaceRecord(settings.site_locations, createSourceLocations(recordForProfiles(locations, managedProfiles), managedProfiles));
 
     const templateSettings = createTemplateSettings(data.template_settings || {});
     Object.assign(defaults.template_settings, templateSettings);
     Object.assign(settings.template_settings, templateSettings);
 
-    const templates = createSourceTemplates(data.source_templates || {}, profiles, templateSettings);
+    const templates = createSourceTemplates(
+      recordForProfiles(data.source_templates || {}, managedProfiles),
+      managedProfiles,
+      templateSettings,
+    );
     replaceRecord(defaults.source_templates, templates);
     replaceRecord(settings.source_templates, templates);
 
@@ -169,7 +184,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     Object.assign(settings.default_quality, defaultQuality);
 
     settings.download_locations = Array.isArray(data.download_locations) ? data.download_locations : [];
-    replaceRecord(settings.ytdlp_cookies, createCookiesMap(data.ytdlp_cookies || {}, profiles));
+    replaceRecord(settings.ytdlp_cookies, createCookiesMap(recordForProfiles(data.ytdlp_cookies || {}, managedProfiles), managedProfiles));
   }
 
   function cacheUiConfig(data: UiConfigResponse): void {
@@ -196,7 +211,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   function setSettingsSection(section: SettingsSection, shouldFocus = false): void {
     settingsSection.value = section;
     if (!shouldFocus) return;
-    const firstSource = sourceProfiles.value[0]?.key || "settings";
+    const firstSource = settingsManagedSourceProfiles(sourceProfiles.value)[0]?.key || "settings";
     const focusTargets: Record<SettingsSection, string> = {
       account: "accountUsernameInput",
       downloads: `${firstSource}LocationInput`,

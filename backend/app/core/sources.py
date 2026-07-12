@@ -101,6 +101,14 @@ def _normalize_hosts(raw: Any) -> list[str]:
     return out
 
 
+def _normalize_bool_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "no", "off"}
+    return bool(value)
+
+
 def favicon_url_for_host(host: str) -> str:
     host = _display_host(host)
     return f"https://www.google.com/s2/favicons?domain={host}&sz=64" if host else ""
@@ -144,7 +152,28 @@ def normalize_source_profile(raw: Any, fallback_key: str = "") -> dict[str, Any]
     ):
         if source_name in raw:
             profile[target_name] = str(raw.get(source_name) or "").strip()
+    for source_name, target_name in (
+        ("external_backend", "external_backend"),
+        ("externalBackend", "external_backend"),
+    ):
+        if source_name in raw:
+            value = str(raw.get(source_name) or "").strip()
+            if value:
+                profile[target_name] = value
+    for source_name, target_name in (
+        ("external", "external"),
+        ("settings_managed", "settings_managed"),
+        ("settingsManaged", "settings_managed"),
+    ):
+        if source_name in raw:
+            profile[target_name] = _normalize_bool_flag(raw.get(source_name))
     return profile
+
+
+def source_profile_settings_managed(profile: dict[str, Any]) -> bool:
+    if "settings_managed" in profile:
+        return _normalize_bool_flag(profile.get("settings_managed"))
+    return not _normalize_bool_flag(profile.get("external"))
 
 
 def _iter_profile_items(raw: Any) -> Iterable[tuple[str, Any]]:

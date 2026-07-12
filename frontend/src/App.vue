@@ -52,6 +52,7 @@ const {
   historyError,
   historyHasMore,
   historySearch,
+  submitHistorySearch,
   loadMoreHistory,
   activeTasks,
   completedTasks,
@@ -181,6 +182,7 @@ const { height: statusBarHeight } = useElementSize(
                       class="flex-1 min-w-0"
                       type="text"
                       placeholder="Search history..."
+                      @keydown.enter="submitHistorySearch"
                     >
                       <template #icon>
                         <IconSearch class="w-5 h-5" aria-hidden="true" />
@@ -285,6 +287,7 @@ const { height: statusBarHeight } = useElementSize(
                         class="flex-1 min-w-0"
                         type="text"
                         placeholder="Search history..."
+                        @keydown.enter="submitHistorySearch"
                       >
                         <template #icon>
                           <IconSearch class="w-5 h-5" aria-hidden="true" />

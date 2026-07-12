@@ -25,6 +25,9 @@ export interface SourceProfile {
   hosts: string[];
   icon?: string;
   icon_url?: string;
+  external?: boolean;
+  external_backend?: string;
+  settings_managed?: boolean;
 }
 
 export type SourceTemplates = Record<string, TemplateSettings>;
@@ -121,6 +124,10 @@ export interface TaskItem {
   error: string;
   can_download: boolean;
   quality?: QualitySelection;
+  external?: boolean;
+  external_backend?: string;
+  created_at?: string;
+  completed_at?: string;
 }
 
 export interface TaskCounts {

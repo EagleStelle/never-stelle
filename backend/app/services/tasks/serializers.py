@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key
+from backend.app.services import swaratelle
 from backend.app.services.settings import get_effective_source_profiles
 
 from .constants import STATUS_LABELS, STATUS_ORDER, normalize_quality_selection
@@ -75,6 +76,10 @@ def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
         "error": str(task.get("error") or ""),
         "can_download": can_download,
         "quality": normalize_quality_selection(task.get("quality")),
+        "external": bool(task.get("external")),
+        "external_backend": str(task.get("external_backend") or ""),
+        "created_at": str(task.get("created_at") or ""),
+        "completed_at": str(task.get("completed_at") or ""),
     }
 
 
@@ -93,6 +98,10 @@ def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "resolved_filename": entry.get("resolved_filename", ""),
         "resolved_full_path": entry.get("resolved_full_path", ""),
         "quality": entry.get("quality", {}),
+        "external": entry.get("external", False),
+        "external_backend": entry.get("external_backend", ""),
+        "created_at": entry.get("created_at", ""),
+        "completed_at": entry.get("completed_at", ""),
     }
     return task_to_api(task_id, task)
 
@@ -114,13 +123,35 @@ def fetch_tasks() -> list[dict[str, Any]]:
 def fetch_active_tasks() -> list[dict[str, Any]]:
     # Downloads-page payload: queued/running/failed only; completed is served via /history.
     tasks = [task_to_api(task_id, task) for task_id, task in (load_active_task_store().get("tasks") or {}).items()]
+    tasks.extend(swaratelle.fetch_active_tasks())
     tasks.sort(key=lambda task: (STATUS_ORDER.get(task["status"], 99), task["vid"]))
     return tasks
 
 
+def _history_sort_key(task: dict[str, Any]) -> tuple[str, str]:
+    timestamp = str(task.get("completed_at") or task.get("created_at") or "")
+    return (timestamp, str(task.get("vid") or ""))
+
+
 def fetch_history_page(offset: int, limit: int, source_key: str = "", search: str = "") -> dict[str, Any]:
+    normalized_source = normalize_source_key(source_key) if source_key else ""
+    if normalized_source == swaratelle.SOURCE_KEY:
+        return swaratelle.fetch_history_page(offset, limit, search)
+
+    if not normalized_source and swaratelle.is_configured():
+        fetch_limit = max(1, offset + limit)
+        rows, local_total = load_history_entries_page(fetch_limit, 0, "", search)
+        entries = [history_to_api(task_id, entry) for task_id, entry in rows]
+        swaratelle_page = swaratelle.fetch_history_page(0, fetch_limit, search)
+        entries.extend(swaratelle_page.get("entries") or [])
+        entries.sort(key=_history_sort_key, reverse=True)
+        return {
+            "entries": entries[offset : offset + limit],
+            "total": int(local_total) + int(swaratelle_page.get("total") or 0),
+        }
+
     rows, total = load_history_entries_page(
-        limit, offset, normalize_source_key(source_key) if source_key else "", search
+        limit, offset, normalized_source, search
     )
     entries = [history_to_api(task_id, entry) for task_id, entry in rows]
     return {"entries": entries, "total": total}
@@ -130,6 +161,14 @@ def build_counts() -> dict[str, Any]:
     # Counts from SQL only (queue statuses + history COUNT); no per-row serialization or disk stat.
     active = active_counts_by_source()
     completed = history_counts_by_source()
+    swaratelle_counts = swaratelle.fetch_counts()
+    if swaratelle_counts:
+        active[swaratelle.SOURCE_KEY] = {
+            "pending": int(swaratelle_counts.get("queued", 0)),
+            "running": int(swaratelle_counts.get("running", 0)),
+            "failed": int(swaratelle_counts.get("failed", 0)),
+        }
+        completed[swaratelle.SOURCE_KEY] = int(swaratelle_counts.get("completed", 0))
     keys: list[str] = []
     for key in (
         *[normalize_source_key(profile.get("key")) for profile in get_effective_source_profiles()],

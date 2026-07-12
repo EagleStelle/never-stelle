@@ -119,12 +119,15 @@ export function useDownloadDashboard() {
   // History is server-paginated; source + text search run in SQL, media filter client-side below.
   const historySourceKey = computed(() => (activeMenu.value === "all" ? "" : activeMenu.value));
   const historyEnabled = computed(() => auth.authenticated.value && activePage.value === "history");
-  // Debounced so each keystroke doesn't refetch; the debounced ref drives the query key.
+  // User input drives historySearch; historySearchQuery drives the query key.
   const historySearch = ref("");
-  const historySearchDebounced = refDebounced(historySearch, 300);
+  const historySearchQuery = ref("");
+  const submitHistorySearch = () => {
+    historySearchQuery.value = historySearch.value;
+  };
   const history = useHistory({
     sourceKey: historySourceKey,
-    search: historySearchDebounced,
+    search: historySearchQuery,
     enabled: historyEnabled,
   });
 
@@ -323,6 +326,7 @@ export function useDownloadDashboard() {
     ...taskQueue,
     ...sonner,
     historySearch,
+    submitHistorySearch,
     historyLoading: history.loading,
     historyError: history.historyError,
     historyHasMore: history.hasMore,

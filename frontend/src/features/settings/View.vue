@@ -48,6 +48,7 @@ import {
   isLosslessAudioFormat,
   mergeSourceProfiles,
   resolveCodec,
+  settingsManagedSourceProfiles,
 } from "../../utils/dashboard";
 
 const props = defineProps<{
@@ -164,9 +165,12 @@ const sourceProfiles = computed<SourceProfile[]>(() => {
     props.settingsDraft.source_profiles,
   );
 });
+const editableSourceProfiles = computed<SourceProfile[]>(() =>
+  settingsManagedSourceProfiles(sourceProfiles.value),
+);
 
 watch(
-  sourceProfiles,
+  editableSourceProfiles,
   (profiles) => {
     for (const profile of profiles) {
       if (
@@ -190,13 +194,14 @@ watch(
 
 function selectSection(section: SettingsSection): void {
   sectionModel.value = section;
+  const firstEditableSource = editableSourceProfiles.value[0]?.key || "settings";
   const focusTargets: Record<SettingsSection, string> = {
     account: "accountUsernameInput",
-    downloads: `${sourceProfiles.value[0]?.key || "settings"}LocationInput`,
-    cookies: `${sourceProfiles.value[0]?.key || "settings"}CookiesInput`,
+    downloads: `${firstEditableSource}LocationInput`,
+    cookies: `${firstEditableSource}CookiesInput`,
     quality: "defaultQualityMode",
-    "folder-template": `${sourceProfiles.value[0]?.key || "settings"}FolderTemplateInput`,
-    "filename-template": `${sourceProfiles.value[0]?.key || "settings"}FilenameTemplateInput`,
+    "folder-template": `${firstEditableSource}FolderTemplateInput`,
+    "filename-template": `${firstEditableSource}FilenameTemplateInput`,
   };
   void nextTick(() => document.getElementById(focusTargets[section])?.focus());
 }
@@ -423,7 +428,7 @@ watch(
           >
             <p
               v-if="
-                sourceProfiles.length === 0 &&
+                editableSourceProfiles.length === 0 &&
                 item.key !== 'account' &&
                 item.key !== 'cookies' &&
                 item.key !== 'quality'
@@ -507,7 +512,7 @@ watch(
             <template v-else-if="item.key === 'downloads'">
               <div class="flex flex-col">
                 <div
-                  v-for="site in sourceProfiles"
+                  v-for="site in editableSourceProfiles"
                   :key="site.key"
                   class="settings-row"
                 >
@@ -561,14 +566,14 @@ watch(
               </div>
 
               <p
-                v-if="sourceProfiles.length === 0"
+                v-if="editableSourceProfiles.length === 0"
                 class="mt-3 rounded-lg glass p-4 text-white in-[.light-mode]:text-black"
               >
                 No sources yet.
               </p>
 
               <div
-                v-for="site in sourceProfiles"
+                v-for="site in editableSourceProfiles"
                 :key="site.key"
                 class="settings-row"
               >
@@ -747,7 +752,7 @@ watch(
             <!-- Folder template -->
             <template v-else-if="item.key === 'folder-template'">
               <div
-                v-for="site in sourceProfiles"
+                v-for="site in editableSourceProfiles"
                 :key="site.key"
                 class="settings-row"
               >
@@ -768,7 +773,7 @@ watch(
             <!-- Filename template -->
             <template v-else>
               <div
-                v-for="site in sourceProfiles"
+                v-for="site in editableSourceProfiles"
                 :key="site.key"
                 class="settings-row"
               >

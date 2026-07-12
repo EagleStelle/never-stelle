@@ -25,6 +25,7 @@ from backend.app.core.sources import (
     source_key_from_url,
     source_label_from_key,
     source_profile_for_url,
+    source_profile_settings_managed,
 )
 from backend.app.db.repositories import (
     activity_revision,
@@ -37,6 +38,7 @@ from backend.app.db.repositories import (
     save_file_blob,
     save_settings_payload,
 )
+from backend.app.services import swaratelle
 
 BUILTIN_FOLDER_TEMPLATE = "{{username}}"
 BUILTIN_FILENAME_TEMPLATE = "{{username}} - {{title}} [{{id}}]"
@@ -78,6 +80,10 @@ def _filter_profiles(source: Any, allowed_keys: set[str]) -> list[dict[str, Any]
         for profile in merge_source_profiles(source)
         if normalize_source_key(profile.get("key")) in allowed_keys or profile.get("hosts")
     ]
+
+
+def _settings_managed_profiles(source_profiles: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [profile for profile in source_profiles if source_profile_settings_managed(profile)]
 
 
 def _configured_source_profiles(raw: Any) -> Any:
@@ -129,11 +135,18 @@ def get_effective_source_profiles(
     config_profiles = get_config_source_profiles(cfg)
     activity_profiles = _activity_source_profiles(config_profiles)
     extra_profiles = _profiles_from_keys(normalize_source_key(key) for key in (extra_keys or []))
-    visible_keys = _profile_keys(config_profiles) | _profile_keys(activity_profiles) | _profile_keys(extra_profiles)
+    swaratelle_profiles = [swaratelle.source_profile()] if swaratelle.is_configured() else []
+    visible_keys = (
+        _profile_keys(config_profiles)
+        | _profile_keys(activity_profiles)
+        | _profile_keys(extra_profiles)
+        | _profile_keys(swaratelle_profiles)
+    )
     saved_profiles = _filter_profiles(_configured_source_profiles(payload), visible_keys)
     return merge_source_profiles(
         config_profiles,
         activity_profiles,
+        swaratelle_profiles,
         saved_profiles,
         extra_profiles,
         include_fallback=True,
@@ -156,6 +169,15 @@ def get_source_profile_by_key(
     key = normalize_source_key(source_key)
     profiles = get_effective_source_profiles(cfg, payload, [key])
     return next((profile for profile in profiles if profile.get("key") == key), source_profile_for_url(key, profiles))
+
+
+def require_settings_managed_source(source_key: Any) -> None:
+    profile = get_source_profile_by_key(normalize_source_key(source_key))
+    if source_profile_settings_managed(profile):
+        return
+    label = str(profile.get("label") or source_key or "Source").strip()
+    backend = str(profile.get("external_backend") or "the external service").strip()
+    raise ValueError(f"{label} settings are managed in {backend}.")
 
 
 def ensure_source_profile_for_url(url_or_host: str) -> str:
@@ -204,7 +226,7 @@ def normalize_source_template_selection(
 ) -> dict[str, dict[str, str]]:
     source = raw if isinstance(raw, dict) else {}
     default_template = normalize_template_settings(default_template or {})
-    profiles = source_profiles or get_effective_source_profiles(cfg)
+    profiles = _settings_managed_profiles(source_profiles or get_effective_source_profiles(cfg))
     out: dict[str, dict[str, str]] = {}
     for profile in profiles:
         key = normalize_source_key(profile.get("key"))
@@ -240,7 +262,7 @@ def normalize_source_location_selection(
     cfg: dict[str, Any],
     source_profiles: list[dict[str, Any]] | None = None,
 ) -> dict[str, str]:
-    source_profiles = source_profiles or get_effective_source_profiles(cfg)
+    source_profiles = _settings_managed_profiles(source_profiles or get_effective_source_profiles(cfg))
     source_keys = [normalize_source_key(profile.get("key")) for profile in source_profiles]
     if FALLBACK_SOURCE_KEY not in source_keys:
         source_keys.append(FALLBACK_SOURCE_KEY)
@@ -287,7 +309,7 @@ def get_cookie_source_status(source_key: str) -> dict[str, Any]:
 
 
 def get_ytdlp_cookies_status(source_profiles: list[dict[str, Any]] | None = None) -> dict[str, dict[str, Any]]:
-    profiles = source_profiles or get_effective_source_profiles()
+    profiles = _settings_managed_profiles(source_profiles or get_effective_source_profiles())
     keys = [normalize_source_key(profile.get("key")) for profile in profiles]
     if FALLBACK_SOURCE_KEY not in keys:
         keys.append(FALLBACK_SOURCE_KEY)
@@ -343,6 +365,7 @@ def has_cookies_for_url(source_url: str) -> bool:
 
 
 async def save_ytdlp_cookies_upload(uploaded: UploadFile, source_key: str) -> None:
+    require_settings_managed_source(source_key)
     raw = await uploaded.read()
     if not raw:
         raise ValueError("Cookies file is empty.")
@@ -357,6 +380,7 @@ async def save_ytdlp_cookies_upload(uploaded: UploadFile, source_key: str) -> No
 
 
 def clear_ytdlp_cookies_upload(source_key: str) -> None:
+    require_settings_managed_source(source_key)
     source_key = normalize_cookie_source(source_key)
     delete_file_blob(_cookie_key(source_key))
     runtime_dir = Path(tempfile.gettempdir()) / "never-stelle"
@@ -423,16 +447,17 @@ def persist_settings(
             or {},
         },
     )
+    managed_profiles = _settings_managed_profiles(source_profiles)
     template_settings = normalize_template_settings(raw_template_settings)
     existing.update(
         {
-            "source_profiles": source_profiles,
-            "site_locations": normalize_source_location_selection(raw_site_locations, cfg, source_profiles),
+            "source_profiles": managed_profiles,
+            "site_locations": normalize_source_location_selection(raw_site_locations, cfg, managed_profiles),
             "template_settings": template_settings,
             "source_templates": normalize_source_template_selection(
                 raw_source_templates,
                 cfg,
-                source_profiles,
+                managed_profiles,
                 template_settings,
             ),
             "default_quality": normalize_quality_selection(

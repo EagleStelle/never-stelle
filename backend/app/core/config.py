@@ -52,7 +52,14 @@ def _first_existing(candidates: list[Path]) -> Path:
     return candidates[0].resolve()
 
 
-FRONTEND_DIR = _first_existing(
+def _frontend_dir(candidates: list[Path]) -> Path:
+    for candidate in candidates:
+        if (candidate / "index.html").exists():
+            return candidate.resolve()
+    return _first_existing(candidates)
+
+
+FRONTEND_DIR = _frontend_dir(
     [
         DATA_DIR / "frontend-dist",
         PROJECT_ROOT / "frontend" / "dist",

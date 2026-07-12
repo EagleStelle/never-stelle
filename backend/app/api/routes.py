@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from backend.app.core.config import load_app_config
+from backend.app.services import swaratelle
 from backend.app.services.auth import (
     AuthError,
     InvalidCredentials,
@@ -183,7 +184,10 @@ async def upload_ytdlp_cookies(
 
 @router.delete("/settings/ytdlp-cookies/{platform}")
 def delete_ytdlp_cookies(platform: str) -> dict[str, Any]:
-    clear_ytdlp_cookies_upload(platform)
+    try:
+        clear_ytdlp_cookies_upload(platform)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     cfg = load_app_config()
     return build_settings_response(cfg, get_effective_saved_settings(cfg))
 
@@ -205,7 +209,13 @@ def list_history(offset: int = 0, limit: int = 30, source_key: str = "", search:
 @router.post("/scan")
 def scan_media() -> dict[str, int]:
     try:
-        return scan_media_library()
+        local = scan_media_library()
+        external = swaratelle.scan_media_library()
+        return {
+            "checked": int(local.get("checked", 0)) + int(external.get("checked", 0)),
+            "missing": int(local.get("missing", 0)) + int(external.get("missing", 0)),
+            "added": int(local.get("added", 0)) + int(external.get("added", 0)),
+        }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
