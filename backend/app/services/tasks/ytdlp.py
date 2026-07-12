@@ -32,6 +32,7 @@ from .naming import (
 # Re-exported so callers keep importing naming helpers from this module.
 __all__ = [
     "YTDLP_CREATOR_FIELD",
+    "YTDLP_YOUTUBE_CREATOR_FIELD",
     "build_output_template",
     "build_ytdlp_command",
     "clean_filename_title",
@@ -46,6 +47,7 @@ __all__ = [
 # over display-name/music metadata; the worker still validates and can rename
 # from sidecar metadata when an extractor's field meanings differ.
 YTDLP_CREATOR_FIELD = "%(channel,uploader,creator,playlist_uploader,artist,artists,album_artist|Unknown)s"
+YTDLP_YOUTUBE_CREATOR_FIELD = "%(channel,uploader,creator,playlist_uploader|Unknown)s"
 YOUTUBE_HOSTS = ("youtube.com", "youtube-nocookie.com", "youtu.be")
 
 
@@ -58,19 +60,26 @@ def _safe_literal(value: str) -> str:
     return sanitize_path_literal(value).replace("%", "%%")
 
 
+def _creator_field(source_url: str) -> str:
+    return YTDLP_YOUTUBE_CREATOR_FIELD if _is_youtube_url(source_url) else YTDLP_CREATOR_FIELD
+
+
 def _yt_dlp_field(name: str, source_url: str = "") -> str:
     field = str(name or "").strip().lower()
     if field in CREATOR_FIELDS:
+        if _is_youtube_url(source_url):
+            return YTDLP_YOUTUBE_CREATOR_FIELD
         creator = _safe_literal(creator_from_url(source_url))
         if creator:
             return creator
+    creator_field = _creator_field(source_url)
     mapping = {
         "title": "%(title|Unknown)s",
         "id": "%(id|NA)s",
         "video_id": "%(id|NA)s",
-        "creator": YTDLP_CREATOR_FIELD,
-        "author": YTDLP_CREATOR_FIELD,
-        "author_nickname": YTDLP_CREATOR_FIELD,
+        "creator": creator_field,
+        "author": creator_field,
+        "author_nickname": creator_field,
         "quality": "%(format_id,format_note,resolution|Unknown)s",
         "ext": "%(ext)s",
     }
@@ -154,7 +163,7 @@ def build_ytdlp_command(
     # --print-to-file (unlike --print) keeps normal progress output intact; the
     # after_move stage runs on real downloads, never in simulate mode.
     if creator_sidecar:
-        cmd.extend(["--print-to-file", f"after_move:{YTDLP_CREATOR_FIELD}", creator_sidecar])
+        cmd.extend(["--print-to-file", f"after_move:{_creator_field(source_url)}", creator_sidecar])
     if metadata_sidecar:
         item_template = "\t".join(
             [

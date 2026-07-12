@@ -263,7 +263,9 @@ def count_active_by_source() -> dict[str, dict[str, int]]:
     # Status tallies for queued/running/failed straight from SQL, no payload decode or disk I/O.
     with transaction() as connection:
         rows = connection.execute(
-            "SELECT source_key, status, COUNT(*) AS n FROM queue WHERE status != 'completed' GROUP BY source_key, status"
+            "SELECT source_key, status, COUNT(*) AS n "
+            "FROM queue WHERE status != 'completed' "
+            "GROUP BY source_key, status"
         ).fetchall()
     result: dict[str, dict[str, int]] = {}
     for row in rows:

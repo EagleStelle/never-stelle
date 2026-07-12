@@ -41,7 +41,7 @@ from backend.app.services.tasks.naming import (
     strip_placeholder_title,
 )
 from backend.app.services.tasks.serializers import history_to_api, task_to_api
-from backend.app.services.tasks.ytdlp import clean_filename_title, clean_social_title
+from backend.app.services.tasks.ytdlp import YTDLP_YOUTUBE_CREATOR_FIELD, clean_filename_title, clean_social_title
 
 
 @pytest.mark.parametrize(
@@ -134,6 +134,17 @@ def test_convert_template_prefers_creator_from_url():
 
     assert result.startswith("fzyahoo.com - ")
     assert "%(creator" not in result
+
+
+def test_convert_template_youtube_creator_uses_channel_display_field():
+    result = convert_template_to_ytdlp(
+        "{{creator}} - {{title}} [{{id}}]",
+        "https://www.youtube.com/channel/UC-wNqHVYS82PF4mkaQb0Alg",
+    )
+
+    assert result.startswith(YTDLP_YOUTUBE_CREATOR_FIELD)
+    assert "artist" not in result
+    assert "UC-wNqHVYS82PF4mkaQb0Alg" not in result
 
 
 def test_convert_template_empty():
@@ -393,6 +404,52 @@ def test_metadata_creator_skips_mobile_host_wall(monkeypatch):
     assert worker_module._metadata_creator(metadata, "1727302008412891") == "charechii"
 
 
+def test_metadata_creator_youtube_prefers_channel_display_name():
+    metadata = {
+        "channel": "Mili",
+        "uploader": "Mili",
+        "creator": "Mili",
+        "channel_id": "UC-wNqHVYS82PF4mkaQb0Alg",
+        "channel_url": "https://www.youtube.com/channel/UC-wNqHVYS82PF4mkaQb0Alg",
+        "webpage_url": "https://www.youtube.com/watch?v=In5Du5x6MZM",
+    }
+
+    assert worker_module._metadata_creator(metadata, "In5Du5x6MZM") == "Mili"
+
+
+def test_metadata_creator_youtube_rejects_channel_id_as_creator():
+    metadata = {
+        "channel": "UC-wNqHVYS82PF4mkaQb0Alg",
+        "uploader": "",
+        "channel_id": "UC-wNqHVYS82PF4mkaQb0Alg",
+        "channel_url": "https://www.youtube.com/channel/UC-wNqHVYS82PF4mkaQb0Alg",
+        "webpage_url": "https://www.youtube.com/watch?v=In5Du5x6MZM",
+    }
+
+    assert worker_module._metadata_creator(metadata, "In5Du5x6MZM") == ""
+
+
+def test_filename_creator_youtube_uses_channel_display_name():
+    metadata = {
+        "channel": "Mili",
+        "uploader": "Mili",
+        "creator": "Mili",
+        "channel_id": "UC-wNqHVYS82PF4mkaQb0Alg",
+        "channel_url": "https://www.youtube.com/channel/UC-wNqHVYS82PF4mkaQb0Alg",
+        "webpage_url": "https://www.youtube.com/watch?v=In5Du5x6MZM",
+    }
+
+    creator = worker_module._filename_creator(
+        Path("UC-wNqHVYS82PF4mkaQb0Alg - Iron Lotus [In5Du5x6MZM].mp4"),
+        "{{creator}} - {{title}} [{{id}}]",
+        metadata,
+        "https://www.youtube.com/channel/UC-wNqHVYS82PF4mkaQb0Alg",
+        "In5Du5x6MZM",
+    )
+
+    assert creator == "Mili"
+
+
 def test_clean_filename_title_drops_empty_title_sentinels():
     assert clean_filename_title("None") == ""
     assert clean_filename_title(" untitled ") == ""
@@ -454,6 +511,27 @@ def test_clean_resolved_filename_title_only_template_falls_back_to_media_id(tmp_
     )
 
     expected = tmp_path / "2073635724684054528.mp4"
+    assert final_path == expected
+    assert display_filename == expected.name
+    assert expected.is_file()
+    assert not media_file.exists()
+
+
+def test_clean_resolved_filename_youtube_renames_channel_id_to_display_name(tmp_path: Path):
+    source_url = "https://www.youtube.com/watch?v=In5Du5x6MZM"
+    media_file = tmp_path / "UC-wNqHVYS82PF4mkaQb0Alg - Iron Lotus [In5Du5x6MZM].mp4"
+    media_file.write_bytes(b"video")
+
+    final_path, display_filename = worker_module._clean_resolved_filename(
+        source_url,
+        media_file,
+        {"folder_template": "{{creator}}", "filename_template": "{{creator}} - {{title}} [{{id}}]"},
+        "youtube",
+        creator_hint="Mili",
+        media_id_hint="In5Du5x6MZM",
+    )
+
+    expected = tmp_path / "Mili - Iron Lotus [In5Du5x6MZM].mp4"
     assert final_path == expected
     assert display_filename == expected.name
     assert expected.is_file()

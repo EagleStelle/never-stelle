@@ -53,6 +53,8 @@ from .ytdlp import read_creator_sidecar as _read_creator_sidecar  # noqa: F401
 _worker_lock = threading.Lock()
 _worker_wakeup = threading.Event()
 _worker_started = False
+_YOUTUBE_HOSTS = ("youtube.com", "youtube-nocookie.com", "youtu.be")
+_YOUTUBE_CHANNEL_ID_RE = re.compile(r"UC[A-Za-z0-9_-]{20,}")
 
 # Cancellation shares process memory with the API thread: a request flags a task
 # and kills its live subprocess; the worker sees the flag and drops the row.
@@ -392,6 +394,35 @@ def _clean_creator_candidate(value: str) -> str:
     return "" if value.lower() in {"", "unknown", "none", "null", "undefined", "na", "n/a"} else value
 
 
+def _is_youtube_url(source_url: str) -> bool:
+    host = host_from_url(source_url)
+    return any(host == candidate or host.endswith(f".{candidate}") for candidate in _YOUTUBE_HOSTS)
+
+
+def _metadata_is_youtube(metadata: dict[str, str]) -> bool:
+    return any(
+        _is_youtube_url(str(metadata.get(key) or ""))
+        for key in ("webpage_url", "original_url", "uploader_url", "channel_url")
+    )
+
+
+def _creator_from_url_unless_youtube(source_url: str, media_id: str = "") -> str:
+    return "" if _is_youtube_url(source_url) else creator_from_url(source_url, media_id)
+
+
+def _is_youtube_channel_id(value: str) -> bool:
+    value = _clean_creator_candidate(value)
+    return bool(_YOUTUBE_CHANNEL_ID_RE.fullmatch(value))
+
+
+def _youtube_metadata_creator(metadata: dict[str, str]) -> str:
+    for key in ("channel", "uploader", "creator", "playlist_uploader"):
+        creator = _clean_creator_candidate(str(metadata.get(key) or ""))
+        if creator and not _is_youtube_channel_id(creator):
+            return creator
+    return ""
+
+
 def _creator_candidate_score(key: str, value: str) -> int:
     value = _clean_creator_candidate(value)
     if not value or value.isdigit():
@@ -477,6 +508,9 @@ def _resolved_profile_handle(metadata: dict[str, str]) -> str:
 
 
 def _metadata_creator(metadata: dict[str, str], media_id: str) -> str:
+    if _metadata_is_youtube(metadata):
+        return _youtube_metadata_creator(metadata)
+
     candidates: list[tuple[str, str]] = []
     for key in ("webpage_url", "original_url", "uploader_url", "channel_url", "author_url", "owner_url"):
         creator = creator_from_url(str(metadata.get(key) or ""), media_id)
@@ -519,6 +553,18 @@ def _filename_creator(
     source_url: str,
     media_id: str,
 ) -> str:
+    is_youtube = _is_youtube_url(source_url) or _metadata_is_youtube(metadata)
+    if is_youtube:
+        creator = _youtube_metadata_creator(metadata)
+        if creator:
+            return creator
+        if filename_template:
+            fields = filename_template_fields(path.name, filename_template)
+            creator = _field_value(fields, *CREATOR_FIELDS)
+            if creator and not _is_youtube_channel_id(creator):
+                return creator
+        return ""
+
     creator = creator_from_url(source_url, media_id)
     if creator:
         return creator
@@ -807,7 +853,7 @@ def _clean_resolved_filename(
     filename_template = _filename_template(template_settings)
     source_key = source_key or detect_source_key(source_url)
     media_id_hint = str(media_id_hint or "").strip() or media_id_from_url(source_url)
-    creator_hint = str(creator_hint or "").strip() or creator_from_url(source_url, media_id_hint)
+    creator_hint = str(creator_hint or "").strip() or _creator_from_url_unless_youtube(source_url, media_id_hint)
     if filename_template:
         display_filename = clean_template_filename(
             path.name,
@@ -953,7 +999,7 @@ def _move_group_to_template_folder(
 
 def _resolved_task_creator(engine: Engine, sidecar_path: str, source_url: str, filename: str) -> str:
     media_id, _ = parse_filename_media_id(filename)
-    return creator_from_url(source_url, media_id) or engine.read_creator(sidecar_path, source_url)
+    return _creator_from_url_unless_youtube(source_url, media_id) or engine.read_creator(sidecar_path, source_url)
 
 
 # Log markers meaning the backend has no extractor or no downloadable media
@@ -1233,7 +1279,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 keep_paths = find_numbered_media_siblings(final_path) or [final_path]
                 _cleanup_duplicate_library_media(output_root, media_id, keep_paths)
                 creator = (
-                    creator_from_url(item_source_url, media_id)
+                    _creator_from_url_unless_youtube(item_source_url, media_id)
                     or creator_hint
                     or _resolved_task_creator(used_engine, creator_sidecar, item_source_url, display_filename)
                 )

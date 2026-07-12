@@ -44,7 +44,11 @@ def load_history() -> dict[str, Any]:
     return _normalize_history(load_history_payload())
 
 
-def load_history_entries_page(limit: int, offset: int, source_key: str = "") -> tuple[list[tuple[str, dict[str, Any]]], int]:
+def load_history_entries_page(
+    limit: int,
+    offset: int,
+    source_key: str = "",
+) -> tuple[list[tuple[str, dict[str, Any]]], int]:
     return load_history_page(limit, offset, source_key)
 
 
