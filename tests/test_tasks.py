@@ -660,6 +660,16 @@ def test_clean_template_filename_truncates_long_title():
     assert result == f"Poster - {'A' * 50} [abc123]_1.jpg"
 
 
+def test_clean_template_filename_preserves_slug_quality_tokens_without_title():
+    result = clean_template_filename(
+        "daiwa-scarlet-suokanawer_source - [4483553].mp4",
+        "{{slug}}_{{quality}} - [{{id}}]",
+        media_id="4483553",
+    )
+
+    assert result == "daiwa-scarlet-suokanawer_source - [4483553].mp4"
+
+
 def test_clean_resolved_filename_renames_real_file_using_settings_template(tmp_path: Path):
     source_url = "https://twitter.com/DohaVT/status/2073635724684054528"
     media_file = tmp_path / "DohaVT - 2073635724684054528 - Video by DohaVT.mp4"

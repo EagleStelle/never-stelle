@@ -429,7 +429,8 @@ def clean_template_filename(
     fallback_username = str(creator or "").strip()
     fallback_nickname = str(nickname or "").strip()
     if (not fields or not raw_title) and (fallback_username or fallback_nickname or fallback_media_id):
-        rendered_fields: dict[str, str] = {"title": ""}
+        rendered_fields = dict(fields)
+        rendered_fields["title"] = raw_title
         if fallback_username:
             rendered_fields["username"] = fallback_username
         if fallback_nickname or fallback_username:
