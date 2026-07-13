@@ -76,11 +76,12 @@ def _identifier_score(value: str, key: str = "", *, path_context: bool = False) 
     if token.isdigit() and not _is_identifier_key(key):
         # A bare number is a strong id well below 10 digits (tube-site /video/<id>/).
         score += 1 if len(token) >= 6 else -1
-    # Many-worded hyphenated segments are descriptive title slugs, not ids, even
-    # though length/separators otherwise score them high (/video/<id>/<slug>/). An
-    # incidental digit inside a word (ep-7) must not disqualify it from being a slug.
+    # Hyphenated segments joining real words are descriptive title slugs, not ids,
+    # even though length/separators otherwise score them high (/video/<id>/<slug>/).
+    # Count alpha runs so a digit fused to a word (minus8, ep-7) still reads as a word.
     parts = [part for part in re.split(r"[-_]", token) if part]
-    is_wordy_slug = len(parts) >= 3 and sum(1 for part in parts if part.isalpha()) >= 2
+    word_runs = re.findall(r"[a-z]{2,}", token.lower())
+    is_wordy_slug = len(parts) >= 2 and len(word_runs) >= 2
     if is_wordy_slug and not _is_identifier_key(key):
         score -= 4
     if _is_route_segment(token) and not _is_identifier_key(key):

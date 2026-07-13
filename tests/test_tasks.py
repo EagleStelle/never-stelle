@@ -1188,6 +1188,7 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
         }
     }
     saved: dict[str, dict] = {}
+    dropped_cache_paths: list[Path] = []
 
     class FakeProcess:
         stdout = iter(
@@ -1217,6 +1218,7 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
     monkeypatch.setattr(worker_module, "update_task", fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "drop_file_cache", lambda paths: dropped_cache_paths.extend(paths))
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
@@ -1233,6 +1235,11 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
     assert saved[task_id]["resolved_filename"] == first_clean.name
     assert saved[f"{task_id}:DapLPfHEQz5"]["resolved_filename"] == second_clean.name
     assert saved[f"{task_id}:DapIP3mDqE2"]["resolved_filename"] == third_clean.name
+    assert {Path(path).name for path in dropped_cache_paths} == {
+        first_clean.name,
+        second_clean.name,
+        third_clean.name,
+    }
     assert saved[task_id]["source_url"] == "https://www.instagram.com/stories/love.rizzzz/DanBhNzkY9_"
     assert saved[f"{task_id}:DapLPfHEQz5"]["source_url"] == (
         "https://www.instagram.com/stories/love.rizzzz/DapLPfHEQz5"
@@ -1475,6 +1482,12 @@ def test_slug_from_url_lifts_descriptive_path_segment():
     # The site's own slug, not the metadata title, with no resolved id needed.
     url = "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/"
     assert slug_from_url(url) == "daiwa-scarlet-suokanawer"
+
+
+def test_slug_from_url_reads_two_word_slug_beside_numeric_id():
+    # A two-word slug with a digit-fused word must not be mistaken for the id.
+    url = "https://rule34video.com/video/3238394/wsds-minus8/"
+    assert slug_from_url(url) == "wsds-minus8"
 
 
 def test_slug_from_url_absent_when_no_descriptive_segment():
