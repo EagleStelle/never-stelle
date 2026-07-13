@@ -2,11 +2,11 @@
 import { computed, nextTick, reactive, ref, watch } from "vue";
 import type { Component } from "vue";
 import IconAccount from "~icons/material-symbols/admin-panel-settings";
+import IconCheck from "~icons/material-symbols/check";
 import IconClose from "~icons/material-symbols/close";
 import IconCookie from "~icons/material-symbols/cookie";
 import IconDescription from "~icons/material-symbols/description";
 import IconFolder from "~icons/material-symbols/folder";
-import IconLogout from "~icons/material-symbols/logout";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconSave from "~icons/material-symbols/save";
 import IconSearch from "~icons/material-symbols/search";
@@ -288,7 +288,11 @@ function isCreatorTokenRole(key: string, token: string): boolean {
   return Boolean(normalized && tokenRoles(key)[normalized] === "creator");
 }
 
-function setCreatorTokenRole(key: string, token: string, enabled: boolean): void {
+function setCreatorTokenRole(
+  key: string,
+  token: string,
+  enabled: boolean,
+): void {
   const normalized = normalizeTokenName(token);
   if (!normalized) return;
   const roles = { ...tokenRoles(key) };
@@ -450,7 +454,6 @@ watch(
             <template v-if="hasUnsavedChanges">
               <Button
                 variant="soft"
- 
                 @click="emit('clear')"
                 title="Clear changes"
                 aria-label="Clear changes"
@@ -461,7 +464,6 @@ watch(
               </Button>
               <Button
                 variant="primary"
- 
                 @click="emit('save')"
                 title="Save changes"
                 aria-label="Save changes"
@@ -484,7 +486,6 @@ watch(
 
         <SidebarHeader class="hidden sm:flex">
           <Input
- 
             v-model="sectionSearch"
             type="text"
             placeholder="Search"
@@ -603,7 +604,6 @@ watch(
                     <Input
                       id="accountUsernameInput"
                       v-model="credentials.username"
- 
                       type="text"
                       autocomplete="username"
                       placeholder="Username"
@@ -615,7 +615,6 @@ watch(
                   <div class="settings-row-control">
                     <Input
                       v-model="credentials.current_password"
- 
                       type="password"
                       autocomplete="current-password"
                       placeholder="Current password"
@@ -627,7 +626,6 @@ watch(
                   <div class="settings-row-control">
                     <Input
                       v-model="credentials.new_password"
- 
                       type="password"
                       autocomplete="new-password"
                       placeholder="New password"
@@ -639,7 +637,6 @@ watch(
                   <div class="settings-row-control">
                     <Input
                       v-model="credentials.confirm_password"
- 
                       type="password"
                       autocomplete="new-password"
                       placeholder="Confirm password"
@@ -651,7 +648,6 @@ watch(
                   <Button
                     v-if="isAccountChanged"
                     variant="primary"
- 
                     type="submit"
                     :disabled="credentialSaving || auth.loading.value"
                   >
@@ -675,7 +671,6 @@ watch(
                   <span class="settings-row-label">{{ site.label }}</span>
                   <div class="settings-row-control">
                     <Input
- 
                       :id="`${site.key}LocationInput`"
                       v-model="settingsDraft.site_locations[site.key]"
                       list="downloadLocationSuggestions"
@@ -691,7 +686,6 @@ watch(
               <div class="settings-row">
                 <div class="flex w-full items-center gap-2">
                   <Input
- 
                     v-model="newCookie.source"
                     type="text"
                     inputmode="url"
@@ -707,7 +701,6 @@ watch(
                   />
                   <Button
                     variant="primary"
- 
                     type="button"
                     class="shrink-0"
                     title="Upload cookies for link"
@@ -756,7 +749,6 @@ watch(
                       </div>
                       <Button
                         variant="primary"
- 
                         type="button"
                         class="shrink-0"
                         :title="`Upload ${site.label} cookies`"
@@ -781,7 +773,6 @@ watch(
                       </div>
                       <Button
                         variant="soft"
- 
                         type="button"
                         class="shrink-0 bg-[#ef4444]! text-white! hover:bg-[#dc2626]!"
                         :title="`Delete ${site.label} cookies`"
@@ -816,7 +807,6 @@ watch(
                       (val) =>
                         (settingsDraft.default_quality.video_quality = val)
                     "
- 
                     layout="fill"
                     placeholder="Choose a quality"
                     empty-text="No presets."
@@ -832,7 +822,6 @@ watch(
                     @update:model-value="
                       (val) => setDefaultQuality({ video_container: val })
                     "
- 
                     layout="fill"
                     placeholder="Choose a container"
                     empty-text="No containers."
@@ -848,7 +837,6 @@ watch(
                     @update:model-value="
                       (val) => setDefaultQuality({ video_codec: val })
                     "
- 
                     layout="fill"
                     placeholder="Choose a codec"
                     empty-text="No codecs."
@@ -872,7 +860,6 @@ watch(
                       (val) =>
                         (settingsDraft.default_quality.audio_format = val)
                     "
- 
                     layout="fill"
                     placeholder="Choose a format"
                     empty-text="No formats."
@@ -896,7 +883,6 @@ watch(
                       (val) =>
                         (settingsDraft.default_quality.audio_bitrate = val)
                     "
- 
                     layout="fill"
                     placeholder="Choose a bitrate"
                     empty-text="No bitrates."
@@ -915,7 +901,6 @@ watch(
                 <span class="settings-row-label">{{ site.label }}</span>
                 <div class="settings-row-control">
                   <Input
- 
                     :id="`${site.key}FolderTemplateInput`"
                     v-model="
                       settingsDraft.source_templates[site.key].folder_template
@@ -936,7 +921,6 @@ watch(
                 <span class="settings-row-label">{{ site.label }}</span>
                 <div class="settings-row-control">
                   <Input
- 
                     :id="`${site.key}FilenameTemplateInput`"
                     v-model="
                       settingsDraft.source_templates[site.key].filename_template
@@ -961,19 +945,40 @@ watch(
                       v-if="settingsDraft.source_scrape_rules[site.key].enabled"
                       variant="soft"
                       type="button"
+                      aria-label="Add rule"
+                      title="Add rule"
                       @click="addScrapeRule(site.key)"
                     >
                       <template #icon>
                         <IconAdd class="w-4 h-4" aria-hidden="true" />
                       </template>
-                      Add rule
                     </Button>
                     <SegmentedControl
-                      :model-value="settingsDraft.source_scrape_rules[site.key].enabled ? 'enabled' : 'disabled'"
-                      @update:model-value="(val: string) => settingsDraft.source_scrape_rules[site.key].enabled = val === 'enabled'"
+                      :model-value="
+                        settingsDraft.source_scrape_rules[site.key].enabled
+                          ? 'enabled'
+                          : 'disabled'
+                      "
+                      @update:model-value="
+                        (val: string) =>
+                          (settingsDraft.source_scrape_rules[site.key].enabled =
+                            val === 'enabled')
+                      "
                     >
-                      <SegmentedControlItem value="enabled">Enabled</SegmentedControlItem>
-                      <SegmentedControlItem value="disabled">Disabled</SegmentedControlItem>
+                      <SegmentedControlItem
+                        value="enabled"
+                        aria-label="Enabled"
+                        title="Enabled"
+                      >
+                        <IconCheck class="w-4 h-4" aria-hidden="true" />
+                      </SegmentedControlItem>
+                      <SegmentedControlItem
+                        value="disabled"
+                        aria-label="Disabled"
+                        title="Disabled"
+                      >
+                        <IconClose class="w-4 h-4" aria-hidden="true" />
+                      </SegmentedControlItem>
                     </SegmentedControl>
                   </div>
                 </div>
@@ -1025,10 +1030,12 @@ watch(
                       />
                     </div>
                     <div class="scraper-rule-actions mt-2">
-                      <label class="flex items-center gap-2 cursor-pointer select-none text-sm shrink-0">
+                      <label
+                        class="flex items-center gap-2 cursor-pointer select-none text-sm shrink-0"
+                      >
                         <Checkbox
                           :checked="rule.multi"
-                          @update:checked="(v: boolean) => rule.multi = v"
+                          @update:checked="(v: boolean) => (rule.multi = v)"
                         />
                         <span>Multiple</span>
                       </label>
@@ -1039,7 +1046,14 @@ watch(
                         <Checkbox
                           :checked="isCreatorTokenRole(site.key, rule.token)"
                           :disabled="!normalizeTokenName(rule.token)"
-                          @update:checked="(v: boolean) => setCreatorTokenRole(site.key, rule.token, Boolean(v))"
+                          @update:checked="
+                            (v: boolean) =>
+                              setCreatorTokenRole(
+                                site.key,
+                                rule.token,
+                                Boolean(v),
+                              )
+                          "
                         />
                         <span>Creator</span>
                       </label>
