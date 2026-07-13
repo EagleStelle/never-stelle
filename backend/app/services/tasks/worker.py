@@ -24,7 +24,6 @@ from .constants import (
     normalize_quality_selection,
 )
 from .engine import Engine, all_engines, engine_for_task
-from .enrich import resolve_scraped_tokens
 from .files import find_newest_media_file, find_numbered_media_siblings, is_media_file, recover_task_path
 from .formats import creator_from_url, learn_download, media_id_from_url, reconstruct_url
 from .history import save_history_entry
@@ -1260,6 +1259,8 @@ def _task_template_settings(task: dict[str, Any]) -> dict[str, str] | None:
 
 
 def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
+    from .enrich import resolve_scraped_tokens
+
     source_url = canonicalize_source_url(str(task.get("source_url") or ""))
     output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
     if not source_url or not output_dir:

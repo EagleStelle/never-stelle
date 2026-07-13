@@ -5,8 +5,6 @@ import re
 from typing import Any
 
 import httpx
-from lxml import html as lxml_html
-from lxml.etree import XPath
 
 from backend.app.core.sources import normalize_source_key
 from backend.app.services.settings import find_cookies_file_for_source, find_cookies_file_for_url
@@ -79,6 +77,18 @@ def active_rules_for_key(rules_map: Any, source_key: str) -> list[dict[str, Any]
 
 
 # --- HTML extraction ---
+def _parse_html(html_text: str) -> Any:
+    from lxml import html as lxml_html
+
+    return lxml_html.fromstring(html_text)
+
+
+def _compile_xpath(xpath: str) -> Any:
+    from lxml.etree import XPath
+
+    return XPath(xpath)
+
+
 def _clean_value(value: str) -> str:
     return _WS_RE.sub(" ", str(value or "")).strip()
 
@@ -140,7 +150,7 @@ def _extract_selector(doc: Any, rule: dict[str, Any]) -> list[str]:
 
 def _extract_xpath(doc: Any, rule: dict[str, Any]) -> list[str]:
     try:
-        result = XPath(rule["xpath"])(doc)
+        result = _compile_xpath(rule["xpath"])(doc)
     except Exception:
         return []
     items = result if isinstance(result, list) else [result]
@@ -157,7 +167,7 @@ def scrape_tokens(html_text: str, rules: list[dict[str, Any]]) -> dict[str, str]
     if not html_text or not rules:
         return {}
     try:
-        doc = lxml_html.fromstring(html_text)
+        doc = _parse_html(html_text)
     except Exception:
         return {}
     out: dict[str, str] = {}

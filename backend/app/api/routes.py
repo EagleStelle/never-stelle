@@ -26,20 +26,6 @@ from backend.app.services.settings import (
     get_effective_saved_settings,
     save_ytdlp_cookies_upload,
 )
-from backend.app.services.tasks import (
-    build_counts,
-    cancel_task,
-    clear_pending_tasks,
-    fetch_active_tasks,
-    fetch_history_page,
-    probe_url,
-    queue_task,
-    remove_pending_task,
-    resolve_task_file,
-    retry_task,
-    scan_media_library,
-    set_task_source,
-)
 
 router = APIRouter()
 
@@ -222,6 +208,8 @@ def delete_ytdlp_cookies(platform: str) -> dict[str, Any]:
 
 @router.get("/tasks")
 def list_tasks() -> dict[str, Any]:
+    from backend.app.services.tasks.serializers import build_counts, fetch_active_tasks
+
     # Active rows (queued/running/failed) plus SQL-cheap counts. Completed downloads
     # come from /history so this poll stays light regardless of history size.
     return {"tasks": fetch_active_tasks(), **build_counts()}
@@ -229,6 +217,8 @@ def list_tasks() -> dict[str, Any]:
 
 @router.get("/history")
 def list_history(offset: int = 0, limit: int = 30, source_key: str = "", search: str = "") -> dict[str, Any]:
+    from backend.app.services.tasks.serializers import fetch_history_page
+
     limit = max(1, min(200, limit))
     offset = max(0, offset)
     return fetch_history_page(offset, limit, source_key, search)
@@ -236,6 +226,8 @@ def list_history(offset: int = 0, limit: int = 30, source_key: str = "", search:
 
 @router.post("/scan")
 def scan_media() -> dict[str, int]:
+    from backend.app.services.tasks.scan import scan_media_library
+
     try:
         local = scan_media_library()
         external = swaratelle.scan_media_library()
@@ -250,6 +242,8 @@ def scan_media() -> dict[str, int]:
 
 @router.post("/tasks/probe")
 def probe_task(payload: ProbePayload) -> dict[str, Any]:
+    from backend.app.services.tasks.probe import probe_url
+
     try:
         return probe_url(payload.url)
     except ValueError as exc:
@@ -260,6 +254,8 @@ def probe_task(payload: ProbePayload) -> dict[str, Any]:
 
 @router.post("/tasks")
 def add_task(payload: AddTaskPayload) -> dict[str, Any]:
+    from backend.app.services.tasks.operations import queue_task
+
     targets = [url for url in (payload.urls or [payload.url]) if url and url.strip()]
     if not targets:
         raise HTTPException(status_code=400, detail="Paste a URL first.")
@@ -289,6 +285,8 @@ def add_task(payload: AddTaskPayload) -> dict[str, Any]:
 
 @router.delete("/tasks/{task_id}", status_code=204, response_class=Response)
 def delete_task(task_id: str) -> Response:
+    from backend.app.services.tasks.operations import remove_pending_task
+
     try:
         remove_pending_task(task_id)
     except PermissionError as exc:
@@ -298,6 +296,8 @@ def delete_task(task_id: str) -> Response:
 
 @router.post("/tasks/{task_id}/cancel", status_code=204, response_class=Response)
 def cancel_task_route(task_id: str) -> Response:
+    from backend.app.services.tasks.operations import cancel_task
+
     try:
         cancel_task(task_id)
     except PermissionError as exc:
@@ -307,6 +307,8 @@ def cancel_task_route(task_id: str) -> Response:
 
 @router.post("/tasks/{task_id}/retry", status_code=204, response_class=Response)
 def retry_task_route(task_id: str) -> Response:
+    from backend.app.services.tasks.operations import retry_task
+
     try:
         retry_task(task_id)
     except PermissionError as exc:
@@ -318,6 +320,8 @@ def retry_task_route(task_id: str) -> Response:
 
 @router.patch("/tasks/{task_id}/source")
 def update_task_source(task_id: str, payload: SetSourcePayload) -> dict[str, str]:
+    from backend.app.services.tasks.operations import set_task_source
+
     if not payload.source_key.strip():
         raise HTTPException(status_code=400, detail="Choose or type a source.")
     try:
@@ -329,6 +333,8 @@ def update_task_source(task_id: str, payload: SetSourcePayload) -> dict[str, str
 
 @router.get("/tasks/{task_id}/file")
 def download_task_file(task_id: str) -> FileResponse:
+    from backend.app.services.tasks.operations import resolve_task_file
+
     try:
         path, filename, cleanup_path = resolve_task_file(task_id)
     except RuntimeError as exc:
@@ -342,4 +348,6 @@ def download_task_file(task_id: str) -> FileResponse:
 
 @router.post("/tasks/clear-pending")
 def clear_pending() -> dict[str, Any]:
+    from backend.app.services.tasks.operations import clear_pending_tasks
+
     return clear_pending_tasks()

@@ -1,7 +1,8 @@
 """yt-dlp download task service.
 
-Split into focused modules; this package re-exports the public surface so
-callers keep importing from ``backend.app.services.tasks``.
+This package keeps its historical re-export surface, but resolves those
+exports lazily so importing one route or submodule does not load the whole
+download stack at app startup.
 
 - constants   : status labels/order, media extensions, regexes
 - urls        : source-url canonicalization + site detection
@@ -20,114 +21,74 @@ callers keep importing from ``backend.app.services.tasks``.
 
 from __future__ import annotations
 
-from .constants import (
-    CREATOR_FIELDS,
-    MEDIA_EXTENSIONS,
-    PROGRESS_RE,
-    STATUS_LABELS,
-    STATUS_ORDER,
-    TEMPLATE_RE,
-)
-from .engine import Engine, engine_by_name, engine_for_task, select_engine
-from .files import (
-    extract_downloaded_path,
-    find_newest_media_file,
-    find_numbered_media_siblings,
-    is_media_file,
-    recover_task_path,
-)
-from .history import (
-    find_active_by_source,
-    find_history_by_id,
-    find_history_by_source,
-    save_history_entry,
-)
-from .operations import (
-    cancel_task,
-    clear_pending_tasks,
-    queue_task,
-    remove_pending_task,
-    resolve_task_file,
-    retry_task,
-    set_task_source,
-)
-from .probe import probe_url
-from .scan import parse_filename_media_id, scan_media_library
-from .serializers import (
-    build_counts,
-    count_tasks,
-    counts_by_menu,
-    fetch_active_tasks,
-    fetch_history_page,
-    fetch_tasks,
-    history_to_api,
-    task_to_api,
-)
-from .store import (
-    load_history,
-    load_task_store,
-    remove_history_record,
-    remove_task_record,
-    update_task,
-)
-from .urls import canonicalize_source_url, detect_source_key
-from .worker import ensure_worker, run_task
-from .ytdlp import (
-    build_output_template,
-    build_ytdlp_command,
-    convert_template_to_ytdlp,
-    detect_ffmpeg_location,
-)
+from importlib import import_module
+from typing import Any
 
-__all__ = [
-    "CREATOR_FIELDS",
-    "MEDIA_EXTENSIONS",
-    "PROGRESS_RE",
-    "STATUS_LABELS",
-    "STATUS_ORDER",
-    "TEMPLATE_RE",
-    "Engine",
-    "build_output_template",
-    "build_ytdlp_command",
-    "cancel_task",
-    "canonicalize_source_url",
-    "clear_pending_tasks",
-    "convert_template_to_ytdlp",
-    "build_counts",
-    "count_tasks",
-    "counts_by_menu",
-    "detect_ffmpeg_location",
-    "detect_source_key",
-    "engine_by_name",
-    "engine_for_task",
-    "ensure_worker",
-    "extract_downloaded_path",
-    "fetch_active_tasks",
-    "fetch_history_page",
-    "fetch_tasks",
-    "find_numbered_media_siblings",
-    "find_active_by_source",
-    "find_history_by_id",
-    "find_history_by_source",
-    "find_newest_media_file",
-    "history_to_api",
-    "is_media_file",
-    "load_history",
-    "load_task_store",
-    "parse_filename_media_id",
-    "probe_url",
-    "queue_task",
-    "recover_task_path",
-    "remove_history_record",
-    "remove_pending_task",
-    "remove_task_record",
-    "resolve_task_file",
-    "retry_task",
-    "run_task",
-    "save_history_entry",
-    "scan_media_library",
-    "select_engine",
-    "set_task_source",
-    "task_to_api",
-    "update_task",
-]
+_EXPORTS: dict[str, str] = {
+    "CREATOR_FIELDS": ".constants",
+    "MEDIA_EXTENSIONS": ".constants",
+    "PROGRESS_RE": ".constants",
+    "STATUS_LABELS": ".constants",
+    "STATUS_ORDER": ".constants",
+    "TEMPLATE_RE": ".constants",
+    "Engine": ".engine",
+    "build_output_template": ".ytdlp",
+    "build_ytdlp_command": ".ytdlp",
+    "cancel_task": ".operations",
+    "canonicalize_source_url": ".urls",
+    "clear_pending_tasks": ".operations",
+    "convert_template_to_ytdlp": ".ytdlp",
+    "build_counts": ".serializers",
+    "count_tasks": ".serializers",
+    "counts_by_menu": ".serializers",
+    "detect_ffmpeg_location": ".ytdlp",
+    "detect_source_key": ".urls",
+    "engine_by_name": ".engine",
+    "engine_for_task": ".engine",
+    "ensure_worker": ".worker",
+    "extract_downloaded_path": ".files",
+    "fetch_active_tasks": ".serializers",
+    "fetch_history_page": ".serializers",
+    "fetch_tasks": ".serializers",
+    "find_numbered_media_siblings": ".files",
+    "find_active_by_source": ".history",
+    "find_history_by_id": ".history",
+    "find_history_by_source": ".history",
+    "find_newest_media_file": ".files",
+    "history_to_api": ".serializers",
+    "is_media_file": ".files",
+    "load_history": ".store",
+    "load_task_store": ".store",
+    "parse_filename_media_id": ".scan",
+    "probe_url": ".probe",
+    "queue_task": ".operations",
+    "recover_task_path": ".files",
+    "remove_history_record": ".store",
+    "remove_pending_task": ".operations",
+    "remove_task_record": ".store",
+    "resolve_task_file": ".operations",
+    "retry_task": ".operations",
+    "run_task": ".worker",
+    "save_history_entry": ".history",
+    "scan_media_library": ".scan",
+    "select_engine": ".engine",
+    "set_task_source": ".operations",
+    "task_to_api": ".serializers",
+    "update_task": ".store",
+}
+
+__all__ = list(_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    try:
+        module_name = _EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+    value = getattr(import_module(module_name, __name__), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *__all__})

@@ -10,11 +10,12 @@ from backend.app.api.routes import router
 from backend.app.core.config import FRONTEND_DIR
 from backend.app.db import initialize_database
 from backend.app.services.auth import ensure_auth_settings, is_authenticated_request
-from backend.app.services.tasks import ensure_worker
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from backend.app.services.tasks.worker import ensure_worker
+
     initialize_database()
     ensure_auth_settings()
     ensure_worker()
