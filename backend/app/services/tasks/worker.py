@@ -16,6 +16,7 @@ from backend.app.core.config import max_concurrent_downloads
 from backend.app.core.sources import apex_host, host_from_url, normalize_source_key
 from backend.app.services.settings import detect_cookie_source, has_cookies_for_source, load_scrape_rules
 
+from .cache import drop_file_cache
 from .constants import (
     AUDIO_EXTENSIONS,
     IMAGE_EXTENSIONS,
@@ -1456,6 +1457,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 )
                 keep_paths = find_numbered_media_siblings(final_path) or [final_path]
                 _cleanup_duplicate_library_media(output_root, media_id, keep_paths)
+                drop_file_cache(keep_paths)
                 creator = (
                     _clean_handle_candidate(creator_from_url(item_source_url, media_id))
                     or creator_hint
