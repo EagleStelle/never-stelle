@@ -146,6 +146,9 @@ def build_ytdlp_command(
         "yt-dlp",
         "--newline",
         "--no-part",
+        # Never resume a leftover destination file: IP/time-bound CDN links (ddos-guard,
+        # boomio-cdn) reissue a fresh URL per attempt, so a stale byte offset yields HTTP 416.
+        "--no-continue",
         "--verbose",
         "--format",
         selected_format,
