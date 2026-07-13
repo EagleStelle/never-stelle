@@ -173,7 +173,10 @@ def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
     if not html:
         return {"fetched": False, "results": [], "detail": "Could not fetch that page."}
     tokens = scrape_tokens(html, rules)
-    results = [{"token": rule["token"], "value": tokens.get(rule["token"], ""), "matched": rule["token"] in tokens} for rule in rules]
+    results = [
+        {"token": rule["token"], "value": tokens.get(rule["token"], ""), "matched": rule["token"] in tokens}
+        for rule in rules
+    ]
     return {"fetched": True, "results": results}
 
 
