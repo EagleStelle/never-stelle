@@ -99,6 +99,21 @@ def _infer_path_id_index(segments: list[str], media_id: str = "") -> int | None:
             if segment == media_id:
                 return index
 
+    numeric_slug_anchors: list[tuple[int, int, int]] = []
+    for index, segment in enumerate(segments):
+        token = unquote(str(segment or "")).strip()
+        if not token.isdigit() or len(token) < 3:
+            continue
+        before = segments[index - 1] if index > 0 else ""
+        after = segments[index + 1] if index + 1 < len(segments) else ""
+        if not (_looks_like_slug(before) or _looks_like_slug(after)):
+            continue
+        route_context = int(_is_route_segment(before) or _is_route_segment(after))
+        if route_context or len(token) >= 6:
+            numeric_slug_anchors.append((route_context, len(token), -index))
+    if numeric_slug_anchors:
+        return -sorted(numeric_slug_anchors)[-1][2]
+
     scored = [(_identifier_score(segment, path_context=True), index) for index, segment in enumerate(segments)]
     scored = [(score, index) for score, index in scored if score >= 3]
     if scored:
@@ -184,6 +199,13 @@ def _looks_like_slug(value: str) -> bool:
     if len(value) < 3 or not any(ch.isalpha() for ch in value):
         return False
     return any(sep in value for sep in ("-", "_", " "))
+
+
+def _slug_url_value(value: str) -> str:
+    value = unquote(str(value or "")).strip().strip("/")
+    value = re.sub(r"\s*-\s*", "-", value)
+    value = re.sub(r"\s+", "-", value)
+    return value.strip("-")
 
 
 def _slug_index_for_path_id(segments: list[str], id_index: int | None, creator_index: int | None) -> int | None:
@@ -378,6 +400,31 @@ def _generalize(learned_template: str, shape: str) -> str:
     return "".join(out)
 
 
+def _template_with_slug_token(template: str) -> str:
+    """Repair older learned id+literal-slug templates into id+{slug} templates."""
+    if _SLUG_TOKEN in template or _ID_TOKEN not in template:
+        return template
+    try:
+        parsed = urlparse(template)
+    except Exception:
+        return template
+    raw_segments = [part for part in str(parsed.path or "").split("/") if part.strip()]
+    try:
+        id_index = raw_segments.index(_ID_TOKEN)
+    except ValueError:
+        return template
+    for candidate in (id_index + 1, id_index - 1):
+        if not 0 <= candidate < len(raw_segments):
+            continue
+        segment = raw_segments[candidate]
+        if "{" in segment or "}" in segment or not _looks_like_slug(segment):
+            continue
+        raw_segments[candidate] = _SLUG_TOKEN
+        path = "/" + "/".join(raw_segments) if parsed.path.startswith("/") else "/".join(raw_segments)
+        return urlunparse((parsed.scheme, parsed.netloc, path, "", parsed.query, ""))
+    return template
+
+
 def _record_id_signature(entry: dict[str, Any], media_id: str) -> None:
     # Widen the id length range and class set this source has been seen with.
     lengths = [n for n in (entry.get("id_min"), entry.get("id_max")) if isinstance(n, int)]
@@ -394,7 +441,7 @@ def _entry_templates(entry: dict[str, Any]) -> list[str]:
         values.extend(raw_templates)
     templates: list[str] = []
     for value in values:
-        template = str(value or "").strip()
+        template = _template_with_slug_token(str(value or "").strip())
         if template and template not in templates:
             templates.append(template)
     return templates
@@ -456,7 +503,7 @@ def reconstruct_url_candidates(
     if not media_id:
         return []
     creator_value = quote(str(creator or "").strip().lstrip("@"), safe="")
-    slug_value = quote(str(slug or "").strip().strip("/"), safe="")
+    slug_value = quote(_slug_url_value(slug), safe="")
     urls: list[str] = []
     for template in templates:
         if not template or _VAR_TOKEN in template or _ID_TOKEN not in template:

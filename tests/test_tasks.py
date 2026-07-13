@@ -1488,6 +1488,21 @@ def test_learn_download_reconstructs_slug_id_route_dynamically():
     )
 
 
+def test_reconstruct_url_replaces_stale_literal_slug_with_filename_slug():
+    learned = {
+        "rule34video": {
+            "template": "https://rule34video.com/video/{id}/cocolia-rand-sutekimeppou",
+            "templates": ["https://rule34video.com/video/{id}/cocolia-rand-sutekimeppou"],
+        }
+    }
+
+    assert reconstruct_url(learned, "rule34video", "3238394") == ""
+    assert (
+        reconstruct_url(learned, "rule34video", "3238394", slug="wsds - minus8")
+        == "https://rule34video.com/video/3238394/wsds-minus8"
+    )
+
+
 def test_reconstruct_url_candidates_needs_creator_and_id():
     learned = learn_download(
         {},
@@ -1513,6 +1528,14 @@ def test_slug_from_url_reads_two_word_slug_beside_numeric_id():
     # A two-word slug with a digit-fused word must not be mistaken for the id.
     url = "https://rule34video.com/video/3238394/wsds-minus8/"
     assert slug_from_url(url) == "wsds-minus8"
+
+
+def test_slug_from_url_reads_digit_prefixed_slug_beside_numeric_id():
+    url = "https://rule34video.com/video/3056158/84-minus8/"
+    assert media_id_from_url(url) == "3056158"
+    assert slug_from_url(url) == "84-minus8"
+    result = convert_template_to_ytdlp("{{slug}}_{{source}}", url, {"mode": "video", "video_quality": "best"})
+    assert result == "84-minus8_source"
 
 
 def test_slug_from_url_absent_when_no_descriptive_segment():
@@ -1885,15 +1908,16 @@ def test_scan_media_library_reconstructs_slug_url_from_filename_template(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    learned = learn_download(
-        {},
-        "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/",
-        "4483553",
-    )
+    learned = {
+        "rule34video": {
+            "template": "https://rule34video.com/video/{id}/cocolia-rand-sutekimeppou",
+            "templates": ["https://rule34video.com/video/{id}/cocolia-rand-sutekimeppou"],
+        }
+    }
     media_root = tmp_path / "media"
     platform_dir = media_root / "rule34video"
     platform_dir.mkdir(parents=True)
-    media_file = platform_dir / "wsds-minus8_source [3238394].mp4"
+    media_file = platform_dir / "wsds - minus8_source [3238394].mp4"
     media_file.write_bytes(b"video")
 
     saved: dict[str, dict] = {}
