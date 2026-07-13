@@ -50,8 +50,11 @@ _COMMON_SOURCE_FOLDER_KEYS = {
 }
 
 
-def _template_group(field: str) -> str:
+def _template_group(field: str, token_roles: dict[str, str] | None = None) -> str:
     # Map a template token to the capture group it feeds, or "" if it carries no signal.
+    role = (token_roles or {}).get(field)
+    if role in {"creator", "id", "slug", "title"}:
+        return "creator" if role == "creator" else role
     if field in CREATOR_FIELDS:
         return "creator"
     if field in _ID_TOKENS:
@@ -67,7 +70,7 @@ def _template_pattern(group: str) -> str:
     return r"[A-Za-z0-9_-]+" if group == "id" else r"[^/]+?"
 
 
-def compile_template(template: str) -> re.Pattern[str] | None:
+def compile_template(template: str, token_roles: dict[str, str] | None = None) -> re.Pattern[str] | None:
     """Turn a ``{{token}}`` naming template into a matcher exposing creator/id/title groups."""
     value = _EXT_TAIL_RE.sub("", str(template or "").strip())
     if not value:
@@ -77,7 +80,7 @@ def compile_template(template: str) -> re.Pattern[str] | None:
     cursor = 0
     for match in TEMPLATE_RE.finditer(value):
         parts.append(re.escape(value[cursor : match.start()]))
-        group = _template_group(match.group(1).strip().lower())
+        group = _template_group(match.group(1).strip().lower(), token_roles)
         pattern = _template_pattern(group)
         if group and group not in used:
             used.add(group)
@@ -348,6 +351,17 @@ def _scan_template_map() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
         return {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"}, {}
 
 
+def _scan_token_role_map() -> dict[str, dict[str, str]]:
+    try:
+        from backend.app.core.config import load_app_config
+        from backend.app.services.settings import get_effective_saved_settings
+
+        roles = get_effective_saved_settings(load_app_config()).get("source_token_roles")
+        return roles if isinstance(roles, dict) else {}
+    except Exception:
+        return {}
+
+
 def _scan_source_profile_keys() -> set[str]:
     try:
         from backend.app.core.config import load_app_config
@@ -365,18 +379,25 @@ def _scan_source_profile_keys() -> set[str]:
 class _TemplateResolver:
     """Compile and cache the folder/filename matchers for each source key."""
 
-    def __init__(self, base: dict[str, str], per_source: dict[str, dict[str, str]]) -> None:
+    def __init__(
+        self,
+        base: dict[str, str],
+        per_source: dict[str, dict[str, str]],
+        token_roles: dict[str, dict[str, str]] | None = None,
+    ) -> None:
         self._base = base
         self._per_source = per_source
+        self._token_roles = token_roles or {}
         self._cache: dict[str, tuple[re.Pattern[str] | None, re.Pattern[str] | None]] = {}
         self.base_filename = compile_template(base.get("filename_template") or "")
 
     def for_source(self, source_key: str) -> tuple[re.Pattern[str] | None, re.Pattern[str] | None]:
         if source_key not in self._cache:
             settings = self._per_source.get(source_key) or self._base
+            roles = self._token_roles.get(normalize_source_key(source_key)) or {}
             self._cache[source_key] = (
-                compile_template(settings.get("folder_template") or ""),
-                compile_template(settings.get("filename_template") or ""),
+                compile_template(settings.get("folder_template") or "", roles),
+                compile_template(settings.get("filename_template") or "", roles),
             )
         return self._cache[source_key]
 
@@ -472,7 +493,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
     location_index = _source_location_index(locations)
     source_folders = _source_folder_keys(locations)
     source_profile_keys = _scan_source_profile_keys()
-    templates = _TemplateResolver(*_scan_template_map())
+    templates = _TemplateResolver(*_scan_template_map(), _scan_token_role_map())
     learned = load_learned_formats()
     learned_before = learned
     learned = _seed_learned_from_history(learned, records)

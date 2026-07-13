@@ -48,6 +48,7 @@ class SettingsPayload(BaseModel):
     source_templates: dict[str, dict[str, str]] = Field(default_factory=dict)
     default_quality: dict[str, str] = Field(default_factory=dict)
     source_scrape_rules: dict[str, Any] = Field(default_factory=dict)
+    source_token_roles: dict[str, Any] = Field(default_factory=dict)
 
 
 class ScrapeTestPayload(BaseModel):
@@ -153,6 +154,7 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
         payload.source_templates,
         payload.default_quality,
         payload.source_scrape_rules,
+        payload.source_token_roles,
     )
     return build_settings_response(cfg, saved)
 

@@ -14,6 +14,7 @@ import type {
   SourceLocations,
   SourceProfile,
   SourceTemplates,
+  SourceTokenRoles,
   ToastType,
   UiConfigResponse,
 } from "../types";
@@ -25,6 +26,7 @@ import {
   createSourceProfile,
   createSourceScrapeRules,
   createSourceTemplates,
+  createSourceTokenRoles,
   createTemplateSettings,
   errorMessage,
   mergeSourceProfiles,
@@ -70,6 +72,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_templates: createSourceTemplates(),
     default_quality: createQualitySelection(),
     source_scrape_rules: createSourceScrapeRules(),
+    source_token_roles: createSourceTokenRoles(),
   });
   const settings = reactive<RuntimeSettings>({
     auth: { username: "", password_configured: false },
@@ -79,6 +82,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_templates: createSourceTemplates(),
     default_quality: createQualitySelection(),
     source_scrape_rules: createSourceScrapeRules(),
+    source_token_roles: createSourceTokenRoles(),
     download_locations: [],
     ytdlp_cookies: createCookiesMap(),
     quality_options: createQualityOptions(),
@@ -90,6 +94,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_templates: createSourceTemplates(),
     default_quality: createQualitySelection(),
     source_scrape_rules: createSourceScrapeRules(),
+    source_token_roles: createSourceTokenRoles(),
   });
 
   const settingsOpen = ref(false);
@@ -124,6 +129,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       source_templates: createSourceTemplates(recordForProfiles(source.source_templates, profiles), profiles, templateSettings),
       default_quality: createQualitySelection(source.default_quality, settings.quality_options),
       source_scrape_rules: createSourceScrapeRules(recordForProfiles(source.source_scrape_rules, profiles), profiles),
+      source_token_roles: createSourceTokenRoles(source.source_token_roles as SourceTokenRoles, profiles),
     };
   }
 
@@ -153,6 +159,10 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       }, settings.quality_options),
       source_scrape_rules: createSourceScrapeRules(
         recordForProfiles({ ...defaults.source_scrape_rules, ...settings.source_scrape_rules }, profiles),
+        profiles,
+      ),
+      source_token_roles: createSourceTokenRoles(
+        { ...defaults.source_token_roles, ...settings.source_token_roles } as SourceTokenRoles,
         profiles,
       ),
     };
@@ -192,6 +202,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     replaceRecord(defaults.source_scrape_rules, scrapeRules);
     replaceRecord(settings.source_scrape_rules, scrapeRules);
 
+    const tokenRoles = createSourceTokenRoles(
+      data.source_token_roles || {},
+      managedProfiles,
+    );
+    replaceRecord(defaults.source_token_roles, tokenRoles);
+    replaceRecord(settings.source_token_roles, tokenRoles);
+
     const qualityOptions = createQualityOptions(data.quality_options || {});
     settings.quality_options = qualityOptions;
 
@@ -222,6 +239,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     replaceRecord(settingsDraft.source_templates, normalized.source_templates);
     Object.assign(settingsDraft.default_quality, normalized.default_quality);
     replaceRecord(settingsDraft.source_scrape_rules, normalized.source_scrape_rules);
+    replaceRecord(settingsDraft.source_token_roles, normalized.source_token_roles);
     lastSavedSnapshot = JSON.stringify(normalizeSavedPayload(settingsDraft));
   }
 

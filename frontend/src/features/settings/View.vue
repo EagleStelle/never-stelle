@@ -49,6 +49,7 @@ import type {
   ScrapeTestResult,
   SettingsSection,
   SourceProfile,
+  TokenRole,
 } from "../../types";
 import { FALLBACK_SOURCE_KEY } from "../../types";
 import { testScrapeRules } from "../../api";
@@ -60,6 +61,7 @@ import {
   isCodecAllowed,
   isLosslessAudioFormat,
   mergeSourceProfiles,
+  normalizeTokenName,
   resolveCodec,
   settingsManagedSourceProfiles,
 } from "../../utils/dashboard";
@@ -227,6 +229,9 @@ watch(
         props.settingsDraft.source_scrape_rules[profile.key] =
           createPlatformScrapeRules();
       }
+      if (!props.settingsDraft.source_token_roles[profile.key]) {
+        props.settingsDraft.source_token_roles[profile.key] = {};
+      }
       if (!scrapeTests[profile.key]) {
         scrapeTests[profile.key] = {
           url: "",
@@ -269,6 +274,30 @@ const scrapeTests = reactive<Record<string, ScrapeTestState>>({});
 
 function platformRules(key: string): PlatformScrapeRules {
   return props.settingsDraft.source_scrape_rules[key];
+}
+
+function tokenRoles(key: string): Record<string, TokenRole> {
+  if (!props.settingsDraft.source_token_roles[key]) {
+    props.settingsDraft.source_token_roles[key] = {};
+  }
+  return props.settingsDraft.source_token_roles[key];
+}
+
+function isCreatorTokenRole(key: string, token: string): boolean {
+  const normalized = normalizeTokenName(token);
+  return Boolean(normalized && tokenRoles(key)[normalized] === "creator");
+}
+
+function setCreatorTokenRole(key: string, token: string, enabled: boolean): void {
+  const normalized = normalizeTokenName(token);
+  if (!normalized) return;
+  const roles = { ...tokenRoles(key) };
+  if (enabled) {
+    roles[normalized] = "creator";
+  } else if (roles[normalized] === "creator") {
+    delete roles[normalized];
+  }
+  props.settingsDraft.source_token_roles[key] = roles;
 }
 
 function addScrapeRule(key: string): void {
@@ -1002,6 +1031,17 @@ watch(
                           @update:checked="(v: boolean) => rule.multi = v"
                         />
                         <span>Multiple</span>
+                      </label>
+                      <label
+                        class="flex items-center gap-2 cursor-pointer select-none text-sm shrink-0"
+                        :class="!normalizeTokenName(rule.token) && 'opacity-50'"
+                      >
+                        <Checkbox
+                          :checked="isCreatorTokenRole(site.key, rule.token)"
+                          :disabled="!normalizeTokenName(rule.token)"
+                          @update:checked="(v: boolean) => setCreatorTokenRole(site.key, rule.token, Boolean(v))"
+                        />
+                        <span>Creator</span>
                       </label>
                       <Input
                         v-model="rule.xpath"

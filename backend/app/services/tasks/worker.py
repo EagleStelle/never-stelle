@@ -14,7 +14,12 @@ from typing import Any
 
 from backend.app.core.config import max_concurrent_downloads
 from backend.app.core.sources import apex_host, host_from_url, normalize_source_key
-from backend.app.services.settings import detect_cookie_source, has_cookies_for_source, load_scrape_rules
+from backend.app.services.settings import (
+    detect_cookie_source,
+    has_cookies_for_source,
+    load_scrape_rules,
+    load_token_roles,
+)
 
 from .cache import drop_file_cache
 from .constants import (
@@ -556,6 +561,33 @@ def _best_creator_candidate(candidates: list[tuple[str, str]]) -> str:
             best_value = value
             best_score = score
     return best_value if best_score > 0 else ""
+
+
+def _role_token_value(
+    extra_tokens: dict[str, str] | None,
+    token_roles: dict[str, dict[str, str]] | None,
+    source_key: str,
+    role: str,
+) -> str:
+    if not extra_tokens or not token_roles:
+        return ""
+    roles = token_roles.get(normalize_source_key(source_key)) or {}
+    role = str(role or "").strip().lower()
+    for token, token_role in roles.items():
+        if token_role != role:
+            continue
+        value = str(extra_tokens.get(token) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _role_creator(
+    extra_tokens: dict[str, str] | None,
+    token_roles: dict[str, dict[str, str]] | None,
+    source_key: str,
+) -> str:
+    return _clean_creator_candidate(_role_token_value(extra_tokens, token_roles, source_key, "creator"))
 
 
 def _profile_host_candidates(metadata: dict[str, str]) -> list[str]:
@@ -1282,6 +1314,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
     extra_tokens = resolve_scraped_tokens(
         source_url, task_source_key, template_settings, load_scrape_rules(), cookie_source_key
     )
+    token_roles = load_token_roles()
 
     sidecar_handle, creator_sidecar = tempfile.mkstemp(prefix="nvs-creator-", suffix=".txt")
     os.close(sidecar_handle)
@@ -1417,7 +1450,9 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 media_id = str(group.get("media_id") or "").strip()
                 raw_path = Path(group["path"])
                 metadata = group.get("metadata") or {}
-                creator_hint = _filename_creator(raw_path, filename_template, metadata, source_url, media_id)
+                creator_hint = _role_creator(extra_tokens, token_roles, task_source_key) or _filename_creator(
+                    raw_path, filename_template, metadata, source_url, media_id
+                )
                 folder_template = str((template_settings or {}).get("folder_template") or "").strip()
                 folder_text = _template_folder_text(output_root, raw_path)
                 nickname_hint = _filename_nickname(
@@ -1459,7 +1494,8 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 _cleanup_duplicate_library_media(output_root, media_id, keep_paths)
                 drop_file_cache(keep_paths)
                 creator = (
-                    _clean_handle_candidate(creator_from_url(item_source_url, media_id))
+                    _role_creator(extra_tokens, token_roles, item_source_key)
+                    or _clean_handle_candidate(creator_from_url(item_source_url, media_id))
                     or creator_hint
                     or _resolved_task_creator(used_engine, creator_sidecar, item_source_url, display_filename)
                     or nickname_hint

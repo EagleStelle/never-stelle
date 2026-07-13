@@ -18,9 +18,11 @@ import {
   type SourceProfile,
   type SourceScrapeRules,
   type SourceTemplates,
+  type SourceTokenRoles,
   type TaskCounts,
   type TaskFilter,
   type TaskItem,
+  type TokenRole,
   type ViewMode,
 } from "../types";
 
@@ -301,6 +303,42 @@ export function createSourceScrapeRules(
   const out: SourceScrapeRules = {};
   for (const profile of profiles) out[profile.key] = createPlatformScrapeRules(source[profile.key] || {});
   for (const [key, value] of Object.entries(source)) out[normalizeSourceKey(key)] = createPlatformScrapeRules(value);
+  return out;
+}
+
+export const TOKEN_ROLES = new Set<TokenRole>(["creator", "nickname", "title", "slug", "id", "ignore"]);
+
+export function normalizeTokenName(value: unknown): string {
+  const token = String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+  return /^[a-zA-Z_]/.test(token) ? token : "";
+}
+
+export function createSourceTokenRoles(
+  source: Record<string, Record<string, string>> = {},
+  profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
+): SourceTokenRoles {
+  const normalizedSource: Record<string, Record<string, string>> = {};
+  for (const [rawKey, roles] of Object.entries(source || {})) {
+    normalizedSource[normalizeSourceKey(rawKey)] = roles || {};
+  }
+  const keys = new Set([
+    ...profiles.map((profile) => profile.key),
+    ...Object.keys(normalizedSource),
+  ]);
+  const out: SourceTokenRoles = {};
+  for (const key of keys) {
+    const roles: Record<string, TokenRole> = {};
+    for (const [token, role] of Object.entries(normalizedSource[key] || {})) {
+      const normalizedToken = normalizeTokenName(token);
+      const normalizedRole = String(role || "").trim().toLowerCase() as TokenRole;
+      if (normalizedToken && TOKEN_ROLES.has(normalizedRole)) roles[normalizedToken] = normalizedRole;
+    }
+    out[key] = roles;
+  }
   return out;
 }
 

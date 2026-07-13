@@ -631,6 +631,16 @@ def test_filename_creator_strips_at_from_filename_username():
     assert creator == "mili"
 
 
+def test_role_creator_uses_scraped_token_role():
+    creator = worker_module._role_creator(
+        {"artist": "Trace Artist"},
+        {"rule34video": {"artist": "creator"}},
+        "rule34video",
+    )
+
+    assert creator == "Trace Artist"
+
+
 def test_clean_filename_title_drops_empty_title_sentinels():
     assert clean_filename_title("None") == ""
     assert clean_filename_title(" untitled ") == ""
@@ -1815,6 +1825,43 @@ def test_scan_media_library_creator_from_folder_template(
     scan_module.scan_media_library([media_root])
 
     assert saved["disk:abc123"]["artist"] == "Cool Channel"
+    assert saved["disk:abc123"]["title"] == "Soft Light"
+
+
+def test_scan_media_library_creator_from_role_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media_root = tmp_path / "media"
+    platform_dir = media_root / "rule34video"
+    platform_dir.mkdir(parents=True)
+    media_file = platform_dir / "Trace Artist - Soft Light [abc123].mp4"
+    media_file.write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"rule34video": str(platform_dir)})
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_template_map",
+        lambda: (
+            {"folder_template": "", "filename_template": "{{artist}} - {{title}} [{{id}}]"},
+            {"rule34video": {"folder_template": "", "filename_template": "{{artist}} - {{title}} [{{id}}]"}},
+        ),
+    )
+    monkeypatch.setattr(scan_module, "_scan_token_role_map", lambda: {"rule34video": {"artist": "creator"}})
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    scan_module.scan_media_library([media_root])
+
+    assert saved["disk:abc123"]["artist"] == "Trace Artist"
     assert saved["disk:abc123"]["title"] == "Soft Light"
 
 

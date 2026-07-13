@@ -54,6 +54,8 @@ export interface PlatformScrapeRules {
 }
 
 export type SourceScrapeRules = Record<string, PlatformScrapeRules>;
+export type TokenRole = "creator" | "nickname" | "title" | "slug" | "id" | "ignore";
+export type SourceTokenRoles = Record<string, Record<string, TokenRole>>;
 
 export interface ScrapeTestResult {
   token: string;
@@ -111,6 +113,7 @@ export interface SavedSettings {
   source_templates: SourceTemplates;
   default_quality: QualitySelection;
   source_scrape_rules: SourceScrapeRules;
+  source_token_roles: SourceTokenRoles;
 }
 
 export interface RuntimeSettings extends SavedSettings {
@@ -129,6 +132,7 @@ export interface UiConfigResponse {
   template_settings?: Partial<TemplateSettings>;
   source_templates?: Record<string, Partial<TemplateSettings>>;
   source_scrape_rules?: Record<string, Partial<PlatformScrapeRules>>;
+  source_token_roles?: Record<string, Record<string, string>>;
   ytdlp_cookies?: Record<string, Partial<CookiesStatus>>;
   default_quality?: Partial<QualitySelection>;
   quality_options?: Partial<QualityOptions>;

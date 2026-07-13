@@ -7,6 +7,7 @@ from backend.app.services.settings import (
     BUILTIN_FOLDER_TEMPLATE,
     normalize_source_location_selection,
     normalize_source_template_selection,
+    normalize_source_token_roles,
     normalize_template_settings,
 )
 
@@ -29,6 +30,20 @@ def test_normalize_template_keeps_custom_values():
     )
     assert result["folder_template"] == "{{username}}"
     assert result["filename_template"] == "{{title}}"
+
+
+def test_normalize_source_token_roles_keeps_known_roles():
+    result = normalize_source_token_roles(
+        {
+            "Rule34Video": {
+                " Artist Name ": "creator",
+                "bad token!": "not-a-role",
+                "title": "title",
+            }
+        }
+    )
+
+    assert result == {"rule34video": {"artist_name": "creator", "title": "title"}}
 
 
 def test_normalize_template_blank_falls_back():

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import tempfile
 import threading
 import time
@@ -257,6 +258,43 @@ def get_effective_template_settings(source_url: str = "") -> dict[str, str]:
 
 
 # --- Scrape rules ---
+TOKEN_ROLES = {"creator", "nickname", "title", "slug", "id", "ignore"}
+_TOKEN_NAME_RE = re.compile(r"[^a-zA-Z0-9_]+")
+
+
+def normalize_token_name(value: Any) -> str:
+    token = _TOKEN_NAME_RE.sub("_", str(value or "").strip()).strip("_")
+    if not token or not re.match(r"[a-zA-Z_]", token):
+        return ""
+    return token.lower()
+
+
+def normalize_source_token_roles(raw: Any) -> dict[str, dict[str, str]]:
+    source = raw if isinstance(raw, dict) else {}
+    out: dict[str, dict[str, str]] = {}
+    for raw_key, raw_roles in source.items():
+        key = normalize_source_key(raw_key)
+        roles: dict[str, str] = {}
+        if isinstance(raw_roles, dict):
+            for raw_token, raw_role in raw_roles.items():
+                token = normalize_token_name(raw_token)
+                role = str(raw_role or "").strip().lower()
+                if token and role in TOKEN_ROLES:
+                    roles[token] = role
+        if roles:
+            out[key] = roles
+    return out
+
+
+def get_effective_token_roles(payload: dict[str, Any] | None = None) -> dict[str, dict[str, str]]:
+    payload = payload if isinstance(payload, dict) else load_saved_settings_file()
+    return normalize_source_token_roles(payload.get("source_token_roles") or payload.get("token_roles"))
+
+
+def load_token_roles() -> dict[str, dict[str, str]]:
+    return get_effective_token_roles()
+
+
 def get_effective_scrape_rules(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     # Per-platform, user-defined HTML extraction rules. Normalized on read so a
     # hand-edited or legacy payload can never feed the scraper malformed rules.
@@ -431,6 +469,7 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
         "default_quality": normalize_quality_selection(payload.get("default_quality")),
         "ytdlp_cookies": get_ytdlp_cookies_status(source_profiles),
         "source_scrape_rules": get_effective_scrape_rules(payload),
+        "source_token_roles": get_effective_token_roles(payload),
     }
 
 
@@ -442,6 +481,7 @@ def persist_settings(
     raw_source_templates: Any = None,
     raw_default_quality: Any = None,
     raw_scrape_rules: Any = None,
+    raw_token_roles: Any = None,
 ) -> dict[str, Any]:
     from backend.app.services.tasks.constants import normalize_quality_selection
     from backend.app.services.tasks.enrich import normalize_scrape_rules
@@ -485,6 +525,11 @@ def persist_settings(
                 if raw_scrape_rules is not None
                 else existing.get("source_scrape_rules") or existing.get("scrape_rules")
             ),
+            "source_token_roles": normalize_source_token_roles(
+                raw_token_roles
+                if raw_token_roles is not None
+                else existing.get("source_token_roles") or existing.get("token_roles")
+            ),
         }
     )
     save_saved_settings_file(existing)
@@ -512,5 +557,6 @@ def build_settings_response(
         "quality_options": quality_options(),
         "ytdlp_cookies": saved.get("ytdlp_cookies", get_ytdlp_cookies_status(saved.get("source_profiles"))),
         "source_scrape_rules": saved.get("source_scrape_rules", get_effective_scrape_rules()),
+        "source_token_roles": saved.get("source_token_roles", get_effective_token_roles()),
         "settings_loaded_at": int(time.time()),
     }
