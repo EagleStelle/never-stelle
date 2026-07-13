@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from backend.app.core.sources import normalize_source_key
+from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key
 
 from .constants import normalize_quality_selection
-from .formats import url_dedup_key
+from .formats import media_id_from_url, url_dedup_key
+from .scan import parse_filename_media_id
 from .store import load_history, load_task_store, save_history_entry_row
 from .urls import detect_source_key
 
@@ -35,11 +36,41 @@ def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
     )
 
 
+def _payload_media_id(payload: dict[str, Any]) -> str:
+    media_id = str(payload.get("media_id") or "").strip()
+    if media_id:
+        return media_id
+    filename = str(payload.get("resolved_filename") or "").strip()
+    if filename:
+        media_id = parse_filename_media_id(filename)[0]
+    return media_id or media_id_from_url(str(payload.get("source_url") or ""))
+
+
+def _source_media_key(source_key: str, media_id: str) -> str:
+    source_key = normalize_source_key(source_key)
+    media_id = str(media_id or "").strip()
+    if not media_id or source_key == FALLBACK_SOURCE_KEY:
+        return ""
+    return f"{source_key}#{media_id}"
+
+
+def _source_match_keys(source_url: str, payload: dict[str, Any] | None = None) -> set[str]:
+    payload = payload or {}
+    keys = {url_dedup_key(source_url)}
+    media_id = _payload_media_id(payload) if payload else media_id_from_url(source_url)
+    source_key = str(payload.get("source_key") or "").strip() if payload else ""
+    source_key = source_key or detect_source_key(source_url)
+    source_media_key = _source_media_key(source_key, media_id)
+    if source_media_key:
+        keys.add(source_media_key)
+    return {key for key in keys if key}
+
+
 def find_history_by_source(source_url: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
     # Match on the route-agnostic id so a re-download of the same post dedups regardless of route.
-    normalized = url_dedup_key(source_url)
+    normalized = _source_match_keys(source_url)
     for task_id, entry in (load_history().get("entries") or {}).items():
-        if url_dedup_key(str(entry.get("source_url") or "")) == normalized:
+        if _source_match_keys(str(entry.get("source_url") or ""), entry) & normalized:
             return str(task_id), entry
     return None, None
 
@@ -50,9 +81,9 @@ def find_history_by_id(task_id: str) -> dict[str, Any] | None:
 
 
 def find_active_by_source(source_url: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
-    normalized = url_dedup_key(source_url)
+    normalized = _source_match_keys(source_url)
     for task_id, task in (load_task_store().get("tasks") or {}).items():
-        task_source = url_dedup_key(str(task.get("source_url") or ""))
-        if task.get("status") in {"pending", "running"} and task_source == normalized:
+        task_source = _source_match_keys(str(task.get("source_url") or ""), task)
+        if task.get("status") in {"pending", "running"} and task_source & normalized:
             return str(task_id), task
     return None, None

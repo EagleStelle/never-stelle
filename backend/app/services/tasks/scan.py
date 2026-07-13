@@ -34,6 +34,7 @@ from .store import (
 FILENAME_ID_RE = re.compile(r"^(.*) \[([A-Za-z0-9_-]+)\](?:_\d+)?$")
 UNRECOVERABLE_MEDIA_IDS = {"", "na", "n-a", "n/a", "none", "null", "unknown"}
 _ID_TOKENS = {"id"}
+_SLUG_TOKENS = {"slug"}
 _EXT_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$")
 _COMMON_SOURCE_FOLDER_KEYS = {
     "bilibili",
@@ -55,6 +56,8 @@ def _template_group(field: str) -> str:
         return "creator"
     if field in _ID_TOKENS:
         return "id"
+    if field in _SLUG_TOKENS:
+        return "slug"
     if field == "title":
         return "title"
     return ""
@@ -499,13 +502,15 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
             path, media_id, location_index, learned, source_hint
         )
         folder_pattern, filename_pattern = templates.for_source(source_key)
-        title = _match_template(filename_pattern, path.stem).get("title", title)
+        filename_fields = _match_template(filename_pattern, path.stem)
+        title = filename_fields.get("title", title)
+        slug = filename_fields.get("slug", "")
         creator = (
             _creator_for_file(root, path, source_folders, folder_pattern, filename_pattern)
             or _creator_from_title(title)
         )
         display_filename = clean_gallerydl_display_filename(path.name, creator, source_key)
-        candidates = reconstruct_url_candidates(learned, source_key, media_id, creator=creator)
+        candidates = reconstruct_url_candidates(learned, source_key, media_id, creator=creator, slug=slug)
         source_url = candidates[0] if candidates else ""
         save_history_entry_row(
             task_id,

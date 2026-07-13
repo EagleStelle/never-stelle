@@ -1473,6 +1473,21 @@ def test_reconstruct_url_candidates_returns_every_learned_route():
     }
 
 
+def test_learn_download_reconstructs_slug_id_route_dynamically():
+    learned = learn_download(
+        {},
+        "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/",
+        "4483553",
+    )
+
+    assert learned["rule34video"]["template"] == "https://rule34video.com/video/{id}/{slug}"
+    assert reconstruct_url(learned, "rule34video", "3238394") == ""
+    assert (
+        reconstruct_url(learned, "rule34video", "3238394", slug="wsds-minus8")
+        == "https://rule34video.com/video/3238394/wsds-minus8"
+    )
+
+
 def test_reconstruct_url_candidates_needs_creator_and_id():
     learned = learn_download(
         {},
@@ -1526,9 +1541,19 @@ def test_convert_template_quality_uses_selected_label_best_reads_source():
     assert convert_template_to_ytdlp(tmpl, url, {"mode": "video", "video_quality": "1080p"}).endswith("_1080p")
 
 
+def test_convert_template_source_alias_uses_selected_quality_label():
+    tmpl = "{{slug}}_{{source}} [{{id}}]"
+    url = "https://rule34video.com/video/3238394/wsds-minus8/"
+
+    result = convert_template_to_ytdlp(tmpl, url, {"mode": "video", "video_quality": "best"})
+
+    assert result.startswith("wsds-minus8_source [")
+
+
 def test_convert_template_quality_without_selection_keeps_metadata_specifier():
     # Direct callers with no quality threaded through fall back to the delivered format.
     assert "%(format_id" in convert_template_to_ytdlp("{{quality}}", "https://example.com/x")
+    assert "%(format_id" in convert_template_to_ytdlp("{{source}}", "https://example.com/x")
 
 
 def test_learn_download_ignores_unknown_host():
@@ -1563,6 +1588,22 @@ def test_correct_reconstructed_url_adopts_pasted_link_for_disk_entry(monkeypatch
 
     assert out["source_url"] == real_url
     assert saved["disk:7615077542189337873"]["source_url"] == real_url
+
+
+def test_history_source_lookup_matches_filename_media_id_without_stored_url(monkeypatch):
+    entry = {
+        "task_type": "disk",
+        "source_url": "",
+        "source_key": "rule34video",
+        "media_id": "3238394",
+        "resolved_filename": "wsds-minus8_source [3238394].mp4",
+    }
+    monkeypatch.setattr(history_module, "load_history", lambda: {"entries": {"disk:3238394": entry}})
+
+    task_id, found = history_module.find_history_by_source("https://rule34video.com/video/3238394/wsds-minus8/")
+
+    assert task_id == "disk:3238394"
+    assert found is entry
 
 
 def test_correct_reconstructed_url_leaves_real_download_untouched(monkeypatch):
@@ -1838,6 +1879,51 @@ def test_scan_media_library_reconstructs_link_from_learned(tmp_path: Path, monke
     assert entry["source_key"] == "bilibili"
     assert entry["source_pending"] is False
     assert entry["source_url"] == "https://www.bilibili.com/video/BV1xx411c7mD"
+
+
+def test_scan_media_library_reconstructs_slug_url_from_filename_template(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    learned = learn_download(
+        {},
+        "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/",
+        "4483553",
+    )
+    media_root = tmp_path / "media"
+    platform_dir = media_root / "rule34video"
+    platform_dir.mkdir(parents=True)
+    media_file = platform_dir / "wsds-minus8_source [3238394].mp4"
+    media_file.write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {})
+    monkeypatch.setattr(scan_module, "_scan_source_profile_keys", lambda: {"rule34video"})
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_template_map",
+        lambda: (
+            {"folder_template": "", "filename_template": "{{slug}}_{{source}} [{{id}}]"},
+            {"rule34video": {"folder_template": "", "filename_template": "{{slug}}_{{source}} [{{id}}]"}},
+        ),
+    )
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    scan_module.scan_media_library([media_root])
+
+    entry = saved["disk:3238394"]
+    assert entry["source_key"] == "rule34video"
+    assert entry["source_pending"] is False
+    assert entry["source_url"] == "https://rule34video.com/video/3238394/wsds-minus8"
 
 
 def test_scan_media_library_removes_missing_completed_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

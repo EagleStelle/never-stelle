@@ -26,7 +26,7 @@ from .constants import (
 )
 from .engine import Engine, all_engines, engine_for_task
 from .files import find_newest_media_file, find_numbered_media_siblings, is_media_file, recover_task_path
-from .formats import creator_from_url, learn_download, media_id_from_url, reconstruct_url
+from .formats import creator_from_url, learn_download, media_id_from_url, reconstruct_url, slug_from_url
 from .history import save_history_entry
 from .naming import (
     clean_gallerydl_disk_filename,
@@ -711,7 +711,7 @@ def _filename_nickname(
 
 def _reconstruct_item_url(source_url: str, source_key: str, media_id: str, creator: str) -> str:
     learned = learn_download({}, source_url, media_id)
-    return reconstruct_url(learned, source_key, media_id, creator=creator)
+    return reconstruct_url(learned, source_key, media_id, creator=creator, slug=slug_from_url(source_url, media_id))
 
 
 def _distinct_metadata_item_url(source_url: str, metadata: dict[str, str]) -> str:

@@ -220,6 +220,7 @@ Output folders and filenames are built from placeholders. Supported placeholders
 | `{{slug}}`     | Descriptive slug from the URL.  |
 | `{{id}}`       | Media id.                       |
 | `{{quality}}`  | Selected quality (`source` for best). |
+| `{{source}}`   | Alias for `{{quality}}`.        |
 | `{{ext}}`      | File extension.                 |
 
 `{{username}}` resolves to the handle from the URL when present, else the engine's

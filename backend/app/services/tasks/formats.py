@@ -10,6 +10,7 @@ from .constants import quality_label
 
 _ID_TOKEN = "{id}"
 _CREATOR_TOKEN = "{creator}"
+_SLUG_TOKEN = "{slug}"
 _VAR_TOKEN = "{var}"
 _SPLIT_RE = re.compile(r"([/?&=#])")
 _ROUTE_SEGMENT_RE = re.compile(r"^[a-z][a-z-]{0,24}s?$")
@@ -261,7 +262,7 @@ def derived_token_value(
         return creator_from_url(source_url) or None
     if field == "slug":
         return slug_from_url(source_url)
-    if field == "quality":
+    if field in {"quality", "source"}:
         # Selected combo label when threaded; None falls back to delivered format.
         return quality_label(quality) if quality is not None else None
     return None
@@ -320,6 +321,7 @@ def _url_shape(source_url: str, media_id: str) -> str:
     decoded_segments = _path_segments(parsed.path)
     id_part = str(analysis.get("id_part") or "")
     creator_part = str(analysis.get("creator_part") or "")
+    slug_part = str(analysis.get("slug_part") or "")
 
     if id_part.startswith("path:"):
         try:
@@ -335,6 +337,13 @@ def _url_shape(source_url: str, media_id: str) -> str:
             index = -1
         if 0 <= index < len(raw_segments) and 0 <= index < len(decoded_segments):
             raw_segments[index] = f"@{_CREATOR_TOKEN}" if decoded_segments[index].startswith("@") else _CREATOR_TOKEN
+    if slug_part.startswith("path:"):
+        try:
+            index = int(slug_part.split(":", 1)[1])
+        except ValueError:
+            index = -1
+        if 0 <= index < len(raw_segments):
+            raw_segments[index] = _SLUG_TOKEN
 
     path = "/" + "/".join(raw_segments) if parsed.path.startswith("/") else "/".join(raw_segments)
     query_pairs = []
@@ -362,6 +371,8 @@ def _generalize(learned_template: str, shape: str) -> str:
             out.append(_ID_TOKEN)
         elif _CREATOR_TOKEN in (a, b):
             out.append(_CREATOR_TOKEN)
+        elif _SLUG_TOKEN in (a, b):
+            out.append(_SLUG_TOKEN)
         else:
             out.append(_VAR_TOKEN)
     return "".join(out)
@@ -436,6 +447,7 @@ def reconstruct_url_candidates(
     media_id: str,
     *,
     creator: str = "",
+    slug: str = "",
 ) -> list[str]:
     """Fill every learned template for this source; a probe picks the real one."""
     entry = learned.get(normalize_source_key(source_key)) or {}
@@ -444,20 +456,35 @@ def reconstruct_url_candidates(
     if not media_id:
         return []
     creator_value = quote(str(creator or "").strip().lstrip("@"), safe="")
+    slug_value = quote(str(slug or "").strip().strip("/"), safe="")
     urls: list[str] = []
     for template in templates:
         if not template or _VAR_TOKEN in template or _ID_TOKEN not in template:
             continue
         if _CREATOR_TOKEN in template and not creator_value:
             continue
-        url = template.replace(_ID_TOKEN, media_id).replace(_CREATOR_TOKEN, creator_value)
+        if _SLUG_TOKEN in template and not slug_value:
+            continue
+        url = (
+            template
+            .replace(_ID_TOKEN, media_id)
+            .replace(_CREATOR_TOKEN, creator_value)
+            .replace(_SLUG_TOKEN, slug_value)
+        )
         if url not in urls:
             urls.append(url)
     return urls
 
 
-def reconstruct_url(learned: dict[str, Any], source_key: str, media_id: str, *, creator: str = "") -> str:
-    candidates = reconstruct_url_candidates(learned, source_key, media_id, creator=creator)
+def reconstruct_url(
+    learned: dict[str, Any],
+    source_key: str,
+    media_id: str,
+    *,
+    creator: str = "",
+    slug: str = "",
+) -> str:
+    candidates = reconstruct_url_candidates(learned, source_key, media_id, creator=creator, slug=slug)
     return candidates[0] if candidates else ""
 
 

@@ -68,6 +68,7 @@ _YTDLP_FIELD = {
     "username": YTDLP_USERNAME_FIELD,
     "nickname": YTDLP_NICKNAME_FIELD,
     "quality": "%(format_id,format_note,resolution|Unknown)s",
+    "source": "%(format_id,format_note,resolution|Unknown)s",
     "ext": "%(ext)s",
 }
 

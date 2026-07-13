@@ -35,6 +35,7 @@ _GALLERYDL_FIELD = {
     "username": _GALLERYDL_USERNAME,
     "nickname": _GALLERYDL_NICKNAME,
     "quality": '{width|"?"}x{height|"?"}',
+    "source": '{width|"?"}x{height|"?"}',
     "ext": "{extension}",
 }
 # Directory and filename packed into one output_template; only the builder splits it.
