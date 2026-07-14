@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -367,52 +369,65 @@ def fetch_active_tasks(*, quiet: bool = True) -> list[dict[str, Any]]:
     return [record_to_task(item) for item in _extract_items(payload)]
 
 
-def _payload_total(payload: Any, fallback: int) -> int:
+def _payload_next_cursor(payload: Any) -> str:
     if not isinstance(payload, dict):
-        return fallback
-    value = _integer(payload, "total", "count")
-    if value:
-        return value
-    return fallback + 1 if payload.get("next_cursor") or payload.get("nextCursor") else fallback
+        return ""
+    return _text(payload, "next_cursor", "nextCursor")
 
 
-def fetch_history_page(offset: int, limit: int, search: str = "", *, quiet: bool = True) -> dict[str, Any]:
+def history_cursor_for_task(task: dict[str, Any]) -> str:
+    video_id = video_id_from_task_id(str(task.get("vid") or ""))
+    if not video_id:
+        return ""
+    try:
+        updated_at = int(float(str(task.get("completed_at") or task.get("updated_at") or "")))
+    except Exception:
+        return ""
+    payload = json.dumps({"updated_at": updated_at, "video_id": video_id}, separators=(",", ":"))
+    return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def fetch_history_page(cursor: str = "", limit: int = 50, search: str = "", *, quiet: bool = True) -> dict[str, Any]:
     if not is_configured():
-        return {"entries": [], "total": 0}
-    fetch_limit = max(1, offset + limit)
-    params: dict[str, Any] = {"limit": fetch_limit}
+        return {"entries": []}
+    params: dict[str, Any] = {"limit": max(1, int(limit))}
+    if cursor:
+        params["cursor"] = cursor
     if search:
         params["q"] = search
     try:
         payload = _request_json("GET", "/history", params=params)
     except SwaratelleError:
         if quiet:
-            return {"entries": [], "total": 0}
+            return {"entries": []}
         raise
+    page_limit = max(1, int(limit))
     entries = [record_to_task(item, fallback_status="completed") for item in _extract_items(payload)]
     entries = [entry for entry in entries if entry["status"] == "completed"]
-    sliced = entries[offset : offset + limit]
-    total = _payload_total(payload, len(entries))
-    return {"entries": sliced, "total": max(total, offset + len(sliced))}
+    entries = entries[:page_limit]
+    result: dict[str, Any] = {"entries": entries}
+    next_cursor = _payload_next_cursor(payload)
+    if next_cursor:
+        result["next_cursor"] = next_cursor
+    return result
 
 
 def fetch_counts(*, quiet: bool = True) -> dict[str, int]:
     if not is_configured():
         return {}
-    counts = {"queued": 0, "running": 0, "completed": 0, "failed": 0}
     try:
-        for task in fetch_active_tasks(quiet=False):
-            status = str(task.get("status") or "")
-            if status == "pending":
-                counts["queued"] += 1
-            elif status in counts:
-                counts[status] += 1
-        counts["completed"] = int(fetch_history_page(0, 1, quiet=False).get("total") or 0)
+        payload = _request_json("GET", "/counts")
     except SwaratelleError:
         if quiet:
             return {}
         raise
-    return counts
+    payload = payload if isinstance(payload, dict) else {}
+    return {
+        "queued": _integer(payload, "queued", "pending"),
+        "running": _integer(payload, "running", "downloading"),
+        "completed": _integer(payload, "completed", "done"),
+        "failed": _integer(payload, "failed"),
+    }
 
 
 def scan_media_library(*, quiet: bool = True) -> dict[str, int]:

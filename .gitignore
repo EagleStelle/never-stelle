@@ -4,6 +4,7 @@ media/
 scratch/
 library/
 settings.json
+.env
 .venv/
 .local/
 frontend/node_modules/

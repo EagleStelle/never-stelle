@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS history (
 CREATE INDEX IF NOT EXISTS idx_history_source_url ON history(source_url);
 CREATE INDEX IF NOT EXISTS idx_history_source_key ON history(source_key);
 CREATE INDEX IF NOT EXISTS idx_history_completed_at ON history(completed_at);
+CREATE INDEX IF NOT EXISTS idx_history_order ON history(completed_at DESC, updated_at DESC, task_id DESC);
 
 CREATE TABLE IF NOT EXISTS formats (
     source_key TEXT PRIMARY KEY,

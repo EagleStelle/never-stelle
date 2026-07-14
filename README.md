@@ -181,7 +181,7 @@ The app authenticates with a session cookie set by `POST /api/login`. All routes
 | `POST`   | `/api/tasks/probe`                                   | Previews metadata for a URL before queueing.                |
 | `POST`   | `/api/tasks`                                         | Queues one or more URLs.                                    |
 | `GET`    | `/api/tasks`                                         | Lists active tasks (queued, running, failed) with counts.   |
-| `GET`    | `/api/history?offset=0&limit=30&source_key=&search=` | Lists completed records, with offset pagination and search. |
+| `GET`    | `/api/history?limit=50&cursor=&q=&source_key=` | Lists completed records, with cursor pagination and search. |
 | `POST`   | `/api/scan`                                          | Reconciles database history with files present in `/media`. |
 | `DELETE` | `/api/tasks/{id}`                                    | Removes a pending task.                                     |
 | `POST`   | `/api/tasks/{id}/cancel`                             | Cancels a running task.                                     |

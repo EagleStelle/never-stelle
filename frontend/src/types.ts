@@ -186,7 +186,7 @@ export interface TasksResponse {
 
 export interface HistoryResponse {
   entries: TaskItem[];
-  total: number;
+  next_cursor?: string;
 }
 
 export interface AddTaskResponse {

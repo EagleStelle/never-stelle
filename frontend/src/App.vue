@@ -51,6 +51,7 @@ const {
   historyLoading,
   historyError,
   historyHasMore,
+  historyFetchingMore,
   historySearch,
   submitHistorySearch,
   loadMoreHistory,
@@ -239,6 +240,7 @@ const { height: statusBarHeight } = useElementSize(
               :tasks="activePage === 'downloads' ? activeTasks : completedTasks"
               :view-mode="viewMode"
               :has-more="activePage === 'history' ? historyHasMore : undefined"
+              :fetching-more="activePage === 'history' ? historyFetchingMore : undefined"
               @cancel="cancelTask"
               @clear-pending="clearPending"
               @download="downloadTask"

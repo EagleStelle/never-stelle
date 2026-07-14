@@ -127,10 +127,11 @@ export function getTasks(): Promise<TasksResponse> {
   return jsonRequest<TasksResponse>("/api/tasks", {}, "Could not load tasks.");
 }
 
-export function getHistory(offset: number, limit: number, sourceKey = "", search = ""): Promise<HistoryResponse> {
-  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+export function getHistory(cursor: string | undefined, limit: number, sourceKey = "", search = ""): Promise<HistoryResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
   if (sourceKey) params.set("source_key", sourceKey);
-  if (search) params.set("search", search);
+  if (search) params.set("q", search);
   return jsonRequest<HistoryResponse>(`/api/history?${params.toString()}`, {}, "Could not load history.");
 }
 

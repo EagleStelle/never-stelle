@@ -93,10 +93,9 @@ def test_iwara_history_uses_swaratelle_only(monkeypatch: pytest.MonkeyPatch) -> 
     def fail_local_history(*args, **kwargs):
         raise AssertionError("Iwara history should come from Swaratelle, not Never Stelle storage.")
 
-    def swaratelle_history(offset, limit, search):
+    def swaratelle_history(cursor, limit, search):
         return {
             "entries": [swaratelle.placeholder_task("https://iwara.tv/video/abc123")],
-            "total": 1,
         }
 
     monkeypatch.setattr(serializers_module, "load_history_entries_page", fail_local_history)
@@ -106,7 +105,6 @@ def test_iwara_history_uses_swaratelle_only(monkeypatch: pytest.MonkeyPatch) -> 
         swaratelle_history,
     )
 
-    response = serializers_module.fetch_history_page(0, 30, "iwara", "")
+    response = serializers_module.fetch_history_page("", 30, "iwara", "")
 
-    assert response["total"] == 1
     assert response["entries"][0]["source_key"] == "iwara"

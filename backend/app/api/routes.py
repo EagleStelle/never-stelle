@@ -221,12 +221,14 @@ def list_tasks() -> dict[str, Any]:
 
 
 @router.get("/history")
-def list_history(offset: int = 0, limit: int = 30, source_key: str = "", search: str = "") -> dict[str, Any]:
+def list_history(cursor: str = "", limit: int = 50, source_key: str = "", q: str = "") -> dict[str, Any]:
     from backend.app.services.tasks.serializers import fetch_history_page
 
-    limit = max(1, min(200, limit))
-    offset = max(0, offset)
-    return fetch_history_page(offset, limit, source_key, search)
+    limit = max(1, min(100, limit))
+    try:
+        return fetch_history_page(cursor, limit, source_key, q)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/scan")

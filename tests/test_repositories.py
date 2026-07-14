@@ -4,6 +4,7 @@ import json
 
 import backend.app.db.database as database_module
 from backend.app.db import repositories
+from backend.app.services.tasks import serializers
 from backend.app.services.tasks.formats import learn_download
 
 
@@ -110,24 +111,47 @@ def _seed_history(monkeypatch, tmp_path):
 
 def test_load_history_page_search_matches_creator(tmp_path, monkeypatch):
     _seed_history(monkeypatch, tmp_path)
-    rows, total = repositories.load_history_page(30, 0, search="hoshi")
-    assert total == 1
-    assert [task_id for task_id, _ in rows] == ["t1"]
+    rows = repositories.load_history_page(30, search="hoshi")
+    assert len(rows) == 1
+    assert [task_id for task_id, *_ in rows] == ["t1"]
 
 
 def test_load_history_page_search_matches_filename_and_url(tmp_path, monkeypatch):
     _seed_history(monkeypatch, tmp_path)
-    assert repositories.load_history_page(30, 0, search="shark")[1] == 1
-    assert repositories.load_history_page(30, 0, search="tiktok.com")[1] == 1
+    assert len(repositories.load_history_page(30, search="shark")) == 1
+    assert len(repositories.load_history_page(30, search="tiktok.com")) == 1
 
 
 def test_load_history_page_search_combines_with_source_key(tmp_path, monkeypatch):
     _seed_history(monkeypatch, tmp_path)
     # Source filter + a term that only the other source matches -> no rows.
-    assert repositories.load_history_page(30, 0, source_key="youtube", search="gura")[1] == 0
-    assert repositories.load_history_page(30, 0, source_key="youtube", search="comet")[1] == 1
+    assert len(repositories.load_history_page(30, source_key="youtube", search="gura")) == 0
+    assert len(repositories.load_history_page(30, source_key="youtube", search="comet")) == 1
 
 
 def test_load_history_page_empty_search_returns_all(tmp_path, monkeypatch):
     _seed_history(monkeypatch, tmp_path)
-    assert repositories.load_history_page(30, 0, search="")[1] == 2
+    assert len(repositories.load_history_page(30, search="")) == 2
+
+
+def test_load_history_page_cursor_moves_after_last_row(tmp_path, monkeypatch):
+    _seed_history(monkeypatch, tmp_path)
+
+    first_page = repositories.load_history_page(1)
+    cursor = (first_page[0][2], first_page[0][3], first_page[0][0])
+    next_page = repositories.load_history_page(1, cursor)
+
+    assert [task_id for task_id, *_ in first_page] == ["t1"]
+    assert [task_id for task_id, *_ in next_page] == ["t2"]
+
+
+def test_fetch_history_page_returns_opaque_next_cursor(tmp_path, monkeypatch):
+    _seed_history(monkeypatch, tmp_path)
+    monkeypatch.setattr(serializers.swaratelle, "is_configured", lambda: False)
+
+    first_page = serializers.fetch_history_page("", 1, "", "")
+    next_page = serializers.fetch_history_page(first_page["next_cursor"], 1, "", "")
+
+    assert "total" not in first_page
+    assert [task["vid"] for task in first_page["entries"]] == ["t1"]
+    assert [task["vid"] for task in next_page["entries"]] == ["t2"]

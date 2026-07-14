@@ -284,16 +284,28 @@ def count_history_by_source() -> dict[str, int]:
 
 
 def load_history_page(
-    limit: int, offset: int, source_key: str = "", search: str = ""
-) -> tuple[list[tuple[str, dict[str, Any]]], int]:
-    # One ordered page plus the filtered total, so infinite scroll knows when to stop.
+    limit: int,
+    cursor: tuple[str, str, str] | None = None,
+    source_key: str = "",
+    search: str = "",
+) -> list[tuple[str, dict[str, Any], str, str]]:
+    # Keyset page ordered newest-first. The caller asks for limit + 1 to detect another page.
     limit = max(1, int(limit))
-    offset = max(0, int(offset))
     clauses: list[str] = []
     params: list[Any] = []
     if source_key:
         clauses.append("source_key = ?")
         params.append(source_key)
+    if cursor:
+        completed_at, updated_at, task_id = cursor
+        clauses.append(
+            "("
+            "completed_at < ?"
+            " OR (completed_at = ? AND updated_at < ?)"
+            " OR (completed_at = ? AND updated_at = ? AND task_id < ?)"
+            ")"
+        )
+        params.extend([completed_at, completed_at, updated_at, completed_at, updated_at, task_id])
     term = search.strip().lower()
     if term:
         # Match the user-visible fields (url, creator, filename, folder, media id) via JSON1.
@@ -310,18 +322,23 @@ def load_history_page(
         params.extend([like, like, like, like, like])
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     with transaction() as connection:
-        total = int(
-            connection.execute(f"SELECT COUNT(*) FROM history {where}", params).fetchone()[0] or 0
-        )
         rows = connection.execute(
             f"""
-            SELECT task_id, payload FROM history {where}
-            ORDER BY completed_at DESC, updated_at DESC, task_id
-            LIMIT ? OFFSET ?
+            SELECT task_id, payload, completed_at, updated_at FROM history {where}
+            ORDER BY completed_at DESC, updated_at DESC, task_id DESC
+            LIMIT ?
             """,
-            (*params, limit, offset),
+            (*params, limit),
         ).fetchall()
-    return [(str(row["task_id"]), _decode(row["payload"], {})) for row in rows], total
+    return [
+        (
+            str(row["task_id"]),
+            _decode(row["payload"], {}),
+            str(row["completed_at"] or ""),
+            str(row["updated_at"] or ""),
+        )
+        for row in rows
+    ]
 
 
 def activity_revision() -> tuple[int, str, int, str]:
@@ -434,7 +451,7 @@ def delete_task_row_if_status(task_id: str, statuses: set[str]) -> bool:
 def load_history_payload() -> dict[str, Any]:
     with transaction() as connection:
         rows = connection.execute(
-            "SELECT task_id, payload FROM history ORDER BY completed_at DESC, updated_at DESC, task_id"
+            "SELECT task_id, payload FROM history ORDER BY completed_at DESC, updated_at DESC, task_id DESC"
         ).fetchall()
     return {"entries": {row["task_id"]: _decode(row["payload"], {}) for row in rows}}
 

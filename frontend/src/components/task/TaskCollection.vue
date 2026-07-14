@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, useTemplateRef, watch } from "vue";
-import { useIntersectionObserver } from "@vueuse/core";
+import { computed, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
 import IconSpinner from "~icons/material-symbols/sync";
 
 import TaskGrid from "./TaskGrid.vue";
@@ -20,6 +19,7 @@ const props = defineProps<{
   errorMessage?: string;
   // Set by server-paginated callers (history); undefined uses the client-side window.
   hasMore?: boolean;
+  fetchingMore?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -34,22 +34,41 @@ const emit = defineEmits<{
 const clientMode = computed(() => props.hasMore === undefined);
 const visibleCount = ref(PAGE_SIZE);
 const visibleTasks = computed(() => (clientMode.value ? props.tasks.slice(0, visibleCount.value) : props.tasks));
-const showSentinel = computed(() =>
+const canLoadMore = computed(() =>
   clientMode.value ? visibleCount.value < props.tasks.length : Boolean(props.hasMore),
+);
+const showSentinel = computed(() =>
+  clientMode.value ? canLoadMore.value : props.pageKind === "history" || canLoadMore.value,
 );
 
 watch(() => props.listKey, () => (visibleCount.value = PAGE_SIZE));
 
 const sentinel = useTemplateRef<HTMLElement>("sentinel");
-useIntersectionObserver(
-  sentinel,
-  ([entry]) => {
-    if (!entry.isIntersecting) return;
-    if (clientMode.value) visibleCount.value += PAGE_SIZE;
-    else emit("load-more");
-  },
-  { rootMargin: "0px 0px 400px 0px" },
-);
+let observer: IntersectionObserver | null = null;
+
+watchEffect((onCleanup) => {
+  const element = sentinel.value;
+  if (!element || !canLoadMore.value || (!clientMode.value && props.fetchingMore)) return;
+
+  let didRequestNextPage = false;
+  observer = new IntersectionObserver(
+    ([entry]) => {
+      if (!entry?.isIntersecting || didRequestNextPage) return;
+      didRequestNextPage = true;
+      if (clientMode.value) visibleCount.value += PAGE_SIZE;
+      else emit("load-more");
+    },
+    { rootMargin: "320px 0px" },
+  );
+
+  observer.observe(element);
+  onCleanup(() => {
+    observer?.disconnect();
+    observer = null;
+  });
+});
+
+onUnmounted(() => observer?.disconnect());
 </script>
 
 <template>
@@ -63,7 +82,7 @@ useIntersectionObserver(
     </div>
 
     <div
-      v-else-if="errorMessage"
+      v-else-if="errorMessage && tasks.length === 0"
       class="rounded-lg glass flex min-h-32 items-center justify-center gap-2 text-center text-white in-[.light-mode]:text-black"
     >
       {{ errorMessage }}
@@ -96,10 +115,24 @@ useIntersectionObserver(
       <div
         v-if="showSentinel"
         ref="sentinel"
-        class="flex min-h-16 items-center justify-center gap-2 text-white in-[.light-mode]:text-black"
+        :aria-hidden="!canLoadMore"
+        class="min-h-10"
+        :data-testid="pageKind === 'history' ? 'history-scroll-sentinel' : undefined"
       >
-        <IconSpinner class="animate-spin text-accent" aria-hidden="true" />
-        <span class="text-sm">Loading more...</span>
+        <div
+          v-if="clientMode"
+          class="flex min-h-10 items-center justify-center gap-2 text-white in-[.light-mode]:text-black"
+        >
+          <IconSpinner class="animate-spin text-accent" aria-hidden="true" />
+          <span class="text-sm">Loading more...</span>
+        </div>
+        <div
+          v-else-if="fetchingMore"
+          role="status"
+          class="flex justify-center py-2 text-sm text-white/70 in-[.light-mode]:text-black/70"
+        >
+          Loading more...
+        </div>
       </div>
     </template>
   </section>

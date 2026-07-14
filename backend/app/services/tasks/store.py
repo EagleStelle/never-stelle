@@ -46,11 +46,11 @@ def load_history() -> dict[str, Any]:
 
 def load_history_entries_page(
     limit: int,
-    offset: int,
+    cursor: tuple[str, str, str] | None = None,
     source_key: str = "",
     search: str = "",
-) -> tuple[list[tuple[str, dict[str, Any]]], int]:
-    return load_history_page(limit, offset, source_key, search)
+) -> list[tuple[str, dict[str, Any], str, str]]:
+    return load_history_page(limit, cursor, source_key, search)
 
 
 def history_counts_by_source() -> dict[str, int]:

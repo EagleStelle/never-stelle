@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -128,33 +131,164 @@ def fetch_active_tasks() -> list[dict[str, Any]]:
     return tasks
 
 
-def _history_sort_key(task: dict[str, Any]) -> tuple[str, str]:
-    timestamp = str(task.get("completed_at") or task.get("created_at") or "")
-    return (timestamp, str(task.get("vid") or ""))
+HistoryRow = tuple[str, dict[str, Any], str, str]
+HistoryCandidate = tuple[tuple[float, float, str], str, str, dict[str, Any]]
 
 
-def fetch_history_page(offset: int, limit: int, source_key: str = "", search: str = "") -> dict[str, Any]:
+def _encode_cursor_payload(payload: dict[str, Any]) -> str:
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _decode_cursor_payload(cursor: str) -> dict[str, Any]:
+    if not cursor:
+        return {}
+    try:
+        padded = cursor + ("=" * (-len(cursor) % 4))
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+    except Exception as exc:
+        raise ValueError("History cursor is invalid.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("History cursor is invalid.")
+    return payload
+
+
+def _decode_local_history_cursor(cursor: str) -> tuple[str, str, str] | None:
+    payload = _decode_cursor_payload(cursor)
+    if not payload:
+        return None
+    completed_at = str(payload.get("completed_at") or "")
+    updated_at = str(payload.get("updated_at") or "")
+    task_id = str(payload.get("task_id") or "")
+    if not (completed_at and updated_at and task_id):
+        raise ValueError("History cursor is invalid.")
+    return (completed_at, updated_at, task_id)
+
+
+def _local_history_cursor_for_row(row: HistoryRow) -> str:
+    return _encode_cursor_payload({"completed_at": row[2], "updated_at": row[3], "task_id": row[0]})
+
+
+def _decode_combined_history_cursor(cursor: str) -> tuple[str, str]:
+    payload = _decode_cursor_payload(cursor)
+    if not payload:
+        return ("", "")
+    return (str(payload.get("local") or ""), str(payload.get("swaratelle") or ""))
+
+
+def _encode_combined_history_cursor(local_cursor: str, swaratelle_cursor: str) -> str:
+    payload = {
+        key: value
+        for key, value in {"local": local_cursor, "swaratelle": swaratelle_cursor}.items()
+        if value
+    }
+    return _encode_cursor_payload(payload) if payload else ""
+
+
+def _sort_timestamp(value: Any) -> float:
+    raw = str(value or "").strip()
+    if not raw:
+        return 0.0
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.timestamp()
+
+
+def _history_sort_key(task: dict[str, Any], updated_at: str = "") -> tuple[float, float, str]:
+    completed_at = str(task.get("completed_at") or task.get("created_at") or "")
+    updated = updated_at or completed_at
+    return (_sort_timestamp(completed_at), _sort_timestamp(updated), str(task.get("vid") or ""))
+
+
+def _local_history_candidates(cursor: str, limit: int, search: str) -> list[HistoryCandidate]:
+    rows = load_history_entries_page(limit + 1, _decode_local_history_cursor(cursor), "", search)
+    candidates: list[HistoryCandidate] = []
+    for row in rows:
+        task_id, entry, completed_at, updated_at = row
+        task = history_to_api(task_id, entry)
+        candidates.append(
+            (
+                (_sort_timestamp(completed_at), _sort_timestamp(updated_at), str(task.get("vid") or "")),
+                "local",
+                _local_history_cursor_for_row(row),
+                task,
+            )
+        )
+    return candidates
+
+
+def _swaratelle_history_candidates(cursor: str, limit: int, search: str) -> list[HistoryCandidate]:
+    page = swaratelle.fetch_history_page(cursor, limit + 1, search)
+    candidates: list[HistoryCandidate] = []
+    for task in page.get("entries") or []:
+        if not isinstance(task, dict):
+            continue
+        candidates.append(
+            (
+                _history_sort_key(task),
+                swaratelle.BACKEND_NAME,
+                swaratelle.history_cursor_for_task(task),
+                task,
+            )
+        )
+    return candidates
+
+
+def _fetch_local_history_page(cursor: str, limit: int, source_key: str, search: str) -> dict[str, Any]:
+    rows = load_history_entries_page(limit + 1, _decode_local_history_cursor(cursor), source_key, search)
+    page_rows = rows[:limit]
+    entries = [history_to_api(task_id, entry) for task_id, entry, _, _ in page_rows]
+    result: dict[str, Any] = {"entries": entries}
+    if len(rows) > limit and page_rows:
+        result["next_cursor"] = _local_history_cursor_for_row(page_rows[-1])
+    return result
+
+
+def _fetch_combined_history_page(cursor: str, limit: int, search: str) -> dict[str, Any]:
+    local_cursor, swaratelle_cursor = _decode_combined_history_cursor(cursor)
+    candidates = [
+        *_local_history_candidates(local_cursor, limit, search),
+        *_swaratelle_history_candidates(swaratelle_cursor, limit, search),
+    ]
+    candidates.sort(key=lambda candidate: candidate[0], reverse=True)
+
+    selected = candidates[:limit]
+    result: dict[str, Any] = {"entries": [task for _, _, _, task in selected]}
+    if len(candidates) <= limit:
+        return result
+
+    next_local_cursor = local_cursor
+    next_swaratelle_cursor = swaratelle_cursor
+    for _, source, next_cursor, _ in selected:
+        if source == "local" and next_cursor:
+            next_local_cursor = next_cursor
+        elif source == swaratelle.BACKEND_NAME and next_cursor:
+            next_swaratelle_cursor = next_cursor
+
+    next_cursor = _encode_combined_history_cursor(next_local_cursor, next_swaratelle_cursor)
+    if next_cursor:
+        result["next_cursor"] = next_cursor
+    return result
+
+
+def fetch_history_page(cursor: str = "", limit: int = 50, source_key: str = "", search: str = "") -> dict[str, Any]:
+    limit = max(1, int(limit))
     normalized_source = normalize_source_key(source_key) if source_key else ""
     if normalized_source == swaratelle.SOURCE_KEY:
-        return swaratelle.fetch_history_page(offset, limit, search)
+        return swaratelle.fetch_history_page(cursor, limit, search)
 
     if not normalized_source and swaratelle.is_configured():
-        fetch_limit = max(1, offset + limit)
-        rows, local_total = load_history_entries_page(fetch_limit, 0, "", search)
-        entries = [history_to_api(task_id, entry) for task_id, entry in rows]
-        swaratelle_page = swaratelle.fetch_history_page(0, fetch_limit, search)
-        entries.extend(swaratelle_page.get("entries") or [])
-        entries.sort(key=_history_sort_key, reverse=True)
-        return {
-            "entries": entries[offset : offset + limit],
-            "total": int(local_total) + int(swaratelle_page.get("total") or 0),
-        }
+        return _fetch_combined_history_page(cursor, limit, search)
 
-    rows, total = load_history_entries_page(
-        limit, offset, normalized_source, search
-    )
-    entries = [history_to_api(task_id, entry) for task_id, entry in rows]
-    return {"entries": entries, "total": total}
+    return _fetch_local_history_page(cursor, limit, normalized_source, search)
 
 
 def build_counts() -> dict[str, Any]:

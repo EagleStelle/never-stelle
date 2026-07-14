@@ -11,6 +11,7 @@ defineProps<{
   tasks: TaskItem[];
   viewMode: ViewMode;
   hasMore?: boolean;
+  fetchingMore?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -34,6 +35,7 @@ const emit = defineEmits<{
       :source-profiles="sourceProfiles"
       :error-message="errorMessage"
       :has-more="hasMore"
+      :fetching-more="fetchingMore"
       @cancel="emit('cancel', $event)"
       @download="emit('download', $event)"
       @remove="emit('remove', $event)"
