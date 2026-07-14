@@ -1529,6 +1529,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 _learn_source_format(item_source_url, display_filename, media_id)
             for row_task_id, completed_task in completed_rows:
                 save_history_entry(row_task_id, completed_task)
+                remove_task_record(row_task_id)
             return
 
         update_task(

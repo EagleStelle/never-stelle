@@ -140,6 +140,9 @@ def initialize_database() -> None:
         try:
             connection.executescript(SCHEMA)
             _migrate_schema(connection)
+            connection.execute(
+                "DELETE FROM queue WHERE status = 'completed' AND id IN (SELECT task_id FROM history)"
+            )
             connection.commit()
         except Exception:
             connection.rollback()
