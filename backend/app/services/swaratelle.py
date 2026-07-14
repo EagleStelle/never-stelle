@@ -25,7 +25,9 @@ _STATUS_LABELS = {
 
 
 class SwaratelleError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class SwaratelleNotConfigured(SwaratelleError):
@@ -57,6 +59,17 @@ def source_profile() -> dict[str, Any]:
 def is_swaratelle_url(source_url: str) -> bool:
     host = host_from_url(source_url)
     return any(host == candidate or host.endswith(f".{candidate}") for candidate in SOURCE_HOSTS)
+
+
+def is_swaratelle_task_id(task_id: str) -> bool:
+    # Every proxied task carries the "swaratelle:" vid prefix set in record_to_task.
+    return str(task_id or "").startswith(f"{BACKEND_NAME}:")
+
+
+def video_id_from_task_id(task_id: str) -> str:
+    task_id = str(task_id or "")
+    prefix = f"{BACKEND_NAME}:"
+    return task_id[len(prefix):].strip() if task_id.startswith(prefix) else ""
 
 
 def _api_url(path: str) -> str:
@@ -104,7 +117,9 @@ def _request_json(
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
-        raise SwaratelleError(_response_error(exc.response)) from exc
+        raise SwaratelleError(
+            _response_error(exc.response), status_code=exc.response.status_code
+        ) from exc
     except httpx.HTTPError as exc:
         raise SwaratelleError(f"Could not reach Swaratelle: {exc}") from exc
 
@@ -288,8 +303,9 @@ def record_to_task(item: dict[str, Any], *, fallback_status: str = "pending") ->
         "resolved_filename": _filename(item, resolved_path),
         "resolved_full_path": resolved_path,
         "preview_warning": "",
-        "can_remove": False,
-        "can_cancel": False,
+        # DELETE /downloads/{id} cancels pending/running and removes failed; no retry route.
+        "can_remove": status in {"pending", "failed"},
+        "can_cancel": status == "running",
         "can_retry": False,
         "task_type": BACKEND_NAME,
         "source_key": SOURCE_KEY,
@@ -329,6 +345,14 @@ def queue_urls(source_urls: list[str]) -> tuple[list[dict[str, Any]], bool]:
     if not tasks:
         tasks = [placeholder_task(url) for url in urls]
     return tasks, False
+
+
+def cancel_task(task_id: str) -> None:
+    # One DELETE covers both actions: cancels a pending/running download and removes a failed one.
+    video_id = video_id_from_task_id(task_id) or str(task_id or "").strip()
+    if not video_id:
+        raise SwaratelleError("Missing Swaratelle download id.")
+    _request_json("DELETE", f"/downloads/{video_id}")
 
 
 def fetch_active_tasks(*, quiet: bool = True) -> list[dict[str, Any]]:

@@ -296,6 +296,8 @@ def delete_task(task_id: str) -> Response:
         remove_pending_task(task_id)
     except PermissionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except swaratelle.SwaratelleError as exc:
+        raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
     return Response(status_code=204)
 
 
@@ -307,6 +309,8 @@ def cancel_task_route(task_id: str) -> Response:
         cancel_task(task_id)
     except PermissionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except swaratelle.SwaratelleError as exc:
+        raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
     return Response(status_code=204)
 
 

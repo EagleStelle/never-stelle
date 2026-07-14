@@ -116,6 +116,10 @@ def _correct_reconstructed_url(task_id: str, entry: dict[str, Any], source_url: 
 
 
 def remove_pending_task(task_id: str) -> None:
+    if swaratelle.is_swaratelle_task_id(task_id):
+        # Failed/pending Iwara downloads live in Swaratelle; delegate the delete there.
+        swaratelle.cancel_task(task_id)
+        return
     task = (load_task_store().get("tasks") or {}).get(task_id)
     if not task:
         return
@@ -126,6 +130,10 @@ def remove_pending_task(task_id: str) -> None:
 
 
 def cancel_task(task_id: str) -> None:
+    if swaratelle.is_swaratelle_task_id(task_id):
+        # Running Iwara download: Swaratelle's DELETE signals its own downloader to stop.
+        swaratelle.cancel_task(task_id)
+        return
     task = (load_task_store().get("tasks") or {}).get(task_id)
     if not task:
         return
