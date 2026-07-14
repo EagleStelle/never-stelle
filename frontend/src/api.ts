@@ -213,10 +213,8 @@ export function scanMediaLibrary(): Promise<ScanMediaResponse> {
   );
 }
 
-export async function fetchTaskFile(taskId: string): Promise<Response> {
-  const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/file`, { credentials: "same-origin" });
-  if (!response.ok) {
-    throw new Error(await readError(response, "Could not download that file."));
-  }
-  return response;
+// Same-origin URL for the completed media bytes. Used directly by <a download>
+// so the browser receives the response as a native streamed download.
+export function taskFileUrl(taskId: string): string {
+  return `/api/tasks/${encodeURIComponent(taskId)}/file`;
 }

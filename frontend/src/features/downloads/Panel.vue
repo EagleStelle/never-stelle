@@ -16,7 +16,6 @@ defineProps<{
 
 const emit = defineEmits<{
   cancel: [taskId: string];
-  download: [taskId: string];
   remove: [taskId: string];
   retry: [taskId: string];
   "set-source": [payload: { taskId: string; sourceKey: string }];
@@ -37,7 +36,6 @@ const emit = defineEmits<{
       :has-more="hasMore"
       :fetching-more="fetchingMore"
       @cancel="emit('cancel', $event)"
-      @download="emit('download', $event)"
       @remove="emit('remove', $event)"
       @retry="emit('retry', $event)"
       @set-source="emit('set-source', $event)"

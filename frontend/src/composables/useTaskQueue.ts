@@ -6,7 +6,6 @@ import {
   addTask as createTask,
   cancelTask as cancelTaskRequest,
   clearPendingTasks,
-  fetchTaskFile,
   getTasks,
   probeUrl,
   removeTask as removeTaskRequest,
@@ -17,7 +16,7 @@ import {
 import { useAuth } from "./useAuth";
 import { POLL_PENDING_MS, POLL_RUNNING_MS, TASKS_QUERY_KEY } from "../ui";
 import type { PlaylistEntry, QualitySelection, SavedSettings, TaskItem, TasksResponse, ToastType } from "../types";
-import { countTasks, errorMessage, filenameFromContentDisposition } from "../utils/dashboard";
+import { countTasks, errorMessage } from "../utils/dashboard";
 
 interface UseTaskQueueOptions {
   getSavedSettings: () => SavedSettings;
@@ -172,29 +171,6 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     }
   }
 
-  async function downloadTaskFile(taskId: string): Promise<void> {
-    const response = await fetchTaskFile(taskId);
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = objectUrl;
-    link.rel = "noopener";
-    link.download = filenameFromContentDisposition(response.headers.get("content-disposition") || "");
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-    await loadTasks(true);
-  }
-
-  async function downloadTask(taskId: string): Promise<void> {
-    try {
-      await downloadTaskFile(taskId);
-    } catch (error) {
-      toast(errorMessage(error, "Could not download that file."), "error");
-    }
-  }
-
   async function removeTask(taskId: string): Promise<void> {
     try {
       await removeTaskRequest(taskId);
@@ -287,7 +263,6 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     cancelTask,
     clearPending,
     confirmPlaylistSelection,
-    downloadTask,
     historyRefreshing,
     retryTask,
     playlistEntries,

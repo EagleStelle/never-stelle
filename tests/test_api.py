@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 import backend.app.db.database as database_module
 from backend.app.main import app
 from backend.app.services import swaratelle
+from backend.app.services.tasks import cache as cache_module
+from backend.app.services.tasks import operations as operations_module
 
 # No `with` block: lifespan (db init + worker thread) stays inert for these
 # read-only route checks.
@@ -116,3 +118,56 @@ def test_swaratelle_task_file_route_streams_external_download(tmp_path, monkeypa
     assert response.headers["content-disposition"] == 'attachment; filename="clip.mp4"'
     assert response.headers["content-type"].startswith("video/mp4")
     assert closed["value"] is True
+
+
+def test_local_task_file_route_streams_with_cache_advice(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"abcdef")
+    advised: list[tuple[int, int]] = []
+
+    monkeypatch.setattr(
+        operations_module,
+        "resolve_task_file",
+        lambda task_id: (media, "clip.mp4", None),
+    )
+    monkeypatch.setattr(
+        cache_module,
+        "drop_file_cache_fd",
+        lambda fd, offset=0, length=0: advised.append((offset, length)),
+    )
+
+    response = client.get("/api/tasks/ytdlp:abc123/file")
+
+    assert response.status_code == 200
+    assert response.content == b"abcdef"
+    assert response.headers["content-length"] == "6"
+    assert response.headers["content-disposition"] == 'attachment; filename="clip.mp4"'
+    assert response.headers["accept-ranges"] == "bytes"
+    assert (0, 6) in advised
+
+
+def test_local_task_file_route_supports_byte_ranges(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"abcdef")
+    advised: list[tuple[int, int]] = []
+
+    monkeypatch.setattr(
+        operations_module,
+        "resolve_task_file",
+        lambda task_id: (media, "clip.mp4", None),
+    )
+    monkeypatch.setattr(
+        cache_module,
+        "drop_file_cache_fd",
+        lambda fd, offset=0, length=0: advised.append((offset, length)),
+    )
+
+    response = client.get("/api/tasks/ytdlp:abc123/file", headers={"Range": "bytes=2-4"})
+
+    assert response.status_code == 206
+    assert response.content == b"cde"
+    assert response.headers["content-range"] == "bytes 2-4/6"
+    assert response.headers["content-length"] == "3"
+    assert (2, 3) in advised

@@ -39,9 +39,7 @@ def drop_file_cache(paths: Iterable[Path | str]) -> None:
     This reduces Docker/Synology memory growth caused by file page cache after
     large downloads. It is a no-op on platforms without posix_fadvise support.
     """
-    posix_fadvise = getattr(os, "posix_fadvise", None)
-    dontneed = getattr(os, "POSIX_FADV_DONTNEED", None)
-    if posix_fadvise is None or dontneed is None:
+    if not _has_dontneed_advice():
         return
 
     sync_file = getattr(os, "fdatasync", None) or getattr(os, "fsync", None)
@@ -53,6 +51,22 @@ def drop_file_cache(paths: Iterable[Path | str]) -> None:
                         sync_file(handle.fileno())
                     except OSError:
                         pass
-                posix_fadvise(handle.fileno(), 0, 0, dontneed)
+                drop_file_cache_fd(handle.fileno(), 0, 0)
         except OSError:
             continue
+
+
+def _has_dontneed_advice() -> bool:
+    return getattr(os, "posix_fadvise", None) is not None and getattr(os, "POSIX_FADV_DONTNEED", None) is not None
+
+
+def drop_file_cache_fd(fd: int, offset: int = 0, length: int = 0) -> None:
+    """Tell Linux the app is done with a file range already read from fd."""
+    posix_fadvise = getattr(os, "posix_fadvise", None)
+    dontneed = getattr(os, "POSIX_FADV_DONTNEED", None)
+    if posix_fadvise is None or dontneed is None:
+        return
+    try:
+        posix_fadvise(fd, max(0, int(offset)), max(0, int(length)), dontneed)
+    except OSError:
+        pass

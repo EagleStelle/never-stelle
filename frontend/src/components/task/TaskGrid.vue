@@ -7,6 +7,7 @@ import IconRetry from "~icons/material-symbols/replay";
 import { Button } from "../ui/button";
 import SourcePicker from "./SourcePicker.vue";
 
+import { taskFileUrl } from "../../api";
 import type { SourceProfile, TaskItem } from "../../types";
 import {
   sourceIconUrl,
@@ -24,7 +25,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   cancel: [taskId: string];
-  download: [taskId: string];
   remove: [taskId: string];
   retry: [taskId: string];
   "set-source": [payload: { taskId: string; sourceKey: string }];
@@ -95,12 +95,13 @@ function canRemove(task: TaskItem): boolean {
         <div class="flex items-start justify-end gap-1.5">
           <Button
             v-if="canDownload(task)"
+            as="a"
             variant="soft"
             size="default"
-            type="button"
+            :href="taskFileUrl(task.vid)"
+            download
             aria-label="Download file"
             title="Download file"
-            @click="emit('download', task.vid)"
           >
             <template #icon>
               <IconDownload aria-hidden="true" />

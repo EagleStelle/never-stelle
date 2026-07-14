@@ -403,8 +403,3 @@ export function countTasks(tasks: TaskItem[]): TaskCounts {
   };
 }
 
-export function filenameFromContentDisposition(header: string): string {
-  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
-  const asciiMatch = header.match(/filename="?([^";]+)"?/i);
-  return utf8Match ? decodeURIComponent(utf8Match[1]) : asciiMatch ? asciiMatch[1] : "download";
-}

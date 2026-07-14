@@ -46,7 +46,6 @@ const {
   connectCookiesForSource,
   cookieStatuses,
   countCards,
-  downloadTask,
   historyRefreshing,
   historyLoading,
   historyError,
@@ -243,7 +242,6 @@ const { height: statusBarHeight } = useElementSize(
               :fetching-more="activePage === 'history' ? historyFetchingMore : undefined"
               @cancel="cancelTask"
               @clear-pending="clearPending"
-              @download="downloadTask"
               @remove="removeTask"
               @retry="retryTask"
               @set-source="setTaskSource"

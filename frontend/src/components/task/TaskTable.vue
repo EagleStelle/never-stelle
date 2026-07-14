@@ -16,6 +16,7 @@ import {
 } from "../ui/table";
 import SourcePicker from "./SourcePicker.vue";
 
+import { taskFileUrl } from "../../api";
 import type { SourceProfile, TaskItem } from "../../types";
 import { formatSize, sourceIconUrl, sourceLink, taskBackgroundStyle } from "../../utils/task";
 
@@ -26,7 +27,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   cancel: [taskId: string];
-  download: [taskId: string];
   remove: [taskId: string];
   retry: [taskId: string];
   "set-source": [payload: { taskId: string; sourceKey: string }];
@@ -105,12 +105,13 @@ function toggle(set: Set<string>, id: string): void {
           <div class="flex items-center justify-end gap-1.5">
             <Button
               v-if="task.can_download"
+              as="a"
               variant="primary"
               size="xs"
-              type="button"
+              :href="taskFileUrl(task.vid)"
+              download
               aria-label="Download file"
               title="Download file"
-              @click="emit('download', task.vid)"
             >
               <template #icon>
                 <IconDownload aria-hidden="true" />

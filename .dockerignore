@@ -18,6 +18,12 @@
 !frontend/public/
 !frontend/public/**
 
+# Local env files should never enter the image.
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.template
+
 # Generated files and local runtime state, even under included trees.
 **/__pycache__/
 **/*.py[cod]
