@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key
@@ -10,6 +11,22 @@ from .formats import media_id_from_url, url_dedup_key
 from .scan import parse_filename_media_id
 from .store import load_history, load_task_store, save_history_entry_row
 from .urls import detect_source_key
+
+
+def _stored_file_size(task: dict[str, Any]) -> int:
+    try:
+        value = int(task.get("file_size") or 0)
+    except Exception:
+        value = 0
+    if value > 0:
+        return value
+    resolved_path = str(task.get("resolved_full_path") or "").strip()
+    if not resolved_path:
+        return 0
+    try:
+        return Path(resolved_path).stat().st_size
+    except OSError:
+        return 0
 
 
 def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
@@ -30,6 +47,7 @@ def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
             "resolved_folder": str(task.get("resolved_folder") or ""),
             "resolved_filename": str(task.get("resolved_filename") or ""),
             "resolved_full_path": str(task.get("resolved_full_path") or ""),
+            "file_size": _stored_file_size(task),
             "quality": normalize_quality_selection(task.get("quality")),
             "completed_at": datetime.now(UTC).isoformat(),
         },

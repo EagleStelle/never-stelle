@@ -9,6 +9,7 @@ import backend.app.services.tasks.gallerydl as gallerydl_module
 import backend.app.services.tasks.history as history_module
 import backend.app.services.tasks.operations as operations_module
 import backend.app.services.tasks.scan as scan_module
+import backend.app.services.tasks.serializers as serializers_module
 import backend.app.services.tasks.urls as urls_module
 import backend.app.services.tasks.worker as worker_module
 from backend.app.services.tasks import (
@@ -2059,6 +2060,54 @@ def test_history_preserves_completed_engine(monkeypatch: pytest.MonkeyPatch):
     api_task = history_to_api("gallerydl:abc123", saved["gallerydl:abc123"])
     assert api_task["task_type"] == "gallerydl"
     assert api_task["quality"]["audio_format"] == "opus"
+
+
+def test_history_to_api_does_not_touch_filesystem(monkeypatch: pytest.MonkeyPatch):
+    def fail_recovery(*args, **kwargs):
+        raise AssertionError("History list serialization should not stat or recover files.")
+
+    monkeypatch.setattr(serializers_module, "recover_task_path", fail_recovery)
+
+    api_task = history_to_api(
+        "gallerydl:abc123",
+        {
+            "task_type": "gallerydl",
+            "source_url": "https://imgur.com/a/abc123",
+            "source_key": "imgur",
+            "resolved_folder": "/media/imgur",
+            "resolved_filename": "clip [abc123].jpg",
+            "resolved_full_path": "/media/imgur/clip [abc123].jpg",
+            "file_size": 1234,
+        },
+    )
+
+    assert api_task["can_download"] is True
+    assert api_task["file_size"] == 1234
+
+
+def test_resolve_task_file_for_history_entry_validates_on_download(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media_file = tmp_path / "clip [abc123].jpg"
+    media_file.write_bytes(b"image")
+
+    monkeypatch.setattr(operations_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(
+        operations_module,
+        "find_history_by_id",
+        lambda task_id: {
+            "task_type": "gallerydl",
+            "creator": "creator",
+            "source_url": "https://imgur.com/a/abc123",
+            "resolved_full_path": str(media_file),
+            "resolved_filename": media_file.name,
+            "resolved_folder": str(tmp_path),
+        },
+    )
+
+    path, filename, cleanup_path = operations_module.resolve_task_file("gallerydl:abc123")
+
+    assert path == media_file
+    assert filename == "clip [abc123].jpg"
+    assert cleanup_path is None
 
 
 def test_resolve_task_file_zips_numbered_gallerydl_siblings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

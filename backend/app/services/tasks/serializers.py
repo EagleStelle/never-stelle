@@ -26,28 +26,47 @@ from .store import (
 from .urls import detect_source_key
 
 
-def _file_size(resolved_path: str) -> int:
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except Exception:
+        return 0
+
+
+def _file_size(resolved_path: str, fallback: Any = 0) -> int:
+    fallback_size = _safe_int(fallback)
+    if fallback_size > 0:
+        return fallback_size
     try:
         return Path(resolved_path).stat().st_size if resolved_path else 0
     except OSError:
         return 0
 
 
-def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
+def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = True) -> dict[str, Any]:
     task = dict(task or {})
     status = str(task.get("status") or "pending")
     try:
         progress_pct = max(0, min(100, round(float(task.get("progress_pct") or 0))))
     except Exception:
         progress_pct = 0
-    resolved_path, resolved_folder, recovered_filename = recover_task_path(task_id, task, persist=False)
+    if resolve_files:
+        resolved_path, resolved_folder, recovered_filename = recover_task_path(task_id, task, persist=False)
+    else:
+        resolved_path = str(task.get("resolved_full_path") or "").strip()
+        resolved_folder = str(task.get("resolved_folder") or "").strip()
+        recovered_filename = str(task.get("resolved_filename") or "").strip()
     source_url = str(task.get("source_url") or "")
     task_type = str(task.get("engine") or "ytdlp")
     source_key = normalize_source_key(
         task.get("source_key")
         or detect_source_key(source_url)
     )
-    can_download = bool(status == "completed" and resolved_path and Path(resolved_path).is_file())
+    can_download = bool(
+        status == "completed"
+        and resolved_path
+        and (not resolve_files or Path(resolved_path).is_file())
+    )
     raw_filename = str(task.get("resolved_filename") or "").strip() or recovered_filename
     media_id, _ = parse_filename_media_id(raw_filename)
     creator = str(creator_from_url(source_url, media_id) or task.get("creator") or "")
@@ -64,7 +83,7 @@ def task_to_api(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
         "progress_pct": progress_pct,
         "source_url": source_url,
         "creator": creator,
-        "file_size": _file_size(resolved_path),
+        "file_size": _file_size(resolved_path, task.get("file_size")),
         "resolved_folder": resolved_folder or str(task.get("resolved_folder") or ""),
         "resolved_filename": resolved_filename,
         "resolved_full_path": resolved_path or str(task.get("resolved_full_path") or ""),
@@ -100,13 +119,14 @@ def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "resolved_folder": entry.get("resolved_folder", ""),
         "resolved_filename": entry.get("resolved_filename", ""),
         "resolved_full_path": entry.get("resolved_full_path", ""),
+        "file_size": entry.get("file_size", 0),
         "quality": entry.get("quality", {}),
         "external": entry.get("external", False),
         "external_backend": entry.get("external_backend", ""),
         "created_at": entry.get("created_at", ""),
         "completed_at": entry.get("completed_at", ""),
     }
-    return task_to_api(task_id, task)
+    return task_to_api(task_id, task, resolve_files=False)
 
 
 def fetch_tasks() -> list[dict[str, Any]]:
