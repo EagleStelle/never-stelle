@@ -40,6 +40,78 @@ def test_swaratelle_record_maps_to_never_stelle_task() -> None:
     assert task["can_download"] is False
 
 
+def test_swaratelle_completed_record_can_download() -> None:
+    task = swaratelle.record_to_task(
+        {
+            "VideoID": "abc123",
+            "Status": "done",
+            "Title": "Clip title",
+        },
+        fallback_status="completed",
+    )
+
+    assert task["vid"] == "swaratelle:abc123"
+    assert task["status"] == "completed"
+    assert task["can_download"] is True
+
+
+def test_swaratelle_download_file_stream_uses_authorized_file_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SWARATELLE_URL", "http://swaratelle:8842")
+    monkeypatch.setenv("SWARATELLE_API_TOKEN", "secret-token")
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        headers = {
+            "content-type": "video/mp4",
+            "content-disposition": 'attachment; filename="clip.mp4"',
+            "content-length": "5",
+        }
+
+        def raise_for_status(self):
+            return None
+
+        def iter_bytes(self):
+            yield b"clip!"
+
+        def close(self):
+            captured["response_closed"] = True
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured["client_kwargs"] = kwargs
+
+        def build_request(self, method, url, headers=None):
+            captured["method"] = method
+            captured["url"] = url
+            captured["headers"] = headers
+            return object()
+
+        def send(self, request, stream=False):
+            captured["stream"] = stream
+            return FakeResponse()
+
+        def close(self):
+            captured["client_closed"] = True
+
+    monkeypatch.setattr(swaratelle.httpx, "Client", FakeClient)
+
+    download = swaratelle.open_download_file("swaratelle:abc123")
+    body = b"".join(download.iter_bytes())
+
+    assert captured["method"] == "GET"
+    assert captured["url"] == "http://swaratelle:8842/api/downloads/abc123/file"
+    assert captured["headers"] == {"Authorization": "Bearer secret-token"}
+    assert captured["stream"] is True
+    assert body == b"clip!"
+    assert download.media_type == "video/mp4"
+    assert download.headers["Content-Disposition"] == 'attachment; filename="clip.mp4"'
+    assert download.headers["Content-Length"] == "5"
+    assert captured["response_closed"] is True
+    assert captured["client_closed"] is True
+
+
 def test_queue_task_delegates_iwara_without_local_write(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SWARATELLE_URL", "http://swaratelle:8842")
 

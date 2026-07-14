@@ -4,9 +4,10 @@ import base64
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, unquote, urlparse
 
 import httpx
 
@@ -34,6 +35,37 @@ class SwaratelleError(RuntimeError):
 
 class SwaratelleNotConfigured(SwaratelleError):
     pass
+
+
+class SwaratelleDownload:
+    def __init__(
+        self,
+        client: httpx.Client,
+        response: httpx.Response,
+        *,
+        media_type: str,
+        headers: dict[str, str],
+    ) -> None:
+        self._client = client
+        self._response = response
+        self.media_type = media_type
+        self.headers = headers
+        self._closed = False
+
+    def iter_bytes(self):
+        try:
+            for chunk in self._response.iter_bytes():
+                if chunk:
+                    yield chunk
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._response.close()
+        self._client.close()
 
 
 def _base_url() -> str:
@@ -99,6 +131,22 @@ def _response_error(response: httpx.Response) -> str:
         if detail:
             return detail
     return f"Swaratelle returned HTTP {response.status_code}."
+
+
+def _filename_from_content_disposition(header: str) -> str:
+    utf8_match = re.search(r"filename\*=UTF-8''([^;]+)", str(header or ""), flags=re.IGNORECASE)
+    if utf8_match:
+        return unquote(utf8_match.group(1).strip().strip('"'))
+    ascii_match = re.search(r'filename="?([^";]+)"?', str(header or ""), flags=re.IGNORECASE)
+    return ascii_match.group(1).strip() if ascii_match else ""
+
+
+def _attachment_content_disposition(filename: str) -> str:
+    filename = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip() or "download"
+    ascii_safe = all(32 <= ord(char) < 127 and char not in {'"', "\\", ";"} for char in filename)
+    if ascii_safe:
+        return f'attachment; filename="{filename}"'
+    return f"attachment; filename*=UTF-8''{quote(filename)}"
 
 
 def _request_json(
@@ -314,7 +362,7 @@ def record_to_task(item: dict[str, Any], *, fallback_status: str = "pending") ->
         "source_pending": False,
         "source_candidates": [],
         "error": error,
-        "can_download": False,
+        "can_download": status == "completed",
         "quality": {},
         "external": True,
         "external_backend": BACKEND_NAME,
@@ -355,6 +403,57 @@ def cancel_task(task_id: str) -> None:
     if not video_id:
         raise SwaratelleError("Missing Swaratelle download id.")
     _request_json("DELETE", f"/downloads/{video_id}")
+
+
+def open_download_file(task_id: str) -> SwaratelleDownload:
+    video_id = video_id_from_task_id(task_id) or str(task_id or "").strip()
+    if not video_id:
+        raise SwaratelleError("Missing Swaratelle download id.")
+
+    client = httpx.Client(
+        timeout=httpx.Timeout(REQUEST_TIMEOUT_SECONDS, read=None),
+        follow_redirects=True,
+    )
+    response: httpx.Response | None = None
+    try:
+        request = client.build_request(
+            "GET",
+            _api_url(f"/downloads/{video_id}/file"),
+            headers=_headers(),
+        )
+        response = client.send(request, stream=True)
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        exc.response.close()
+        client.close()
+        raise SwaratelleError(
+            _response_error(exc.response), status_code=exc.response.status_code
+        ) from exc
+    except httpx.HTTPError as exc:
+        if response is not None:
+            response.close()
+        client.close()
+        raise SwaratelleError(f"Could not reach Swaratelle: {exc}") from exc
+    except Exception:
+        if response is not None:
+            response.close()
+        client.close()
+        raise
+
+    upstream_disposition = response.headers.get("content-disposition", "")
+    filename = _filename_from_content_disposition(upstream_disposition) or f"{video_id}.download"
+    headers = {
+        "Content-Disposition": upstream_disposition or _attachment_content_disposition(filename),
+    }
+    content_length = response.headers.get("content-length")
+    if content_length:
+        headers["Content-Length"] = content_length
+    return SwaratelleDownload(
+        client,
+        response,
+        media_type=response.headers.get("content-type") or "application/octet-stream",
+        headers=headers,
+    )
 
 
 def fetch_active_tasks(*, quiet: bool = True) -> list[dict[str, Any]]:

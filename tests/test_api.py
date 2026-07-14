@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 import backend.app.db.database as database_module
 from backend.app.main import app
+from backend.app.services import swaratelle
 
 # No `with` block: lifespan (db init + worker thread) stays inert for these
 # read-only route checks.
@@ -86,3 +87,32 @@ def test_auth_credentials_update_invalidates_old_login(tmp_path, monkeypatch):
     client.post("/api/auth/logout")
     assert client.post("/api/auth/login", json={"username": "root", "password": "test-password"}).status_code == 401
     assert client.post("/api/auth/login", json={"username": "owner", "password": "new-password"}).status_code == 200
+
+
+def test_swaratelle_task_file_route_streams_external_download(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    closed: dict[str, bool] = {}
+
+    class FakeDownload:
+        media_type = "video/mp4"
+        headers = {"Content-Disposition": 'attachment; filename="clip.mp4"'}
+
+        def iter_bytes(self):
+            yield b"video"
+
+        def close(self):
+            closed["value"] = True
+
+    def fake_open_download_file(task_id: str):
+        assert task_id == "swaratelle:abc123"
+        return FakeDownload()
+
+    monkeypatch.setattr(swaratelle, "open_download_file", fake_open_download_file)
+
+    response = client.get("/api/tasks/swaratelle:abc123/file")
+
+    assert response.status_code == 200
+    assert response.content == b"video"
+    assert response.headers["content-disposition"] == 'attachment; filename="clip.mp4"'
+    assert response.headers["content-type"].startswith("video/mp4")
+    assert closed["value"] is True

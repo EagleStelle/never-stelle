@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
@@ -343,8 +343,20 @@ def update_task_source(task_id: str, payload: SetSourcePayload) -> dict[str, str
 
 
 @router.get("/tasks/{task_id}/file")
-def download_task_file(task_id: str) -> FileResponse:
+def download_task_file(task_id: str) -> Response:
     from backend.app.services.tasks.operations import resolve_task_file
+
+    if swaratelle.is_swaratelle_task_id(task_id):
+        try:
+            download = swaratelle.open_download_file(task_id)
+        except swaratelle.SwaratelleError as exc:
+            raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
+        return StreamingResponse(
+            download.iter_bytes(),
+            media_type=download.media_type,
+            headers=download.headers,
+            background=BackgroundTask(download.close),
+        )
 
     try:
         path, filename, cleanup_path = resolve_task_file(task_id)
