@@ -55,6 +55,60 @@ def test_swaratelle_completed_record_can_download() -> None:
     assert task["can_download"] is True
 
 
+def _queue_response(monkeypatch: pytest.MonkeyPatch, results: list[dict[str, object]]) -> None:
+    monkeypatch.setenv("SWARATELLE_URL", "http://swaratelle:8842")
+    monkeypatch.setattr(swaratelle, "_request_json", lambda *args, **kwargs: results)
+
+
+def test_queue_urls_reports_new_work_as_not_reused(monkeypatch: pytest.MonkeyPatch) -> None:
+    _queue_response(
+        monkeypatch,
+        [{"url": "https://www.iwara.tv/video/abc123", "video_id": "abc123", "status": "queued"}],
+    )
+
+    tasks, reused = swaratelle.queue_urls(["https://www.iwara.tv/video/abc123"])
+
+    assert reused is False
+    assert tasks[0]["status"] == "pending"
+
+
+def test_queue_urls_reports_already_downloaded_as_reused(monkeypatch: pytest.MonkeyPatch) -> None:
+    _queue_response(
+        monkeypatch,
+        [{"url": "https://www.iwara.tv/video/abc123", "video_id": "abc123", "status": "done"}],
+    )
+
+    tasks, reused = swaratelle.queue_urls(["https://www.iwara.tv/video/abc123"])
+
+    assert reused is True
+    assert tasks[0]["status"] == "completed"
+
+
+def test_queue_urls_reports_in_flight_download_as_reused(monkeypatch: pytest.MonkeyPatch) -> None:
+    _queue_response(
+        monkeypatch,
+        [{"url": "https://www.iwara.tv/video/abc123", "video_id": "abc123", "status": "downloading"}],
+    )
+
+    tasks, reused = swaratelle.queue_urls(["https://www.iwara.tv/video/abc123"])
+
+    assert reused is True
+    assert tasks[0]["status"] == "running"
+
+
+def test_queue_urls_does_not_reuse_rejected_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    _queue_response(
+        monkeypatch,
+        [{"url": "https://www.iwara.tv/video/abc123", "status": "rejected", "error": "unsupported url"}],
+    )
+
+    tasks, reused = swaratelle.queue_urls(["https://www.iwara.tv/video/abc123"])
+
+    assert reused is False
+    assert tasks[0]["status"] == "failed"
+    assert tasks[0]["error"] == "unsupported url"
+
+
 def test_swaratelle_download_file_stream_uses_authorized_file_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

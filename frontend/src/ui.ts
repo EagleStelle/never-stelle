@@ -25,6 +25,20 @@ export const FILTER_LABELS: Record<TaskFilter, string> = {
   done: "Done",
 };
 
+// Reuse toasts name each state the way Swaratelle names it, so a delegated Iwara
+// download and a local one report the same outcome in the same words.
+export const REUSED_TASK_MESSAGES: Record<string, string> = {
+  completed: "Already downloaded.",
+  pending: "Already queued.",
+  running: "Already downloading.",
+};
+
+export const REUSED_TASK_FALLBACK = "Already in your list.";
+
+// Swaratelle answers a bad link with HTTP 200 and a failed record, so the toast is
+// the only feedback: the row never reaches the queue.
+export const QUEUE_FAILED_MESSAGE = "Could not queue.";
+
 export const SETTINGS_SECTIONS: Array<{ key: SettingsSection; label: string; route: string }> = [
   { key: "account", label: "Account", route: "/settings/account" },
   { key: "downloads", label: "Locations", route: "/settings/locations" },

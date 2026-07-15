@@ -14,8 +14,15 @@ import {
   setTaskSource as setTaskSourceRequest,
 } from "../api";
 import { useAuth } from "./useAuth";
-import { POLL_PENDING_MS, POLL_RUNNING_MS, TASKS_QUERY_KEY } from "../ui";
-import type { PlaylistEntry, QualitySelection, SavedSettings, TaskItem, TasksResponse, ToastType } from "../types";
+import {
+  POLL_PENDING_MS,
+  POLL_RUNNING_MS,
+  QUEUE_FAILED_MESSAGE,
+  REUSED_TASK_FALLBACK,
+  REUSED_TASK_MESSAGES,
+  TASKS_QUERY_KEY,
+} from "../ui";
+import type { PlaylistEntry, QualitySelection, SavedSettings, TaskItem, TaskStatus, TasksResponse, ToastType } from "../types";
 import { countTasks, errorMessage } from "../utils/dashboard";
 
 interface UseTaskQueueOptions {
@@ -34,6 +41,10 @@ function looksLikePlaylist(sourceUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+function reusedMessage(status?: TaskStatus): string {
+  return REUSED_TASK_MESSAGES[status || ""] || REUSED_TASK_FALLBACK;
 }
 
 export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTaskQueueOptions) {
@@ -122,10 +133,11 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     });
     const created = Array.isArray(data.created) ? data.created : [];
     if (urls.length > 1) {
-      toast(created.length ? `Added ${created.length} download${created.length === 1 ? "" : "s"}.` : "Those downloads are already in your list.");
+      toast(created.length ? `Added ${created.length} download${created.length === 1 ? "" : "s"}.` : REUSED_TASK_FALLBACK);
     } else if (data.reused) {
-      const first = created[0];
-      toast(first && first.status === "completed" ? "That file was already downloaded." : "That download is already in your list.");
+      toast(reusedMessage(created[0]?.status));
+    } else if (created[0]?.status === "failed") {
+      toast(created[0].error || QUEUE_FAILED_MESSAGE, "error");
     } else {
       toast("Download added.");
     }

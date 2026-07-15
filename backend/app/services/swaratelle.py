@@ -26,6 +26,10 @@ _STATUS_LABELS = {
     "failed": "Failed",
 }
 
+# POST /queue answers "queued" only for fresh work; these mean Swaratelle already
+# had the video and did nothing.
+_REUSED_QUEUE_STATUSES = {"done", "completed", "complete", "downloading", "running", "pending"}
+
 
 class SwaratelleError(RuntimeError):
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
@@ -382,19 +386,27 @@ def _matches_url(task: dict[str, Any], source_url: str) -> bool:
     return bool(_video_id_from_url(task_url) and _video_id_from_url(task_url) == _video_id_from_url(source_url))
 
 
+def _queue_reused(item: dict[str, Any]) -> bool:
+    return _text(item, "status", "state", "phase").lower() in _REUSED_QUEUE_STATUSES
+
+
 def queue_urls(source_urls: list[str]) -> tuple[list[dict[str, Any]], bool]:
     urls = [url for url in source_urls if is_swaratelle_url(url)]
     if not urls:
         return [], False
 
     payload = _request_json("POST", "/queue", json={"urls": urls})
-    tasks = [record_to_task(item) for item in _extract_items(payload)]
+    items = _extract_items(payload)
+    tasks = [record_to_task(item) for item in items]
+    reused = any(_queue_reused(item) for item in items)
     if not tasks:
         active = fetch_active_tasks(quiet=True)
         tasks = [task for url in urls for task in active if _matches_url(task, url)]
+        reused = bool(tasks)
     if not tasks:
         tasks = [placeholder_task(url) for url in urls]
-    return tasks, False
+        reused = False
+    return tasks, reused
 
 
 def cancel_task(task_id: str) -> None:
