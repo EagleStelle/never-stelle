@@ -541,7 +541,7 @@ def build_settings_response(
     saved: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from backend.app.services.auth import auth_public_payload
-    from backend.app.services.tasks.constants import default_quality_selection, quality_options
+    from backend.app.services.tasks.constants import default_quality_selection, quality_options, template_tokens
 
     cfg = cfg or load_app_config()
     saved = saved or get_effective_saved_settings(cfg)
@@ -555,6 +555,7 @@ def build_settings_response(
         "source_templates": saved.get("source_templates", {}),
         "default_quality": saved.get("default_quality", default_quality_selection()),
         "quality_options": quality_options(),
+        "template_tokens": template_tokens(),
         "ytdlp_cookies": saved.get("ytdlp_cookies", get_ytdlp_cookies_status(saved.get("source_profiles"))),
         "source_scrape_rules": saved.get("source_scrape_rules", get_effective_scrape_rules()),
         "source_token_roles": saved.get("source_token_roles", get_effective_token_roles()),

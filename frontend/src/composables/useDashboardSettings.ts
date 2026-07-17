@@ -86,6 +86,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     download_locations: [],
     ytdlp_cookies: createCookiesMap(),
     quality_options: createQualityOptions(),
+    template_tokens: [],
   });
   const settingsDraft = reactive<SavedSettings>({
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
@@ -216,6 +217,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     Object.assign(defaults.default_quality, defaultQuality);
     Object.assign(settings.default_quality, defaultQuality);
 
+    settings.template_tokens = Array.isArray(data.template_tokens) ? data.template_tokens : [];
     settings.download_locations = Array.isArray(data.download_locations) ? data.download_locations : [];
     replaceRecord(settings.ytdlp_cookies, createCookiesMap(recordForProfiles(data.ytdlp_cookies || {}, managedProfiles), managedProfiles));
   }

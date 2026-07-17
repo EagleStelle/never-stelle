@@ -116,11 +116,17 @@ export interface SavedSettings {
   source_token_roles: SourceTokenRoles;
 }
 
+export interface TemplateToken {
+  key: string;
+  description?: string;
+}
+
 export interface RuntimeSettings extends SavedSettings {
   auth: AuthSettings;
   download_locations: string[];
   ytdlp_cookies: CookiesMap;
   quality_options: QualityOptions;
+  template_tokens: TemplateToken[];
 }
 
 export interface UiConfigResponse {
@@ -136,6 +142,7 @@ export interface UiConfigResponse {
   ytdlp_cookies?: Record<string, Partial<CookiesStatus>>;
   default_quality?: Partial<QualitySelection>;
   quality_options?: Partial<QualityOptions>;
+  template_tokens?: TemplateToken[];
   default_filename_template?: string;
   default_folder_template?: string;
   default_general_location?: string;
