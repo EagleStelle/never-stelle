@@ -34,7 +34,6 @@ import {
   isMediaFilter,
   isMenuKey,
   isPageKey,
-  isSettingsSection,
   isViewMode,
   faviconUrlForHost,
   hostFromUrl,
@@ -43,23 +42,23 @@ import {
 } from "../utils/dashboard";
 import { mediaKindForTask } from "../utils/task";
 
-const SETTINGS_ROUTE_BY_SECTION: Record<SettingsSection, string> = {
-  account: "/settings/account",
-  downloads: "/settings/locations",
-  cookies: "/settings/cookies",
-  quality: "/settings/quality",
-  "folder-template": "/settings/folder",
-  "filename-template": "/settings/filename",
-  scraper: "/settings/scraper",
+// Settings overlay rides in a ?settings=<slug> query param, not its own path.
+const SETTINGS_SLUG_BY_SECTION: Record<SettingsSection, string> = {
+  account: "account",
+  downloads: "locations",
+  cookies: "cookies",
+  quality: "quality",
+  "folder-template": "folder",
+  "filename-template": "filename",
+  scraper: "scraper",
 };
 
-function settingsSectionFromPath(path: string): SettingsSection {
-  const last = path.split("/").filter(Boolean).at(-1) || "";
-  if (last === "account") return "account";
-  if (last === "locations") return "downloads";
-  if (last === "folder") return "folder-template";
-  if (last === "filename") return "filename-template";
-  return isSettingsSection(last) ? last : "downloads";
+const SETTINGS_SECTION_BY_SLUG = Object.fromEntries(
+  Object.entries(SETTINGS_SLUG_BY_SECTION).map(([section, slug]) => [slug, section]),
+) as Record<string, SettingsSection>;
+
+function settingsSectionFromSlug(slug: string): SettingsSection {
+  return SETTINGS_SECTION_BY_SLUG[slug] || "downloads";
 }
 
 function sourceInitials(label: string): string {
@@ -208,33 +207,41 @@ export function useDownloadDashboard() {
 
   let applyingRoute = false;
 
+  // Base page always owns the path; the open settings pane rides as a query param.
   function routeFor(): string {
-    if (settingsState.settingsOpen.value) {
-      return SETTINGS_ROUTE_BY_SECTION[settingsState.settingsSection.value] || PAGE_ROUTES.settings;
-    }
-    return PAGE_ROUTES[activePage.value] || PAGE_ROUTES.downloads;
+    const base = activePage.value === "history" ? PAGE_ROUTES.history : PAGE_ROUTES.downloads;
+    if (!settingsState.settingsOpen.value) return base;
+    const slug = SETTINGS_SLUG_BY_SECTION[settingsState.settingsSection.value];
+    return slug ? `${base}?settings=${slug}` : base;
   }
 
   function applyCurrentRoute(): void {
     const path = window.location.pathname || "/";
+    // Accept legacy /settings/<slug> deep-links as a page + open the modal over it.
+    const legacy = path.startsWith("/settings") ? path.split("/").filter(Boolean).at(-1) || "account" : null;
+    const slug = legacy ?? new URLSearchParams(window.location.search).get("settings");
     applyingRoute = true;
-    if (path.startsWith("/settings")) {
-      settingsState.openSettings(undefined, settingsSectionFromPath(path));
+    activePage.value = path.startsWith("/history") ? "history" : "downloads";
+    if (slug !== null) {
+      settingsState.openSettings(undefined, settingsSectionFromSlug(slug));
     } else {
       settingsState.closeSettings();
-      activePage.value = path.startsWith("/history") ? "history" : "downloads";
     }
     void nextTick(() => {
       applyingRoute = false;
       const canonical = routeFor();
-      if (window.location.pathname !== canonical) window.history.replaceState({}, "", canonical);
+      if (window.location.pathname + window.location.search !== canonical) {
+        window.history.replaceState({}, "", canonical);
+      }
     });
   }
 
   function syncRoute(): void {
     if (applyingRoute) return;
     const route = routeFor();
-    if (window.location.pathname !== route) window.history.pushState({}, "", route);
+    if (window.location.pathname + window.location.search !== route) {
+      window.history.pushState({}, "", route);
+    }
   }
 
   function setActivePage(page: PageKey): void {
