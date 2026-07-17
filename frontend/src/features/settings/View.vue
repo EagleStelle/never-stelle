@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick } from "vue";
+import { computed, nextTick, ref } from "vue";
 import IconClose from "~icons/material-symbols/close";
 import IconSave from "~icons/material-symbols/save";
 import IconUndo from "~icons/material-symbols/undo";
@@ -39,10 +39,24 @@ const emit = defineEmits<{
   clear: [];
 }>();
 
+const confirmingClose = ref(false);
+
+// Gate every close path (X / Esc / click-outside) on unsaved edits.
 const openModel = computed({
   get: () => props.open,
-  set: (value) => emit("update:open", value),
+  set: (value) => {
+    if (!value && props.hasUnsavedChanges) {
+      confirmingClose.value = true;
+      return;
+    }
+    emit("update:open", value);
+  },
 });
+
+function discardAndClose(): void {
+  confirmingClose.value = false;
+  emit("update:open", false);
+}
 
 const sectionModel = computed({
   get: () => props.section,
@@ -67,7 +81,7 @@ provideSettingsContext({
 function selectSection(section: SettingsSection): void {
   sectionModel.value = section;
   const firstSource = editableSourceProfiles.value[0]?.key || "settings";
-  const id = SETTINGS_SECTION_DEFS.find((def) => def.key === section)?.focusId(firstSource);
+  const id = SETTINGS_SECTION_DEFS.find((def) => def.key === section)?.focusId?.(firstSource);
   if (id) void nextTick(() => document.getElementById(id)?.focus());
 }
 </script>
@@ -154,5 +168,26 @@ function selectSection(section: SettingsSection): void {
         </div>
       </div>
     </TabsRoot>
+  </Dialog>
+
+  <Dialog
+    v-model:open="confirmingClose"
+    title="Discard changes?"
+    description="You have unsaved changes."
+    hide-title
+    :show-close="false"
+    overlay-class="fixed inset-0 z-80 bg-black/60 backdrop-blur-sm"
+    content-class="fixed left-1/2 top-1/2 z-90 flex w-[min(400px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-2xl border border-(--glass-border) bg-primary p-6 focus:outline-none"
+  >
+    <div class="flex flex-col gap-1">
+      <h2 class="text-lg font-semibold">Discard changes?</h2>
+      <p class="text-sm text-white/60 in-[.light-mode]:text-black/60">
+        You have unsaved changes. Close without saving?
+      </p>
+    </div>
+    <div class="flex justify-end gap-2">
+      <Button variant="soft" @click="confirmingClose = false">Cancel</Button>
+      <Button variant="primary" @click="discardAndClose">Discard</Button>
+    </div>
   </Dialog>
 </template>

@@ -23,7 +23,8 @@ export interface SettingsSectionDef {
   icon: Component;
   component: Component;
   // Element to focus when the pane opens; sources-driven panes take the first source key.
-  focusId: (firstSourceKey: string) => string;
+  // Omit for panes whose first control isn't a plain input (nothing focusable to target).
+  focusId?: (firstSourceKey: string) => string;
   // Panes that render one row per source show an empty-state until a source exists.
   requiresSources: boolean;
 }
@@ -64,7 +65,6 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     group: "Settings",
     icon: IconQuality,
     component: Quality,
-    focusId: () => "defaultQualityMode",
     requiresSources: false,
   },
   {
@@ -91,7 +91,6 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     group: "Templates",
     icon: IconScraper,
     component: Scraper,
-    focusId: (source) => `${source}ScraperEnable`,
     requiresSources: true,
   },
 ];
