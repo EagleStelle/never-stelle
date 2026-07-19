@@ -10,14 +10,17 @@ import {
   type QualityOptions,
   type QualityPreset,
   type QualitySelection,
+  type CreatorFieldRoles,
   type PlatformScrapeRules,
   type SavedSettings,
   type ScrapeRule,
   type SettingsSection,
+  type SourceCreatorFields,
   type SourceLocations,
   type SourceProfile,
   type SourceScrapeRules,
   type SourceTemplates,
+  type SourceTitleCleaning,
   type SourceTokenRoles,
   type TaskCounts,
   type TaskFilter,
@@ -339,6 +342,59 @@ export function createSourceTokenRoles(
     }
     out[key] = roles;
   }
+  return out;
+}
+
+const CREATOR_FIELD_RE = /[^A-Za-z0-9_[\]]+/g;
+
+// Keep identifier chars plus gallery-dl [sub] nesting; strip everything else.
+export function normalizeCreatorField(value: unknown): string {
+  return String(value || "").trim().replace(CREATOR_FIELD_RE, "");
+}
+
+function createCreatorFieldRoles(source: Partial<CreatorFieldRoles> = {}): CreatorFieldRoles {
+  const list = (values: unknown): string[] => {
+    const out: string[] = [];
+    for (const value of Array.isArray(values) ? values : []) {
+      const field = normalizeCreatorField(value);
+      if (field && !out.includes(field)) out.push(field);
+    }
+    return out;
+  };
+  return { username: list(source.username), nickname: list(source.nickname) };
+}
+
+export function createSourceCreatorFields(
+  source: Record<string, Partial<CreatorFieldRoles>> = {},
+  profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
+): SourceCreatorFields {
+  const out: SourceCreatorFields = {};
+  for (const profile of profiles) out[profile.key] = createCreatorFieldRoles(source[profile.key] || {});
+  for (const [key, value] of Object.entries(source)) out[normalizeSourceKey(key)] = createCreatorFieldRoles(value);
+  return out;
+}
+
+// Keep only user-set flags; untouched sources stay empty so the server applies rule defaults.
+function createTitleCleaning(source: Record<string, boolean | number> = {}): Record<string, boolean | number> {
+  const out: Record<string, boolean | number> = {};
+  for (const [key, value] of Object.entries(source || {})) {
+    if (key === "max_chars") {
+      const parsed = Math.floor(Number(value));
+      if (Number.isFinite(parsed) && parsed > 0) out.max_chars = parsed;
+    } else {
+      out[key] = Boolean(value);
+    }
+  }
+  return out;
+}
+
+export function createSourceTitleCleaning(
+  source: Record<string, Record<string, boolean | number>> = {},
+  profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
+): SourceTitleCleaning {
+  const out: SourceTitleCleaning = {};
+  for (const profile of profiles) out[profile.key] = createTitleCleaning(source[profile.key] || {});
+  for (const [key, value] of Object.entries(source)) out[normalizeSourceKey(key)] = createTitleCleaning(value);
   return out;
 }
 

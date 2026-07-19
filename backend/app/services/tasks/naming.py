@@ -4,8 +4,9 @@ import os
 import re
 import shutil
 from pathlib import Path
+from typing import Any
 
-from .constants import CREATOR_FIELDS, TEMPLATE_RE
+from .constants import CREATOR_FIELDS, TEMPLATE_RE, TITLE_MAX_CHARS_DEFAULT, normalize_title_cleaning
 
 _INVALID_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _SPACING_RE = re.compile(r"\s+")
@@ -48,7 +49,7 @@ _PLACEHOLDER_PREFIX_RE = re.compile(r"^\s*(?P<prefix>[^|:\n\[\]]{1,100}?)\s*[-|:
 _EXT_TEMPLATE_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$", re.IGNORECASE)
 _ID_TEMPLATE_FIELDS = {"id"}
 _EMPTY_TITLE_VALUES = {"none", "null", "undefined", "unknown", "untitled", "n/a", "na"}
-TITLE_MAX_CHARS = 50
+TITLE_MAX_CHARS = TITLE_MAX_CHARS_DEFAULT
 
 
 def sanitize_path_literal(value: str) -> str:
@@ -74,6 +75,16 @@ def shorten_filename_title(title: str, max_chars: int = TITLE_MAX_CHARS) -> str:
         candidate = candidate[:word_break]
     candidate = candidate.rstrip(" -_|,;:.Â·ï½œ")
     return candidate or value[:max_chars].strip()
+
+
+def _apply_shorten(title: str, flags: dict[str, Any]) -> str:
+    # Normalize spacing always; only truncate to max_chars when `shorten` is enabled.
+    value = _SPACING_RE.sub(" ", str(title or "")).strip()
+    if not value or _is_empty_title(value):
+        return ""
+    if not flags.get("shorten", True):
+        return value
+    return shorten_filename_title(value, flags.get("max_chars", TITLE_MAX_CHARS))
 
 
 def _normalize_match_key(value: str) -> str:
@@ -125,23 +136,35 @@ def _strip_trailing_creator_alias(value: str, aliases: list[str]) -> str:
     return value
 
 
-def clean_social_title(title: str, creator: str = "", creator_aliases: tuple[str, ...] | None = None) -> str:
+def clean_social_title(
+    title: str,
+    creator: str = "",
+    creator_aliases: tuple[str, ...] | None = None,
+    cleaning: dict[str, Any] | None = None,
+) -> str:
+    flags = normalize_title_cleaning(cleaning)
     original = str(title or "").strip()
     if not original or _is_empty_title(original):
         return ""
-    if _GENERIC_DESCRIPTION_RE.match(original):
+    if flags["strip_placeholder"] and _GENERIC_DESCRIPTION_RE.match(original):
         return ""
     aliases = _creator_alias_set(creator, creator_aliases)
-    value = _ON_SURFACE_RE.sub("", original)
-    for alias in aliases:
-        by_creator = re.compile(
-            rf"(?i)(?:^|[\s\-|:｜]+){_MEDIA_KIND_RE}\s+by\s+{re.escape(alias)}\b"
-        )
-        value = by_creator.sub(" ", value)
-    value = _ATTRIBUTION_RE.sub("", value)
-    value = _HASHTAG_RE.sub(" ", value)
-    value = _METRIC_RE.sub(" ", value)
-    value = _strip_trailing_creator_alias(value, aliases)
+    value = original
+    if flags["strip_on_surface"]:
+        value = _ON_SURFACE_RE.sub("", value)
+    if flags["strip_attribution"]:
+        for alias in aliases:
+            by_creator = re.compile(
+                rf"(?i)(?:^|[\s\-|:｜]+){_MEDIA_KIND_RE}\s+by\s+{re.escape(alias)}\b"
+            )
+            value = by_creator.sub(" ", value)
+        value = _ATTRIBUTION_RE.sub("", value)
+    if flags["strip_hashtags"]:
+        value = _HASHTAG_RE.sub(" ", value)
+    if flags["strip_metrics"]:
+        value = _METRIC_RE.sub(" ", value)
+    if flags["strip_creator_byline"]:
+        value = _strip_trailing_creator_alias(value, aliases)
     value = _SEPARATOR_SPACING_RE.sub(r" \1 ", value)
     value = _SPACING_RE.sub(" ", value).strip(" -|,;:·｜")
     return value
@@ -197,28 +220,37 @@ def _strip_leading_social_byline(value: str) -> str:
     return body if _looks_like_social_byline(byline, body) else value
 
 
+def _maybe_strip_placeholder(title: str, media_id: str, source_key: str, flags: dict[str, Any]) -> str:
+    return strip_placeholder_title(title, media_id, source_key) if flags["strip_placeholder"] else str(title or "").strip()
+
+
 def clean_filename_title(
     title: str,
     creator: str = "",
     media_id: str = "",
     source_key: str = "",
     creator_aliases: tuple[str, ...] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> str:
+    flags = normalize_title_cleaning(cleaning)
     original = str(title or "").strip()
     if not original or _is_empty_title(original):
         return ""
-    original = strip_placeholder_title(original, media_id, source_key)
+    original = _maybe_strip_placeholder(original, media_id, source_key, flags)
     if not original:
         return ""
     prefix, separator, body = _split_known_creator_prefix(original, creator)
     if prefix:
-        cleaned_body = clean_social_title(strip_placeholder_title(body, media_id, source_key), creator, creator_aliases)
-        cleaned_body = _strip_leading_social_byline(cleaned_body)
         cleaned_body = clean_social_title(
-            strip_placeholder_title(cleaned_body, media_id, source_key), creator, creator_aliases
+            _maybe_strip_placeholder(body, media_id, source_key, flags), creator, creator_aliases, cleaning
+        )
+        if flags["strip_creator_byline"]:
+            cleaned_body = _strip_leading_social_byline(cleaned_body)
+        cleaned_body = clean_social_title(
+            _maybe_strip_placeholder(cleaned_body, media_id, source_key, flags), creator, creator_aliases, cleaning
         )
         return f"{prefix} {separator} {cleaned_body}".strip() if cleaned_body else prefix
-    return clean_social_title(original, creator, creator_aliases)
+    return clean_social_title(original, creator, creator_aliases, cleaning)
 
 
 def sanitize_filename_component(value: str) -> str:
@@ -246,7 +278,10 @@ def _strip_placeholder_segment(
     return value, False
 
 
-def clean_gallerydl_display_filename(filename: str, creator: str = "", source_key: str = "") -> str:
+def clean_gallerydl_display_filename(
+    filename: str, creator: str = "", source_key: str = "", cleaning: dict[str, Any] | None = None
+) -> str:
+    flags = normalize_title_cleaning(cleaning)
     value = str(filename or "").strip()
     if not value:
         return ""
@@ -258,16 +293,18 @@ def clean_gallerydl_display_filename(filename: str, creator: str = "", source_ke
     raw_title = match.group("title").strip()
     raw_display_title, stripped_placeholder = _strip_placeholder_segment(raw_title, creator, media_id, source_key)
     if stripped_placeholder:
-        raw_display_title = clean_filename_title(raw_display_title, creator, media_id, source_key) or raw_display_title
+        raw_display_title = (
+            clean_filename_title(raw_display_title, creator, media_id, source_key, cleaning=cleaning) or raw_display_title
+        )
     else:
-        cleaned_title = clean_filename_title(raw_title, creator, media_id, source_key)
+        cleaned_title = clean_filename_title(raw_title, creator, media_id, source_key, cleaning=cleaning)
         raw_display_title, stripped_placeholder = _strip_placeholder_segment(
             cleaned_title,
             creator,
             media_id,
             source_key,
         )
-    display_title = sanitize_filename_component(shorten_filename_title(raw_display_title)) if raw_display_title else ""
+    display_title = sanitize_filename_component(_apply_shorten(raw_display_title, flags)) if raw_display_title else ""
     if display_title and (stripped_placeholder or raw_title.rstrip().endswith("-")):
         display_stem = f"{display_title} - [{media_id}]"
     else:
@@ -275,13 +312,15 @@ def clean_gallerydl_display_filename(filename: str, creator: str = "", source_ke
     return f"{display_stem}{path.suffix}"
 
 
-def clean_gallerydl_disk_filename(filename: str, creator: str = "", source_key: str = "") -> str:
+def clean_gallerydl_disk_filename(
+    filename: str, creator: str = "", source_key: str = "", cleaning: dict[str, Any] | None = None
+) -> str:
     value = str(filename or "").strip()
     if not value:
         return ""
     path = Path(value)
     numbered = re.search(r"_\d+$", path.stem)
-    display = clean_gallerydl_display_filename(value, creator, source_key)
+    display = clean_gallerydl_display_filename(value, creator, source_key, cleaning)
     if not numbered or display == value:
         return display
     display_path = Path(display)
@@ -417,6 +456,7 @@ def clean_template_filename(
     source_key: str = "",
     keep_numbered_suffix: bool = True,
     extra_tokens: dict[str, str] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> str:
     value = str(filename or "").strip()
     if not value:
@@ -466,8 +506,9 @@ def clean_template_filename(
         resolved_media_id,
         source_key,
         creator_aliases=creator_aliases,
+        cleaning=cleaning,
     )
-    shortened_title = shorten_filename_title(cleaned_title)
+    shortened_title = _apply_shorten(cleaned_title, normalize_title_cleaning(cleaning))
     media_id_changed = bool(resolved_media_id and original_media_id and resolved_media_id != original_media_id)
     creator_changed = bool(
         (resolved_username and original_username and resolved_username != original_username)

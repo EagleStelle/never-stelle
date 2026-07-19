@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from typing import Any
 
 from backend.app.core.sources import host_from_url
 from backend.app.services.settings import (
     find_cookies_file_for_source,
     find_cookies_file_for_url,
+    get_effective_creator_fields,
     get_effective_template_settings,
     normalize_template_settings,
 )
@@ -42,12 +45,43 @@ __all__ = [
     "sanitize_filename_component",
 ]
 
-# {{username}} = the handle (uploader_id is "@handle" on YouTube); {{nickname}} =
-# the display name. Same fields the old creator token used, now split by intent.
-# The worker still validates and can rename from sidecar metadata when an
-# extractor's field meanings differ.
-YTDLP_USERNAME_FIELD = "%(uploader_id,uploader,channel,creator|Unknown)s"
-YTDLP_NICKNAME_FIELD = "%(uploader,channel,creator,artist,artists,album_artist|Unknown)s"
+# username = handle, nickname = display name; a per-source list prepends, this chain trails as fallback.
+# Handles lead the username chain (opaque channel_id last); nickname walks every known display-name field.
+_YTDLP_USERNAME_CHAIN = ("uploader_id", "playlist_uploader_id", "uploader", "channel", "creator", "channel_id")
+_YTDLP_NICKNAME_CHAIN = (
+    "uploader",
+    "channel",
+    "creator",
+    "creators",
+    "artist",
+    "artists",
+    "album_artist",
+    "playlist_uploader",
+    "display_name",
+    "full_name",
+    "nickname",
+    "author",
+)
+# yt-dlp fields are plain (optionally dotted) identifiers; reject bracketed gallery-dl fields.
+_YTDLP_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
+
+
+def _ytdlp_field_spec(fields: tuple[str, ...] | list[str]) -> str:
+    clean = [field for field in fields if _YTDLP_FIELD_RE.match(str(field or "").strip())]
+    joined = ",".join(dict.fromkeys(clean)) or "title"
+    return f"%({joined}|Unknown)s"
+
+
+def ytdlp_username_field(custom: list[str] | None = None) -> str:
+    return _ytdlp_field_spec([*(custom or ()), *_YTDLP_USERNAME_CHAIN])
+
+
+def ytdlp_nickname_field(custom: list[str] | None = None) -> str:
+    return _ytdlp_field_spec([*(custom or ()), *_YTDLP_NICKNAME_CHAIN])
+
+
+YTDLP_USERNAME_FIELD = ytdlp_username_field()
+YTDLP_NICKNAME_FIELD = ytdlp_nickname_field()
 YOUTUBE_HOSTS = ("youtube.com", "youtube-nocookie.com", "youtu.be")
 
 
@@ -60,17 +94,21 @@ def _safe_literal(value: str) -> str:
     return sanitize_path_literal(value).replace("%", "%%")
 
 
-# Metadata specifiers for tokens yt-dlp fills itself, and the fallbacks for the
-# URL/selection-derived tokens (username handle, delivered quality format).
+# Specifiers for tokens yt-dlp fills itself; username/nickname are resolved dynamically instead.
 _YTDLP_FIELD = {
     "title": "%(title|Unknown)s",
     "id": "%(id|NA)s",
-    "username": YTDLP_USERNAME_FIELD,
-    "nickname": YTDLP_NICKNAME_FIELD,
     "quality": "%(format_id,format_note,resolution|Unknown)s",
     "source": "%(format_id,format_note,resolution|Unknown)s",
     "ext": "%(ext)s",
 }
+
+
+def _creator_field_list(creator_fields: dict[str, Any] | None, role: str) -> list[str] | None:
+    if not isinstance(creator_fields, dict):
+        return None
+    values = creator_fields.get(role)
+    return [str(value) for value in values] if isinstance(values, list) and values else None
 
 
 def _yt_dlp_field(
@@ -78,11 +116,16 @@ def _yt_dlp_field(
     source_url: str = "",
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
+    creator_fields: dict[str, Any] | None = None,
 ) -> str:
     field = str(name or "").strip().lower()
     derived = derived_token_value(field, source_url, quality, extra_tokens)
     if derived is not None:
         return _safe_literal(derived)
+    if field == "username":
+        return ytdlp_username_field(_creator_field_list(creator_fields, "username"))
+    if field == "nickname":
+        return ytdlp_nickname_field(_creator_field_list(creator_fields, "nickname"))
     return _YTDLP_FIELD.get(field, f"%({name}|Unknown)s")
 
 
@@ -91,11 +134,14 @@ def convert_template_to_ytdlp(
     source_url: str = "",
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
+    creator_fields: dict[str, Any] | None = None,
 ) -> str:
     value = str(template or "").strip()
     if not value:
         return ""
-    return TEMPLATE_RE.sub(lambda match: _yt_dlp_field(match.group(1), source_url, quality, extra_tokens), value)
+    return TEMPLATE_RE.sub(
+        lambda match: _yt_dlp_field(match.group(1), source_url, quality, extra_tokens, creator_fields), value
+    )
 
 
 def build_output_template(
@@ -110,8 +156,9 @@ def build_output_template(
         if template_settings is not None
         else get_effective_template_settings(source_url)
     )
-    folder_template = convert_template_to_ytdlp(settings["folder_template"], source_url, quality, extra_tokens)
-    filename_template = convert_template_to_ytdlp(settings["filename_template"], source_url, quality, extra_tokens)
+    creator_fields = get_effective_creator_fields(source_url)
+    folder_template = convert_template_to_ytdlp(settings["folder_template"], source_url, quality, extra_tokens, creator_fields)
+    filename_template = convert_template_to_ytdlp(settings["filename_template"], source_url, quality, extra_tokens, creator_fields)
     if "%(ext" not in filename_template:
         filename_template = f"{filename_template}.%(ext)s"
     base = Path(output_dir)
@@ -188,6 +235,8 @@ def build_ytdlp_command(
                 "%(artists|)j",
                 "%(album_artist|)j",
                 "%(playlist_uploader|)j",
+                "%(playlist_uploader_id|)j",
+                "%(creators|)j",
                 "%(uploader_url|)j",
                 "%(channel_url|)j",
                 "%(uploader_id|)j",

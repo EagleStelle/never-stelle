@@ -308,6 +308,73 @@ def load_scrape_rules() -> dict[str, Any]:
     return get_effective_scrape_rules()
 
 
+# --- Creator fields & title cleaning ---
+_CREATOR_FIELD_RE = re.compile(r"[^A-Za-z0-9_\[\]]+")
+
+
+def normalize_creator_field(value: Any) -> str:
+    # Keep identifier chars plus gallery-dl [sub] nesting; strip everything else.
+    return _CREATOR_FIELD_RE.sub("", str(value or "").strip())
+
+
+def normalize_source_creator_fields(raw: Any) -> dict[str, dict[str, list[str]]]:
+    from backend.app.services.tasks.constants import CREATOR_FIELDS
+
+    source = raw if isinstance(raw, dict) else {}
+    out: dict[str, dict[str, list[str]]] = {}
+    for raw_key, raw_roles in source.items():
+        key = normalize_source_key(raw_key)
+        if not key or not isinstance(raw_roles, dict):
+            continue
+        roles: dict[str, list[str]] = {}
+        for role, values in raw_roles.items():
+            if role not in CREATOR_FIELDS or not isinstance(values, list):
+                continue
+            fields: list[str] = []
+            for value in values:
+                field = normalize_creator_field(value)
+                if field and field not in fields:
+                    fields.append(field)
+            if fields:
+                roles[role] = fields
+        if roles:
+            out[key] = roles
+    return out
+
+
+def normalize_source_title_cleaning(raw: Any) -> dict[str, dict[str, Any]]:
+    from backend.app.services.tasks.constants import normalize_title_cleaning
+
+    source = raw if isinstance(raw, dict) else {}
+    out: dict[str, dict[str, Any]] = {}
+    for raw_key, raw_flags in source.items():
+        # An empty dict means untouched; skip it so the source keeps defaults.
+        if not isinstance(raw_flags, dict) or not raw_flags:
+            continue
+        key = normalize_source_key(raw_key)
+        if key:
+            out[key] = normalize_title_cleaning(raw_flags)
+    return out
+
+
+def get_effective_creator_fields(source_url: str = "") -> dict[str, list[str]]:
+    payload = load_saved_settings_file()
+    mapping = normalize_source_creator_fields(payload.get("source_creator_fields"))
+    if not source_url or not mapping:
+        return {}
+    profile = get_source_profile_for_url(source_url, payload=payload)
+    return mapping.get(profile["key"], {})
+
+
+def get_effective_title_cleaning(source_url: str = "") -> dict[str, Any]:
+    payload = load_saved_settings_file()
+    mapping = normalize_source_title_cleaning(payload.get("source_title_cleaning"))
+    if not source_url or not mapping:
+        return {}
+    profile = get_source_profile_for_url(source_url, payload=payload)
+    return mapping.get(profile["key"], {})
+
+
 # --- Locations ---
 def normalize_source_location_selection(
     raw: Any,
@@ -470,6 +537,8 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
         "ytdlp_cookies": get_ytdlp_cookies_status(source_profiles),
         "source_scrape_rules": get_effective_scrape_rules(payload),
         "source_token_roles": get_effective_token_roles(payload),
+        "source_creator_fields": normalize_source_creator_fields(payload.get("source_creator_fields")),
+        "source_title_cleaning": normalize_source_title_cleaning(payload.get("source_title_cleaning")),
     }
 
 
@@ -482,6 +551,8 @@ def persist_settings(
     raw_default_quality: Any = None,
     raw_scrape_rules: Any = None,
     raw_token_roles: Any = None,
+    raw_creator_fields: Any = None,
+    raw_title_cleaning: Any = None,
 ) -> dict[str, Any]:
     from backend.app.services.tasks.constants import normalize_quality_selection
     from backend.app.services.tasks.enrich import normalize_scrape_rules
@@ -530,6 +601,12 @@ def persist_settings(
                 if raw_token_roles is not None
                 else existing.get("source_token_roles") or existing.get("token_roles")
             ),
+            "source_creator_fields": normalize_source_creator_fields(
+                raw_creator_fields if raw_creator_fields is not None else existing.get("source_creator_fields")
+            ),
+            "source_title_cleaning": normalize_source_title_cleaning(
+                raw_title_cleaning if raw_title_cleaning is not None else existing.get("source_title_cleaning")
+            ),
         }
     )
     save_saved_settings_file(existing)
@@ -541,7 +618,13 @@ def build_settings_response(
     saved: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from backend.app.services.auth import auth_public_payload
-    from backend.app.services.tasks.constants import default_quality_selection, quality_options, template_tokens
+    from backend.app.services.tasks.constants import (
+        creator_field_catalog,
+        default_quality_selection,
+        quality_options,
+        template_tokens,
+        title_cleaning_rules,
+    )
 
     cfg = cfg or load_app_config()
     saved = saved or get_effective_saved_settings(cfg)
@@ -559,5 +642,9 @@ def build_settings_response(
         "ytdlp_cookies": saved.get("ytdlp_cookies", get_ytdlp_cookies_status(saved.get("source_profiles"))),
         "source_scrape_rules": saved.get("source_scrape_rules", get_effective_scrape_rules()),
         "source_token_roles": saved.get("source_token_roles", get_effective_token_roles()),
+        "source_creator_fields": saved.get("source_creator_fields", {}),
+        "source_title_cleaning": saved.get("source_title_cleaning", {}),
+        "creator_field_catalog": creator_field_catalog(),
+        "title_cleaning_rules": title_cleaning_rules(),
         "settings_loaded_at": int(time.time()),
     }

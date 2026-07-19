@@ -5,9 +5,12 @@ import re
 import subprocess
 from pathlib import Path
 
+from typing import Any
+
 from backend.app.services.settings import (
     find_cookies_file_for_source,
     find_cookies_file_for_url,
+    get_effective_creator_fields,
     get_effective_template_settings,
     normalize_template_settings,
 )
@@ -23,17 +26,47 @@ from .constants import (
 from .formats import derived_token_value
 from .naming import detect_ffmpeg_location, sanitize_path_literal
 
-# {{username}} = the handle; {{nickname}} = the display name. Extractors nest these
-# differently, so each token tries a chain and falls back across engines' spellings.
-_GALLERYDL_USERNAME = '{username|user[name]|author|"unknown"}'
-_GALLERYDL_NICKNAME = '{author[nick]|user[nickname]|fullname|nickname|username|user[name]|"unknown"}'
-# Metadata specifiers for tokens gallery-dl fills itself, plus the fallbacks for the
-# URL/selection-derived tokens (username handle, delivered quality resolution).
+# username = handle, nickname = display name; a per-source list prepends, this chain trails as fallback.
+_GALLERYDL_USERNAME_CHAIN = ("username", "user[name]", "user[username]", "account", "author")
+_GALLERYDL_NICKNAME_CHAIN = (
+    "author[nick]",
+    "user[nick]",
+    "user[nickname]",
+    "nickname",
+    "fullname",
+    "author[name]",
+    "username",
+    "user[name]",
+)
+# gallery-dl keys are identifiers with optional [sub] nesting; reject anything else.
+_GALLERYDL_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\[[A-Za-z0-9_]+\])*$")
+
+
+def _creator_field_list(creator_fields: dict[str, Any] | None, role: str) -> list[str] | None:
+    if not isinstance(creator_fields, dict):
+        return None
+    values = creator_fields.get(role)
+    return [str(value) for value in values] if isinstance(values, list) and values else None
+
+
+def _gallerydl_field_spec(fields: list[str], fallback: str) -> str:
+    clean = [field for field in fields if _GALLERYDL_FIELD_RE.match(str(field or "").strip())]
+    parts = list(dict.fromkeys(clean)) or ["username"]
+    return "{" + "|".join([*parts, f'"{fallback}"']) + "}"
+
+
+def gallerydl_username_field(custom: list[str] | None = None) -> str:
+    return _gallerydl_field_spec([*(custom or ()), *_GALLERYDL_USERNAME_CHAIN], "unknown")
+
+
+def gallerydl_nickname_field(custom: list[str] | None = None) -> str:
+    return _gallerydl_field_spec([*(custom or ()), *_GALLERYDL_NICKNAME_CHAIN], "unknown")
+
+
+# Specifiers for tokens gallery-dl fills itself; username/nickname are resolved dynamically instead.
 _GALLERYDL_FIELD = {
     "title": '{title|content|"untitled"}',
     "id": '{id|num|"NA"}',
-    "username": _GALLERYDL_USERNAME,
-    "nickname": _GALLERYDL_NICKNAME,
     "quality": '{width|"?"}x{height|"?"}',
     "source": '{width|"?"}x{height|"?"}',
     "ext": "{extension}",
@@ -139,11 +172,16 @@ def _gallerydl_field(
     source_url: str,
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
+    creator_fields: dict[str, Any] | None = None,
 ) -> str:
     field = str(name or "").strip().lower()
     derived = derived_token_value(field, source_url, quality, extra_tokens)
     if derived is not None:
         return _escape_literal(sanitize_path_literal(derived))
+    if field == "username":
+        return gallerydl_username_field(_creator_field_list(creator_fields, "username"))
+    if field == "nickname":
+        return gallerydl_nickname_field(_creator_field_list(creator_fields, "nickname"))
     return _GALLERYDL_FIELD.get(field, "")
 
 
@@ -152,11 +190,14 @@ def convert_template_to_gallerydl(
     source_url: str = "",
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
+    creator_fields: dict[str, Any] | None = None,
 ) -> str:
     value = str(template or "").strip()
     if not value:
         return ""
-    return TEMPLATE_RE.sub(lambda match: _gallerydl_field(match.group(1), source_url, quality, extra_tokens), value)
+    return TEMPLATE_RE.sub(
+        lambda match: _gallerydl_field(match.group(1), source_url, quality, extra_tokens, creator_fields), value
+    )
 
 
 def build_gallerydl_output_template(
@@ -171,8 +212,9 @@ def build_gallerydl_output_template(
         if template_settings is not None
         else get_effective_template_settings(source_url)
     )
-    folder = convert_template_to_gallerydl(settings["folder_template"], source_url, quality, extra_tokens)
-    stem = convert_template_to_gallerydl(settings["filename_template"], source_url, quality, extra_tokens)
+    creator_fields = get_effective_creator_fields(source_url)
+    folder = convert_template_to_gallerydl(settings["folder_template"], source_url, quality, extra_tokens, creator_fields)
+    stem = convert_template_to_gallerydl(settings["filename_template"], source_url, quality, extra_tokens, creator_fields)
     stem = stem.replace(".{extension}", "").replace("{extension}", "").rstrip(". ")
     # {num} keeps every image in a multi-file post (slideshow) unique.
     if "{num" not in stem:

@@ -16,6 +16,7 @@ from backend.app.core.config import max_concurrent_downloads
 from backend.app.core.sources import apex_host, host_from_url, normalize_source_key
 from backend.app.services.settings import (
     detect_cookie_source,
+    get_effective_title_cleaning,
     has_cookies_for_source,
     load_scrape_rules,
     load_token_roles,
@@ -395,6 +396,8 @@ def _read_metadata_sidecar(path: str) -> dict[str, dict[str, str]]:
         "artists",
         "album_artist",
         "playlist_uploader",
+        "playlist_uploader_id",
+        "creators",
         "uploader_url",
         "channel_url",
         "uploader_id",
@@ -498,6 +501,7 @@ def _metadata_nickname(metadata: dict[str, str], username_hint: str = "") -> str
         "uploader",
         "author",
         "creator",
+        "creators",
         "playlist_uploader",
         "artist",
         "artists",
@@ -949,6 +953,7 @@ def _rename_gallerydl_numbered_siblings(
     filename_template: str = "",
     media_id: str = "",
     extra_tokens: dict[str, str] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> Path:
     selected = path
     siblings = find_numbered_media_siblings(path) or [path]
@@ -963,9 +968,10 @@ def _rename_gallerydl_numbered_siblings(
                 source_key=source_key,
                 keep_numbered_suffix=True,
                 extra_tokens=extra_tokens,
+                cleaning=cleaning,
             )
         if not target_name:
-            target_name = clean_gallerydl_disk_filename(sibling.name, creator, source_key)
+            target_name = clean_gallerydl_disk_filename(sibling.name, creator, source_key, cleaning)
         target = _rename_path(sibling, target_name)
         if sibling == path:
             selected = target
@@ -980,6 +986,7 @@ def _rename_gallerydl_group_paths(
     filename_template: str = "",
     media_id: str = "",
     extra_tokens: dict[str, str] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> Path:
     selected = selected_path
     selected_key = _path_key(selected_path)
@@ -994,9 +1001,10 @@ def _rename_gallerydl_group_paths(
                 source_key=source_key,
                 keep_numbered_suffix=True,
                 extra_tokens=extra_tokens,
+                cleaning=cleaning,
             )
         if not target_name:
-            target_name = clean_gallerydl_disk_filename(path.name, creator, source_key)
+            target_name = clean_gallerydl_disk_filename(path.name, creator, source_key, cleaning)
         target = _rename_path(path, target_name)
         if _path_key(path) == selected_key:
             selected = target
@@ -1016,6 +1024,7 @@ def _clean_resolved_filename(
 ) -> tuple[Path, str]:
     filename_template = _filename_template(template_settings)
     source_key = source_key or detect_source_key(source_url)
+    cleaning = get_effective_title_cleaning(source_url)
     media_id_hint = str(media_id_hint or "").strip() or media_id_from_url(source_url)
     creator_hint = str(creator_hint or "").strip() or _clean_handle_candidate(
         creator_from_url(source_url, media_id_hint)
@@ -1030,6 +1039,7 @@ def _clean_resolved_filename(
             source_key=source_key,
             keep_numbered_suffix=False,
             extra_tokens=extra_tokens,
+            cleaning=cleaning,
         )
         disk_filename = clean_template_filename(
             path.name,
@@ -1040,6 +1050,7 @@ def _clean_resolved_filename(
             source_key=source_key,
             keep_numbered_suffix=True,
             extra_tokens=extra_tokens,
+            cleaning=cleaning,
         )
         if disk_filename:
             if group_paths and len(group_paths) > 1:
@@ -1051,6 +1062,7 @@ def _clean_resolved_filename(
                     filename_template,
                     media_id_hint,
                     extra_tokens,
+                    cleaning,
                 )
                 return renamed, display_filename or f"{strip_numbered_suffix(renamed.stem)}{renamed.suffix}"
             if strip_numbered_suffix(path.stem) != path.stem:
@@ -1063,6 +1075,7 @@ def _clean_resolved_filename(
                         filename_template,
                         media_id_hint,
                         extra_tokens,
+                        cleaning,
                     )
                 else:
                     renamed = _rename_gallerydl_numbered_siblings(
@@ -1072,6 +1085,7 @@ def _clean_resolved_filename(
                         filename_template,
                         media_id_hint,
                         extra_tokens,
+                        cleaning,
                     )
                 return renamed, display_filename or f"{strip_numbered_suffix(renamed.stem)}{renamed.suffix}"
             renamed = _rename_path(path, disk_filename)
@@ -1087,11 +1101,14 @@ def _clean_resolved_filename(
         path.name,
         creator,
         source_key,
+        cleaning,
     )
     if strip_numbered_suffix(path.stem) != path.stem:
         if group_paths:
-            return _rename_gallerydl_group_paths(group_paths, path, creator, source_key), display_filename
-        return _rename_gallerydl_numbered_siblings(path, creator, source_key), display_filename
+            return _rename_gallerydl_group_paths(
+                group_paths, path, creator, source_key, cleaning=cleaning
+            ), display_filename
+        return _rename_gallerydl_numbered_siblings(path, creator, source_key, cleaning=cleaning), display_filename
     if display_filename == path.name:
         return path, display_filename
     target = _rename_path(path, display_filename)

@@ -194,3 +194,71 @@ TEMPLATE_TOKEN_PRESETS: dict[str, str] = {
 
 def template_tokens() -> list[dict[str, str]]:
     return [{"key": key, "description": description} for key, description in TEMPLATE_TOKEN_PRESETS.items()]
+
+
+# Suggested handle/display-name fields the UI offers for username/nickname lists; users may type any other field.
+CREATOR_FIELD_CATALOG: dict[str, list[dict[str, str]]] = {
+    "ytdlp": [
+        {"field": "uploader_id", "label": "Uploader handle/id"},
+        {"field": "playlist_uploader_id", "label": "Playlist uploader id"},
+        {"field": "channel_id", "label": "Channel id"},
+        {"field": "uploader", "label": "Uploader name"},
+        {"field": "channel", "label": "Channel name"},
+        {"field": "creator", "label": "Creator"},
+        {"field": "creators", "label": "Creators"},
+        {"field": "artist", "label": "Artist"},
+        {"field": "artists", "label": "Artists"},
+        {"field": "album_artist", "label": "Album artist"},
+        {"field": "playlist_uploader", "label": "Playlist uploader"},
+        {"field": "display_name", "label": "Display name"},
+        {"field": "full_name", "label": "Full name"},
+        {"field": "nickname", "label": "Nickname"},
+        {"field": "author", "label": "Author"},
+    ],
+    "gallerydl": [
+        {"field": "username", "label": "Username"},
+        {"field": "user[name]", "label": "user[name]"},
+        {"field": "user[username]", "label": "user[username]"},
+        {"field": "account", "label": "Account"},
+        {"field": "author", "label": "Author"},
+        {"field": "author[name]", "label": "author[name]"},
+        {"field": "author[nick]", "label": "author[nick]"},
+        {"field": "user[nickname]", "label": "user[nickname]"},
+        {"field": "user[nick]", "label": "user[nick]"},
+        {"field": "nickname", "label": "Nickname"},
+        {"field": "fullname", "label": "Full name"},
+    ],
+}
+
+
+def creator_field_catalog() -> dict[str, list[dict[str, str]]]:
+    return {engine: [dict(item) for item in fields] for engine, fields in CREATOR_FIELD_CATALOG.items()}
+
+
+# Per-source title-cleaning toggles; each `default` is the built-in always-on behavior.
+TITLE_MAX_CHARS_DEFAULT = 50
+TITLE_CLEANING_RULES: dict[str, dict[str, Any]] = {
+    "strip_hashtags": {"label": "Remove hashtags", "default": True},
+    "strip_metrics": {"label": "Remove view/like counts", "default": True},
+    "strip_attribution": {"label": "Remove 'photos by X'", "default": True},
+    "strip_on_surface": {"label": "Remove '| X on <site>'", "default": True},
+    "strip_creator_byline": {"label": "Remove leading/trailing creator name", "default": True},
+    "strip_placeholder": {"label": "Remove auto captions (e.g. 'Photos from X's post')", "default": True},
+    "shorten": {"label": "Shorten long titles", "default": True},
+}
+
+
+def title_cleaning_rules() -> list[dict[str, Any]]:
+    return [{"key": key, "label": rule["label"], "default": rule["default"]} for key, rule in TITLE_CLEANING_RULES.items()]
+
+
+def normalize_title_cleaning(raw: Any) -> dict[str, Any]:
+    # Fill each flag from raw or its rule default; None/non-dict yields the all-default set.
+    source = raw if isinstance(raw, dict) else {}
+    out: dict[str, Any] = {key: bool(source.get(key, rule["default"])) for key, rule in TITLE_CLEANING_RULES.items()}
+    try:
+        max_chars = int(str(source.get("max_chars") or "").strip() or 0)
+    except (TypeError, ValueError):
+        max_chars = 0
+    out["max_chars"] = max_chars if max_chars > 0 else TITLE_MAX_CHARS_DEFAULT
+    return out

@@ -5,8 +5,10 @@ import subprocess
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+from backend.app.core.sources import normalize_source_key, source_key_from_url
 from backend.app.services.settings import find_cookies_file_for_url
 
+from .constants import CREATOR_FIELD_CATALOG
 from .formats import _prepare_url
 
 # YouTube mix/radio playlists carry an ``RD`` list id and are endless, so we
@@ -101,3 +103,140 @@ def probe_url(source_url: str) -> dict[str, Any]:
     if not entries:
         return {"kind": "video", "url": url, "title": "", "entries": []}
     return {"kind": "playlist", "url": url, "title": str(data.get("title") or "Playlist"), "entries": entries}
+
+
+# --- Field probe ---
+def _scalar(value: Any) -> str:
+    # bool is an int subclass; keep it out so True/False don't masquerade as values.
+    if isinstance(value, bool) or value is None:
+        return ""
+    return str(value).strip() if isinstance(value, (str, int, float)) else ""
+
+
+def _flatten_metadata(data: Any) -> dict[str, str]:
+    # Expose one level of nesting as key[sub] to match how the template addresses fields.
+    out: dict[str, str] = {}
+    if not isinstance(data, dict):
+        return out
+    for key, value in data.items():
+        if isinstance(value, dict):
+            for sub, sub_value in value.items():
+                scalar = _scalar(sub_value)
+                if scalar:
+                    out[f"{key}[{sub}]"] = scalar
+        else:
+            scalar = _scalar(value)
+            if scalar:
+                out[key] = scalar
+    return out
+
+
+def _creator_probe_fields(flat: dict[str, str], engine: str) -> list[dict[str, str]]:
+    # Only the handle/display-name candidates for this engine, in catalog order.
+    fields: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in CREATOR_FIELD_CATALOG.get(engine, []):
+        field = item["field"]
+        if field in seen:
+            continue
+        seen.add(field)
+        value = flat.get(field, "")
+        if value:
+            fields.append({"field": field, "value": value})
+    return fields
+
+
+def _ytdlp_dump(url: str) -> tuple[dict[str, Any] | None, str]:
+    cmd = ["yt-dlp", "--dump-json", "--no-warnings", "--no-download", "--playlist-items", "1"]
+    cookies_file = find_cookies_file_for_url(url)
+    if cookies_file:
+        cmd.extend(["--cookies", cookies_file])
+    cmd.append(url)
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_PROBE_TIMEOUT_SECONDS
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None, ""
+    if result.returncode != 0:
+        return None, (result.stderr or result.stdout or "")
+    line = next((row for row in (result.stdout or "").splitlines() if row.strip().startswith("{")), "")
+    if not line:
+        return None, ""
+    try:
+        return json.loads(line), ""
+    except json.JSONDecodeError:
+        return None, ""
+
+
+def _gallerydl_richest_metadata(node: Any) -> dict[str, Any]:
+    # gallery-dl -j nests the file metadata dict inside its message list; return the largest dict.
+    best: dict[str, Any] = {}
+    stack: list[Any] = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            if len(current) > len(best):
+                best = current
+        elif isinstance(current, list):
+            stack.extend(current)
+    return best
+
+
+def _gallerydl_dump(url: str) -> dict[str, Any] | None:
+    cmd = ["gallery-dl", "-j"]
+    cookies_file = find_cookies_file_for_url(url)
+    if cookies_file:
+        cmd.extend(["--cookies", cookies_file])
+    cmd.append(url)
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_PROBE_TIMEOUT_SECONDS
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return None
+    metadata = _gallerydl_richest_metadata(data)
+    return metadata or None
+
+
+def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any]:
+    """List the handle/display-name candidate fields for a link, no download.
+
+    Probes both yt-dlp and gallery-dl and merges the username/nickname catalog fields
+    each returns, so the user sees whichever engine's fields apply to this source.
+    """
+    url = _prepare_url(source_url)
+    if not url:
+        raise ValueError("Paste a URL first.")
+    resolved_key = normalize_source_key(source_key) if str(source_key or "").strip() else source_key_from_url(url)
+
+    probed: list[tuple[str, dict[str, str]]] = []
+    errors: list[str] = []
+    info, error = _ytdlp_dump(url)
+    if isinstance(info, dict) and info:
+        probed.append(("ytdlp", _flatten_metadata(info)))
+    elif error:
+        errors.append(error)
+    metadata = _gallerydl_dump(url)
+    if isinstance(metadata, dict) and metadata:
+        probed.append(("gallerydl", _flatten_metadata(metadata)))
+
+    if not probed:
+        detail = (errors[-1] if errors else "").strip().splitlines()
+        raise ValueError(detail[-1] if detail else "Could not read that link.")
+
+    fields: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for engine, flat in probed:
+        for item in _creator_probe_fields(flat, engine):
+            if item["field"] in seen:
+                continue
+            seen.add(item["field"])
+            fields.append(item)
+    return {"source_key": resolved_key, "fields": fields}

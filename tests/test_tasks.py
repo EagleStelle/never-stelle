@@ -23,6 +23,7 @@ from backend.app.services.tasks import (
     is_media_file,
     parse_filename_media_id,
 )
+from backend.app.services.tasks.naming import clean_social_title, clean_template_filename
 from backend.app.services.tasks.formats import (
     conflicts_with_source,
     creator_from_url,
@@ -2141,3 +2142,30 @@ def test_resolve_task_file_zips_numbered_gallerydl_siblings(tmp_path: Path, monk
             assert archive.namelist() == [first.name, second.name]
     finally:
         archive_path.unlink(missing_ok=True)
+
+
+def test_clean_social_title_default_strips_hashtags_and_metrics():
+    result = clean_social_title("Cool clip #fun #viral 1.2M views", creator="alice")
+    assert "#" not in result
+    assert "views" not in result
+    assert result.startswith("Cool clip")
+
+
+def test_clean_social_title_respects_disabled_flags():
+    result = clean_social_title(
+        "Cool clip #fun 1.2M views",
+        creator="alice",
+        cleaning={"strip_hashtags": False, "strip_metrics": False},
+    )
+    assert "#fun" in result
+    assert "views" in result
+
+
+def test_clean_template_filename_shorten_flag_off_keeps_long_title():
+    long_title = "This is a very long title that would normally be shortened well past fifty chars"
+    name = f"alice - {long_title} [abc123].mp4"
+    template = "{{username}} - {{title}} [{{id}}]"
+    shortened = clean_template_filename(name, template, creator="alice")
+    full = clean_template_filename(name, template, creator="alice", cleaning={"shorten": False})
+    assert len(shortened) < len(full)
+    assert long_title in full

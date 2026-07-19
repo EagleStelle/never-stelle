@@ -54,6 +54,8 @@ class SettingsPayload(BaseModel):
     default_quality: dict[str, str] = Field(default_factory=dict)
     source_scrape_rules: dict[str, Any] = Field(default_factory=dict)
     source_token_roles: dict[str, Any] = Field(default_factory=dict)
+    source_creator_fields: dict[str, Any] = Field(default_factory=dict)
+    source_title_cleaning: dict[str, Any] = Field(default_factory=dict)
 
 
 class ScrapeTestPayload(BaseModel):
@@ -74,6 +76,11 @@ class AddTaskPayload(BaseModel):
 
 class ProbePayload(BaseModel):
     url: str = ""
+
+
+class ProbeFieldsPayload(BaseModel):
+    url: str = ""
+    source_key: str = ""
 
 
 class SetSourcePayload(BaseModel):
@@ -262,6 +269,8 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
         payload.default_quality,
         payload.source_scrape_rules,
         payload.source_token_roles,
+        payload.source_creator_fields,
+        payload.source_title_cleaning,
     )
     return build_settings_response(cfg, saved)
 
@@ -287,6 +296,19 @@ def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
         for rule in rules
     ]
     return {"fetched": True, "results": results}
+
+
+@router.post("/settings/probe-fields")
+def probe_fields(payload: ProbeFieldsPayload) -> dict[str, Any]:
+    # Dump a link's metadata (no download) so the user can map username/nickname fields.
+    from backend.app.services.tasks.probe import probe_creator_fields
+
+    try:
+        return probe_creator_fields(payload.url, payload.source_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.post("/settings/ytdlp-cookies/{platform}")

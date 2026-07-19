@@ -4,9 +4,13 @@ import pytest
 
 import backend.app.services.tasks.probe as probe_module
 from backend.app.services.tasks.probe import (
+    _creator_probe_fields,
     _entry_url,
+    _flatten_metadata,
+    _gallerydl_richest_metadata,
     _radio_single_url,
     _strip_playlist_param,
+    probe_creator_fields,
     probe_url,
 )
 
@@ -129,3 +133,61 @@ def test_probe_url_bad_link_raises_value_error(monkeypatch):
 
     with pytest.raises(ValueError, match="Video unavailable"):
         probe_url("https://www.youtube.com/watch?v=dead")
+
+
+def test_flatten_metadata_expands_one_level_and_drops_non_scalars():
+    flat = _flatten_metadata(
+        {
+            "uploader": "Alice",
+            "view_count": 12,
+            "is_live": True,  # bool must not become a value
+            "user": {"name": "alice_handle", "nested": {"deep": 1}},
+            "tags": ["a", "b"],  # lists are skipped
+        }
+    )
+    assert flat["uploader"] == "Alice"
+    assert flat["view_count"] == "12"
+    assert flat["user[name]"] == "alice_handle"
+    assert "is_live" not in flat
+    assert "tags" not in flat
+
+
+def test_creator_probe_fields_returns_only_catalog_fields_with_values():
+    flat = {"uploader": "Alice", "uploader_id": "", "zzz": "last", "title": "Hi"}
+    fields = [item["field"] for item in _creator_probe_fields(flat, "ytdlp")]
+    # Only creator catalog fields with values; empty uploader_id and non-catalog title/zzz dropped.
+    assert fields == ["uploader"]
+
+
+def test_gallerydl_richest_metadata_finds_largest_dict():
+    data = [["directory"], [3, "http://x", {"id": 1, "user": "a", "title": "t"}], [2, {"small": 1}]]
+    best = _gallerydl_richest_metadata(data)
+    assert best == {"id": 1, "user": "a", "title": "t"}
+
+
+def test_probe_creator_fields_merges_both_engines(monkeypatch):
+    monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url: ({"uploader_id": "bob_h", "title": "hey"}, ""))
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: {"username": "bob", "title": "hey"})
+    monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "example")
+    result = probe_creator_fields("https://example.com/x")
+    assert result["source_key"] == "example"
+    fields = [f["field"] for f in result["fields"]]
+    # Merged creator fields from both engines; title (non-creator) excluded.
+    assert "uploader_id" in fields
+    assert "username" in fields
+    assert "title" not in fields
+
+
+def test_probe_creator_fields_skips_engine_that_returns_nothing(monkeypatch):
+    monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url: (None, "unsupported url"))
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: {"username": "bob"})
+    monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "example")
+    result = probe_creator_fields("https://example.com/x")
+    assert [f["field"] for f in result["fields"]] == ["username"]
+
+
+def test_probe_creator_fields_raises_when_both_engines_fail(monkeypatch):
+    monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url: (None, "bad link line"))
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: None)
+    with pytest.raises(ValueError):
+        probe_creator_fields("https://example.com/x")

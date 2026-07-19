@@ -16,6 +16,7 @@ export type SettingsSection =
   | "quality"
   | "folder-template"
   | "filename-template"
+  | "fields"
   | "scraper";
 export type ToastType = "success" | "error";
 
@@ -56,6 +57,37 @@ export interface PlatformScrapeRules {
 export type SourceScrapeRules = Record<string, PlatformScrapeRules>;
 export type TokenRole = "creator" | "nickname" | "title" | "slug" | "id" | "ignore";
 export type SourceTokenRoles = Record<string, Record<string, TokenRole>>;
+
+// Per source, the ordered field-preference lists for the username/nickname tokens.
+export interface CreatorFieldRoles {
+  username: string[];
+  nickname: string[];
+}
+export type SourceCreatorFields = Record<string, CreatorFieldRoles>;
+// Per source, title-cleaning flags plus a numeric max_chars; missing keys use the rule default.
+export type SourceTitleCleaning = Record<string, Record<string, boolean | number>>;
+
+export interface CreatorFieldCatalogItem {
+  field: string;
+  label: string;
+}
+export type CreatorFieldCatalog = Record<string, CreatorFieldCatalogItem[]>;
+
+export interface TitleCleaningRule {
+  key: string;
+  label: string;
+  default: boolean;
+}
+
+export interface ProbeField {
+  field: string;
+  value: string;
+}
+
+export interface ProbeFieldsResponse {
+  source_key: string;
+  fields: ProbeField[];
+}
 
 export interface ScrapeTestResult {
   token: string;
@@ -114,6 +146,8 @@ export interface SavedSettings {
   default_quality: QualitySelection;
   source_scrape_rules: SourceScrapeRules;
   source_token_roles: SourceTokenRoles;
+  source_creator_fields: SourceCreatorFields;
+  source_title_cleaning: SourceTitleCleaning;
 }
 
 export interface TemplateToken {
@@ -127,6 +161,8 @@ export interface RuntimeSettings extends SavedSettings {
   ytdlp_cookies: CookiesMap;
   quality_options: QualityOptions;
   template_tokens: TemplateToken[];
+  creator_field_catalog: CreatorFieldCatalog;
+  title_cleaning_rules: TitleCleaningRule[];
 }
 
 export interface UiConfigResponse {
@@ -139,6 +175,10 @@ export interface UiConfigResponse {
   source_templates?: Record<string, Partial<TemplateSettings>>;
   source_scrape_rules?: Record<string, Partial<PlatformScrapeRules>>;
   source_token_roles?: Record<string, Record<string, string>>;
+  source_creator_fields?: Record<string, Partial<CreatorFieldRoles>>;
+  source_title_cleaning?: Record<string, Record<string, boolean | number>>;
+  creator_field_catalog?: CreatorFieldCatalog;
+  title_cleaning_rules?: TitleCleaningRule[];
   ytdlp_cookies?: Record<string, Partial<CookiesStatus>>;
   default_quality?: Partial<QualitySelection>;
   quality_options?: Partial<QualityOptions>;

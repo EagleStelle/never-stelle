@@ -4,6 +4,7 @@ import IconCheck from "~icons/material-symbols/check";
 import IconClose from "~icons/material-symbols/close";
 import IconTrash from "~icons/material-symbols/delete";
 import IconSearch from "~icons/material-symbols/search";
+import IconSpinner from "~icons/material-symbols/sync";
 
 import { Button } from "../../../../components/ui/button";
 import { Checkbox } from "../../../../components/ui/checkbox";
@@ -94,18 +95,75 @@ const {
     </div>
 
     <template v-if="settingsDraft.source_scrape_rules[site.key].enabled">
+      <div class="flex flex-col gap-2 mb-2">
+        <div class="flex items-center gap-2">
+          <Input
+            :id="`${site.key}ScraperProbeInput`"
+            v-model="scrapeTests[site.key].url"
+            type="text"
+            inputmode="url"
+            placeholder="Sample URL to test"
+            class="flex-1"
+            @keydown.enter.prevent="runScrapeTest(site.key)"
+          />
+          <Button
+            class="shrink-0"
+            variant="primary"
+            type="button"
+            aria-label="Test"
+            title="Test"
+            :disabled="scrapeTests[site.key].loading"
+            :aria-busy="scrapeTests[site.key].loading"
+            @click="runScrapeTest(site.key)"
+          >
+            <template #icon>
+              <IconSpinner
+                v-if="scrapeTests[site.key].loading"
+                class="w-4 h-4 animate-spin"
+                aria-hidden="true"
+              />
+              <IconSearch v-else class="w-4 h-4" aria-hidden="true" />
+            </template>
+          </Button>
+        </div>
+
+        <p
+          v-if="scrapeTests[site.key].message"
+          class="text-xs text-white/60 in-[.light-mode]:text-black/60"
+        >
+          {{ scrapeTests[site.key].message }}
+        </p>
+        <ul
+          v-if="scrapeTests[site.key].results.length"
+          class="flex flex-col gap-1 text-[0.8125rem]"
+        >
+          <li
+            v-for="result in scrapeTests[site.key].results"
+            :key="result.token"
+            class="flex items-baseline gap-2 min-w-0"
+          >
+            <span class="font-mono shrink-0">{{ tokenLabel(result.token) }}</span>
+            <span v-if="result.matched" class="min-w-0 wrap-anywhere">{{
+              result.value
+            }}</span>
+            <span v-else class="opacity-50 italic">no match</span>
+          </li>
+        </ul>
+      </div>
+
       <p
         v-if="!settingsDraft.source_scrape_rules[site.key].rules.length"
-        class="text-xs text-white/50 in-[.light-mode]:text-black/50"
+        class="text-xs text-white/50 in-[.light-mode]:text-black/50 mb-2"
       >
         No rules yet.
       </p>
 
-      <div
-        v-for="(rule, index) in settingsDraft.source_scrape_rules[site.key].rules"
-        :key="index"
-        class="flex flex-col p-3 mb-3 rounded-xl bg-black/10 in-[.light-mode]:bg-white/40 border border-(--glass-border)"
-      >
+      <div class="flex flex-col gap-5">
+        <div
+          v-for="(rule, index) in settingsDraft.source_scrape_rules[site.key].rules"
+          :key="index"
+          class="flex flex-col gap-2"
+        >
         <div
           class="grid grid-cols-1 gap-[0.4rem] sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.9fr)]"
         >
@@ -132,7 +190,7 @@ const {
             @update:model-value="(val) => (rule.attr = val)"
             layout="fill"
             placeholder="Attribute"
-            empty-text="—"
+            empty-text="No matches."
           />
         </div>
         <div class="flex items-center gap-2 mt-2">
@@ -179,50 +237,7 @@ const {
         </div>
       </div>
 
-      <div class="flex items-center gap-2 mt-[0.35rem]">
-        <Input
-          v-model="scrapeTests[site.key].url"
-          type="text"
-          inputmode="url"
-          placeholder="Sample URL to test"
-          class="flex-1"
-        />
-        <Button
-          variant="primary"
-          type="button"
-          class="shrink-0"
-          :disabled="scrapeTests[site.key].loading"
-          @click="runScrapeTest(site.key)"
-        >
-          <template #icon>
-            <IconSearch class="w-4 h-4" aria-hidden="true" />
-          </template>
-          {{ scrapeTests[site.key].loading ? "Testing..." : "Test" }}
-        </Button>
       </div>
-
-      <p
-        v-if="scrapeTests[site.key].message"
-        class="text-xs text-white/60 in-[.light-mode]:text-black/60"
-      >
-        {{ scrapeTests[site.key].message }}
-      </p>
-      <ul
-        v-if="scrapeTests[site.key].results.length"
-        class="flex flex-col gap-1 text-[0.8125rem]"
-      >
-        <li
-          v-for="result in scrapeTests[site.key].results"
-          :key="result.token"
-          class="flex items-baseline gap-2 min-w-0"
-        >
-          <span class="font-mono shrink-0">{{ tokenLabel(result.token) }}</span>
-          <span v-if="result.matched" class="min-w-0 wrap-anywhere">{{
-            result.value
-          }}</span>
-          <span v-else class="opacity-50 italic">no match</span>
-        </li>
-      </ul>
     </template>
   </div>
 </template>

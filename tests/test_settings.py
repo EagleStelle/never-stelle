@@ -5,8 +5,12 @@ import backend.app.services.tasks.planning as planning_module
 from backend.app.services.settings import (
     BUILTIN_FILENAME_TEMPLATE,
     BUILTIN_FOLDER_TEMPLATE,
+    get_effective_creator_fields,
+    get_effective_title_cleaning,
+    normalize_source_creator_fields,
     normalize_source_location_selection,
     normalize_source_template_selection,
+    normalize_source_title_cleaning,
     normalize_source_token_roles,
     normalize_template_settings,
 )
@@ -44,6 +48,56 @@ def test_normalize_source_token_roles_keeps_known_roles():
     )
 
     assert result == {"rule34video": {"artist_name": "creator", "title": "title"}}
+
+
+def test_normalize_source_creator_fields_dedupes_and_keeps_brackets():
+    result = normalize_source_creator_fields(
+        {
+            "YouTube": {
+                "username": ["uploader_id", " uploader_id ", "user name!", "user[name]"],
+                "nickname": [],
+                "bogus": ["x"],
+            },
+            "empty": {"username": [], "nickname": []},
+        }
+    )
+    # Deduped (case-preserving), sanitized ("user name!" -> "username"), brackets kept;
+    # empty-role sources are dropped entirely.
+    assert result == {"youtube": {"username": ["uploader_id", "username", "user[name]"]}}
+
+
+def test_normalize_source_title_cleaning_fills_defaults_and_skips_empty():
+    result = normalize_source_title_cleaning(
+        {"YouTube": {"strip_hashtags": False, "max_chars": 20}, "untouched": {}}
+    )
+    assert "untouched" not in result
+    flags = result["youtube"]
+    assert flags["strip_hashtags"] is False
+    assert flags["strip_metrics"] is True  # unspecified -> rule default
+    assert flags["max_chars"] == 20
+
+
+def test_get_effective_creator_fields_resolves_per_source(monkeypatch):
+    import backend.app.services.settings as settings_mod
+
+    monkeypatch.setattr(
+        settings_mod, "load_saved_settings_file", lambda: {"source_creator_fields": {"youtube": {"username": ["channel"]}}}
+    )
+    monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
+    assert get_effective_creator_fields("https://youtube.com/x") == {"username": ["channel"]}
+    assert get_effective_creator_fields("") == {}
+
+
+def test_get_effective_title_cleaning_resolves_per_source(monkeypatch):
+    import backend.app.services.settings as settings_mod
+
+    monkeypatch.setattr(
+        settings_mod, "load_saved_settings_file", lambda: {"source_title_cleaning": {"youtube": {"strip_hashtags": False}}}
+    )
+    monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
+    flags = get_effective_title_cleaning("https://youtube.com/x")
+    assert flags["strip_hashtags"] is False
+    assert get_effective_title_cleaning("") == {}
 
 
 def test_normalize_template_blank_falls_back():

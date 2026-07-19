@@ -83,6 +83,42 @@ def test_ytdlp_command_drops_codec_pref_incompatible_with_container():
     assert "-S" not in cmd
 
 
+def test_ytdlp_username_field_prepends_custom_and_skips_brackets():
+    # Default is the built-in chain (handles first, opaque channel_id last).
+    assert (
+        ytdlp.ytdlp_username_field()
+        == "%(uploader_id,playlist_uploader_id,uploader,channel,creator,channel_id|Unknown)s"
+    )
+    # Custom fields lead; built-in chain trails (deduped); `user[name]` is a
+    # gallery-dl-only spelling and must be dropped so the yt-dlp spec stays valid.
+    spec = ytdlp.ytdlp_username_field(["channel", "user[name]", "uploader_id"])
+    assert spec == "%(channel,uploader_id,playlist_uploader_id,uploader,creator,channel_id|Unknown)s"
+
+
+def test_gallerydl_nickname_field_prepends_custom():
+    spec = gallerydl.gallerydl_nickname_field(["display[name]"])
+    assert spec.startswith("{display[name]|author[nick]|")
+    assert spec.endswith('|"unknown"}')
+
+
+def test_build_output_template_applies_per_source_creator_fields(monkeypatch):
+    monkeypatch.setattr(ytdlp, "get_effective_creator_fields", lambda url: {"username": ["channel"]})
+    template = ytdlp.build_output_template(
+        "https://example.com/watch?v=x",
+        "/media/out",
+        {"folder_template": "{{username}}", "filename_template": "{{username}} [{{id}}]"},
+    )
+    # The custom `channel` field leads the resolved username spec.
+    assert "%(channel,uploader_id,playlist_uploader_id,uploader,creator,channel_id|Unknown)s" in template
+
+
+def test_convert_template_to_gallerydl_uses_creator_fields():
+    rendered = gallerydl.convert_template_to_gallerydl(
+        "{{nickname}}", "https://example.com/x", creator_fields={"nickname": ["fullname"]}
+    )
+    assert rendered.startswith("{fullname|author[nick]|")
+
+
 def _has_cli_pair(cmd: list[str], option: str, value: str) -> bool:
     return any(left == option and right == value for left, right in zip(cmd, cmd[1:], strict=False))
 
@@ -172,7 +208,7 @@ def test_convert_template_to_gallerydl_maps_fields_and_resolves_creator():
 def test_convert_template_to_gallerydl_falls_back_to_metadata_creator():
     # No creator segment in the URL -> emit a gallery-dl field with fallbacks.
     result = gallerydl.convert_template_to_gallerydl("{{username}}", "https://imgur.com/abc")
-    assert result == '{username|user[name]|author|"unknown"}'
+    assert result == '{username|user[name]|user[username]|account|author|"unknown"}'
 
 
 def test_engine_progress_style_flags():

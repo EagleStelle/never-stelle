@@ -4,6 +4,7 @@ import IconCookie from "~icons/material-symbols/cookie";
 import IconDescription from "~icons/material-symbols/description";
 import IconFolder from "~icons/material-symbols/folder";
 import IconQuality from "~icons/material-symbols/high-quality";
+import IconFields from "~icons/material-symbols/badge";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconScraper from "~icons/material-symbols/travel-explore";
 
@@ -14,6 +15,7 @@ import Locations from "./sections/Settings/Locations.vue";
 import Quality from "./sections/Settings/Quality.vue";
 import Filename from "./sections/Templates/Filename.vue";
 import Folder from "./sections/Templates/Folder.vue";
+import Fields from "./sections/Templates/Fields.vue";
 import Scraper from "./sections/Templates/Scraper.vue";
 
 export interface SettingsSectionDef {
@@ -83,6 +85,15 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     icon: IconDescription,
     component: Filename,
     focusId: (source) => `${source}FilenameTemplateInput`,
+    requiresSources: true,
+  },
+  {
+    key: "fields",
+    label: "Fields",
+    group: "Templates",
+    icon: IconFields,
+    component: Fields,
+    focusId: (source) => `${source}FieldsProbeInput`,
     requiresSources: true,
   },
   {

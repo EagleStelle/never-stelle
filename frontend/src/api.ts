@@ -5,6 +5,7 @@ import type {
   CredentialsPayload,
   HistoryResponse,
   LoginPayload,
+  ProbeFieldsResponse,
   ProbeResponse,
   SavedSettings,
   ScanMediaResponse,
@@ -98,6 +99,18 @@ export function testScrapeRules(url: string, sourceKey: string, rules: ScrapeRul
       body: JSON.stringify({ url, source_key: sourceKey, rules }),
     },
     "Could not test scrape rules.",
+  );
+}
+
+export function probeCreatorFields(url: string, sourceKey = ""): Promise<ProbeFieldsResponse> {
+  return jsonRequest<ProbeFieldsResponse>(
+    "/api/settings/probe-fields",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, source_key: sourceKey }),
+    },
+    "Could not read that link.",
   );
 }
 

@@ -11,9 +11,11 @@ import type {
   RuntimeSettings,
   SavedSettings,
   SettingsSection,
+  SourceCreatorFields,
   SourceLocations,
   SourceProfile,
   SourceTemplates,
+  SourceTitleCleaning,
   SourceTokenRoles,
   ToastType,
   UiConfigResponse,
@@ -22,10 +24,12 @@ import {
   createCookiesStatus,
   createQualityOptions,
   createQualitySelection,
+  createSourceCreatorFields,
   createSourceLocations,
   createSourceProfile,
   createSourceScrapeRules,
   createSourceTemplates,
+  createSourceTitleCleaning,
   createSourceTokenRoles,
   createTemplateSettings,
   errorMessage,
@@ -73,6 +77,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_quality: createQualitySelection(),
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
+    source_creator_fields: createSourceCreatorFields(),
+    source_title_cleaning: createSourceTitleCleaning(),
   });
   const settings = reactive<RuntimeSettings>({
     auth: { username: "", password_configured: false },
@@ -83,10 +89,14 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_quality: createQualitySelection(),
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
+    source_creator_fields: createSourceCreatorFields(),
+    source_title_cleaning: createSourceTitleCleaning(),
     download_locations: [],
     ytdlp_cookies: createCookiesMap(),
     quality_options: createQualityOptions(),
     template_tokens: [],
+    creator_field_catalog: {},
+    title_cleaning_rules: [],
   });
   const settingsDraft = reactive<SavedSettings>({
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
@@ -96,6 +106,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_quality: createQualitySelection(),
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
+    source_creator_fields: createSourceCreatorFields(),
+    source_title_cleaning: createSourceTitleCleaning(),
   });
 
   const settingsOpen = ref(false);
@@ -131,6 +143,14 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       default_quality: createQualitySelection(source.default_quality, settings.quality_options),
       source_scrape_rules: createSourceScrapeRules(recordForProfiles(source.source_scrape_rules, profiles), profiles),
       source_token_roles: createSourceTokenRoles(source.source_token_roles as SourceTokenRoles, profiles),
+      source_creator_fields: createSourceCreatorFields(
+        recordForProfiles(source.source_creator_fields as SourceCreatorFields, profiles),
+        profiles,
+      ),
+      source_title_cleaning: createSourceTitleCleaning(
+        recordForProfiles(source.source_title_cleaning as SourceTitleCleaning, profiles),
+        profiles,
+      ),
     };
   }
 
@@ -164,6 +184,14 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       ),
       source_token_roles: createSourceTokenRoles(
         { ...defaults.source_token_roles, ...settings.source_token_roles } as SourceTokenRoles,
+        profiles,
+      ),
+      source_creator_fields: createSourceCreatorFields(
+        recordForProfiles({ ...defaults.source_creator_fields, ...settings.source_creator_fields }, profiles),
+        profiles,
+      ),
+      source_title_cleaning: createSourceTitleCleaning(
+        recordForProfiles({ ...defaults.source_title_cleaning, ...settings.source_title_cleaning }, profiles),
         profiles,
       ),
     };
@@ -210,6 +238,23 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     replaceRecord(defaults.source_token_roles, tokenRoles);
     replaceRecord(settings.source_token_roles, tokenRoles);
 
+    const creatorFields = createSourceCreatorFields(
+      recordForProfiles(data.source_creator_fields || {}, managedProfiles),
+      managedProfiles,
+    );
+    replaceRecord(defaults.source_creator_fields, creatorFields);
+    replaceRecord(settings.source_creator_fields, creatorFields);
+
+    const titleCleaning = createSourceTitleCleaning(
+      recordForProfiles(data.source_title_cleaning || {}, managedProfiles),
+      managedProfiles,
+    );
+    replaceRecord(defaults.source_title_cleaning, titleCleaning);
+    replaceRecord(settings.source_title_cleaning, titleCleaning);
+
+    settings.creator_field_catalog = data.creator_field_catalog || {};
+    settings.title_cleaning_rules = Array.isArray(data.title_cleaning_rules) ? data.title_cleaning_rules : [];
+
     const qualityOptions = createQualityOptions(data.quality_options || {});
     settings.quality_options = qualityOptions;
 
@@ -242,6 +287,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     Object.assign(settingsDraft.default_quality, normalized.default_quality);
     replaceRecord(settingsDraft.source_scrape_rules, normalized.source_scrape_rules);
     replaceRecord(settingsDraft.source_token_roles, normalized.source_token_roles);
+    replaceRecord(settingsDraft.source_creator_fields, normalized.source_creator_fields);
+    replaceRecord(settingsDraft.source_title_cleaning, normalized.source_title_cleaning);
     lastSavedSnapshot = JSON.stringify(normalizeSavedPayload(settingsDraft));
   }
 
@@ -256,6 +303,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       quality: "defaultQualityMode",
       "folder-template": `${firstSource}FolderTemplateInput`,
       "filename-template": `${firstSource}FilenameTemplateInput`,
+      fields: `${firstSource}FieldsProbeInput`,
       scraper: `${firstSource}ScraperEnable`,
     };
     void nextTick(() => document.getElementById(focusTargets[settingsSection.value])?.focus());

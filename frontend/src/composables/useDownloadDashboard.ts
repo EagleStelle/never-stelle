@@ -50,6 +50,7 @@ const SETTINGS_SLUG_BY_SECTION: Record<SettingsSection, string> = {
   quality: "quality",
   "folder-template": "folder",
   "filename-template": "filename",
+  fields: "fields",
   scraper: "scraper",
 };
 
