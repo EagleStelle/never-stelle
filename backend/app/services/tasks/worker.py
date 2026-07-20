@@ -16,6 +16,7 @@ from backend.app.core.config import max_concurrent_downloads
 from backend.app.core.sources import apex_host, host_from_url, normalize_source_key
 from backend.app.services.settings import (
     detect_cookie_source,
+    get_effective_creator_fields,
     get_effective_title_cleaning,
     has_cookies_for_source,
     load_scrape_rules,
@@ -698,6 +699,18 @@ def _filename_media_id(path: Path, filename_template: str, metadata: dict[str, s
     return ""
 
 
+def _configured_creator_field(metadata: dict[str, str], source_url: str, role: str) -> str:
+    # A user-configured field order (source_creator_fields) is authoritative: read the
+    # first populated field straight from the metadata sidecar in that exact order,
+    # bypassing the handle heuristics so an explicit choice like channel_id is honored
+    # even when it is an opaque identifier. Empty list -> heuristics stay in charge.
+    for field in get_effective_creator_fields(source_url).get(role) or ():
+        value = _clean_creator_candidate(str(metadata.get(field) or ""), strip_at=False)
+        if value:
+            return value
+    return ""
+
+
 def _filename_creator(
     path: Path,
     filename_template: str,
@@ -1033,6 +1046,7 @@ def _clean_resolved_filename(
     nickname_hint: str = "",
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
+    creator_authoritative: bool = False,
 ) -> tuple[Path, str]:
     filename_template = _filename_template(template_settings)
     source_key = source_key or detect_source_key(source_url)
@@ -1041,9 +1055,14 @@ def _clean_resolved_filename(
     creator_hint = str(creator_hint or "").strip() or _clean_handle_candidate(
         creator_from_url(source_url, media_id_hint)
     )
-    display_creator_hint = _display_creator_candidate(
-        creator_from_url(source_url, media_id_hint, strip_at=False) or creator_hint,
-        cleaning,
+    # A configured creator is authoritative; the URL-derived handle must not override it.
+    display_creator_hint = (
+        _display_creator_candidate(creator_hint, cleaning) or creator_hint
+        if creator_authoritative and creator_hint
+        else _display_creator_candidate(
+            creator_from_url(source_url, media_id_hint, strip_at=False) or creator_hint,
+            cleaning,
+        )
     )
     display_nickname_hint = _display_creator_candidate(nickname_hint, cleaning)
     if filename_template:
@@ -1494,12 +1513,17 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 media_id = str(group.get("media_id") or "").strip()
                 raw_path = Path(group["path"])
                 metadata = group.get("metadata") or {}
-                creator_hint = _role_creator(extra_tokens, token_roles, task_source_key) or _filename_creator(
-                    raw_path, filename_template, metadata, source_url, media_id
+                # Honor the per-source field priority the same way the download template does.
+                configured_username = _configured_creator_field(metadata, source_url, "username")
+                configured_nickname = _configured_creator_field(metadata, source_url, "nickname")
+                creator_hint = (
+                    _role_creator(extra_tokens, token_roles, task_source_key)
+                    or configured_username
+                    or _filename_creator(raw_path, filename_template, metadata, source_url, media_id)
                 )
                 folder_template = str((template_settings or {}).get("folder_template") or "").strip()
                 folder_text = _template_folder_text(output_root, raw_path)
-                nickname_hint = _filename_nickname(
+                nickname_hint = configured_nickname or _filename_nickname(
                     raw_path,
                     filename_template,
                     folder_template,
@@ -1510,7 +1534,10 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 item_source_url = _item_source_url(source_url, task_source_key, media_id, creator_hint, metadata)
                 item_source_key = normalize_source_key(task_source_key or detect_source_key(item_source_url))
                 item_cleaning = get_effective_title_cleaning(item_source_url)
-                display_creator_hint = (
+                configured_display = (
+                    _display_creator_candidate(configured_username, item_cleaning) if configured_username else ""
+                )
+                display_creator_hint = configured_display or (
                     _display_creator_candidate(
                         creator_from_url(item_source_url, media_id, strip_at=False),
                         item_cleaning,
@@ -1530,6 +1557,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     nickname_hint,
                     extra_tokens,
                     item_cleaning,
+                    creator_authoritative=bool(configured_username),
                 )
                 media_id = (
                     media_id
@@ -1551,6 +1579,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 drop_file_cache(keep_paths)
                 creator = (
                     _role_creator(extra_tokens, token_roles, item_source_key)
+                    or configured_display
                     or _clean_handle_candidate(creator_from_url(item_source_url, media_id))
                     or creator_hint
                     or _resolved_task_creator(used_engine, creator_sidecar, item_source_url, display_filename)

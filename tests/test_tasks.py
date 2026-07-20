@@ -787,6 +787,54 @@ def test_clean_resolved_filename_strips_at_from_username(tmp_path: Path):
     assert not media_file.exists()
 
 
+def test_configured_creator_field_honors_opaque_id_in_priority_order(monkeypatch):
+    # channel_id first in the configured order must win, even though the handle
+    # heuristics reject it as an opaque identifier.
+    monkeypatch.setattr(
+        worker_module,
+        "get_effective_creator_fields",
+        lambda url: {"username": ["channel_id", "uploader"]},
+    )
+    metadata = {
+        "uploader": "Mili",
+        "channel": "Mili",
+        "channel_id": "UC-wNqHVYS82PF4mkaQb0Alg",
+    }
+
+    assert (
+        worker_module._configured_creator_field(metadata, "https://video.example/watch?v=x", "username")
+        == "UC-wNqHVYS82PF4mkaQb0Alg"
+    )
+
+
+def test_configured_creator_field_empty_order_defers_to_heuristics(monkeypatch):
+    monkeypatch.setattr(worker_module, "get_effective_creator_fields", lambda url: {})
+    metadata = {"channel_id": "UC-wNqHVYS82PF4mkaQb0Alg", "uploader": "Mili"}
+
+    assert worker_module._configured_creator_field(metadata, "https://video.example/watch?v=x", "username") == ""
+
+
+def test_clean_resolved_filename_keeps_authoritative_creator_over_url_handle(tmp_path: Path):
+    # An authoritative (configured) creator must not be clobbered by a URL-derived handle.
+    source_url = "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489"
+    media_file = tmp_path / "UC1234567890 - Clip [7493558766131039489].mp4"
+    media_file.write_bytes(b"video")
+
+    final_path, display_filename = worker_module._clean_resolved_filename(
+        source_url,
+        media_file,
+        {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
+        "tiktok",
+        creator_hint="UC1234567890",
+        media_id_hint="7493558766131039489",
+        creator_authoritative=True,
+    )
+
+    expected = tmp_path / "UC1234567890 - Clip [7493558766131039489].mp4"
+    assert final_path == expected
+    assert display_filename == expected.name
+
+
 def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -1366,6 +1414,13 @@ def test_worker_prefers_tiktok_url_creator_over_ytdlp_sidecar(tmp_path: Path):
     )
 
     assert creator == "fzyahoo.com"
+
+
+@pytest.fixture(autouse=True)
+def _scan_stays_offline(monkeypatch: pytest.MonkeyPatch):
+    # Library scan probes manually-placed files over the network; keep tests offline by
+    # default. Probe-behavior tests opt back in by re-stubbing with canned metadata.
+    monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: {})
 
 
 def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -2051,6 +2106,132 @@ def test_scan_media_library_reconstructs_slug_url_from_filename_template(
     assert entry["source_key"] == "rule34video"
     assert entry["source_pending"] is False
     assert entry["source_url"] == "https://rule34video.com/video/3238394/wsds-minus8"
+
+
+def _patch_scan_common(monkeypatch: pytest.MonkeyPatch, saved: dict[str, dict], platform_dir: Path) -> None:
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"youtube": str(platform_dir)})
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+
+def test_scan_probes_manual_file_in_configured_username_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Manual file, no record yet: probe and honor the settings order (channel_id first),
+    # even though channel_id is an opaque id the handle heuristics would reject.
+    learned = learn_download({}, "https://www.youtube.com/watch?v=abc123", "abc123")
+    media_root = tmp_path / "media"
+    platform_dir = media_root / "youtube"
+    creator_dir = platform_dir / "Some Channel"
+    creator_dir.mkdir(parents=True)
+    (creator_dir / "Soft Light [abc123].mp4").write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    _patch_scan_common(monkeypatch, saved, platform_dir)
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_template_map",
+        lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
+    )
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_creator_fields_map",
+        lambda: {"youtube": {"username": ["channel_id", "uploader"]}},
+    )
+    probed: list[str] = []
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_probe_metadata",
+        lambda url, *, with_cookies=False: probed.append(url) or {"uploader": "Mili", "channel_id": "UCopaque123"},
+    )
+
+    scan_module.scan_media_library([media_root])
+
+    assert saved["disk:abc123"]["artist"] == "UCopaque123"
+    assert saved["disk:abc123"]["source_url"] == "https://www.youtube.com/watch?v=abc123"
+    assert probed == ["https://www.youtube.com/watch?v=abc123"]
+
+
+def test_scan_probe_uses_nickname_order_when_folder_token_is_nickname(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # Folder token decides the role: {{nickname}} -> walk the nickname field order.
+    learned = learn_download({}, "https://www.youtube.com/watch?v=abc123", "abc123")
+    media_root = tmp_path / "media"
+    platform_dir = media_root / "youtube"
+    creator_dir = platform_dir / "Some Channel"
+    creator_dir.mkdir(parents=True)
+    (creator_dir / "Soft Light [abc123].mp4").write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    _patch_scan_common(monkeypatch, saved, platform_dir)
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_template_map",
+        lambda: ({"folder_template": "{{nickname}}", "filename_template": "{{title}} [{{id}}]"}, {}),
+    )
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_creator_fields_map",
+        lambda: {"youtube": {"username": ["channel_id"], "nickname": ["uploader", "channel"]}},
+    )
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_probe_metadata",
+        lambda url, *, with_cookies=False: {"channel_id": "UCopaque123", "uploader": "Mili Display", "channel": "Mili"},
+    )
+
+    scan_module.scan_media_library([media_root])
+
+    assert saved["disk:abc123"]["artist"] == "Mili Display"
+
+
+def test_scan_skips_probe_when_creator_already_resolved(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Details already in the system: keep the resolved creator/url, never re-probe.
+    media_root = tmp_path / "media"
+    platform_dir = media_root / "youtube"
+    creator_dir = platform_dir / "Some Channel"
+    creator_dir.mkdir(parents=True)
+    media_file = creator_dir / "Soft Light [abc123].mp4"
+    media_file.write_bytes(b"video")
+
+    prior = {
+        "task_id": "disk:abc123",
+        "media_id": "abc123",
+        "task_type": "disk",
+        "artist": "AlreadyResolved",
+        "source_url": "https://www.youtube.com/watch?v=abc123",
+        "resolved_full_path": str(media_file),
+    }
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {"disk:abc123": prior}})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"youtube": str(platform_dir)})
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    def _fail_probe(url, *, with_cookies=False):
+        raise AssertionError("probe must not run for an already-resolved file")
+
+    monkeypatch.setattr(scan_module, "_scan_probe_metadata", _fail_probe)
+
+    scan_module.scan_media_library([media_root])
+
+    assert saved["disk:abc123"]["artist"] == "AlreadyResolved"
+    assert saved["disk:abc123"]["source_url"] == "https://www.youtube.com/watch?v=abc123"
 
 
 def test_scan_media_library_removes_missing_completed_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

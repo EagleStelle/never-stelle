@@ -145,9 +145,9 @@ def _creator_probe_fields(flat: dict[str, str], engine: str) -> list[dict[str, s
     return fields
 
 
-def _ytdlp_dump(url: str) -> tuple[dict[str, Any] | None, str]:
+def _ytdlp_dump(url: str, *, with_cookies: bool = True) -> tuple[dict[str, Any] | None, str]:
     cmd = ["yt-dlp", "--dump-json", "--no-warnings", "--no-download", "--playlist-items", "1"]
-    cookies_file = find_cookies_file_for_url(url)
+    cookies_file = find_cookies_file_for_url(url) if with_cookies else ""
     if cookies_file:
         cmd.extend(["--cookies", cookies_file])
     cmd.append(url)
@@ -182,9 +182,9 @@ def _gallerydl_richest_metadata(node: Any) -> dict[str, Any]:
     return best
 
 
-def _gallerydl_dump(url: str) -> dict[str, Any] | None:
+def _gallerydl_dump(url: str, *, with_cookies: bool = True) -> dict[str, Any] | None:
     cmd = ["gallery-dl", "-j"]
-    cookies_file = find_cookies_file_for_url(url)
+    cookies_file = find_cookies_file_for_url(url) if with_cookies else ""
     if cookies_file:
         cmd.extend(["--cookies", cookies_file])
     cmd.append(url)
@@ -202,6 +202,25 @@ def _gallerydl_dump(url: str) -> dict[str, Any] | None:
         return None
     metadata = _gallerydl_richest_metadata(data)
     return metadata or None
+
+
+def probe_metadata(source_url: str, *, with_cookies: bool = False) -> dict[str, str]:
+    """Flat metadata for a URL from whichever engine answers first; ``{}`` on failure.
+
+    The library scan uses this to resolve a manually-placed file's creator without a
+    download. Unlike ``probe_creator_fields`` it returns every scalar field (flattened
+    to ``key[sub]``) so the caller can walk its own configured field-priority order.
+    """
+    url = _prepare_url(source_url)
+    if not url:
+        return {}
+    info, _ = _ytdlp_dump(url, with_cookies=with_cookies)
+    if isinstance(info, dict) and info:
+        return _flatten_metadata(info)
+    metadata = _gallerydl_dump(url, with_cookies=with_cookies)
+    if isinstance(metadata, dict) and metadata:
+        return _flatten_metadata(metadata)
+    return {}
 
 
 def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any]:

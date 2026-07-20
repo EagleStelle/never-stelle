@@ -11,12 +11,13 @@ from backend.app.core.config import discover_volume_roots
 from backend.app.core.sources import normalize_source_key
 from backend.app.db.database import utc_now
 
-from .constants import CREATOR_FIELDS, TEMPLATE_RE
+from .constants import CREATOR_FIELD_DEFAULTS, CREATOR_FIELDS, TEMPLATE_RE
 from .files import is_media_file, recover_task_path
 from .formats import (
     conflicts_with_source,
     guess_sources,
     media_id_from_url,
+    reconstruct_url,
     reconstruct_url_candidates,
 )
 from .learning import update_learned_formats_with_download
@@ -33,6 +34,9 @@ from .store import (
 
 FILENAME_ID_RE = re.compile(r"^(.*) \[([A-Za-z0-9_-]+)\](?:_\d+)?$")
 UNRECOVERABLE_MEDIA_IDS = {"", "na", "n-a", "n/a", "none", "null", "unknown"}
+# Bound the live probe of a manually-placed file; each probe is a network round-trip.
+_MAX_PROBE_CANDIDATES = 2
+_EMPTY_CREATOR_VALUES = {"", "unknown", "none", "null", "undefined", "na", "n/a"}
 _ID_TOKENS = {"id"}
 _SLUG_TOKENS = {"slug"}
 _EXT_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$")
@@ -376,6 +380,77 @@ def _scan_source_profile_keys() -> set[str]:
         return set()
 
 
+def _scan_creator_fields_map() -> dict[str, dict[str, list[str]]]:
+    # Per-source username/nickname field priority the user configured in settings.
+    try:
+        from backend.app.core.config import load_app_config
+        from backend.app.services.settings import get_effective_saved_settings
+
+        fields = get_effective_saved_settings(load_app_config()).get("source_creator_fields")
+        return fields if isinstance(fields, dict) else {}
+    except Exception:
+        return {}
+
+
+def _scan_probe_metadata(url: str, *, with_cookies: bool = False) -> dict[str, str]:
+    # Seam over the field probe: lazy import dodges a cycle and tests stub this to stay offline.
+    try:
+        from .probe import probe_metadata
+
+        return probe_metadata(url, with_cookies=with_cookies)
+    except Exception:
+        return {}
+
+
+def _clean_probe_value(value: str) -> str:
+    value = str(value or "").strip().lstrip("@").strip()
+    return "" if value.lower() in _EMPTY_CREATOR_VALUES else value
+
+
+def _creator_role_for_templates(folder_template: str, filename_template: str) -> str:
+    # {{username}} vs {{nickname}} is decided by the folder token first, else the filename token.
+    for template in (folder_template, filename_template):
+        for match in TEMPLATE_RE.finditer(str(template or "")):
+            field = match.group(1).strip().lower()
+            if field in CREATOR_FIELDS:
+                return field
+    return "username"
+
+
+def _probe_disk_creator(
+    learned: dict[str, Any],
+    source_key: str,
+    media_id: str,
+    order: list[str],
+    slug: str,
+    disk_creator: str,
+) -> tuple[str, str]:
+    """Probe a manually-placed file's reconstructed link and pick its creator.
+
+    Walks the configured field order (username or nickname) over the probed metadata and
+    stops at the first field that carries a value. Reconstructs media_id (+slug) links
+    first, only using the disk creator for templates that actually contain ``{creator}``.
+    Returns ``(creator, matched_url)``; ``("", "")`` when nothing probes or matches.
+    """
+    if not order:
+        return "", ""
+    probe_urls = reconstruct_url_candidates(learned, source_key, media_id, creator="", slug=slug)
+    if disk_creator:
+        for url in reconstruct_url_candidates(learned, source_key, media_id, creator=disk_creator, slug=slug):
+            if url not in probe_urls:
+                probe_urls.append(url)
+    for url in probe_urls[:_MAX_PROBE_CANDIDATES]:
+        # Anonymous first; retry authenticated only when the anonymous probe finds nothing.
+        flat = _scan_probe_metadata(url) or _scan_probe_metadata(url, with_cookies=True)
+        if not flat:
+            continue
+        for field in order:
+            value = _clean_probe_value(flat.get(field, ""))
+            if value:
+                return value, url
+    return "", ""
+
+
 class _TemplateResolver:
     """Compile and cache the folder/filename matchers for each source key."""
 
@@ -400,6 +475,11 @@ class _TemplateResolver:
                 compile_template(settings.get("filename_template") or "", roles),
             )
         return self._cache[source_key]
+
+    def templates_for(self, source_key: str) -> tuple[str, str]:
+        # Raw folder/filename template strings, so the caller can read their tokens.
+        settings = self._per_source.get(source_key) or self._base
+        return str(settings.get("folder_template") or ""), str(settings.get("filename_template") or "")
 
 
 def _source_location_index(locations: dict[str, str]) -> list[tuple[str, str]]:
@@ -494,6 +574,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
     source_folders = _source_folder_keys(locations)
     source_profile_keys = _scan_source_profile_keys()
     templates = _TemplateResolver(*_scan_template_map(), _scan_token_role_map())
+    creator_fields_map = _scan_creator_fields_map()
     learned = load_learned_formats()
     learned_before = learned
     learned = _seed_learned_from_history(learned, records)
@@ -526,13 +607,27 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         filename_fields = _match_template(filename_pattern, path.stem)
         title = filename_fields.get("title", title)
         slug = filename_fields.get("slug", "")
-        creator = (
+        disk_creator = (
             _creator_for_file(root, path, source_folders, folder_pattern, filename_pattern)
             or _creator_from_title(title)
         )
+        prior = records.get(task_id) or {}
+        prior_creator = str(prior.get("artist") or "").strip()
+        if prior_creator:
+            # Already resolved by a past scan or a real download: never re-probe, keep it as-is.
+            creator = prior_creator
+            source_url = str(prior.get("source_url") or "").strip() or reconstruct_url(
+                learned, source_key, media_id, creator=creator, slug=slug
+            )
+        else:
+            # Manually-placed file with no resolved creator yet: probe in the configured order.
+            folder_template, filename_template = templates.templates_for(source_key)
+            role = _creator_role_for_templates(folder_template, filename_template)
+            order = (creator_fields_map.get(source_key) or {}).get(role) or CREATOR_FIELD_DEFAULTS.get(role, [])
+            probed_creator, probed_url = _probe_disk_creator(learned, source_key, media_id, order, slug, disk_creator)
+            creator = probed_creator or disk_creator
+            source_url = probed_url or reconstruct_url(learned, source_key, media_id, creator=creator, slug=slug)
         display_filename = clean_gallerydl_display_filename(path.name, creator, source_key)
-        candidates = reconstruct_url_candidates(learned, source_key, media_id, creator=creator, slug=slug)
-        source_url = candidates[0] if candidates else ""
         save_history_entry_row(
             task_id,
             {
