@@ -330,7 +330,7 @@ def creator_roles_from_probe_fields(fields_by_engine: dict[str, list[str] | tupl
 
 
 # Per-source title-cleaning toggles; each `default` is the built-in always-on behavior.
-TITLE_MAX_CHARS_DEFAULT = 200
+TITLE_MAX_CHARS_DEFAULT = 100
 TITLE_CLEANING_RULES: dict[str, dict[str, Any]] = {
     "strip_handle_at": {"label": "Remove @ before usernames", "default": True},
     "strip_placeholder": {"label": "Remove generic auto captions", "default": True},
@@ -339,7 +339,7 @@ TITLE_CLEANING_RULES: dict[str, dict[str, Any]] = {
     "strip_on_surface": {"label": "Remove platform suffixes", "default": True},
     "strip_metrics": {"label": "Remove engagement counts", "default": True},
     "strip_hashtags": {"label": "Remove hashtags", "default": True},
-    "shorten": {"label": "Limit overly long titles", "default": True},
+    "shorten": {"label": "Limit overly long titles", "default": False},
 }
 
 
