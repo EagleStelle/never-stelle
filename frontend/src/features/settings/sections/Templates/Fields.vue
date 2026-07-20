@@ -37,7 +37,8 @@ const { settings, settingsDraft, editableSourceProfiles } =
   useSettingsContext();
 const {
   probes,
-  rules,
+  cleanupRules,
+  titleLengthRule,
   fieldList,
   reorderField,
   resetRole,
@@ -161,10 +162,7 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
             {{ probes[site.key].message }}
           </p>
 
-          <Table
-            v-if="probes[site.key].fields.length"
-            class="text-[0.8125rem]"
-          >
+          <Table v-if="probes[site.key].fields.length" class="text-[0.8125rem]">
             <TableHeader>
               <TableRow>
                 <TableHead
@@ -190,7 +188,10 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
                   </span>
                 </TableCell>
                 <TableCell>
-                  <span class="block min-w-0 wrap-anywhere" :title="result.value">
+                  <span
+                    class="block min-w-0 wrap-anywhere"
+                    :title="result.value"
+                  >
                     {{ result.value }}
                   </span>
                 </TableCell>
@@ -228,7 +229,9 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
                   class="flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors cursor-grab active:cursor-grabbing"
                   :class="[
                     isDragging(site.key, role.key, index) ? 'opacity-40' : '',
-                    isDropTarget(site.key, role.key, index) ? 'bg-accent/15' : '',
+                    isDropTarget(site.key, role.key, index)
+                      ? 'bg-accent/15'
+                      : '',
                   ]"
                   @dragstart="onDragStart(site.key, role.key, index, $event)"
                   @dragover.prevent="onDragOver(site.key, role.key, index)"
@@ -242,7 +245,7 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
                   <span
                     class="font-mono text-[0.8125rem] flex-1 min-w-0 truncate"
                   >
-                    {{ index + 1 }}. {{ field }}
+                    {{ field }}
                   </span>
                 </li>
               </ul>
@@ -256,7 +259,7 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
               Cleanup
             </h3>
             <label
-              v-for="rule in rules"
+              v-for="rule in cleanupRules"
               :key="rule.key"
               class="flex items-center gap-2 cursor-pointer select-none text-sm"
             >
@@ -268,26 +271,26 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
               />
               <span>{{ rule.label }}</span>
             </label>
-            <label
-              v-if="
-                ruleEnabled(site.key, {
-                  key: 'shorten',
-                  label: '',
-                  default: true,
-                })
-              "
-              class="flex items-center gap-2 text-sm mt-1"
+            <SettingsRow
+              v-if="ruleEnabled(site.key, titleLengthRule)"
+              label="Character limit"
             >
-              <span class="shrink-0">Max title length</span>
-              <Input
-                type="number"
-                :model-value="String(maxChars(site.key))"
-                class="w-24"
-                @update:model-value="
-                  (v: string | number) => setMaxChars(site.key, Number(v))
-                "
-              />
-            </label>
+              <div class="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="12"
+                  :disabled="!ruleEnabled(site.key, titleLengthRule)"
+                  :model-value="String(maxChars(site.key))"
+                  class="w-24 shrink-0"
+                  @update:model-value="
+                    (v: string | number) => setMaxChars(site.key, Number(v))
+                  "
+                />
+                <span class="text-white/55 in-[.light-mode]:text-black/55">
+                  characters
+                </span>
+              </div>
+            </SettingsRow>
           </div>
         </div>
       </AccordionContent>

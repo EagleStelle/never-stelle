@@ -8,7 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from backend.app.core.sources import normalize_source_key, source_key_from_url
 from backend.app.services.settings import find_cookies_file_for_url
 
-from .constants import CREATOR_FIELD_CANDIDATES
+from .constants import CREATOR_FIELD_CANDIDATES, creator_roles_from_probe_fields
 from .formats import _prepare_url
 
 # YouTube mix/radio playlists carry an ``RD`` list id and are endless, so we
@@ -231,11 +231,15 @@ def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any
         raise ValueError(detail[-1] if detail else "Could not read that link.")
 
     fields: list[dict[str, str]] = []
+    fields_by_engine: dict[str, list[str]] = {}
     seen: set[str] = set()
     for engine, flat in probed:
-        for item in _creator_probe_fields(flat, engine):
+        engine_fields = _creator_probe_fields(flat, engine)
+        fields_by_engine[engine] = [item["field"] for item in engine_fields]
+        for item in engine_fields:
             if item["field"] in seen:
                 continue
             seen.add(item["field"])
             fields.append(item)
-    return {"source_key": resolved_key, "fields": fields}
+    creator_fields = creator_roles_from_probe_fields(fields_by_engine)
+    return {"source_key": resolved_key, "fields": fields, "creator_fields": creator_fields}

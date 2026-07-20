@@ -301,10 +301,22 @@ def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
 @router.post("/settings/probe-fields")
 def probe_fields(payload: ProbeFieldsPayload) -> dict[str, Any]:
     # Dump a link's metadata (no download) so the user can map username/nickname fields.
+    from backend.app.services.tasks.learning import save_learned_creator_fields
     from backend.app.services.tasks.probe import probe_creator_fields
 
     try:
-        return probe_creator_fields(payload.url, payload.source_key)
+        result = probe_creator_fields(payload.url, payload.source_key)
+        learned = save_learned_creator_fields(
+            payload.url,
+            str(result.get("source_key") or payload.source_key),
+            result.get("creator_fields"),
+            only_when_missing=False,
+            merge=True,
+        )
+        if learned:
+            result["creator_fields"] = learned
+            result["saved"] = True
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

@@ -15,8 +15,9 @@ from backend.app.services.settings import get_effective_saved_settings
 from .constants import normalize_quality_selection
 from .engine import select_engine
 from .files import find_numbered_media_siblings, recover_task_path
-from .formats import learn_media_id, reconstruct_url_candidates
+from .formats import reconstruct_url_candidates
 from .history import find_active_by_source, find_history_by_id, find_history_by_source
+from .learning import ensure_creator_fields_learned, learn_source_id_signature
 from .naming import clean_gallerydl_display_filename
 from .planning import resolve_task_settings
 from .scan import parse_filename_media_id
@@ -27,7 +28,6 @@ from .store import (
     remove_task_record,
     remove_task_record_if_status,
     save_history_entry_row,
-    save_learned_formats,
     update_task,
 )
 from .urls import canonicalize_source_url, detect_source_key, resolve_redirect_url
@@ -77,6 +77,7 @@ def queue_task(
         label = str(resolved_settings.source_profile.get("label") or "selected")
         raise ValueError(f"Choose a valid {label} download location from Settings.")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
+    ensure_creator_fields_learned(source_url, source_key)
 
     engine = select_engine(source_url)
     task_id = f"{engine.id_prefix}:{uuid.uuid4().hex[:12]}"
@@ -178,10 +179,7 @@ def _learn_confirmed_source(source_key: str, media_id: str) -> None:
     # A user confirmation is ground truth: teach the id shape so future scans match it.
     if not media_id:
         return
-    learned = load_learned_formats()
-    updated = learn_media_id(learned, source_key, media_id)
-    if updated != learned:
-        save_learned_formats(updated)
+    learn_source_id_signature(source_key, media_id)
 
 
 def set_task_source(task_id: str, source_key: str) -> str:

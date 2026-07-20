@@ -23,7 +23,6 @@ from backend.app.services.tasks import (
     is_media_file,
     parse_filename_media_id,
 )
-from backend.app.services.tasks.naming import clean_social_title, clean_template_filename
 from backend.app.services.tasks.formats import (
     conflicts_with_source,
     creator_from_url,
@@ -142,6 +141,20 @@ def test_convert_template_prefers_creator_from_url():
 
     assert result.startswith("fzyahoo.com - ")
     assert "%(creator" not in result
+
+
+def test_convert_template_can_keep_url_handle_at_sign():
+    url = "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489"
+
+    ytdlp_result = convert_template_to_ytdlp("{{username}}", url, cleaning={"strip_handle_at": False})
+    gallerydl_result = gallerydl_module.convert_template_to_gallerydl(
+        "{{username}}",
+        url,
+        cleaning={"strip_handle_at": False},
+    )
+
+    assert ytdlp_result == "@fzyahoo.com"
+    assert gallerydl_result == "@fzyahoo.com"
 
 
 def test_convert_template_username_without_url_handle_uses_handle_field():
@@ -384,6 +397,14 @@ def test_clean_template_filename_nickname_token_not_overwritten_by_handle():
     assert result == "NASA - Cool Rocket [ABC123].jpg"
 
 
+def test_clean_template_filename_handle_at_cleanup_can_be_disabled():
+    name = "@alice - Nice clip [abc123].mp4"
+    template = "{{username}} - {{title}} [{{id}}]"
+
+    assert clean_template_filename(name, template) == "alice - Nice clip [abc123].mp4"
+    assert clean_template_filename(name, template, cleaning={"strip_handle_at": False}) == name
+
+
 def test_filename_creator_ignores_nickname_token_for_handle():
     # A {{nickname}} filename must NOT feed the {{username}} handle with the display name.
     path = Path("/media/instagram/nasa/NASA - Cool Rocket [ABC123].jpg")
@@ -418,6 +439,23 @@ def test_render_template_folder_renders_nickname_distinct_from_username():
         nickname="NASA",
     )
     assert folder == Path("/media/instagram/NASA")
+
+
+def test_render_template_folder_handle_at_cleanup_can_be_disabled():
+    root = Path("/media/tiktok")
+    template = {"folder_template": "{{username}}"}
+
+    assert worker_module._render_template_folder(root, template, "@alice", "abc123") == root / "alice"
+    assert (
+        worker_module._render_template_folder(
+            root,
+            template,
+            "@alice",
+            "abc123",
+            cleaning={"strip_handle_at": False},
+        )
+        == root / "@alice"
+    )
 
 
 def test_filename_nickname_recovers_display_name_from_gallerydl_folder():
@@ -660,16 +698,17 @@ def test_clean_template_filename_drops_none_title_segment():
     assert result == "Poster - [abc123]_1.jpg"
 
 
-def test_clean_template_filename_truncates_long_title():
-    title = "A" * 80
+def test_clean_template_filename_truncates_long_title_when_enabled():
+    title = "A" * 140
     result = clean_template_filename(
         f"Poster - {title} [abc123]_1.jpg",
         "{{username}} - {{title}} [{{id}}]",
         creator="Poster",
         media_id="abc123",
+        cleaning={"shorten": True},
     )
 
-    assert result == f"Poster - {'A' * 50} [abc123]_1.jpg"
+    assert result == f"Poster - {'A' * 100} [abc123]_1.jpg"
 
 
 def test_clean_template_filename_preserves_slug_quality_tokens_without_title():
@@ -1527,6 +1566,10 @@ def test_reconstruct_url_candidates_needs_creator_and_id():
 
 def test_creator_from_url_uses_handle_segment_without_at_sign():
     assert creator_from_url("https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489") == "fzyahoo.com"
+    assert (
+        creator_from_url("https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489", strip_at=False)
+        == "@fzyahoo.com"
+    )
     assert creator_from_url("https://x.com/ININIinNINI/status/2073390288501166083") == "ININIinNINI"
 
 
@@ -2161,11 +2204,13 @@ def test_clean_social_title_respects_disabled_flags():
     assert "views" in result
 
 
-def test_clean_template_filename_shorten_flag_off_keeps_long_title():
-    long_title = "This is a very long title that would normally be shortened well past fifty chars"
+def test_clean_template_filename_shorten_defaults_off_and_keeps_long_title():
+    long_title = "This is a very long title that would normally be shortened. " * 5
     name = f"alice - {long_title} [abc123].mp4"
     template = "{{username}} - {{title}} [{{id}}]"
-    shortened = clean_template_filename(name, template, creator="alice")
+    default = clean_template_filename(name, template, creator="alice")
+    shortened = clean_template_filename(name, template, creator="alice", cleaning={"shorten": True})
     full = clean_template_filename(name, template, creator="alice", cleaning={"shorten": False})
+    assert default == full
     assert len(shortened) < len(full)
     assert long_title in full

@@ -111,6 +111,18 @@ def test_build_output_template_applies_per_source_creator_fields(monkeypatch):
     assert "%(channel|Unknown)s" in template
 
 
+def test_ytdlp_creator_sidecar_uses_per_source_nickname_fields(monkeypatch):
+    monkeypatch.setattr(ytdlp, "get_effective_creator_fields", lambda url: {"nickname": ["channel"]})
+    cmd = ytdlp.build_ytdlp_command(
+        "https://example.com/watch?v=x",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        creator_sidecar="/tmp/creator.txt",
+    )
+
+    assert "after_move:%(channel|Unknown)s" in cmd
+
+
 def test_convert_template_to_gallerydl_uses_creator_fields():
     rendered = gallerydl.convert_template_to_gallerydl(
         "{{nickname}}", "https://example.com/x", creator_fields={"nickname": ["fullname"]}

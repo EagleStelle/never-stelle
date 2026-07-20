@@ -14,6 +14,11 @@ from backend.app.services.settings import (
     normalize_source_token_roles,
     normalize_template_settings,
 )
+from backend.app.services.tasks.learning import (
+    ensure_creator_fields_learned,
+    get_learned_creator_fields,
+    save_learned_creator_fields,
+)
 
 
 def test_normalize_template_defaults_when_empty():
@@ -73,6 +78,7 @@ def test_normalize_source_title_cleaning_fills_defaults_and_skips_empty():
     assert "untouched" not in result
     flags = result["youtube"]
     assert flags["strip_hashtags"] is False
+    assert flags["strip_handle_at"] is True  # unspecified -> rule default
     assert flags["strip_metrics"] is True  # unspecified -> rule default
     assert flags["max_chars"] == 20
 
@@ -81,18 +87,101 @@ def test_get_effective_creator_fields_resolves_per_source(monkeypatch):
     import backend.app.services.settings as settings_mod
 
     monkeypatch.setattr(
-        settings_mod, "load_saved_settings_file", lambda: {"source_creator_fields": {"youtube": {"username": ["channel"]}}}
+        settings_mod,
+        "load_saved_settings_file",
+        lambda: {"source_creator_fields": {"youtube": {"username": ["channel"]}}},
     )
     monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
     assert get_effective_creator_fields("https://youtube.com/x") == {"username": ["channel"]}
     assert get_effective_creator_fields("") == {}
 
 
+def test_save_learned_creator_fields_persists_only_real_probe_fields(monkeypatch):
+    import backend.app.services.tasks.learning as learning_mod
+
+    payload: dict = {}
+    saved: list[dict] = []
+    monkeypatch.setattr(learning_mod, "load_saved_settings_file", lambda: payload)
+    monkeypatch.setattr(learning_mod, "save_saved_settings_file", lambda data: saved.append(dict(data)))
+
+    assert save_learned_creator_fields("", "youtube", {}) == {}
+    assert saved == []
+
+    result = save_learned_creator_fields(
+        "",
+        "youtube",
+        {"username": ["uploader_id", " uploader_id ", "user name!"], "nickname": ["channel"]},
+    )
+
+    assert result == {"username": ["uploader_id", "username"], "nickname": ["channel"]}
+    assert saved[-1]["source_creator_fields"] == {"youtube": result}
+
+
+def test_learned_creator_fields_merges_without_clobbering_existing(monkeypatch):
+    import backend.app.services.tasks.learning as learning_mod
+
+    payload = {"source_creator_fields": {"youtube": {"username": ["channel"]}}}
+    saved: list[dict] = []
+    monkeypatch.setattr(learning_mod, "load_saved_settings_file", lambda: payload)
+    monkeypatch.setattr(learning_mod, "save_saved_settings_file", lambda data: saved.append(dict(data)))
+
+    result = save_learned_creator_fields(
+        "",
+        "youtube",
+        {"username": ["uploader_id"], "nickname": ["uploader"]},
+        only_when_missing=False,
+    )
+
+    assert result == {"username": ["channel", "uploader_id"], "nickname": ["uploader"]}
+    assert saved[-1]["source_creator_fields"]["youtube"] == result
+
+
+def test_ensure_creator_fields_learned_skips_existing_records(monkeypatch):
+    import backend.app.services.tasks.learning as learning_mod
+    import backend.app.services.tasks.probe as probe_mod
+
+    monkeypatch.setattr(
+        learning_mod,
+        "load_saved_settings_file",
+        lambda: {"source_creator_fields": {"youtube": {"username": ["channel"]}}},
+    )
+    monkeypatch.setattr(probe_mod, "probe_creator_fields", lambda *args: (_ for _ in ()).throw(AssertionError("skip")))
+
+    assert ensure_creator_fields_learned("https://youtube.com/watch?v=x", "youtube") == {}
+
+
+def test_ensure_creator_fields_learned_saves_first_successful_probe(monkeypatch):
+    import backend.app.services.tasks.learning as learning_mod
+    import backend.app.services.tasks.probe as probe_mod
+
+    payload: dict = {}
+    monkeypatch.setattr(learning_mod, "load_saved_settings_file", lambda: payload)
+
+    def save(data):
+        updated = dict(data)
+        payload.clear()
+        payload.update(updated)
+
+    monkeypatch.setattr(learning_mod, "save_saved_settings_file", save)
+    monkeypatch.setattr(
+        probe_mod,
+        "probe_creator_fields",
+        lambda url, key: {"source_key": "youtube", "creator_fields": {"username": ["uploader_id"]}},
+    )
+
+    assert ensure_creator_fields_learned("https://youtube.com/watch?v=x", "youtube") == {
+        "username": ["uploader_id"]
+    }
+    assert get_learned_creator_fields("", "youtube") == {"username": ["uploader_id"]}
+
+
 def test_get_effective_title_cleaning_resolves_per_source(monkeypatch):
     import backend.app.services.settings as settings_mod
 
     monkeypatch.setattr(
-        settings_mod, "load_saved_settings_file", lambda: {"source_title_cleaning": {"youtube": {"strip_hashtags": False}}}
+        settings_mod,
+        "load_saved_settings_file",
+        lambda: {"source_title_cleaning": {"youtube": {"strip_hashtags": False}}},
     )
     monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
     flags = get_effective_title_cleaning("https://youtube.com/x")

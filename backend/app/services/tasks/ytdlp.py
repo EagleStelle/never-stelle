@@ -10,6 +10,7 @@ from backend.app.services.settings import (
     find_cookies_file_for_url,
     get_effective_creator_fields,
     get_effective_template_settings,
+    get_effective_title_cleaning,
     normalize_template_settings,
 )
 
@@ -96,15 +97,21 @@ def _creator_field_list(creator_fields: dict[str, Any] | None, role: str) -> lis
     return [str(value) for value in values] if isinstance(values, list) and values else None
 
 
+def _effective_nickname_field(source_url: str) -> str:
+    creator_fields = get_effective_creator_fields(source_url)
+    return ytdlp_nickname_field(_creator_field_list(creator_fields, "nickname"))
+
+
 def _yt_dlp_field(
     name: str,
     source_url: str = "",
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
     creator_fields: dict[str, Any] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> str:
     field = str(name or "").strip().lower()
-    derived = derived_token_value(field, source_url, quality, extra_tokens)
+    derived = derived_token_value(field, source_url, quality, extra_tokens, cleaning)
     if derived is not None:
         return _safe_literal(derived)
     if field == "username":
@@ -120,12 +127,13 @@ def convert_template_to_ytdlp(
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
     creator_fields: dict[str, Any] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> str:
     value = str(template or "").strip()
     if not value:
         return ""
     return TEMPLATE_RE.sub(
-        lambda match: _yt_dlp_field(match.group(1), source_url, quality, extra_tokens, creator_fields), value
+        lambda match: _yt_dlp_field(match.group(1), source_url, quality, extra_tokens, creator_fields, cleaning), value
     )
 
 
@@ -142,8 +150,13 @@ def build_output_template(
         else get_effective_template_settings(source_url)
     )
     creator_fields = get_effective_creator_fields(source_url)
-    folder_template = convert_template_to_ytdlp(settings["folder_template"], source_url, quality, extra_tokens, creator_fields)
-    filename_template = convert_template_to_ytdlp(settings["filename_template"], source_url, quality, extra_tokens, creator_fields)
+    cleaning = get_effective_title_cleaning(source_url)
+    folder_template = convert_template_to_ytdlp(
+        settings["folder_template"], source_url, quality, extra_tokens, creator_fields, cleaning
+    )
+    filename_template = convert_template_to_ytdlp(
+        settings["filename_template"], source_url, quality, extra_tokens, creator_fields, cleaning
+    )
     if "%(ext" not in filename_template:
         filename_template = f"{filename_template}.%(ext)s"
     base = Path(output_dir)
@@ -205,7 +218,7 @@ def build_ytdlp_command(
     # --print-to-file (unlike --print) keeps normal progress output intact; the
     # after_move stage runs on real downloads, never in simulate mode.
     if creator_sidecar:
-        cmd.extend(["--print-to-file", f"after_move:{YTDLP_NICKNAME_FIELD}", creator_sidecar])
+        cmd.extend(["--print-to-file", f"after_move:{_effective_nickname_field(source_url)}", creator_sidecar])
     if metadata_sidecar:
         item_template = "\t".join(
             [

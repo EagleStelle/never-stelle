@@ -4,7 +4,6 @@ import json
 import re
 import subprocess
 from pathlib import Path
-
 from typing import Any
 
 from backend.app.services.settings import (
@@ -12,6 +11,7 @@ from backend.app.services.settings import (
     find_cookies_file_for_url,
     get_effective_creator_fields,
     get_effective_template_settings,
+    get_effective_title_cleaning,
     normalize_template_settings,
 )
 
@@ -163,9 +163,10 @@ def _gallerydl_field(
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
     creator_fields: dict[str, Any] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> str:
     field = str(name or "").strip().lower()
-    derived = derived_token_value(field, source_url, quality, extra_tokens)
+    derived = derived_token_value(field, source_url, quality, extra_tokens, cleaning)
     if derived is not None:
         return _escape_literal(sanitize_path_literal(derived))
     if field == "username":
@@ -181,12 +182,14 @@ def convert_template_to_gallerydl(
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
     creator_fields: dict[str, Any] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> str:
     value = str(template or "").strip()
     if not value:
         return ""
     return TEMPLATE_RE.sub(
-        lambda match: _gallerydl_field(match.group(1), source_url, quality, extra_tokens, creator_fields), value
+        lambda match: _gallerydl_field(match.group(1), source_url, quality, extra_tokens, creator_fields, cleaning),
+        value,
     )
 
 
@@ -203,8 +206,13 @@ def build_gallerydl_output_template(
         else get_effective_template_settings(source_url)
     )
     creator_fields = get_effective_creator_fields(source_url)
-    folder = convert_template_to_gallerydl(settings["folder_template"], source_url, quality, extra_tokens, creator_fields)
-    stem = convert_template_to_gallerydl(settings["filename_template"], source_url, quality, extra_tokens, creator_fields)
+    cleaning = get_effective_title_cleaning(source_url)
+    folder = convert_template_to_gallerydl(
+        settings["folder_template"], source_url, quality, extra_tokens, creator_fields, cleaning
+    )
+    stem = convert_template_to_gallerydl(
+        settings["filename_template"], source_url, quality, extra_tokens, creator_fields, cleaning
+    )
     stem = stem.replace(".{extension}", "").replace("{extension}", "").rstrip(". ")
     # {num} keeps every image in a multi-file post (slideshow) unique.
     if "{num" not in stem:

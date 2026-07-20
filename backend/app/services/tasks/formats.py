@@ -6,7 +6,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunpa
 
 from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key, source_key_from_url
 
-from .constants import quality_label
+from .constants import normalize_title_cleaning, quality_label
 
 _ID_TOKEN = "{id}"
 _CREATOR_TOKEN = "{creator}"
@@ -185,10 +185,14 @@ def _creator_index_for_path_id(segments: list[str], id_index: int | None) -> int
     return candidate if candidate >= 0 and segments[candidate] else None
 
 
-def _clean_creator(value: str) -> str:
+def _strip_handle_at(cleaning: dict[str, Any] | None = None) -> bool:
+    return bool(normalize_title_cleaning(cleaning).get("strip_handle_at", True))
+
+
+def _clean_creator(value: str, *, strip_at: bool = True) -> str:
     value = unquote(str(value or "")).strip().strip("/")
-    if value.startswith("@"):
-        value = value[1:]
+    if strip_at:
+        value = value.lstrip("@")
     return value.strip()
 
 
@@ -223,7 +227,7 @@ def _slug_index_for_path_id(segments: list[str], id_index: int | None, creator_i
     return None
 
 
-def analyze_url(source_url: str, media_id: str = "") -> dict[str, Any]:
+def analyze_url(source_url: str, media_id: str = "", *, strip_creator_at: bool = True) -> dict[str, Any]:
     canonical = canonicalize_url(source_url, media_id)
     try:
         parsed = urlparse(canonical)
@@ -240,7 +244,7 @@ def analyze_url(source_url: str, media_id: str = "") -> dict[str, Any]:
         id_part = f"query:{query_key}" if query_key else ""
 
     creator_index = _creator_index_for_path_id(segments, id_index)
-    creator = _clean_creator(segments[creator_index]) if creator_index is not None else ""
+    creator = _clean_creator(segments[creator_index], strip_at=strip_creator_at) if creator_index is not None else ""
     slug_index = _slug_index_for_path_id(segments, id_index, creator_index)
     slug = unquote(str(segments[slug_index])).strip() if slug_index is not None else ""
     return {
@@ -254,8 +258,8 @@ def analyze_url(source_url: str, media_id: str = "") -> dict[str, Any]:
     }
 
 
-def creator_from_url(source_url: str, media_id: str = "") -> str:
-    return str(analyze_url(source_url, media_id).get("creator") or "")
+def creator_from_url(source_url: str, media_id: str = "", *, strip_at: bool = True) -> str:
+    return str(analyze_url(source_url, media_id, strip_creator_at=strip_at).get("creator") or "")
 
 
 def slug_from_url(source_url: str, media_id: str = "") -> str:
@@ -267,6 +271,7 @@ def derived_token_value(
     source_url: str = "",
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> str | None:
     """Value for a filename token that comes from the URL, the quality selection,
     or scraped page metadata rather than the engine's own fields. Returns None when
@@ -278,10 +283,12 @@ def derived_token_value(
         # value (uploader/artist) can be overridden with the page's own markup.
         override = extra_tokens.get(field)
         if override is not None and str(override).strip():
+            if field == "username":
+                return _clean_creator(str(override), strip_at=_strip_handle_at(cleaning))
             return str(override)
     if field == "username":
         # URL handle when present; None lets each engine use its own handle field.
-        return creator_from_url(source_url) or None
+        return creator_from_url(source_url, strip_at=_strip_handle_at(cleaning)) or None
     if field == "slug":
         return slug_from_url(source_url)
     if field in {"quality", "source"}:

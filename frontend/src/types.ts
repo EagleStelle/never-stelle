@@ -81,6 +81,8 @@ export interface ProbeField {
 export interface ProbeFieldsResponse {
   source_key: string;
   fields: ProbeField[];
+  creator_fields?: Partial<CreatorFieldRoles>;
+  saved?: boolean;
 }
 
 export interface ScrapeTestResult {

@@ -16,10 +16,10 @@ from .files import is_media_file, recover_task_path
 from .formats import (
     conflicts_with_source,
     guess_sources,
-    learn_download,
     media_id_from_url,
     reconstruct_url_candidates,
 )
+from .learning import update_learned_formats_with_download
 from .naming import clean_gallerydl_display_filename
 from .store import (
     load_history,
@@ -442,7 +442,7 @@ def _seed_learned_from_history(learned: dict[str, Any], records: dict[str, dict[
         source_url = str(payload.get("source_url") or "").strip()
         media_id = _payload_media_id(payload)
         if source_url and media_id:
-            learned = learn_download(learned, source_url, media_id)
+            learned = update_learned_formats_with_download(learned, source_url, media_id)
     return learned
 
 

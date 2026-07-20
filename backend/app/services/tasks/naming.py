@@ -175,7 +175,9 @@ def _creator_prefix_candidates(creator: str) -> list[str]:
     if not creator or creator == "Unknown":
         return []
     values = [creator]
-    if not creator.startswith("@"):
+    if creator.startswith("@") and creator[1:]:
+        values.append(creator[1:])
+    elif not creator.startswith("@"):
         values.append(f"@{creator}")
     return values
 
@@ -221,7 +223,11 @@ def _strip_leading_social_byline(value: str) -> str:
 
 
 def _maybe_strip_placeholder(title: str, media_id: str, source_key: str, flags: dict[str, Any]) -> str:
-    return strip_placeholder_title(title, media_id, source_key) if flags["strip_placeholder"] else str(title or "").strip()
+    return (
+        strip_placeholder_title(title, media_id, source_key)
+        if flags["strip_placeholder"]
+        else str(title or "").strip()
+    )
 
 
 def clean_filename_title(
@@ -294,7 +300,8 @@ def clean_gallerydl_display_filename(
     raw_display_title, stripped_placeholder = _strip_placeholder_segment(raw_title, creator, media_id, source_key)
     if stripped_placeholder:
         raw_display_title = (
-            clean_filename_title(raw_display_title, creator, media_id, source_key, cleaning=cleaning) or raw_display_title
+            clean_filename_title(raw_display_title, creator, media_id, source_key, cleaning=cleaning)
+            or raw_display_title
         )
     else:
         cleaned_title = clean_filename_title(raw_title, creator, media_id, source_key, cleaning=cleaning)
@@ -403,22 +410,35 @@ def _field_value(fields: dict[str, str], *names: str) -> str:
     return ""
 
 
+def _clean_creator_token(value: str, flags: dict[str, Any]) -> str:
+    value = str(value or "").strip()
+    if flags.get("strip_handle_at", True):
+        value = value.lstrip("@")
+    return value.strip()
+
+
 def _render_template_stem(
     filename_template: str,
     fields: dict[str, str],
     extra_tokens: dict[str, str] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> str:
     template = _template_stem(filename_template)
+    flags = normalize_title_cleaning(cleaning)
 
     def replace(match: re.Match[str]) -> str:
         field = match.group(1).strip().lower()
         if extra_tokens:
             override = extra_tokens.get(field)
             if override is not None and str(override).strip():
+                if field in CREATOR_FIELDS:
+                    override = _clean_creator_token(str(override), flags)
                 return sanitize_path_literal(override)
         value = fields.get(field, "")
         if field in CREATOR_FIELDS and not value:
             value = _field_value(fields, "username", "nickname")
+        if field in CREATOR_FIELDS:
+            value = _clean_creator_token(value, flags)
         if field in _ID_TEMPLATE_FIELDS and not value:
             value = _field_value(fields, *_ID_TEMPLATE_FIELDS)
         return sanitize_path_literal(value)
@@ -462,12 +482,13 @@ def clean_template_filename(
     if not value:
         return ""
     path = Path(value)
+    flags = normalize_title_cleaning(cleaning)
     fields, numbered_suffix = _match_template_fields(path.stem, filename_template)
     raw_title = _field_value(fields, "title")
     fallback_match = _DISPLAY_FILENAME_ID_RE.match(path.stem.strip())
     fallback_media_id = str(media_id or "").strip() or (fallback_match.group("id").strip() if fallback_match else "")
-    fallback_username = str(creator or "").strip()
-    fallback_nickname = str(nickname or "").strip()
+    fallback_username = _clean_creator_token(str(creator or ""), flags)
+    fallback_nickname = _clean_creator_token(str(nickname or ""), flags)
     if (not fields or not raw_title) and (fallback_username or fallback_nickname or fallback_media_id):
         rendered_fields = dict(fields)
         rendered_fields["title"] = raw_title
@@ -477,7 +498,7 @@ def clean_template_filename(
             rendered_fields["nickname"] = fallback_nickname or fallback_username
         if fallback_media_id:
             rendered_fields["id"] = fallback_media_id
-        stem = _render_template_stem(filename_template, rendered_fields, extra_tokens)
+        stem = _render_template_stem(filename_template, rendered_fields, extra_tokens, cleaning)
         numbered = re.search(r"_\d+$", path.stem)
         if keep_numbered_suffix and numbered:
             stem = f"{stem}{numbered.group(0)}"
@@ -485,17 +506,26 @@ def clean_template_filename(
     if not fields or not raw_title:
         return ""
     original_media_id = _field_value(fields, "id")
-    original_username = _field_value(fields, "username", "nickname")
-    original_nickname = _field_value(fields, "nickname", "username")
+    raw_original_username = _field_value(fields, "username", "nickname")
+    raw_original_nickname = _field_value(fields, "nickname", "username")
+    original_username = _clean_creator_token(raw_original_username, flags)
+    original_nickname = _clean_creator_token(raw_original_nickname, flags)
     resolved_media_id = str(media_id or "").strip() or original_media_id
     # {{username}} keeps the handle; {{nickname}} keeps the display name. Each falls
     # back to the other so a template using only one token still resolves.
-    resolved_username = str(creator or "").strip() or original_username or original_nickname
-    resolved_nickname = str(nickname or "").strip() or original_nickname or resolved_username
+    resolved_username = fallback_username or original_username or original_nickname
+    resolved_nickname = fallback_nickname or original_nickname or resolved_username
     creator_aliases = tuple(
         dict.fromkeys(
             alias
-            for alias in (original_username, original_nickname, resolved_username, resolved_nickname)
+            for alias in (
+                raw_original_username,
+                raw_original_nickname,
+                original_username,
+                original_nickname,
+                resolved_username,
+                resolved_nickname,
+            )
             if alias
         )
     )
@@ -508,11 +538,13 @@ def clean_template_filename(
         creator_aliases=creator_aliases,
         cleaning=cleaning,
     )
-    shortened_title = _apply_shorten(cleaned_title, normalize_title_cleaning(cleaning))
+    shortened_title = _apply_shorten(cleaned_title, flags)
     media_id_changed = bool(resolved_media_id and original_media_id and resolved_media_id != original_media_id)
     creator_changed = bool(
-        (resolved_username and original_username and resolved_username != original_username)
-        or (resolved_nickname and original_nickname and resolved_nickname != original_nickname)
+        (original_username and raw_original_username and original_username != raw_original_username)
+        or (original_nickname and raw_original_nickname and original_nickname != raw_original_nickname)
+        or (resolved_username and raw_original_username and resolved_username != raw_original_username)
+        or (resolved_nickname and raw_original_nickname and resolved_nickname != raw_original_nickname)
     )
     # A scraped token whose value differs from what the filename already carries
     # must force a re-render, so recovery paths still pick up uploader/artist.
@@ -534,7 +566,7 @@ def clean_template_filename(
         rendered_fields["username"] = resolved_username
     if resolved_nickname:
         rendered_fields["nickname"] = resolved_nickname
-    stem = _render_template_stem(filename_template, rendered_fields, extra_tokens)
+    stem = _render_template_stem(filename_template, rendered_fields, extra_tokens, cleaning)
     if not stem:
         stem = sanitize_path_literal(
             resolved_media_id or resolved_username or resolved_nickname or strip_numbered_suffix(path.stem)

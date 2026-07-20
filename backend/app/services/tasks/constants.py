@@ -196,43 +196,9 @@ def template_tokens() -> list[dict[str, str]]:
     return [{"key": key, "description": description} for key, description in TEMPLATE_TOKEN_PRESETS.items()]
 
 
-# Candidate handle/display-name fields that the field probe can expose.
-CREATOR_FIELD_CANDIDATES: dict[str, tuple[str, ...]] = {
-    "ytdlp": (
-        "uploader_id",
-        "playlist_uploader_id",
-        "channel_id",
-        "uploader",
-        "channel",
-        "creator",
-        "creators",
-        "artist",
-        "artists",
-        "album_artist",
-        "playlist_uploader",
-        "display_name",
-        "full_name",
-        "nickname",
-        "author",
-    ),
-    "gallerydl": (
-        "username",
-        "user[name]",
-        "user[username]",
-        "account",
-        "author",
-        "author[name]",
-        "author[nick]",
-        "user[nickname]",
-        "user[nick]",
-        "nickname",
-        "fullname",
-    ),
-}
-
-
-# Role-priority default order per engine; the UI seeds its editable list from the
-# union of these, and each engine's field spec falls back to it when unconfigured.
+# Role-priority priors per engine. These are cold-start/probe classifiers only:
+# once a source has a successful probe, its persisted per-source fields become
+# authoritative so the UI and engine do not carry irrelevant fallback fields.
 # username = handle first; nickname = display name first.
 CREATOR_ROLE_CHAINS: dict[str, dict[str, tuple[str, ...]]] = {
     "ytdlp": {
@@ -281,6 +247,24 @@ CREATOR_ROLE_CHAINS: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 
+def _engine_creator_candidates(engine: str) -> tuple[str, ...]:
+    seen: set[str] = set()
+    fields: list[str] = []
+    for role in ("username", "nickname"):
+        for field in CREATOR_ROLE_CHAINS.get(engine, {}).get(role, ()):
+            if field not in seen:
+                seen.add(field)
+                fields.append(field)
+    return tuple(fields)
+
+
+# Candidate handle/display-name fields that the field probe can expose. Derived
+# from the role priors so field discovery and engine fallback cannot drift apart.
+CREATOR_FIELD_CANDIDATES: dict[str, tuple[str, ...]] = {
+    engine: _engine_creator_candidates(engine) for engine in CREATOR_ROLE_CHAINS
+}
+
+
 def _creator_field_default(role: str) -> list[str]:
     # Role chains first (engine order), then any remaining candidate field, deduped.
     # Each engine's field spec filters this union down to fields it can actually use.
@@ -308,16 +292,54 @@ def creator_field_defaults() -> dict[str, list[str]]:
     return {role: list(fields) for role, fields in CREATOR_FIELD_DEFAULTS.items()}
 
 
+def rank_creator_role_fields(role: str, fields: list[str] | tuple[str, ...]) -> list[str]:
+    """Order observed fields by the central role priors, preserving unknowns last."""
+    seen: set[str] = set()
+    available = [str(field or "").strip() for field in fields if str(field or "").strip()]
+    available_set = set(available)
+    ranked: list[str] = []
+    for engine_chains in CREATOR_ROLE_CHAINS.values():
+        for field in engine_chains.get(role, ()):
+            if field in available_set and field not in seen:
+                seen.add(field)
+                ranked.append(field)
+    for field in available:
+        if field not in seen:
+            seen.add(field)
+            ranked.append(field)
+    return ranked
+
+
+def creator_roles_from_probe_fields(fields_by_engine: dict[str, list[str] | tuple[str, ...]]) -> dict[str, list[str]]:
+    """Build username/nickname lists from fields that a live probe actually saw."""
+    out: dict[str, list[str]] = {}
+    engine_names = [
+        *[engine for engine in CREATOR_ROLE_CHAINS if engine in fields_by_engine],
+        *[engine for engine in fields_by_engine if engine not in CREATOR_ROLE_CHAINS],
+    ]
+    for role in ("username", "nickname"):
+        fields: list[str] = []
+        for engine in engine_names:
+            available = set(str(field or "").strip() for field in (fields_by_engine.get(engine) or ()))
+            for field in CREATOR_ROLE_CHAINS.get(engine, {}).get(role, ()):
+                if field in available and field not in fields:
+                    fields.append(field)
+        if fields:
+            out[role] = rank_creator_role_fields(role, fields)
+    return out
+
+
 # Per-source title-cleaning toggles; each `default` is the built-in always-on behavior.
-TITLE_MAX_CHARS_DEFAULT = 50
+TITLE_MAX_CHARS_DEFAULT = 200
 TITLE_CLEANING_RULES: dict[str, dict[str, Any]] = {
+    "strip_handle_at": {"label": "Remove @ before usernames", "default": True},
+    "strip_placeholder": {"label": "Remove generic auto captions", "default": True},
+    "strip_creator_byline": {"label": "Remove repeated creator names", "default": True},
+    "strip_attribution": {"label": "Remove media attribution", "default": True},
+    "strip_on_surface": {"label": "Remove platform suffixes", "default": True},
+    "strip_metrics": {"label": "Remove engagement counts", "default": True},
     "strip_hashtags": {"label": "Remove hashtags", "default": True},
-    "strip_metrics": {"label": "Remove view/like counts", "default": True},
-    "strip_attribution": {"label": "Remove 'photos by X'", "default": True},
-    "strip_on_surface": {"label": "Remove '| X on <site>'", "default": True},
-    "strip_creator_byline": {"label": "Remove leading/trailing creator name", "default": True},
-    "strip_placeholder": {"label": "Remove auto captions (e.g. 'Photos from X's post')", "default": True},
-    "shorten": {"label": "Shorten long titles", "default": True},
+    "shorten": {"label": "Limit overly long titles", "default": True},
 }
 
 

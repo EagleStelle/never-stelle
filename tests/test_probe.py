@@ -176,6 +176,8 @@ def test_probe_creator_fields_merges_both_engines(monkeypatch):
     assert "uploader_id" in fields
     assert "username" in fields
     assert "title" not in fields
+    assert result["creator_fields"]["username"] == ["uploader_id", "username"]
+    assert result["creator_fields"]["nickname"] == ["username"]
 
 
 def test_probe_creator_fields_skips_engine_that_returns_nothing(monkeypatch):
@@ -184,6 +186,7 @@ def test_probe_creator_fields_skips_engine_that_returns_nothing(monkeypatch):
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "example")
     result = probe_creator_fields("https://example.com/x")
     assert [f["field"] for f in result["fields"]] == ["username"]
+    assert result["creator_fields"]["username"] == ["username"]
 
 
 def test_probe_creator_fields_raises_when_both_engines_fail(monkeypatch):

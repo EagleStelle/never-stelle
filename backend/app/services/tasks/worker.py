@@ -25,15 +25,19 @@ from backend.app.services.settings import (
 from .cache import drop_file_cache
 from .constants import (
     AUDIO_EXTENSIONS,
+    CREATOR_FIELDS,
     IMAGE_EXTENSIONS,
     TEMPLATE_RE,
     VIDEO_EXTENSIONS,
     normalize_quality_selection,
+    normalize_title_cleaning,
 )
 from .engine import Engine, all_engines, engine_for_task
 from .files import find_newest_media_file, find_numbered_media_siblings, is_media_file, recover_task_path
-from .formats import creator_from_url, learn_download, media_id_from_url, reconstruct_url, slug_from_url
+from .formats import creator_from_url, media_id_from_url, reconstruct_url, slug_from_url
 from .history import save_history_entry
+from .learning import learn_source_format as persist_source_format
+from .learning import update_learned_formats_with_download
 from .naming import (
     clean_gallerydl_disk_filename,
     clean_gallerydl_display_filename,
@@ -47,10 +51,8 @@ from .naming import (
 from .scan import parse_filename_media_id
 from .store import (
     claim_pending_task,
-    load_learned_formats,
     load_task_store,
     remove_task_record,
-    save_learned_formats,
     update_task,
 )
 from .urls import canonicalize_source_url, detect_source_key, resolve_creator_handle
@@ -284,10 +286,7 @@ def _cleanup_file(path: str) -> None:
 def _learn_source_format(source_url: str, filename: str, media_id: str = "") -> None:
     # Teach the DB this source's URL shape + id signature from a real download.
     media_id = str(media_id or "").strip() or parse_filename_media_id(filename)[0]
-    learned = load_learned_formats()
-    updated = learn_download(learned, source_url, media_id)
-    if updated != learned:
-        save_learned_formats(updated)
+    persist_source_format(source_url, media_id)
 
 
 def _path_key(path: Path | str) -> str:
@@ -430,9 +429,21 @@ def _field_value(fields: dict[str, str], *names: str) -> str:
     return ""
 
 
-def _clean_creator_candidate(value: str) -> str:
-    value = sanitize_path_literal(str(value or "").strip().lstrip("@"))
-    return "" if value.lower() in {"", "unknown", "none", "null", "undefined", "na", "n/a"} else value
+def _clean_creator_candidate(value: str, *, strip_at: bool = True) -> str:
+    value = str(value or "").strip()
+    if strip_at:
+        value = value.lstrip("@")
+    value = sanitize_path_literal(value)
+    empty_key = value.lstrip("@").lower()
+    return "" if empty_key in {"", "unknown", "none", "null", "undefined", "na", "n/a"} else value
+
+
+def _strip_handle_at_enabled(cleaning: dict[str, Any] | None = None) -> bool:
+    return bool(normalize_title_cleaning(cleaning).get("strip_handle_at", True))
+
+
+def _display_creator_candidate(value: str, cleaning: dict[str, Any] | None = None) -> str:
+    return _clean_creator_candidate(value, strip_at=_strip_handle_at_enabled(cleaning))
 
 
 def _creator_value_key(value: str) -> str:
@@ -746,7 +757,7 @@ def _filename_nickname(
 
 
 def _reconstruct_item_url(source_url: str, source_key: str, media_id: str, creator: str) -> str:
-    learned = learn_download({}, source_url, media_id)
+    learned = update_learned_formats_with_download({}, source_url, media_id)
     return reconstruct_url(learned, source_key, media_id, creator=creator, slug=slug_from_url(source_url, media_id))
 
 
@@ -1021,20 +1032,26 @@ def _clean_resolved_filename(
     media_id_hint: str = "",
     nickname_hint: str = "",
     extra_tokens: dict[str, str] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> tuple[Path, str]:
     filename_template = _filename_template(template_settings)
     source_key = source_key or detect_source_key(source_url)
-    cleaning = get_effective_title_cleaning(source_url)
+    cleaning = cleaning if cleaning is not None else get_effective_title_cleaning(source_url)
     media_id_hint = str(media_id_hint or "").strip() or media_id_from_url(source_url)
     creator_hint = str(creator_hint or "").strip() or _clean_handle_candidate(
         creator_from_url(source_url, media_id_hint)
     )
+    display_creator_hint = _display_creator_candidate(
+        creator_from_url(source_url, media_id_hint, strip_at=False) or creator_hint,
+        cleaning,
+    )
+    display_nickname_hint = _display_creator_candidate(nickname_hint, cleaning)
     if filename_template:
         display_filename = clean_template_filename(
             path.name,
             filename_template,
-            creator=creator_hint,
-            nickname=nickname_hint,
+            creator=display_creator_hint or creator_hint,
+            nickname=display_nickname_hint or nickname_hint,
             media_id=media_id_hint,
             source_key=source_key,
             keep_numbered_suffix=False,
@@ -1044,8 +1061,8 @@ def _clean_resolved_filename(
         disk_filename = clean_template_filename(
             path.name,
             filename_template,
-            creator=creator_hint,
-            nickname=nickname_hint,
+            creator=display_creator_hint or creator_hint,
+            nickname=display_nickname_hint or nickname_hint,
             media_id=media_id_hint,
             source_key=source_key,
             keep_numbered_suffix=True,
@@ -1057,7 +1074,7 @@ def _clean_resolved_filename(
                 renamed = _rename_gallerydl_group_paths(
                     group_paths,
                     path,
-                    creator_hint,
+                    display_creator_hint or creator_hint,
                     source_key,
                     filename_template,
                     media_id_hint,
@@ -1070,7 +1087,7 @@ def _clean_resolved_filename(
                     renamed = _rename_gallerydl_group_paths(
                         group_paths,
                         path,
-                        creator_hint,
+                        display_creator_hint or creator_hint,
                         source_key,
                         filename_template,
                         media_id_hint,
@@ -1080,7 +1097,7 @@ def _clean_resolved_filename(
                 else:
                     renamed = _rename_gallerydl_numbered_siblings(
                         path,
-                        creator_hint,
+                        display_creator_hint or creator_hint,
                         source_key,
                         filename_template,
                         media_id_hint,
@@ -1095,7 +1112,11 @@ def _clean_resolved_filename(
     if not media_id or not title:
         display_stem = strip_numbered_suffix(path.stem)
         return path, f"{display_stem}{path.suffix}" if display_stem else path.name
-    creator = creator_hint or creator_from_url(source_url, media_id)
+    creator = display_creator_hint or creator_hint or creator_from_url(
+        source_url,
+        media_id,
+        strip_at=_strip_handle_at_enabled(cleaning),
+    )
     source_key = source_key or detect_source_key(source_url)
     display_filename = clean_gallerydl_display_filename(
         path.name,
@@ -1122,12 +1143,13 @@ def _render_template_folder(
     media_id: str,
     nickname: str = "",
     extra_tokens: dict[str, str] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> Path | None:
     folder_template = str((template_settings or {}).get("folder_template") or "").strip()
     if not folder_template:
         return None
-    creator = _clean_creator_candidate(creator)
-    nickname = _clean_creator_candidate(nickname) or creator
+    creator = _display_creator_candidate(creator, cleaning)
+    nickname = _display_creator_candidate(nickname, cleaning) or creator
     media_id = str(media_id or "").strip()
 
     def replace(match: re.Match[str]) -> str:
@@ -1135,6 +1157,8 @@ def _render_template_folder(
         if extra_tokens:
             override = extra_tokens.get(field)
             if override is not None and str(override).strip():
+                if field in CREATOR_FIELDS:
+                    override = _display_creator_candidate(str(override), cleaning)
                 return str(override)
         if field == "nickname":
             return nickname
@@ -1165,8 +1189,11 @@ def _move_group_to_template_folder(
     media_id: str,
     nickname: str = "",
     extra_tokens: dict[str, str] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> Path:
-    target_dir = _render_template_folder(output_root, template_settings, creator, media_id, nickname, extra_tokens)
+    target_dir = _render_template_folder(
+        output_root, template_settings, creator, media_id, nickname, extra_tokens, cleaning
+    )
     if target_dir is None or _path_key(selected_path.parent) == _path_key(target_dir):
         return selected_path
     try:
@@ -1482,6 +1509,16 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 )
                 item_source_url = _item_source_url(source_url, task_source_key, media_id, creator_hint, metadata)
                 item_source_key = normalize_source_key(task_source_key or detect_source_key(item_source_url))
+                item_cleaning = get_effective_title_cleaning(item_source_url)
+                display_creator_hint = (
+                    _display_creator_candidate(
+                        creator_from_url(item_source_url, media_id, strip_at=False),
+                        item_cleaning,
+                    )
+                    or _display_creator_candidate(creator_hint, item_cleaning)
+                    or creator_hint
+                )
+                display_nickname_hint = _display_creator_candidate(nickname_hint, item_cleaning) or nickname_hint
                 final_path, display_filename = _clean_resolved_filename(
                     item_source_url,
                     raw_path,
@@ -1492,6 +1529,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     media_id,
                     nickname_hint,
                     extra_tokens,
+                    item_cleaning,
                 )
                 media_id = (
                     media_id
@@ -1502,10 +1540,11 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     final_path,
                     output_root,
                     template_settings,
-                    creator_hint,
+                    display_creator_hint,
                     media_id,
-                    nickname_hint,
+                    display_nickname_hint,
                     extra_tokens,
+                    item_cleaning,
                 )
                 keep_paths = find_numbered_media_siblings(final_path) or [final_path]
                 _cleanup_duplicate_library_media(output_root, media_id, keep_paths)

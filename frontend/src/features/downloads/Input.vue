@@ -59,7 +59,7 @@ const pasteFromClipboard = async () => {
           size="lg"
           class="flex-1 min-w-0"
           :model-value="url"
-          @update:model-value="(val) => emit('update:url', val)"
+          @update:model-value="(val) => emit('update:url', String(val))"
           name="url"
           type="url"
           autocomplete="off"
