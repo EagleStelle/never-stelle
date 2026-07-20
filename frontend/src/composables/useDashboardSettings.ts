@@ -23,6 +23,7 @@ import type {
 import {
   createCookiesStatus,
   createQualityOptions,
+  createCreatorFieldRoles,
   createQualitySelection,
   createSourceCreatorFields,
   createSourceLocations,
@@ -95,7 +96,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     ytdlp_cookies: createCookiesMap(),
     quality_options: createQualityOptions(),
     template_tokens: [],
-    creator_field_catalog: {},
+    creator_field_defaults: { username: [], nickname: [] },
     title_cleaning_rules: [],
   });
   const settingsDraft = reactive<SavedSettings>({
@@ -252,7 +253,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     replaceRecord(defaults.source_title_cleaning, titleCleaning);
     replaceRecord(settings.source_title_cleaning, titleCleaning);
 
-    settings.creator_field_catalog = data.creator_field_catalog || {};
+    settings.creator_field_defaults = createCreatorFieldRoles(data.creator_field_defaults || {});
     settings.title_cleaning_rules = Array.isArray(data.title_cleaning_rules) ? data.title_cleaning_rules : [];
 
     const qualityOptions = createQualityOptions(data.quality_options || {});

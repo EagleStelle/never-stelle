@@ -16,6 +16,7 @@ from backend.app.services.settings import (
 )
 
 from .constants import (
+    CREATOR_ROLE_CHAINS,
     MEDIA_EXTENSIONS,
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
@@ -26,18 +27,6 @@ from .constants import (
 from .formats import derived_token_value
 from .naming import detect_ffmpeg_location, sanitize_path_literal
 
-# username = handle, nickname = display name; a per-source list prepends, this chain trails as fallback.
-_GALLERYDL_USERNAME_CHAIN = ("username", "user[name]", "user[username]", "account", "author")
-_GALLERYDL_NICKNAME_CHAIN = (
-    "author[nick]",
-    "user[nick]",
-    "user[nickname]",
-    "nickname",
-    "fullname",
-    "author[name]",
-    "username",
-    "user[name]",
-)
 # gallery-dl keys are identifiers with optional [sub] nesting; reject anything else.
 _GALLERYDL_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\[[A-Za-z0-9_]+\])*$")
 
@@ -55,12 +44,13 @@ def _gallerydl_field_spec(fields: list[str], fallback: str) -> str:
     return "{" + "|".join([*parts, f'"{fallback}"']) + "}"
 
 
+# A configured list is authoritative (no hidden fallback); an empty one uses the engine chain.
 def gallerydl_username_field(custom: list[str] | None = None) -> str:
-    return _gallerydl_field_spec([*(custom or ()), *_GALLERYDL_USERNAME_CHAIN], "unknown")
+    return _gallerydl_field_spec(custom or CREATOR_ROLE_CHAINS["gallerydl"]["username"], "unknown")
 
 
 def gallerydl_nickname_field(custom: list[str] | None = None) -> str:
-    return _gallerydl_field_spec([*(custom or ()), *_GALLERYDL_NICKNAME_CHAIN], "unknown")
+    return _gallerydl_field_spec(custom or CREATOR_ROLE_CHAINS["gallerydl"]["nickname"], "unknown")
 
 
 # Specifiers for tokens gallery-dl fills itself; username/nickname are resolved dynamically instead.

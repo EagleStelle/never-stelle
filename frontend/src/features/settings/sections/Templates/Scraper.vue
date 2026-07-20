@@ -17,6 +17,7 @@ import {
 import { normalizeTokenName } from "../../../../utils/dashboard";
 import { useScrapeTests } from "../../composables/useScrapeTests";
 import { useSettingsContext } from "../../context";
+import SettingsRow from "../../SettingsRow.vue";
 import {
   Accordion,
   AccordionContent,
@@ -108,17 +109,18 @@ const {
       <AccordionContent>
         <div class="flex flex-col gap-[0.65rem]">
           <template v-if="settingsDraft.source_scrape_rules[site.key].enabled">
-            <div class="flex flex-col gap-2 mb-2">
-        <div class="flex items-center gap-2">
-          <Input
-            :id="`${site.key}ScraperProbeInput`"
-            v-model="scrapeTests[site.key].url"
-            type="text"
-            inputmode="url"
-            placeholder="Probe URL"
-            class="flex-1"
-            @keydown.enter.prevent="runScrapeTest(site.key)"
-          />
+            <SettingsRow label="Probe URL">
+              <div class="flex flex-col gap-2 w-full">
+                <div class="flex items-center gap-2">
+                  <Input
+                    :id="`${site.key}ScraperProbeInput`"
+                    v-model="scrapeTests[site.key].url"
+                    type="text"
+                    inputmode="url"
+                    placeholder="Paste a link"
+                    class="flex-1"
+                    @keydown.enter.prevent="runScrapeTest(site.key)"
+                  />
           <Button
             class="shrink-0"
             variant="primary"
@@ -158,6 +160,7 @@ const {
           </li>
         </ul>
       </div>
+    </SettingsRow>
 
 
 

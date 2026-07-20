@@ -196,43 +196,116 @@ def template_tokens() -> list[dict[str, str]]:
     return [{"key": key, "description": description} for key, description in TEMPLATE_TOKEN_PRESETS.items()]
 
 
-# Suggested handle/display-name fields the UI offers for username/nickname lists; users may type any other field.
-CREATOR_FIELD_CATALOG: dict[str, list[dict[str, str]]] = {
-    "ytdlp": [
-        {"field": "uploader_id", "label": "Uploader handle/id"},
-        {"field": "playlist_uploader_id", "label": "Playlist uploader id"},
-        {"field": "channel_id", "label": "Channel id"},
-        {"field": "uploader", "label": "Uploader name"},
-        {"field": "channel", "label": "Channel name"},
-        {"field": "creator", "label": "Creator"},
-        {"field": "creators", "label": "Creators"},
-        {"field": "artist", "label": "Artist"},
-        {"field": "artists", "label": "Artists"},
-        {"field": "album_artist", "label": "Album artist"},
-        {"field": "playlist_uploader", "label": "Playlist uploader"},
-        {"field": "display_name", "label": "Display name"},
-        {"field": "full_name", "label": "Full name"},
-        {"field": "nickname", "label": "Nickname"},
-        {"field": "author", "label": "Author"},
-    ],
-    "gallerydl": [
-        {"field": "username", "label": "Username"},
-        {"field": "user[name]", "label": "user[name]"},
-        {"field": "user[username]", "label": "user[username]"},
-        {"field": "account", "label": "Account"},
-        {"field": "author", "label": "Author"},
-        {"field": "author[name]", "label": "author[name]"},
-        {"field": "author[nick]", "label": "author[nick]"},
-        {"field": "user[nickname]", "label": "user[nickname]"},
-        {"field": "user[nick]", "label": "user[nick]"},
-        {"field": "nickname", "label": "Nickname"},
-        {"field": "fullname", "label": "Full name"},
-    ],
+# Candidate handle/display-name fields that the field probe can expose.
+CREATOR_FIELD_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "ytdlp": (
+        "uploader_id",
+        "playlist_uploader_id",
+        "channel_id",
+        "uploader",
+        "channel",
+        "creator",
+        "creators",
+        "artist",
+        "artists",
+        "album_artist",
+        "playlist_uploader",
+        "display_name",
+        "full_name",
+        "nickname",
+        "author",
+    ),
+    "gallerydl": (
+        "username",
+        "user[name]",
+        "user[username]",
+        "account",
+        "author",
+        "author[name]",
+        "author[nick]",
+        "user[nickname]",
+        "user[nick]",
+        "nickname",
+        "fullname",
+    ),
 }
 
 
-def creator_field_catalog() -> dict[str, list[dict[str, str]]]:
-    return {engine: [dict(item) for item in fields] for engine, fields in CREATOR_FIELD_CATALOG.items()}
+# Role-priority default order per engine; the UI seeds its editable list from the
+# union of these, and each engine's field spec falls back to it when unconfigured.
+# username = handle first; nickname = display name first.
+CREATOR_ROLE_CHAINS: dict[str, dict[str, tuple[str, ...]]] = {
+    "ytdlp": {
+        "username": (
+            "uploader_id",
+            "playlist_uploader_id",
+            "uploader",
+            "channel",
+            "creator",
+            "channel_id",
+        ),
+        "nickname": (
+            "uploader",
+            "channel",
+            "creator",
+            "creators",
+            "artist",
+            "artists",
+            "album_artist",
+            "playlist_uploader",
+            "display_name",
+            "full_name",
+            "nickname",
+            "author",
+        ),
+    },
+    "gallerydl": {
+        "username": (
+            "username",
+            "user[name]",
+            "user[username]",
+            "account",
+            "author",
+        ),
+        "nickname": (
+            "author[nick]",
+            "user[nick]",
+            "user[nickname]",
+            "nickname",
+            "fullname",
+            "author[name]",
+            "username",
+            "user[name]",
+        ),
+    },
+}
+
+
+def _creator_field_default(role: str) -> list[str]:
+    # Role chains first (engine order), then any remaining candidate field, deduped.
+    # Each engine's field spec filters this union down to fields it can actually use.
+    seen: set[str] = set()
+    out: list[str] = []
+    for engine_chains in CREATOR_ROLE_CHAINS.values():
+        for field in engine_chains.get(role, ()):
+            if field not in seen:
+                seen.add(field)
+                out.append(field)
+    for fields in CREATOR_FIELD_CANDIDATES.values():
+        for field in fields:
+            if field not in seen:
+                seen.add(field)
+                out.append(field)
+    return out
+
+
+CREATOR_FIELD_DEFAULTS: dict[str, list[str]] = {
+    role: _creator_field_default(role) for role in ("username", "nickname")
+}
+
+
+def creator_field_defaults() -> dict[str, list[str]]:
+    return {role: list(fields) for role, fields in CREATOR_FIELD_DEFAULTS.items()}
 
 
 # Per-source title-cleaning toggles; each `default` is the built-in always-on behavior.
@@ -249,7 +322,10 @@ TITLE_CLEANING_RULES: dict[str, dict[str, Any]] = {
 
 
 def title_cleaning_rules() -> list[dict[str, Any]]:
-    return [{"key": key, "label": rule["label"], "default": rule["default"]} for key, rule in TITLE_CLEANING_RULES.items()]
+    return [
+        {"key": key, "label": rule["label"], "default": rule["default"]}
+        for key, rule in TITLE_CLEANING_RULES.items()
+    ]
 
 
 def normalize_title_cleaning(raw: Any) -> dict[str, Any]:

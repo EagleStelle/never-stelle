@@ -67,12 +67,6 @@ export type SourceCreatorFields = Record<string, CreatorFieldRoles>;
 // Per source, title-cleaning flags plus a numeric max_chars; missing keys use the rule default.
 export type SourceTitleCleaning = Record<string, Record<string, boolean | number>>;
 
-export interface CreatorFieldCatalogItem {
-  field: string;
-  label: string;
-}
-export type CreatorFieldCatalog = Record<string, CreatorFieldCatalogItem[]>;
-
 export interface TitleCleaningRule {
   key: string;
   label: string;
@@ -161,7 +155,7 @@ export interface RuntimeSettings extends SavedSettings {
   ytdlp_cookies: CookiesMap;
   quality_options: QualityOptions;
   template_tokens: TemplateToken[];
-  creator_field_catalog: CreatorFieldCatalog;
+  creator_field_defaults: CreatorFieldRoles;
   title_cleaning_rules: TitleCleaningRule[];
 }
 
@@ -177,7 +171,7 @@ export interface UiConfigResponse {
   source_token_roles?: Record<string, Record<string, string>>;
   source_creator_fields?: Record<string, Partial<CreatorFieldRoles>>;
   source_title_cleaning?: Record<string, Record<string, boolean | number>>;
-  creator_field_catalog?: CreatorFieldCatalog;
+  creator_field_defaults?: Partial<CreatorFieldRoles>;
   title_cleaning_rules?: TitleCleaningRule[];
   ytdlp_cookies?: Record<string, Partial<CookiesStatus>>;
   default_quality?: Partial<QualitySelection>;

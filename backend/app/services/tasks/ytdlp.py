@@ -15,6 +15,7 @@ from backend.app.services.settings import (
 
 from .constants import (
     AUDIO_BITRATE_PRESETS,
+    CREATOR_ROLE_CHAINS,
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
     VIDEO_QUALITY_PRESETS,
@@ -45,23 +46,6 @@ __all__ = [
     "sanitize_filename_component",
 ]
 
-# username = handle, nickname = display name; a per-source list prepends, this chain trails as fallback.
-# Handles lead the username chain (opaque channel_id last); nickname walks every known display-name field.
-_YTDLP_USERNAME_CHAIN = ("uploader_id", "playlist_uploader_id", "uploader", "channel", "creator", "channel_id")
-_YTDLP_NICKNAME_CHAIN = (
-    "uploader",
-    "channel",
-    "creator",
-    "creators",
-    "artist",
-    "artists",
-    "album_artist",
-    "playlist_uploader",
-    "display_name",
-    "full_name",
-    "nickname",
-    "author",
-)
 # yt-dlp fields are plain (optionally dotted) identifiers; reject bracketed gallery-dl fields.
 _YTDLP_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 
@@ -72,12 +56,13 @@ def _ytdlp_field_spec(fields: tuple[str, ...] | list[str]) -> str:
     return f"%({joined}|Unknown)s"
 
 
+# A configured list is authoritative (no hidden fallback); an empty one uses the engine chain.
 def ytdlp_username_field(custom: list[str] | None = None) -> str:
-    return _ytdlp_field_spec([*(custom or ()), *_YTDLP_USERNAME_CHAIN])
+    return _ytdlp_field_spec(custom or CREATOR_ROLE_CHAINS["ytdlp"]["username"])
 
 
 def ytdlp_nickname_field(custom: list[str] | None = None) -> str:
-    return _ytdlp_field_spec([*(custom or ()), *_YTDLP_NICKNAME_CHAIN])
+    return _ytdlp_field_spec(custom or CREATOR_ROLE_CHAINS["ytdlp"]["nickname"])
 
 
 YTDLP_USERNAME_FIELD = ytdlp_username_field()

@@ -83,22 +83,21 @@ def test_ytdlp_command_drops_codec_pref_incompatible_with_container():
     assert "-S" not in cmd
 
 
-def test_ytdlp_username_field_prepends_custom_and_skips_brackets():
-    # Default is the built-in chain (handles first, opaque channel_id last).
+def test_ytdlp_username_field_uses_configured_list_authoritatively():
+    # Unconfigured: the built-in chain (handles first, opaque channel_id last).
     assert (
         ytdlp.ytdlp_username_field()
         == "%(uploader_id,playlist_uploader_id,uploader,channel,creator,channel_id|Unknown)s"
     )
-    # Custom fields lead; built-in chain trails (deduped); `user[name]` is a
-    # gallery-dl-only spelling and must be dropped so the yt-dlp spec stays valid.
+    # A configured list is authoritative: only those fields, in order, no chain trailing;
+    # `user[name]` is a gallery-dl-only spelling and must be dropped from the yt-dlp spec.
     spec = ytdlp.ytdlp_username_field(["channel", "user[name]", "uploader_id"])
-    assert spec == "%(channel,uploader_id,playlist_uploader_id,uploader,creator,channel_id|Unknown)s"
+    assert spec == "%(channel,uploader_id|Unknown)s"
 
 
-def test_gallerydl_nickname_field_prepends_custom():
+def test_gallerydl_nickname_field_uses_configured_list_authoritatively():
     spec = gallerydl.gallerydl_nickname_field(["display[name]"])
-    assert spec.startswith("{display[name]|author[nick]|")
-    assert spec.endswith('|"unknown"}')
+    assert spec == '{display[name]|"unknown"}'
 
 
 def test_build_output_template_applies_per_source_creator_fields(monkeypatch):
@@ -108,15 +107,15 @@ def test_build_output_template_applies_per_source_creator_fields(monkeypatch):
         "/media/out",
         {"folder_template": "{{username}}", "filename_template": "{{username}} [{{id}}]"},
     )
-    # The custom `channel` field leads the resolved username spec.
-    assert "%(channel,uploader_id,playlist_uploader_id,uploader,creator,channel_id|Unknown)s" in template
+    # The configured `channel` field is the whole username spec, no chain trailing.
+    assert "%(channel|Unknown)s" in template
 
 
 def test_convert_template_to_gallerydl_uses_creator_fields():
     rendered = gallerydl.convert_template_to_gallerydl(
         "{{nickname}}", "https://example.com/x", creator_fields={"nickname": ["fullname"]}
     )
-    assert rendered.startswith("{fullname|author[nick]|")
+    assert rendered == '{fullname|"unknown"}'
 
 
 def _has_cli_pair(cmd: list[str], option: str, value: str) -> bool:

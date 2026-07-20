@@ -619,7 +619,7 @@ def build_settings_response(
 ) -> dict[str, Any]:
     from backend.app.services.auth import auth_public_payload
     from backend.app.services.tasks.constants import (
-        creator_field_catalog,
+        creator_field_defaults,
         default_quality_selection,
         quality_options,
         template_tokens,
@@ -644,7 +644,7 @@ def build_settings_response(
         "source_token_roles": saved.get("source_token_roles", get_effective_token_roles()),
         "source_creator_fields": saved.get("source_creator_fields", {}),
         "source_title_cleaning": saved.get("source_title_cleaning", {}),
-        "creator_field_catalog": creator_field_catalog(),
+        "creator_field_defaults": creator_field_defaults(),
         "title_cleaning_rules": title_cleaning_rules(),
         "settings_loaded_at": int(time.time()),
     }

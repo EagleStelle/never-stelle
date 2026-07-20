@@ -352,7 +352,7 @@ export function normalizeCreatorField(value: unknown): string {
   return String(value || "").trim().replace(CREATOR_FIELD_RE, "");
 }
 
-function createCreatorFieldRoles(source: Partial<CreatorFieldRoles> = {}): CreatorFieldRoles {
+export function createCreatorFieldRoles(source: Partial<CreatorFieldRoles> = {}): CreatorFieldRoles {
   const list = (values: unknown): string[] => {
     const out: string[] = [];
     for (const value of Array.isArray(values) ? values : []) {

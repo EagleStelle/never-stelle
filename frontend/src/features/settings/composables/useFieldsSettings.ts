@@ -3,8 +3,7 @@ import { toast } from "vue-sonner";
 
 import { probeCreatorFields } from "../../../api";
 import type {
-  CreatorFieldCatalog,
-  CreatorFieldCatalogItem,
+  CreatorFieldRoles,
   ProbeField,
   RuntimeSettings,
   SavedSettings,
@@ -44,52 +43,61 @@ export function useFieldsSettings(
     { immediate: true },
   );
 
-  const catalog = computed<CreatorFieldCatalog>(() => settings.creator_field_catalog || {});
   const rules = computed<TitleCleaningRule[]>(() => settings.title_cleaning_rules || []);
 
-  // Unique fields across every engine, as add-suggestions when no probe has run yet.
-  const suggestions = computed<CreatorFieldCatalogItem[]>(() => {
-    const seen = new Set<string>();
-    const out: CreatorFieldCatalogItem[] = [];
-    for (const items of Object.values(catalog.value)) {
-      for (const item of items) {
-        if (!seen.has(item.field)) {
-          seen.add(item.field);
-          out.push(item);
-        }
-      }
-    }
-    return out;
-  });
+  // The ordered default field list per role; an empty per-source list tracks this.
+  const defaults = computed<CreatorFieldRoles>(() => ({
+    username: settings.creator_field_defaults?.username || [],
+    nickname: settings.creator_field_defaults?.nickname || [],
+  }));
 
-  function creatorRoles(key: string) {
+  function creatorRoles(key: string): CreatorFieldRoles {
     if (!settingsDraft.source_creator_fields[key]) {
       settingsDraft.source_creator_fields[key] = { username: [], nickname: [] };
     }
     return settingsDraft.source_creator_fields[key];
   }
 
+  // Shown list: the source's own order once configured, otherwise the shared default.
   function fieldList(key: string, role: CreatorRole): string[] {
-    return creatorRoles(key)[role];
+    const list = creatorRoles(key)[role];
+    return list.length ? list : defaults.value[role];
+  }
+
+  function sameAsDefault(role: CreatorRole, list: string[]): boolean {
+    const base = defaults.value[role];
+    return list.length === base.length && list.every((value, index) => value === base[index]);
+  }
+
+  // Persist the new order; a list matching the default resets to empty so it keeps tracking it.
+  function commit(key: string, role: CreatorRole, list: string[]): void {
+    creatorRoles(key)[role] = sameAsDefault(role, list) ? [] : list;
   }
 
   function addField(key: string, role: CreatorRole, raw: string): void {
     const field = normalizeCreatorField(raw);
     if (!field) return;
-    const list = creatorRoles(key)[role];
-    if (!list.includes(field)) list.push(field);
+    const list = [...fieldList(key, role)];
+    if (list.includes(field)) return;
+    list.push(field);
+    commit(key, role, list);
   }
 
-  function removeField(key: string, role: CreatorRole, index: number): void {
-    creatorRoles(key)[role].splice(index, 1);
+  function reorderField(key: string, role: CreatorRole, from: number, to: number): void {
+    const list = [...fieldList(key, role)];
+    if (from === to || from < 0 || from >= list.length || to < 0 || to >= list.length) return;
+    const [item] = list.splice(from, 1);
+    list.splice(to, 0, item);
+    commit(key, role, list);
   }
 
-  function moveField(key: string, role: CreatorRole, index: number, delta: number): void {
-    const list = creatorRoles(key)[role];
-    const target = index + delta;
-    if (target < 0 || target >= list.length) return;
-    const [item] = list.splice(index, 1);
-    list.splice(target, 0, item);
+  function resetRole(key: string, role: CreatorRole): void {
+    creatorRoles(key)[role] = [];
+  }
+
+  // True once the source overrides the default order (drives the "Reset" affordance).
+  function isConfigured(key: string, role: CreatorRole): boolean {
+    return creatorRoles(key)[role].length > 0;
   }
 
   function cleaningFlags(key: string): Record<string, boolean | number> {
@@ -140,13 +148,12 @@ export function useFieldsSettings(
 
   return {
     probes,
-    catalog,
     rules,
-    suggestions,
     fieldList,
     addField,
-    removeField,
-    moveField,
+    reorderField,
+    resetRole,
+    isConfigured,
     ruleEnabled,
     setRule,
     maxChars,

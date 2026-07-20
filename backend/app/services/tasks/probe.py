@@ -8,7 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from backend.app.core.sources import normalize_source_key, source_key_from_url
 from backend.app.services.settings import find_cookies_file_for_url
 
-from .constants import CREATOR_FIELD_CATALOG
+from .constants import CREATOR_FIELD_CANDIDATES
 from .formats import _prepare_url
 
 # YouTube mix/radio playlists carry an ``RD`` list id and are endless, so we
@@ -110,7 +110,7 @@ def _scalar(value: Any) -> str:
     # bool is an int subclass; keep it out so True/False don't masquerade as values.
     if isinstance(value, bool) or value is None:
         return ""
-    return str(value).strip() if isinstance(value, (str, int, float)) else ""
+    return str(value).strip() if isinstance(value, str | int | float) else ""
 
 
 def _flatten_metadata(data: Any) -> dict[str, str]:
@@ -132,11 +132,10 @@ def _flatten_metadata(data: Any) -> dict[str, str]:
 
 
 def _creator_probe_fields(flat: dict[str, str], engine: str) -> list[dict[str, str]]:
-    # Only the handle/display-name candidates for this engine, in catalog order.
+    # Only the handle/display-name candidates for this engine, in stable order.
     fields: list[dict[str, str]] = []
     seen: set[str] = set()
-    for item in CREATOR_FIELD_CATALOG.get(engine, []):
-        field = item["field"]
+    for field in CREATOR_FIELD_CANDIDATES.get(engine, ()):
         if field in seen:
             continue
         seen.add(field)
