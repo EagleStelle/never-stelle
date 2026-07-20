@@ -18,7 +18,6 @@ from backend.app.core.config import (
     normalize_download_locations,
 )
 from backend.app.core.sources import (
-    FALLBACK_SOURCE_KEY,
     favicon_url_for_host,
     host_from_url,
     merge_source_profiles,
@@ -44,7 +43,7 @@ from backend.app.services import swaratelle
 BUILTIN_FOLDER_TEMPLATE = "{{username}}"
 BUILTIN_FILENAME_TEMPLATE = "{{username}} - {{title}} [{{id}}]"
 
-# One cookies.txt per source; the FALLBACK_SOURCE_KEY jar is the catch-all.
+# One cookies.txt per resolved source.
 COOKIE_BLOB_PREFIX = "ytdlp_cookies::"
 MAX_COOKIE_UPLOAD_BYTES = 5 * 1024 * 1024
 _cookie_file_lock = threading.RLock()
@@ -150,7 +149,6 @@ def get_effective_source_profiles(
         swaratelle_profiles,
         saved_profiles,
         extra_profiles,
-        include_fallback=True,
     )
 
 
@@ -173,7 +171,10 @@ def get_source_profile_by_key(
 
 
 def require_settings_managed_source(source_key: Any) -> None:
-    profile = get_source_profile_by_key(normalize_source_key(source_key))
+    key = normalize_source_key(source_key)
+    if not key:
+        raise ValueError("Choose or type a source.")
+    profile = get_source_profile_by_key(key)
     if source_profile_settings_managed(profile):
         return
     label = str(profile.get("label") or source_key or "Source").strip()
@@ -194,6 +195,8 @@ def ensure_source_profile_for_url(url_or_host: str) -> str:
     profiles = get_effective_source_profiles(cfg, payload)
     key = source_key_from_url(url_or_host, profiles)
     host = host_from_url(url_or_host)
+    if not key:
+        raise ValueError("Paste a valid link or domain first.")
     if any(normalize_source_key(profile.get("key")) == key for profile in profiles):
         return key
 
@@ -227,7 +230,9 @@ def normalize_source_template_selection(
 ) -> dict[str, dict[str, str]]:
     source = raw if isinstance(raw, dict) else {}
     default_template = normalize_template_settings(default_template or {})
-    profiles = _settings_managed_profiles(source_profiles or get_effective_source_profiles(cfg))
+    profiles = _settings_managed_profiles(
+        source_profiles if source_profiles is not None else get_effective_source_profiles(cfg)
+    )
     out: dict[str, dict[str, str]] = {}
     for profile in profiles:
         key = normalize_source_key(profile.get("key"))
@@ -281,7 +286,7 @@ def normalize_source_token_roles(raw: Any) -> dict[str, dict[str, str]]:
                 role = str(raw_role or "").strip().lower()
                 if token and role in TOKEN_ROLES:
                     roles[token] = role
-        if roles:
+        if key and roles:
             out[key] = roles
     return out
 
@@ -381,22 +386,26 @@ def normalize_source_location_selection(
     cfg: dict[str, Any],
     source_profiles: list[dict[str, Any]] | None = None,
 ) -> dict[str, str]:
-    source_profiles = _settings_managed_profiles(source_profiles or get_effective_source_profiles(cfg))
-    source_keys = [normalize_source_key(profile.get("key")) for profile in source_profiles]
-    if FALLBACK_SOURCE_KEY not in source_keys:
-        source_keys.append(FALLBACK_SOURCE_KEY)
+    source_profiles = _settings_managed_profiles(
+        source_profiles if source_profiles is not None else get_effective_source_profiles(cfg)
+    )
+    source_keys = [
+        key
+        for key in (normalize_source_key(profile.get("key")) for profile in source_profiles)
+        if key
+    ]
     defaults = get_site_default_locations(cfg, source_keys)
     source = raw if isinstance(raw, dict) else {}
     out: dict[str, str] = {}
     for site in source_keys:
         candidate = normalize_allowed_location(str(source.get(site) or "").strip())
-        out[site] = candidate or defaults.get(site, "") or defaults.get(FALLBACK_SOURCE_KEY, "")
+        out[site] = candidate or defaults.get(site, "")
     return out
 
 
 # --- Cookies ---
 def normalize_cookie_source(source_key: Any) -> str:
-    return normalize_source_key(source_key or FALLBACK_SOURCE_KEY)
+    return normalize_source_key(source_key)
 
 
 def _cookie_key(source_key: Any) -> str:
@@ -428,15 +437,17 @@ def get_cookie_source_status(source_key: str) -> dict[str, Any]:
 
 
 def get_ytdlp_cookies_status(source_profiles: list[dict[str, Any]] | None = None) -> dict[str, dict[str, Any]]:
-    profiles = _settings_managed_profiles(source_profiles or get_effective_source_profiles())
-    keys = [normalize_source_key(profile.get("key")) for profile in profiles]
-    if FALLBACK_SOURCE_KEY not in keys:
-        keys.append(FALLBACK_SOURCE_KEY)
+    profiles = _settings_managed_profiles(
+        source_profiles if source_profiles is not None else get_effective_source_profiles()
+    )
+    keys = [key for key in (normalize_source_key(profile.get("key")) for profile in profiles) if key]
     return {key: get_cookie_source_status(key) for key in dict.fromkeys(keys)}
 
 
 def materialize_cookie_blob(source_key: str) -> str:
     source_key = normalize_cookie_source(source_key)
+    if not source_key:
+        return ""
     uploaded = _cookie_blob_content(source_key)
     if not uploaded:
         return ""
@@ -455,16 +466,10 @@ def materialize_cookie_blob(source_key: str) -> str:
 
 
 def find_cookies_file_for_source(source_key: str) -> str:
-    # Prefer the jar for this resolved source; fall back to the catch-all jar so
-    # a generic cookies.txt still helps unmapped sites.
     source_key = normalize_cookie_source(source_key)
     candidate = materialize_cookie_blob(source_key)
     if candidate and Path(candidate).is_file():
         return candidate
-    if source_key != FALLBACK_SOURCE_KEY:
-        fallback = materialize_cookie_blob(FALLBACK_SOURCE_KEY)
-        if fallback and Path(fallback).is_file():
-            return fallback
     return ""
 
 
@@ -474,9 +479,7 @@ def find_cookies_file_for_url(source_url: str) -> str:
 
 def has_cookies_for_source(source_key: str) -> bool:
     source_key = normalize_cookie_source(source_key)
-    if _cookie_blob_metadata(source_key):
-        return True
-    return source_key != FALLBACK_SOURCE_KEY and bool(_cookie_blob_metadata(FALLBACK_SOURCE_KEY))
+    return bool(source_key and _cookie_blob_metadata(source_key))
 
 
 def has_cookies_for_url(source_url: str) -> bool:

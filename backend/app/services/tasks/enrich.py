@@ -63,9 +63,10 @@ def normalize_scrape_rules(raw: Any) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for key, value in source.items():
         platform = normalize_platform_rules(value)
+        source_key = normalize_source_key(key)
         # Persist any platform the user has touched (enabled flag or defined rules).
-        if platform["rules"] or platform["enabled"]:
-            out[normalize_source_key(key)] = platform
+        if source_key and (platform["rules"] or platform["enabled"]):
+            out[source_key] = platform
     return out
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key
+from backend.app.core.sources import normalize_source_key
 from backend.app.services.settings import (
     get_source_profile_for_url,
     load_saved_settings_file,
@@ -79,7 +79,7 @@ def save_learned_creator_fields(
     """
     payload = load_saved_settings_file()
     key = _resolved_creator_source_key(source_url, source_key, payload)
-    if not key or key == FALLBACK_SOURCE_KEY:
+    if not key:
         return {}
 
     learned = _normalized_creator_fields_for_key(key, creator_fields)
@@ -104,7 +104,7 @@ def save_learned_creator_fields(
 def ensure_creator_fields_learned(source_url: str, source_key: str = "") -> dict[str, list[str]]:
     """Probe creator fields once for a source that has no learned record yet."""
     key = normalize_source_key(source_key) if str(source_key or "").strip() else ""
-    if key == FALLBACK_SOURCE_KEY:
+    if not key:
         return {}
     if not str(source_url or "").strip() or has_learned_creator_fields(source_url, source_key):
         return {}

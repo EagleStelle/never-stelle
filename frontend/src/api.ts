@@ -118,8 +118,10 @@ export function uploadPlatformCookies(platform: string, file: File, source = "")
   const formData = new FormData();
   formData.append("file", file);
   if (source) formData.append("source", source);
+  const target = source ? platform || "source" : platform.trim();
+  if (!target) return Promise.reject(new Error("Choose a source first."));
   return jsonRequest<UiConfigResponse>(
-    `/api/settings/ytdlp-cookies/${encodeURIComponent(platform || "others")}`,
+    `/api/settings/ytdlp-cookies/${encodeURIComponent(target)}`,
     {
       method: "POST",
       body: formData,

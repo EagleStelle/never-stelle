@@ -1,7 +1,6 @@
 import { computed, watch, type ComputedRef } from "vue";
 
 import type { RuntimeSettings, SavedSettings, SourceProfile } from "../../../types";
-import { FALLBACK_SOURCE_KEY } from "../../../types";
 import {
   createPlatformScrapeRules,
   createTemplateSettings,
@@ -25,11 +24,9 @@ export function useSettingsDraft(props: DraftSources): {
   );
 
   const editableSourceProfiles = computed<SourceProfile[]>(() =>
-    [...settingsManagedSourceProfiles(mergedProfiles.value)].sort((a, b) => {
-      if (a.key === FALLBACK_SOURCE_KEY) return 1;
-      if (b.key === FALLBACK_SOURCE_KEY) return -1;
-      return a.label.localeCompare(b.label);
-    }),
+    settingsManagedSourceProfiles(mergedProfiles.value)
+      .filter((profile) => profile.key)
+      .sort((a, b) => a.label.localeCompare(b.label)),
   );
 
   watch(

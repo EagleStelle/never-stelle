@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS queue (
     id TEXT PRIMARY KEY,
     source_url TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
-    source_key TEXT NOT NULL DEFAULT 'others',
+    source_key TEXT NOT NULL DEFAULT '',
     progress_pct REAL NOT NULL DEFAULT 0,
     payload TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -41,7 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_queue_source_url ON queue(source_url);
 CREATE TABLE IF NOT EXISTS history (
     task_id TEXT PRIMARY KEY,
     source_url TEXT NOT NULL DEFAULT '',
-    source_key TEXT NOT NULL DEFAULT 'others',
+    source_key TEXT NOT NULL DEFAULT '',
     payload TEXT NOT NULL,
     completed_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -156,3 +156,6 @@ def _migrate_schema(connection: sqlite3.Connection) -> None:
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(formats)")}
     if "templates" not in columns:
         connection.execute("ALTER TABLE formats ADD COLUMN templates TEXT NOT NULL DEFAULT ''")
+    connection.execute("UPDATE queue SET source_key = '' WHERE source_key = 'others'")
+    connection.execute("UPDATE history SET source_key = '' WHERE source_key = 'others'")
+    connection.execute("DELETE FROM cookies WHERE key = 'ytdlp_cookies::others'")

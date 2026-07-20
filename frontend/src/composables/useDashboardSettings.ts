@@ -448,7 +448,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     settingsSection.value = section;
     if (!shouldFocus) return;
     const firstSource =
-      settingsManagedSourceProfiles(sourceProfiles.value)[0]?.key || "settings";
+      settingsManagedSourceProfiles(sourceProfiles.value).find((profile) => profile.key)?.key || "settings";
     const focusTargets: Record<SettingsSection, string> = {
       account: "accountUsernameInput",
       downloads: `${firstSource}LocationInput`,
@@ -533,7 +533,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     try {
       cacheUiConfig(
         await uploadCookiesMutation.mutateAsync({
-          platform: "others",
+          platform: "source",
           file,
           source: source.trim(),
         }),

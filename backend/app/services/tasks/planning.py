@@ -5,7 +5,6 @@ from typing import Any
 
 from backend.app.core.config import load_app_config
 from backend.app.core.sources import (
-    FALLBACK_SOURCE_KEY,
     merge_source_profiles,
     normalize_source_key,
     source_profile_for_url,
@@ -43,7 +42,6 @@ def resolve_task_settings(
     profiles = merge_source_profiles(
         effective.get("source_profiles") or [],
         source_profiles or [],
-        include_fallback=True,
     )
     source_profile = source_profile_for_url(source_url, profiles)
     source_key = normalize_source_key(source_profile.get("key"))
@@ -55,7 +53,7 @@ def resolve_task_settings(
         cfg,
         profiles,
     )
-    output_dir = selected_locations.get(source_key) or selected_locations.get(FALLBACK_SOURCE_KEY) or ""
+    output_dir = selected_locations.get(source_key) or ""
 
     base_template = normalize_template_settings(
         template_settings if template_settings is not None else effective.get("template_settings")

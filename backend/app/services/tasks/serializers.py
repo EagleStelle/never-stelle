@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key
+from backend.app.core.sources import normalize_source_key
 from backend.app.services import swaratelle
 from backend.app.services.settings import get_effective_source_profiles
 
@@ -58,10 +58,7 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
         recovered_filename = str(task.get("resolved_filename") or "").strip()
     source_url = str(task.get("source_url") or "")
     task_type = str(task.get("engine") or "ytdlp")
-    source_key = normalize_source_key(
-        task.get("source_key")
-        or detect_source_key(source_url)
-    )
+    source_key = normalize_source_key(task.get("source_key")) or detect_source_key(source_url)
     can_download = bool(
         status == "completed"
         and resolved_path
@@ -325,12 +322,16 @@ def build_counts() -> dict[str, Any]:
         completed[swaratelle.SOURCE_KEY] = int(swaratelle_counts.get("completed", 0))
     keys: list[str] = []
     for key in (
-        *[normalize_source_key(profile.get("key")) for profile in get_effective_source_profiles()],
+        *[
+            key
+            for profile in get_effective_source_profiles()
+            if (key := normalize_source_key(profile.get("key")))
+        ],
         *active.keys(),
         *completed.keys(),
     ):
-        key = normalize_source_key(key) or FALLBACK_SOURCE_KEY
-        if key not in keys:
+        key = normalize_source_key(key)
+        if key and key not in keys:
             keys.append(key)
 
     def counts_for(key: str) -> dict[str, int]:
@@ -342,11 +343,13 @@ def build_counts() -> dict[str, Any]:
             "failed": int(status.get("failed", 0)),
         }
 
-    by_menu = {key: counts_for(key) for key in keys}
     totals = {
-        field: sum(counts[field] for counts in by_menu.values())
-        for field in ("queued", "running", "completed", "failed")
+        "queued": sum(int(status.get("pending", 0)) for status in active.values()),
+        "running": sum(int(status.get("running", 0)) for status in active.values()),
+        "completed": sum(int(value or 0) for value in completed.values()),
+        "failed": sum(int(status.get("failed", 0)) for status in active.values()),
     }
+    by_menu = {key: counts_for(key) for key in keys}
     by_menu["all"] = totals
     return {"counts": totals, "counts_by_menu": by_menu}
 
@@ -362,10 +365,14 @@ def count_tasks(tasks: list[dict[str, Any]]) -> dict[str, int]:
 
 def counts_by_menu(tasks: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
     result = {"all": count_tasks(tasks)}
-    source_keys = [normalize_source_key(profile.get("key")) for profile in get_effective_source_profiles()]
-    task_keys = [normalize_source_key(task.get("source_key") or FALLBACK_SOURCE_KEY) for task in tasks]
+    source_keys = [
+        key
+        for profile in get_effective_source_profiles()
+        if (key := normalize_source_key(profile.get("key")))
+    ]
+    task_keys = [normalize_source_key(task.get("source_key")) for task in tasks]
     for key in task_keys:
-        if key not in source_keys:
+        if key and key not in source_keys:
             source_keys.append(key)
     for site in source_keys:
         result[site] = count_tasks([task for task, key in zip(tasks, task_keys, strict=True) if key == site])

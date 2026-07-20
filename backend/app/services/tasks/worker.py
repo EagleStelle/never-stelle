@@ -1347,9 +1347,9 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
     candidates = _engine_run_order(task)
     template_settings = _task_template_settings(task)
     quality = normalize_quality_selection(task.get("quality"))
-    raw_source_key = str(task.get("source_key") or "").strip()
+    raw_source_key = normalize_source_key(task.get("source_key"))
     task_source_key = raw_source_key or detect_source_key(source_url)
-    cookie_source_key = normalize_source_key(raw_source_key) if raw_source_key else detect_cookie_source(source_url)
+    cookie_source_key = raw_source_key or detect_cookie_source(source_url)
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
 

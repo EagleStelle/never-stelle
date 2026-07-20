@@ -1,6 +1,5 @@
 import { DEFAULT_SOURCE_PROFILES } from "../ui";
 import {
-  FALLBACK_SOURCE_KEY,
   PAGE_KEYS,
   type CookiesStatus,
   type MediaFilter,
@@ -29,18 +28,20 @@ import {
   type ViewMode,
 } from "../types";
 
+const REMOVED_SOURCE_KEYS = new Set(["others"]);
+
 export function normalizeSourceKey(value: unknown): string {
   const key = String(value || "")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return key || FALLBACK_SOURCE_KEY;
+  return REMOVED_SOURCE_KEYS.has(key) ? "" : key;
 }
 
 export function sourceLabelFromKey(key: string): string {
   const normalized = normalizeSourceKey(key);
-  if (normalized === FALLBACK_SOURCE_KEY) return "Others";
+  if (!normalized) return "Unresolved";
   return normalized
     .split("-")
     .map((part) => {
@@ -139,6 +140,7 @@ export function mergeSourceProfiles(
   for (const list of sources) {
     for (const item of list || []) {
       const profile = createSourceProfile(item);
+      if (!profile.key) continue;
       const existing = merged.get(profile.key);
       if (!existing) {
         merged.set(profile.key, profile);
@@ -157,11 +159,6 @@ export function mergeSourceProfiles(
       });
     }
   }
-  if (merged.has(FALLBACK_SOURCE_KEY)) {
-    const fallback = merged.get(FALLBACK_SOURCE_KEY)!;
-    merged.delete(FALLBACK_SOURCE_KEY);
-    merged.set(FALLBACK_SOURCE_KEY, fallback);
-  }
   return [...merged.values()];
 }
 
@@ -171,8 +168,10 @@ export function createSourceLocations(
 ): SourceLocations {
   const out: SourceLocations = {};
   for (const profile of profiles) out[profile.key] = source[profile.key] || "";
-  for (const [key, value] of Object.entries(source))
-    out[normalizeSourceKey(key)] = String(value || "");
+  for (const [key, value] of Object.entries(source)) {
+    const normalizedKey = normalizeSourceKey(key);
+    if (normalizedKey) out[normalizedKey] = String(value || "");
+  }
   return out;
 }
 
@@ -360,7 +359,8 @@ export function createSourceTemplates(
     out[profile.key] = createTemplateSettings(source[profile.key] || fallback);
   }
   for (const [key, value] of Object.entries(source)) {
-    out[normalizeSourceKey(key)] = createTemplateSettings(value);
+    const normalizedKey = normalizeSourceKey(key);
+    if (normalizedKey) out[normalizedKey] = createTemplateSettings(value);
   }
   return out;
 }
@@ -394,8 +394,10 @@ export function createSourceScrapeRules(
   const out: SourceScrapeRules = {};
   for (const profile of profiles)
     out[profile.key] = createPlatformScrapeRules(source[profile.key] || {});
-  for (const [key, value] of Object.entries(source))
-    out[normalizeSourceKey(key)] = createPlatformScrapeRules(value);
+  for (const [key, value] of Object.entries(source)) {
+    const normalizedKey = normalizeSourceKey(key);
+    if (normalizedKey) out[normalizedKey] = createPlatformScrapeRules(value);
+  }
   return out;
 }
 
@@ -423,7 +425,8 @@ export function createSourceTokenRoles(
 ): SourceTokenRoles {
   const normalizedSource: Record<string, Record<string, string>> = {};
   for (const [rawKey, roles] of Object.entries(source || {})) {
-    normalizedSource[normalizeSourceKey(rawKey)] = roles || {};
+    const normalizedKey = normalizeSourceKey(rawKey);
+    if (normalizedKey) normalizedSource[normalizedKey] = roles || {};
   }
   const keys = new Set([
     ...profiles.map((profile) => profile.key),
@@ -475,8 +478,10 @@ export function createSourceCreatorFields(
   const out: SourceCreatorFields = {};
   for (const profile of profiles)
     out[profile.key] = createCreatorFieldRoles(source[profile.key] || {});
-  for (const [key, value] of Object.entries(source))
-    out[normalizeSourceKey(key)] = createCreatorFieldRoles(value);
+  for (const [key, value] of Object.entries(source)) {
+    const normalizedKey = normalizeSourceKey(key);
+    if (normalizedKey) out[normalizedKey] = createCreatorFieldRoles(value);
+  }
   return out;
 }
 
@@ -503,8 +508,10 @@ export function createSourceTitleCleaning(
   const out: SourceTitleCleaning = {};
   for (const profile of profiles)
     out[profile.key] = createTitleCleaning(source[profile.key] || {});
-  for (const [key, value] of Object.entries(source))
-    out[normalizeSourceKey(key)] = createTitleCleaning(value);
+  for (const [key, value] of Object.entries(source)) {
+    const normalizedKey = normalizeSourceKey(key);
+    if (normalizedKey) out[normalizedKey] = createTitleCleaning(value);
+  }
   return out;
 }
 

@@ -184,6 +184,8 @@ def _learn_confirmed_source(source_key: str, media_id: str) -> None:
 
 def set_task_source(task_id: str, source_key: str) -> str:
     key = normalize_source_key(source_key)
+    if not key:
+        raise ValueError("Choose or type a source.")
     task = (load_task_store().get("tasks") or {}).get(task_id)
     if task:
         update_task(task_id, source_key=key, source_pending=False)

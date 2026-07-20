@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key
+from backend.app.core.sources import normalize_source_key
 
 from .constants import normalize_quality_selection
 from .formats import media_id_from_url, url_dedup_key
@@ -31,10 +31,7 @@ def _stored_file_size(task: dict[str, Any]) -> int:
 
 def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
     source_url = str(task.get("source_url") or "")
-    source_key = normalize_source_key(
-        task.get("source_key")
-        or detect_source_key(source_url)
-    )
+    source_key = normalize_source_key(task.get("source_key")) or detect_source_key(source_url)
     save_history_entry_row(
         task_id,
         {
@@ -67,7 +64,7 @@ def _payload_media_id(payload: dict[str, Any]) -> str:
 def _source_media_key(source_key: str, media_id: str) -> str:
     source_key = normalize_source_key(source_key)
     media_id = str(media_id or "").strip()
-    if not media_id or source_key == FALLBACK_SOURCE_KEY:
+    if not media_id or not source_key:
         return ""
     return f"{source_key}#{media_id}"
 

@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from backend.app.core.sources import FALLBACK_SOURCE_KEY, merge_source_profiles, normalize_source_key
+from backend.app.core.sources import merge_source_profiles, normalize_source_key
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -218,7 +218,9 @@ def get_config_source_profiles(cfg: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def get_default_site_location(cfg: dict[str, Any], site: str) -> str:
-    site = normalize_source_key(site or FALLBACK_SOURCE_KEY)
+    site = normalize_source_key(site)
+    if not site:
+        return ""
     profile = next((item for item in get_config_source_profiles(cfg) if item.get("key") == site), {})
     profile_default = str(profile.get("default_download_location") or "").strip()
     if profile_default:
@@ -231,7 +233,5 @@ def get_default_site_location(cfg: dict[str, Any], site: str) -> str:
 
 def get_site_default_locations(cfg: dict[str, Any], source_keys: Iterable[str] | None = None) -> dict[str, str]:
     raw_keys = source_keys or [profile["key"] for profile in get_config_source_profiles(cfg)]
-    keys = [normalize_source_key(key) for key in raw_keys]
-    if FALLBACK_SOURCE_KEY not in keys:
-        keys.append(FALLBACK_SOURCE_KEY)
+    keys = [key for key in (normalize_source_key(key) for key in raw_keys) if key]
     return {site: get_default_site_location(cfg, site) for site in dict.fromkeys(keys)}

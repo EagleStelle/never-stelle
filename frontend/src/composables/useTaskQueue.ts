@@ -23,7 +23,7 @@ import {
   TASKS_QUERY_KEY,
 } from "../ui";
 import type { PlaylistEntry, QualitySelection, SavedSettings, TaskItem, TaskStatus, TasksResponse, ToastType } from "../types";
-import { countTasks, errorMessage } from "../utils/dashboard";
+import { countTasks, errorMessage, normalizeSourceKey } from "../utils/dashboard";
 
 interface UseTaskQueueOptions {
   getSavedSettings: () => SavedSettings;
@@ -91,7 +91,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
         resolved_folder: task.resolved_folder || cached.resolved_folder || "",
         resolved_filename: task.resolved_filename || cached.resolved_filename || "",
         resolved_full_path: task.resolved_full_path || cached.resolved_full_path || "",
-        source_key: task.source_key || cached.source_key || "others",
+        source_key: normalizeSourceKey(task.source_key || cached.source_key || ""),
       };
       taskCache.set(task.vid, {
         resolved_folder: merged.resolved_folder,

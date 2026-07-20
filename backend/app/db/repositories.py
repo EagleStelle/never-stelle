@@ -31,6 +31,10 @@ def _source_key(source_url: str) -> str:
     return source_key_from_url(source_url)
 
 
+def _payload_source_key(payload: dict[str, Any], source_url: str) -> str:
+    return normalize_source_key(payload.get("source_key")) or _source_key(source_url)
+
+
 def load_settings_payload() -> dict[str, Any]:
     with transaction() as connection:
         row = connection.execute("SELECT value FROM settings WHERE key = ?", ("app",)).fetchone()
@@ -269,7 +273,7 @@ def count_active_by_source() -> dict[str, dict[str, int]]:
         ).fetchall()
     result: dict[str, dict[str, int]] = {}
     for row in rows:
-        key = str(row["source_key"] or "others")
+        key = str(row["source_key"] or "")
         result.setdefault(key, {})[str(row["status"] or "pending")] = int(row["n"] or 0)
     return result
 
@@ -280,7 +284,7 @@ def count_history_by_source() -> dict[str, int]:
         rows = connection.execute(
             "SELECT source_key, COUNT(*) AS n FROM history GROUP BY source_key"
         ).fetchall()
-    return {str(row["source_key"] or "others"): int(row["n"] or 0) for row in rows}
+    return {str(row["source_key"] or ""): int(row["n"] or 0) for row in rows}
 
 
 def load_history_page(
@@ -385,7 +389,7 @@ def merge_task_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
                 task_id,
                 source_url,
                 str(payload.get("status") or "pending"),
-                str(payload.get("source_key") or _source_key(source_url)),
+                _payload_source_key(payload, source_url),
                 _safe_float(payload.get("progress_pct")),
                 _encode(payload),
                 str(payload.get("created_at") or now),
@@ -420,7 +424,7 @@ def claim_pending_task_payload(task_id: str) -> dict[str, Any] | None:
                 task_id,
                 source_url,
                 "running",
-                str(payload.get("source_key") or _source_key(source_url)),
+                _payload_source_key(payload, source_url),
                 _safe_float(payload.get("progress_pct")),
                 _encode(payload),
                 str(payload.get("created_at") or now),
@@ -472,7 +476,7 @@ def save_history_row(task_id: str, payload: dict[str, Any]) -> None:
             (
                 str(task_id),
                 source_url,
-                str(payload.get("source_key") or _source_key(source_url)),
+                _payload_source_key(payload, source_url),
                 _encode(payload),
                 str(payload.get("completed_at") or now),
                 now,

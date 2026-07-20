@@ -4,7 +4,7 @@ import re
 from typing import Any
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
-from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key, source_key_from_url
+from backend.app.core.sources import normalize_source_key, source_key_from_url
 
 from .constants import normalize_title_cleaning, quality_label
 
@@ -332,7 +332,7 @@ def url_dedup_key(source_url: str) -> str:
         return canonicalize_url(source_url)
     key = source_key_from_url(str(analysis.get("canonical") or ""))
     # Known platforms fold aliases (youtu.be==youtube); unknown hosts stay distinct to avoid false matches.
-    scope = key if key != FALLBACK_SOURCE_KEY else str(analysis.get("host") or "").lower()
+    scope = key or str(analysis.get("host") or "").lower()
     return f"{scope}#{media_id}"
 
 
@@ -459,7 +459,7 @@ def learn_download(learned: dict[str, Any], source_url: str, media_id: str) -> d
     canonical = str(analysis.get("canonical") or "")
     key = source_key_from_url(canonical or source_url)
     media_id = str(media_id or "").strip()
-    if not canonical or key == FALLBACK_SOURCE_KEY:
+    if not canonical or not key:
         return learned
     shape = _url_shape(canonical, media_id)
     entry = dict(learned.get(key) or {})
@@ -485,7 +485,7 @@ def learn_media_id(learned: dict[str, Any], source_key: str, media_id: str) -> d
     """Record an id signature for a user-confirmed source so later scans recognise its shape."""
     key = normalize_source_key(source_key)
     media_id = str(media_id or "").strip()
-    if key == FALLBACK_SOURCE_KEY or not media_id:
+    if not key or not media_id:
         return learned
     entry = dict(learned.get(key) or {})
     entry["samples"] = int(entry.get("samples") or 0) + 1

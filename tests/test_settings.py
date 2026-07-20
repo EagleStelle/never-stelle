@@ -247,10 +247,10 @@ def test_normalize_source_templates_keeps_per_source_values():
     assert result["rule34video"]["filename_template"] == "{{title}}"
 
 
-def test_normalize_source_locations_defaults_to_fallback_media_location():
+def test_normalize_source_locations_does_not_seed_unresolved_location():
     result = normalize_source_location_selection({}, {"downloadLocations": ["/media"]}, [])
 
-    assert result["others"] == "/media/others"
+    assert result == {}
 
 
 def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
@@ -259,8 +259,8 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
         planning_module,
         "get_effective_saved_settings",
         lambda cfg: {
-            "source_profiles": [{"key": "others", "label": "Others", "hosts": []}],
-            "site_locations": {"others": "/library/others"},
+            "source_profiles": [],
+            "site_locations": {},
             "template_settings": {
                 "folder_template": "{{username}}",
                 "filename_template": "{{username}} - {{title}} [{{id}}]",
@@ -271,7 +271,7 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
 
     resolved = planning_module.resolve_task_settings(
         "https://twitter.com/DohaVT/status/2073635724684054528",
-        site_locations={"twitter": "/library/twitter", "others": "/library/others"},
+        site_locations={"twitter": "/library/twitter"},
         template_settings={"folder_template": "{{username}}", "filename_template": "{{title}}"},
         source_profiles=[{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
         source_templates={

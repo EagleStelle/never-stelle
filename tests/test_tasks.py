@@ -12,6 +12,7 @@ import backend.app.services.tasks.scan as scan_module
 import backend.app.services.tasks.serializers as serializers_module
 import backend.app.services.tasks.urls as urls_module
 import backend.app.services.tasks.worker as worker_module
+from backend.app.core.sources import source_label_from_key
 from backend.app.services.tasks import (
     canonicalize_source_url,
     convert_template_to_ytdlp,
@@ -115,11 +116,16 @@ def test_resolve_redirect_survives_network_error(monkeypatch):
         ("https://example.com/video", "example"),
         ("https://www.pornhub.com/view_video.php?viewkey=1", "pornhub"),
         ("https://rule34video.com/video/1", "rule34video"),
-        ("not a url", "others"),
+        ("not a url", ""),
     ],
 )
 def test_detect_source_key(url, expected):
     assert detect_source_key(url) == expected
+
+
+def test_unresolved_source_label_is_unresolved():
+    assert source_label_from_key("") == "Unresolved"
+    assert source_label_from_key("others") == "Unresolved"
 
 
 def test_convert_template_to_ytdlp_maps_placeholders():
@@ -220,10 +226,10 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     from backend.app.services.tasks.planning import ResolvedTaskSettings
 
     resolved = ResolvedTaskSettings(
-        source_key="others",
-        source_profile={"key": "others", "label": "Others"},
-        source_profiles=[{"key": "others", "label": "Others", "hosts": []}],
-        site_locations={"others": str(tmp_path)},
+        source_key="example",
+        source_profile={"key": "example", "label": "Example"},
+        source_profiles=[{"key": "example", "label": "Example", "hosts": []}],
+        site_locations={"example": str(tmp_path)},
         output_dir=str(tmp_path),
         template_settings={"folder_template": "{{username}}", "filename_template": "{{title}}"},
     )
@@ -768,7 +774,7 @@ def test_clean_resolved_filename_strips_at_from_username(tmp_path: Path):
         source_url,
         media_file,
         {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
-        "others",
+        "",
         creator_hint="mili",
         media_id_hint="In5Du5x6MZM",
         nickname_hint="Mili",
@@ -1386,7 +1392,7 @@ def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkey
     assert result == {"checked": 0, "missing": 0, "added": 1}
     assert saved["disk:abc123"]["resolved_full_path"] == str(media_file)
     assert saved["disk:abc123"]["resolved_filename"] == media_file.name
-    assert saved["disk:abc123"]["source_key"] == "others"
+    assert saved["disk:abc123"]["source_key"] == ""
 
 
 def test_scan_media_library_infers_source_from_named_platform_folder(
@@ -1781,7 +1787,7 @@ def test_learn_media_id_seeds_shape_for_confirmed_source():
     assert guess_sources(learned, "_F5vcIlr9bs") == ["youtube"]
 
 
-def test_learn_media_id_ignores_fallback_and_empty():
+def test_learn_media_id_ignores_removed_and_empty_source():
     assert learn_media_id({}, "others", "dQw4w9WgXcQ") == {}
     assert learn_media_id({}, "youtube", "") == {}
 
@@ -1796,7 +1802,7 @@ def test_infer_disk_source_ambiguous_when_multiple_learned_match(tmp_path: Path)
         media_file, "1111111111111111111", [], learned
     )
 
-    assert source_key == "others"
+    assert source_key == ""
     assert pending is True
     assert set(candidates) == {"twitter", "tiktok"}
 
@@ -1969,7 +1975,7 @@ def test_scan_media_library_flags_ambiguous_source_pending(tmp_path: Path, monke
     scan_module.scan_media_library([media_root])
 
     entry = saved["disk:7123456789012345678"]
-    assert entry["source_key"] == "others"
+    assert entry["source_key"] == ""
     assert entry["source_pending"] is True
 
 
@@ -2073,14 +2079,30 @@ def test_count_tasks_and_by_menu():
         {"status": "pending", "source_key": "youtube"},
         {"status": "running", "source_key": "youtube"},
         {"status": "completed", "source_key": "tiktok"},
-        {"status": "failed", "source_key": "others"},
+        {"status": "failed", "source_key": ""},
     ]
     counts = count_tasks(tasks)
     assert counts == {"queued": 1, "running": 1, "completed": 1, "failed": 1}
     by_menu = counts_by_menu(tasks)
     assert by_menu["all"]["queued"] == 1
+    assert by_menu["all"]["failed"] == 1
     assert by_menu["youtube"]["running"] == 1
     assert by_menu["tiktok"]["completed"] == 1
+    assert "" not in by_menu
+    assert "others" not in by_menu
+
+
+def test_counts_by_menu_does_not_seed_empty_unresolved(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        serializers_module,
+        "get_effective_source_profiles",
+        lambda: [],
+    )
+
+    by_menu = counts_by_menu([{"status": "completed", "source_key": "youtube"}])
+
+    assert "others" not in by_menu
+    assert by_menu["youtube"]["completed"] == 1
 
 
 def test_history_preserves_completed_engine(monkeypatch: pytest.MonkeyPatch):

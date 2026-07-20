@@ -213,7 +213,7 @@ def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any
     url = _prepare_url(source_url)
     if not url:
         raise ValueError("Paste a URL first.")
-    resolved_key = normalize_source_key(source_key) if str(source_key or "").strip() else source_key_from_url(url)
+    resolved_key = normalize_source_key(source_key) or source_key_from_url(url)
 
     probed: list[tuple[str, dict[str, str]]] = []
     errors: list[str] = []

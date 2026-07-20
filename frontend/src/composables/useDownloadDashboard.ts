@@ -72,6 +72,16 @@ function sourceInitials(label: string): string {
   return value.toUpperCase() || "?";
 }
 
+function hasSourceCounts(counts?: Partial<TaskCounts>): boolean {
+  return Boolean(
+    counts &&
+      (Number(counts.queued) ||
+        Number(counts.running) ||
+        Number(counts.completed) ||
+        Number(counts.failed)),
+  );
+}
+
 export function useDownloadDashboard() {
   const auth = useAuth();
   const sonner = useSonner();
@@ -167,24 +177,27 @@ export function useDownloadDashboard() {
 
   const taskSourceProfiles = computed<SourceProfile[]>(() =>
     taskQueue.taskItems.value
-      .map((task) => {
-        const key = task.source_key || "others";
-        return {
-          key,
-          label: sourceLabelFromKey(key),
-          hosts: [],
-          icon: "",
-          icon_url: faviconUrlForHost(
-            hostFromUrl(String(task.source_url || "")),
-          ),
-        };
-      })
-      .filter((profile) => profile.key),
+      .flatMap((task): SourceProfile[] => {
+        const key = task.source_key || "";
+        if (!key) return [];
+        return [
+          {
+            key,
+            label: sourceLabelFromKey(key),
+            hosts: [],
+            icon: "",
+            icon_url: faviconUrlForHost(
+              hostFromUrl(String(task.source_url || "")),
+            ),
+          },
+        ];
+      }),
   );
   // Nav chips for history-only platforms; server counts enumerate every source key.
   const menuKeyProfiles = computed<SourceProfile[]>(() =>
     Object.keys(taskQueue.countsByMenu.value)
       .filter((key) => key !== "all")
+      .filter((key) => key && hasSourceCounts(taskQueue.countsByMenu.value[key]))
       .map((key) => ({
         key,
         label: sourceLabelFromKey(key),
@@ -203,7 +216,7 @@ export function useDownloadDashboard() {
 
   const isLightMode = computed(() => themeMode.value === "light");
   const navigationItems = computed(() => [
-    { key: "all", label: "All platform", icon: IconTray },
+    { key: "all", label: "All platforms", icon: IconTray },
     ...sourceProfiles.value.map((profile) => ({
       key: profile.key,
       label: profile.label,
@@ -222,9 +235,7 @@ export function useDownloadDashboard() {
     const tasks = taskQueue.taskItems.value;
     return activeMenu.value === "all"
       ? tasks
-      : tasks.filter(
-          (task) => (task.source_key || "others") === activeMenu.value,
-        );
+      : tasks.filter((task) => task.source_key === activeMenu.value);
   });
   const mediaTasks = computed(() =>
     mediaFilter.value === "all"

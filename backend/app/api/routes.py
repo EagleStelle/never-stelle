@@ -478,6 +478,8 @@ def update_task_source(task_id: str, payload: SetSourcePayload) -> dict[str, str
         raise HTTPException(status_code=400, detail="Choose or type a source.")
     try:
         source_key = set_task_source(task_id, payload.source_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"source_key": source_key}

@@ -31,13 +31,13 @@ function progressPct(task: TaskItem): number {
 
 // Resolve the profile matching the task's source key.
 function sourceProfileFor(task: TaskItem, profiles: SourceProfile[] = []): SourceProfile | undefined {
-  const key = task.source_key || "others";
+  const key = task.source_key || "";
   return profiles.find((profile) => profile.key === key);
 }
 
 // Human label for the task's source.
 function sourceLabel(task: TaskItem, profiles: SourceProfile[] = []): string {
-  return String(sourceProfileFor(task, profiles)?.label || sourceLabelFromKey(task.source_key || "others")).trim();
+  return String(sourceProfileFor(task, profiles)?.label || sourceLabelFromKey(task.source_key || "")).trim();
 }
 
 // Only linkify http(s) source urls.

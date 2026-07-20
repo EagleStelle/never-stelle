@@ -1,4 +1,3 @@
-export const FALLBACK_SOURCE_KEY = "others";
 export const PAGE_KEYS = ["downloads", "history", "settings"] as const;
 
 export type SourceKey = string;

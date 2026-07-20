@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from "vue";
+
 import { Button } from "../ui/button";
 import type { SourceProfile, TaskItem } from "../../types";
 import { sourceLabelFromKey } from "../../utils/dashboard";
@@ -12,6 +14,10 @@ const props = defineProps<{
 const emit = defineEmits<{
   "set-source": [payload: { taskId: string; sourceKey: string }];
 }>();
+
+const selectableSourceProfiles = computed(() =>
+  (props.sourceProfiles || []).filter((profile) => profile.key),
+);
 
 function pickSource(sourceKey: string): void {
   const value = String(sourceKey || "").trim();
@@ -45,7 +51,7 @@ function submitSource(event: Event): void {
     />
     <datalist :id="`sources-row-${task.vid}`">
       <option
-        v-for="profile in sourceProfiles || []"
+        v-for="profile in selectableSourceProfiles"
         :key="profile.key"
         :value="profile.key"
       >
@@ -58,7 +64,7 @@ function submitSource(event: Event): void {
   <!-- Labelled editor with candidate chips for cards -->
   <div v-else class="col-span-full flex flex-col gap-2 rounded-lg glass-soft p-3">
     <span class="text-[0.8rem] text-white in-[.light-mode]:text-black">
-      Unknown source — pick or type:
+      Unresolved source - pick or type:
     </span>
     <div class="flex flex-wrap items-center gap-1.5">
       <Button
@@ -83,7 +89,7 @@ function submitSource(event: Event): void {
         />
         <datalist :id="`sources-card-${task.vid}`">
           <option
-            v-for="profile in sourceProfiles || []"
+            v-for="profile in selectableSourceProfiles"
             :key="profile.key"
             :value="profile.key"
           >

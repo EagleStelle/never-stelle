@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from typing import Any
 from urllib.parse import urlparse
 
-FALLBACK_SOURCE_KEY = "others"
+_REMOVED_SOURCE_KEYS = {"others"}
 
 _COMMON_SECOND_LEVEL_TLDS = {
     "ac",
@@ -23,7 +23,7 @@ _SOURCE_KEY_RE = re.compile(r"[^a-z0-9]+")
 def normalize_source_key(value: Any) -> str:
     key = str(value or "").strip().lower()
     key = _SOURCE_KEY_RE.sub("-", key).strip("-")
-    return key or FALLBACK_SOURCE_KEY
+    return "" if key in _REMOVED_SOURCE_KEYS else key
 
 
 def normalize_host(value: Any) -> str:
@@ -67,7 +67,7 @@ def apex_host(value: Any) -> str:
 def _domain_stem(host: str) -> str:
     parts = [part for part in _display_host(host).split(".") if part]
     if not parts:
-        return FALLBACK_SOURCE_KEY
+        return ""
     if len(parts) >= 3 and len(parts[-1]) == 2 and parts[-2] in _COMMON_SECOND_LEVEL_TLDS:
         return parts[-3]
     if len(parts) >= 2:
@@ -77,8 +77,8 @@ def _domain_stem(host: str) -> str:
 
 def source_label_from_key(key: str) -> str:
     key = normalize_source_key(key)
-    if key == FALLBACK_SOURCE_KEY:
-        return "Others"
+    if not key:
+        return "Unresolved"
     words: list[str] = []
     for part in re.split(r"[-_\s]+", key):
         chunks = re.findall(r"[a-z]+|\d+", part, flags=re.IGNORECASE)
@@ -127,6 +127,8 @@ def normalize_source_profile(raw: Any, fallback_key: str = "") -> dict[str, Any]
         or fallback_key
         or _domain_stem(hosts[0] if hosts else "")
     )
+    if not key:
+        return None
     label = str(raw.get("label") or raw.get("name") or source_label_from_key(key)).strip()
     icon = str(raw.get("icon") or "").strip()
     icon_url = str(raw.get("icon_url") or raw.get("iconUrl") or "").strip()
@@ -185,7 +187,7 @@ def _iter_profile_items(raw: Any) -> Iterable[tuple[str, Any]]:
             yield "", value
 
 
-def merge_source_profiles(*sources: Any, include_fallback: bool = False) -> list[dict[str, Any]]:
+def merge_source_profiles(*sources: Any) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
     order: list[str] = []
 
@@ -208,20 +210,13 @@ def merge_source_profiles(*sources: Any, include_fallback: bool = False) -> list
             current.update({k: v for k, v in profile.items() if k != "hosts" and v not in ("", [], None)})
             current["hosts"] = hosts
 
-    if FALLBACK_SOURCE_KEY in order:
-        order = [key for key in order if key != FALLBACK_SOURCE_KEY] + [FALLBACK_SOURCE_KEY]
-    elif include_fallback and FALLBACK_SOURCE_KEY not in merged:
-        fallback = normalize_source_profile({"key": FALLBACK_SOURCE_KEY, "label": "Others"}) or {}
-        merged[FALLBACK_SOURCE_KEY] = fallback
-        order.append(FALLBACK_SOURCE_KEY)
-
     return [merged[key] for key in order]
 
 
 def source_key_from_url(source_url: str, profiles: Iterable[dict[str, Any]] | None = None) -> str:
     host = host_from_url(source_url)
     if not host:
-        return FALLBACK_SOURCE_KEY
+        return ""
     for profile in profiles or ():
         for pattern in profile.get("hosts") or []:
             pattern = normalize_host(pattern)

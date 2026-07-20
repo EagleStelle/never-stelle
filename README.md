@@ -135,7 +135,7 @@ Storage is configured with Docker bind mounts. Container paths are fixed:
 
 ### Media library layout
 
-`/media` is the library base and the only required media mount. Every download resolves to `/media/<source-key>` (for example `/media/youtube`, `/media/facebook`, `/media/others`), created on first use. Source keys are learned dynamically; nothing is hardcoded.
+`/media` is the library base and the only required media mount. Every download resolves to `/media/<source-key>` (for example `/media/youtube` or `/media/facebook`), created on first use. Source keys are learned dynamically from URLs; unresolved scanned files stay pending until a source is assigned.
 
 To send one platform to a different disk, add an overlay mount whose container path is that platform's folder:
 

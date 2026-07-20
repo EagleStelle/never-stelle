@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import discover_volume_roots
-from backend.app.core.sources import FALLBACK_SOURCE_KEY, normalize_source_key
+from backend.app.core.sources import normalize_source_key
 from backend.app.db.database import utc_now
 
 from .constants import CREATOR_FIELDS, TEMPLATE_RE
@@ -368,9 +368,9 @@ def _scan_source_profile_keys() -> set[str]:
         from backend.app.services.settings import get_effective_source_profiles
 
         return {
-            normalize_source_key(profile.get("key"))
+            key
             for profile in get_effective_source_profiles(load_app_config())
-            if normalize_source_key(profile.get("key")) != FALLBACK_SOURCE_KEY
+            if (key := normalize_source_key(profile.get("key")))
         }
     except Exception:
         return set()
@@ -403,11 +403,11 @@ class _TemplateResolver:
 
 
 def _source_location_index(locations: dict[str, str]) -> list[tuple[str, str]]:
-    # Only folders owned by exactly one non-fallback source carry a usable signal.
+    # Only folders owned by exactly one resolved source carry a usable signal.
     owners: dict[str, set[str]] = {}
     for raw_key, folder in (locations or {}).items():
         key = normalize_source_key(raw_key)
-        if key == FALLBACK_SOURCE_KEY or not str(folder or "").strip():
+        if not key or not str(folder or "").strip():
             continue
         owners.setdefault(_path_key(folder), set()).add(key)
     return [(folder, next(iter(keys))) for folder, keys in owners.items() if len(keys) == 1]
@@ -460,7 +460,7 @@ def infer_disk_source(
     candidates = guess_sources(learned, media_id)
     if len(candidates) == 1:
         return normalize_source_key(candidates[0]), False, candidates
-    return FALLBACK_SOURCE_KEY, True, candidates
+    return "", True, candidates
 
 
 def _completed_at_from_file(path: Path) -> str:

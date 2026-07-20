@@ -13,7 +13,6 @@ export const DEFAULT_SOURCE_PROFILES: SourceProfile[] = [];
 export const SITE_LABELS: Record<string, string> = { all: "All" };
 
 export const SOURCE_ICON_COMPONENTS: Record<string, Component> = {
-  others: IconFolder,
   "material-symbols:folder": IconFolder,
 };
 
