@@ -17,6 +17,12 @@ import {
 import { normalizeTokenName } from "../../../../utils/dashboard";
 import { useScrapeTests } from "../../composables/useScrapeTests";
 import { useSettingsContext } from "../../context";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "../../../../components/ui/accordion";
 
 const SCRAPE_ATTR_ITEMS = [
   { key: "text", label: "Text" },
@@ -43,66 +49,73 @@ const {
 </script>
 
 <template>
-  <div
-    v-for="site in editableSourceProfiles"
-    :key="site.key"
-    class="flex flex-col gap-[0.65rem] p-[0.85rem] mb-3 rounded-xl border border-(--glass-border)"
-  >
-    <div class="flex items-center justify-between gap-3 mb-2">
-      <span class="text-sm font-medium">{{ site.label }}</span>
-      <div class="flex items-center gap-4">
-        <Button
-          v-if="settingsDraft.source_scrape_rules[site.key].enabled"
-          variant="soft"
-          type="button"
-          aria-label="Add rule"
-          title="Add rule"
-          @click="addScrapeRule(site.key)"
-        >
-          <template #icon>
-            <IconAdd class="w-4 h-4" aria-hidden="true" />
-          </template>
-        </Button>
-        <SegmentedControl
-          size="lg"
-          :model-value="
-            settingsDraft.source_scrape_rules[site.key].enabled
-              ? 'enabled'
-              : 'disabled'
-          "
-          @update:model-value="
-            (val: string) =>
-              (settingsDraft.source_scrape_rules[site.key].enabled =
-                val === 'enabled')
-          "
-        >
-          <SegmentedControlItem
-            value="enabled"
-            aria-label="Enabled"
-            title="Enabled"
+  <Accordion type="multiple" class="w-full">
+    <AccordionItem
+      v-for="site in editableSourceProfiles"
+      :key="site.key"
+      :value="site.key"
+    >
+      <div class="flex items-center gap-3">
+        <div class="flex-1 min-w-0">
+          <AccordionTrigger>
+            {{ site.label }}
+          </AccordionTrigger>
+        </div>
+        <div class="flex items-center gap-4 shrink-0">
+          <Button
+            v-if="settingsDraft.source_scrape_rules[site.key].enabled"
+            variant="soft"
+            type="button"
+            aria-label="Add rule"
+            title="Add rule"
+            @click="addScrapeRule(site.key)"
           >
-            <IconCheck class="w-4 h-4" aria-hidden="true" />
-          </SegmentedControlItem>
-          <SegmentedControlItem
-            value="disabled"
-            aria-label="Disabled"
-            title="Disabled"
+            <template #icon>
+              <IconAdd class="w-4 h-4" aria-hidden="true" />
+            </template>
+          </Button>
+          <SegmentedControl
+            size="lg"
+            :model-value="
+              settingsDraft.source_scrape_rules[site.key].enabled
+                ? 'enabled'
+                : 'disabled'
+            "
+            @update:model-value="
+              (val: string) =>
+                (settingsDraft.source_scrape_rules[site.key].enabled =
+                  val === 'enabled')
+            "
           >
-            <IconClose class="w-4 h-4" aria-hidden="true" />
-          </SegmentedControlItem>
-        </SegmentedControl>
+            <SegmentedControlItem
+              value="enabled"
+              aria-label="Enabled"
+              title="Enabled"
+            >
+              <IconCheck class="w-4 h-4" aria-hidden="true" />
+            </SegmentedControlItem>
+            <SegmentedControlItem
+              value="disabled"
+              aria-label="Disabled"
+              title="Disabled"
+            >
+              <IconClose class="w-4 h-4" aria-hidden="true" />
+            </SegmentedControlItem>
+          </SegmentedControl>
+        </div>
       </div>
-    </div>
 
-    <template v-if="settingsDraft.source_scrape_rules[site.key].enabled">
-      <div class="flex flex-col gap-2 mb-2">
+      <AccordionContent>
+        <div class="flex flex-col gap-[0.65rem]">
+          <template v-if="settingsDraft.source_scrape_rules[site.key].enabled">
+            <div class="flex flex-col gap-2 mb-2">
         <div class="flex items-center gap-2">
           <Input
             :id="`${site.key}ScraperProbeInput`"
             v-model="scrapeTests[site.key].url"
             type="text"
             inputmode="url"
-            placeholder="Sample URL to test"
+            placeholder="Probe URL"
             class="flex-1"
             @keydown.enter.prevent="runScrapeTest(site.key)"
           />
@@ -127,12 +140,7 @@ const {
           </Button>
         </div>
 
-        <p
-          v-if="scrapeTests[site.key].message"
-          class="text-xs text-white/60 in-[.light-mode]:text-black/60"
-        >
-          {{ scrapeTests[site.key].message }}
-        </p>
+
         <ul
           v-if="scrapeTests[site.key].results.length"
           class="flex flex-col gap-1 text-[0.8125rem]"
@@ -151,12 +159,7 @@ const {
         </ul>
       </div>
 
-      <p
-        v-if="!settingsDraft.source_scrape_rules[site.key].rules.length"
-        class="text-xs text-white/50 in-[.light-mode]:text-black/50 mb-2"
-      >
-        No rules yet.
-      </p>
+
 
       <div class="flex flex-col gap-5">
         <div
@@ -238,6 +241,9 @@ const {
       </div>
 
       </div>
-    </template>
-  </div>
+          </template>
+        </div>
+      </AccordionContent>
+    </AccordionItem>
+  </Accordion>
 </template>

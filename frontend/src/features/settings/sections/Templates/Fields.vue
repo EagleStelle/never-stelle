@@ -15,6 +15,12 @@ import {
   type CreatorRole,
 } from "../../composables/useFieldsSettings";
 import { useSettingsContext } from "../../context";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "../../../../components/ui/accordion";
 
 const ROLES: { key: CreatorRole; label: string }[] = [
   { key: "username", label: "Username" },
@@ -50,14 +56,18 @@ function submitField(key: string, role: CreatorRole): void {
 </script>
 
 <template>
-  <div
-    v-for="site in editableSourceProfiles"
-    :key="site.key"
-    class="flex flex-col gap-[0.85rem] p-[0.85rem] mb-3 rounded-xl border border-(--glass-border)"
-  >
-    <span class="text-sm font-medium">{{ site.label }}</span>
-
-    <!-- Field probe -->
+  <Accordion type="multiple" class="w-full">
+    <AccordionItem
+      v-for="site in editableSourceProfiles"
+      :key="site.key"
+      :value="site.key"
+    >
+      <AccordionTrigger>
+        {{ site.label }}
+      </AccordionTrigger>
+      <AccordionContent>
+        <div class="flex flex-col gap-[0.85rem]">
+          <!-- Field probe -->
     <div class="flex flex-col gap-2 mb-2">
       <div class="flex items-center gap-2">
         <Input
@@ -65,7 +75,7 @@ function submitField(key: string, role: CreatorRole): void {
           v-model="probes[site.key].url"
           type="text"
           inputmode="url"
-          placeholder="Paste a link to see which field is which"
+          placeholder="Probe URL"
           class="flex-1"
           @keydown.enter.prevent="runProbe(site.key)"
         />
@@ -90,12 +100,7 @@ function submitField(key: string, role: CreatorRole): void {
         </Button>
       </div>
 
-      <p
-        v-if="probes[site.key].message"
-        class="text-xs text-white/60 in-[.light-mode]:text-black/60"
-      >
-        {{ probes[site.key].message }}
-      </p>
+
 
       <ul
         v-if="probes[site.key].fields.length"
@@ -138,7 +143,7 @@ function submitField(key: string, role: CreatorRole): void {
       :key="role.key"
       class="flex flex-col gap-2"
     >
-      <span class="text-xs font-medium">{{ role.label }}</span>
+      <h4 class="text-sm font-semibold">{{ role.label }}</h4>
       <div
         v-for="(field, index) in fieldList(site.key, role.key)"
         :key="field"
@@ -187,7 +192,7 @@ function submitField(key: string, role: CreatorRole): void {
         <Input
           v-model="newField[draftKey(site.key, role.key)]"
           type="text"
-          placeholder="Add a field (e.g. uploader_id)"
+          placeholder="Add a field"
           input-class="font-mono"
           class="flex-1"
           @keydown.enter.prevent="submitField(site.key, role.key)"
@@ -222,7 +227,7 @@ function submitField(key: string, role: CreatorRole): void {
     <div
       class="flex flex-col gap-2"
     >
-      <span class="text-xs font-medium">Title cleaning</span>
+      <h4 class="text-sm font-semibold">Title cleaning</h4>
       <label
         v-for="rule in rules"
         :key="rule.key"
@@ -249,5 +254,8 @@ function submitField(key: string, role: CreatorRole): void {
         />
       </label>
     </div>
-  </div>
+        </div>
+      </AccordionContent>
+    </AccordionItem>
+  </Accordion>
 </template>
