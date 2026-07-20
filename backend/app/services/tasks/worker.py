@@ -19,6 +19,7 @@ from backend.app.services.settings import (
     get_effective_creator_fields,
     get_effective_title_cleaning,
     has_cookies_for_source,
+    is_scraper_creator_field,
     load_scrape_rules,
     load_token_roles,
 )
@@ -585,11 +586,20 @@ def _role_token_value(
     source_key: str,
     role: str,
 ) -> str:
-    if not extra_tokens or not token_roles:
+    if not extra_tokens:
+        return ""
+    role = str(role or "").strip().lower()
+    if role == "creator":
+        role = "username"
+    direct = str(extra_tokens.get(role) or "").strip()
+    if direct:
+        return direct
+    if not token_roles:
         return ""
     roles = token_roles.get(normalize_source_key(source_key)) or {}
-    role = str(role or "").strip().lower()
     for token, token_role in roles.items():
+        if token_role == "creator":
+            token_role = "username"
         if token_role != role:
             continue
         value = str(extra_tokens.get(token) or "").strip()
@@ -603,7 +613,7 @@ def _role_creator(
     token_roles: dict[str, dict[str, str]] | None,
     source_key: str,
 ) -> str:
-    return _clean_creator_candidate(_role_token_value(extra_tokens, token_roles, source_key, "creator"))
+    return _clean_creator_candidate(_role_token_value(extra_tokens, token_roles, source_key, "username"))
 
 
 def _profile_host_candidates(metadata: dict[str, str]) -> list[str]:
@@ -705,6 +715,8 @@ def _configured_creator_field(metadata: dict[str, str], source_url: str, role: s
     # bypassing the handle heuristics so an explicit choice like channel_id is honored
     # even when it is an opaque identifier. Empty list -> heuristics stay in charge.
     for field in get_effective_creator_fields(source_url).get(role) or ():
+        if is_scraper_creator_field(field):
+            continue
         value = _clean_creator_candidate(str(metadata.get(field) or ""), strip_at=False)
         if value:
             return value
@@ -1372,12 +1384,19 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
 
-    # Page-scraped tokens (uploader/artist/etc.) for platforms with enabled rules;
-    # {} when disabled or none of the rule tokens appear in the templates.
-    extra_tokens = resolve_scraped_tokens(
-        source_url, task_source_key, template_settings, load_scrape_rules(), cookie_source_key
-    )
     token_roles = load_token_roles()
+    creator_fields = get_effective_creator_fields(source_url)
+    # Page-scraped values for public roles (username/nickname/title) on platforms
+    # with enabled rules; {} when disabled or none of the roles appear in templates.
+    extra_tokens = resolve_scraped_tokens(
+        source_url,
+        task_source_key,
+        template_settings,
+        load_scrape_rules(),
+        token_roles,
+        cookie_source_key,
+        creator_fields,
+    )
 
     sidecar_handle, creator_sidecar = tempfile.mkstemp(prefix="nvs-creator-", suffix=".txt")
     os.close(sidecar_handle)
@@ -1514,8 +1533,10 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 raw_path = Path(group["path"])
                 metadata = group.get("metadata") or {}
                 # Honor the per-source field priority the same way the download template does.
-                configured_username = _configured_creator_field(metadata, source_url, "username")
-                configured_nickname = _configured_creator_field(metadata, source_url, "nickname")
+                scraped_username = _role_token_value(extra_tokens, token_roles, task_source_key, "username")
+                scraped_nickname = _role_token_value(extra_tokens, token_roles, task_source_key, "nickname")
+                configured_username = scraped_username or _configured_creator_field(metadata, source_url, "username")
+                configured_nickname = scraped_nickname or _configured_creator_field(metadata, source_url, "nickname")
                 creator_hint = (
                     _role_creator(extra_tokens, token_roles, task_source_key)
                     or configured_username

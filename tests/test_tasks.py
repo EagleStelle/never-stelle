@@ -679,8 +679,8 @@ def test_filename_creator_strips_at_from_filename_username():
 
 def test_role_creator_uses_scraped_token_role():
     creator = worker_module._role_creator(
-        {"artist": "Trace Artist"},
-        {"rule34video": {"artist": "creator"}},
+        {"username": "Trace Artist"},
+        {"rule34video": {"artist": "username"}},
         "rule34video",
     )
 
@@ -1421,6 +1421,7 @@ def _scan_stays_offline(monkeypatch: pytest.MonkeyPatch):
     # Library scan probes manually-placed files over the network; keep tests offline by
     # default. Probe-behavior tests opt back in by re-stubbing with canned metadata.
     monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: {})
+    monkeypatch.setattr(scan_module, "_scan_scrape_rule_tokens", lambda: {})
 
 
 def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -1960,7 +1961,7 @@ def test_scan_media_library_creator_from_role_token(
             {"rule34video": {"folder_template": "", "filename_template": "{{artist}} - {{title}} [{{id}}]"}},
         ),
     )
-    monkeypatch.setattr(scan_module, "_scan_token_role_map", lambda: {"rule34video": {"artist": "creator"}})
+    monkeypatch.setattr(scan_module, "_scan_token_role_map", lambda: {"rule34video": {"artist": "username"}})
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
     monkeypatch.setattr(
         scan_module,
@@ -2191,6 +2192,81 @@ def test_scan_probe_uses_nickname_order_when_folder_token_is_nickname(
     scan_module.scan_media_library([media_root])
 
     assert saved["disk:abc123"]["artist"] == "Mili Display"
+
+
+def test_scan_skips_creator_probe_for_scraper_backed_template_role(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    learned = learn_download({}, "https://www.youtube.com/watch?v=abc123", "abc123")
+    media_root = tmp_path / "media"
+    platform_dir = media_root / "youtube"
+    creator_dir = platform_dir / "Scraped Artist"
+    creator_dir.mkdir(parents=True)
+    (creator_dir / "Soft Light [abc123].mp4").write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    _patch_scan_common(monkeypatch, saved, platform_dir)
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_template_map",
+        lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
+    )
+    monkeypatch.setattr(scan_module, "_scan_token_role_map", lambda: {"youtube": {"artist": "username"}})
+    monkeypatch.setattr(scan_module, "_scan_scrape_rule_tokens", lambda: {"youtube": {"artist"}})
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_creator_fields_map",
+        lambda: {"youtube": {"username": ["scraper[artist]", "channel"]}},
+    )
+
+    def fail_probe(url, *, with_cookies=False):
+        raise AssertionError("scraper-backed username must not probe engine metadata")
+
+    monkeypatch.setattr(scan_module, "_scan_probe_metadata", fail_probe)
+
+    scan_module.scan_media_library([media_root])
+
+    assert saved["disk:abc123"]["artist"] == "Scraped Artist"
+    assert saved["disk:abc123"]["source_url"] == "https://www.youtube.com/watch?v=abc123"
+
+
+def test_scan_keeps_creator_probe_when_scraper_backed_role_is_not_top(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    learned = learn_download({}, "https://www.youtube.com/watch?v=abc123", "abc123")
+    media_root = tmp_path / "media"
+    platform_dir = media_root / "youtube"
+    creator_dir = platform_dir / "Scraped Artist"
+    creator_dir.mkdir(parents=True)
+    (creator_dir / "Soft Light [abc123].mp4").write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    _patch_scan_common(monkeypatch, saved, platform_dir)
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_template_map",
+        lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
+    )
+    monkeypatch.setattr(scan_module, "_scan_token_role_map", lambda: {"youtube": {"artist": "username"}})
+    monkeypatch.setattr(scan_module, "_scan_scrape_rule_tokens", lambda: {"youtube": {"artist"}})
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_creator_fields_map",
+        lambda: {"youtube": {"username": ["channel", "scraper[artist]"]}},
+    )
+    probed: list[str] = []
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_probe_metadata",
+        lambda url, *, with_cookies=False: probed.append(url) or {"channel": "Probed Channel"},
+    )
+
+    scan_module.scan_media_library([media_root])
+
+    assert saved["disk:abc123"]["artist"] == "Probed Channel"
+    assert probed == ["https://www.youtube.com/watch?v=abc123"]
 
 
 def test_scan_skips_probe_when_creator_already_resolved(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

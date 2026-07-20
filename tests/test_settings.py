@@ -83,18 +83,36 @@ def test_normalize_source_token_roles_keeps_known_roles():
                 " Artist Name ": "creator",
                 "bad token!": "not-a-role",
                 "title": "title",
+                "second title": "title",
+                "legacy id": "id",
             }
         }
     )
 
-    assert result == {"rule34video": {"artist_name": "creator", "title": "title"}}
+    assert result == {"rule34video": {"artist_name": "username", "title": "title"}}
+
+
+def test_normalize_source_templates_migrates_role_backed_scrape_tokens():
+    profiles = [{"key": "rule34video", "label": "Rule34Video"}]
+    result = normalize_source_template_selection(
+        {"rule34video": {"folder_template": "{{artist}}", "filename_template": "{{caption}} [{{id}}]"}},
+        {},
+        profiles,
+        normalize_template_settings({}),
+        {"rule34video": {"artist": "username", "caption": "title"}},
+    )
+
+    assert result["rule34video"] == {
+        "folder_template": "{{username}}",
+        "filename_template": "{{title}} [{{id}}]",
+    }
 
 
 def test_normalize_source_creator_fields_dedupes_and_keeps_brackets():
     result = normalize_source_creator_fields(
         {
             "YouTube": {
-                "username": ["uploader_id", " uploader_id ", "user name!", "user[name]"],
+                "username": ["uploader_id", " uploader_id ", "user name!", "user[name]", "scraper[Artist Name]"],
                 "nickname": [],
                 "bogus": ["x"],
             },
@@ -103,7 +121,7 @@ def test_normalize_source_creator_fields_dedupes_and_keeps_brackets():
     )
     # Deduped (case-preserving), sanitized ("user name!" -> "username"), brackets kept;
     # empty-role sources are dropped entirely.
-    assert result == {"youtube": {"username": ["uploader_id", "username", "user[name]"]}}
+    assert result == {"youtube": {"username": ["uploader_id", "username", "user[name]", "scraper[artist_name]"]}}
 
 
 def test_normalize_source_title_cleaning_fills_defaults_and_skips_empty():

@@ -63,6 +63,7 @@ def resolve_task_settings(
         cfg,
         profiles,
         base_template,
+        effective.get("source_token_roles"),
     )
     selected_template = normalize_template_settings(selected_templates.get(source_key) or base_template)
 

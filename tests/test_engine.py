@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import backend.app.services.tasks.gallerydl as gallerydl
+import backend.app.services.tasks.enrich as enrich
 import backend.app.services.tasks.ytdlp as ytdlp
 from backend.app.services.tasks import engine_by_name, engine_for_task, select_engine
 from backend.app.services.tasks.constants import (
@@ -103,12 +104,12 @@ def test_ytdlp_username_field_uses_configured_list_authoritatively():
     )
     # A configured list is authoritative: only those fields, in order, no chain trailing;
     # `user[name]` is a gallery-dl-only spelling and must be dropped from the yt-dlp spec.
-    spec = ytdlp.ytdlp_username_field(["channel", "user[name]", "uploader_id"])
+    spec = ytdlp.ytdlp_username_field(["scraper[artist]", "channel", "user[name]", "uploader_id"])
     assert spec == "%(channel,uploader_id|Unknown)s"
 
 
 def test_gallerydl_nickname_field_uses_configured_list_authoritatively():
-    spec = gallerydl.gallerydl_nickname_field(["display[name]"])
+    spec = gallerydl.gallerydl_nickname_field(["scraper[artist]", "display[name]"])
     assert spec == '{display[name]|"unknown"}'
 
 
@@ -140,6 +141,130 @@ def test_convert_template_to_gallerydl_uses_creator_fields():
         "{{nickname}}", "https://example.com/x", creator_fields={"nickname": ["fullname"]}
     )
     assert rendered == '{fullname|"unknown"}'
+
+
+def test_resolve_scraped_tokens_returns_role_keyed_overrides(monkeypatch):
+    rules = {
+        "rule34video": {
+            "rules": [
+                {"token": "artist", "xpath": "//*[@id='artist']", "attr": "text"},
+                {"token": "caption", "xpath": "//*[@id='caption']", "attr": "text"},
+            ]
+        }
+    }
+    roles = {"rule34video": {"artist": "username", "caption": "title"}}
+    monkeypatch.setattr(
+        enrich,
+        "fetch_html",
+        lambda *args: "<main><b id='artist'>Trace Artist</b><h1 id='caption'>Scraped Title</h1></main>",
+    )
+
+    result = enrich.resolve_scraped_tokens(
+        "https://rule34video.com/video/1/post",
+        "rule34video",
+        {"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"},
+        rules,
+        roles,
+        creator_fields={"username": ["scraper[artist]", "uploader"]},
+    )
+
+    assert result == {"username": "Trace Artist", "title": "Scraped Title"}
+
+
+def test_resolve_scraped_tokens_uses_first_top_scraper_creator_field(monkeypatch):
+    rules = {
+        "rule34video": {
+            "rules": [
+                {"token": "artist", "xpath": "//*[@id='artist']", "attr": "text"},
+                {"token": "alt_artist", "xpath": "//*[@id='alt']", "attr": "text"},
+            ]
+        }
+    }
+    roles = {"rule34video": {"artist": "username", "alt_artist": "username"}}
+    monkeypatch.setattr(
+        enrich,
+        "fetch_html",
+        lambda *args: "<main><b id='artist'>Rule Order Artist</b><b id='alt'>Top Artist</b></main>",
+    )
+
+    assert enrich.resolve_scraped_tokens(
+        "https://rule34video.com/video/1/post",
+        "rule34video",
+        {"folder_template": "{{username}}", "filename_template": "{{id}}"},
+        rules,
+        roles,
+        creator_fields={"username": ["scraper[alt_artist]", "scraper[artist]", "uploader"]},
+    ) == {"username": "Top Artist"}
+
+
+def test_resolve_scraped_tokens_ignores_role_rule_when_scraper_field_is_not_top(monkeypatch):
+    rules = {"rule34video": {"rules": [{"token": "artist", "xpath": "//*[@id='artist']", "attr": "text"}]}}
+    roles = {"rule34video": {"artist": "username"}}
+
+    def fail_fetch(*args):
+        raise AssertionError("non-top scraper creator field should not trigger a fetch")
+
+    monkeypatch.setattr(enrich, "fetch_html", fail_fetch)
+
+    assert enrich.resolve_scraped_tokens(
+        "https://rule34video.com/video/1/post",
+        "rule34video",
+        {"folder_template": "{{username}}", "filename_template": "{{id}}"},
+        rules,
+        roles,
+        creator_fields={"username": ["uploader", "scraper[artist]"]},
+    ) == {}
+
+
+def test_resolve_scraped_tokens_ignores_raw_template_token_without_public_role(monkeypatch):
+    rules = {"rule34video": {"rules": [{"token": "artist", "xpath": "//*[@id='artist']", "attr": "text"}]}}
+    roles = {"rule34video": {"artist": "username"}}
+
+    def fail_fetch(*args):
+        raise AssertionError("raw scraper token should not trigger a fetch")
+
+    monkeypatch.setattr(enrich, "fetch_html", fail_fetch)
+
+    assert (
+        enrich.resolve_scraped_tokens(
+            "https://rule34video.com/video/1/post",
+            "rule34video",
+            {"folder_template": "{{artist}}", "filename_template": "{{id}}"},
+            rules,
+            roles,
+        )
+        == {}
+    )
+
+
+def test_resolve_scraped_tokens_keeps_none_role_as_custom_template_token(monkeypatch):
+    rules = {"rule34video": {"rules": [{"token": "artist", "xpath": "//*[@id='artist']", "attr": "text"}]}}
+    monkeypatch.setattr(
+        enrich,
+        "fetch_html",
+        lambda *args: "<main><b id='artist'>Trace Artist</b></main>",
+    )
+
+    assert enrich.resolve_scraped_tokens(
+        "https://rule34video.com/video/1/post",
+        "rule34video",
+        {"folder_template": "{{artist}}", "filename_template": "{{id}}"},
+        rules,
+        {"rule34video": {}},
+    ) == {"artist": "Trace Artist"}
+
+
+def test_ytdlp_template_uses_role_keyed_scraped_title_and_username():
+    template = ytdlp.build_output_template(
+        "https://rule34video.com/video/1/post",
+        "/media",
+        {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
+        extra_tokens={"username": "@Trace Artist", "title": "Scraped / Title"},
+    )
+
+    assert "Trace Artist" in template
+    assert "Scraped _ Title" in template
+    assert "%(title|Unknown)s" not in template
 
 
 def _has_cli_pair(cmd: list[str], option: str, value: str) -> bool:

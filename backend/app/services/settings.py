@@ -222,11 +222,44 @@ def normalize_template_settings(raw: Any) -> dict[str, str]:
     return {"folder_template": folder_template, "filename_template": filename_template}
 
 
+def _template_role_replacements(token_roles: dict[str, str] | None) -> dict[str, str]:
+    roles = token_roles if isinstance(token_roles, dict) else {}
+    return {
+        token: role
+        for token, role in roles.items()
+        if token and role in {"username", "nickname", "title"} and token != role
+    }
+
+
+def _migrate_template_tokens(template: str, token_roles: dict[str, str] | None = None) -> str:
+    replacements = _template_role_replacements(token_roles)
+    if not replacements:
+        return str(template or "").strip()
+
+    def replace(match: re.Match[str]) -> str:
+        token = normalize_token_name(match.group(1))
+        return f"{{{{{replacements[token]}}}}}" if token in replacements else match.group(0)
+
+    return re.sub(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}", replace, str(template or "").strip())
+
+
+def migrate_template_settings_tokens(
+    template_settings: dict[str, str] | None,
+    token_roles: dict[str, str] | None = None,
+) -> dict[str, str]:
+    settings = normalize_template_settings(template_settings or {})
+    return {
+        "folder_template": _migrate_template_tokens(settings["folder_template"], token_roles),
+        "filename_template": _migrate_template_tokens(settings["filename_template"], token_roles),
+    }
+
+
 def normalize_source_template_selection(
     raw: Any,
     cfg: dict[str, Any],
     source_profiles: list[dict[str, Any]] | None = None,
     default_template: dict[str, str] | None = None,
+    token_roles: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, dict[str, str]]:
     source = raw if isinstance(raw, dict) else {}
     default_template = normalize_template_settings(default_template or {})
@@ -240,15 +273,17 @@ def normalize_source_template_selection(
             "folder_template": str(profile.get("folder_template") or default_template["folder_template"]),
             "filename_template": str(profile.get("filename_template") or default_template["filename_template"]),
         }
-        out[key] = normalize_template_settings(
+        normalized = normalize_template_settings(
             source.get(key) or source.get(str(profile.get("label") or "")) or profile_template
         )
+        out[key] = migrate_template_settings_tokens(normalized, (token_roles or {}).get(key))
     return out
 
 
 def get_effective_template_settings(source_url: str = "") -> dict[str, str]:
     cfg = load_app_config()
     payload = load_saved_settings_file()
+    token_roles = get_effective_token_roles(payload)
     base = normalize_template_settings(payload.get("template_settings"))
     if not source_url:
         return base
@@ -258,12 +293,14 @@ def get_effective_template_settings(source_url: str = "") -> dict[str, str]:
         cfg,
         get_effective_source_profiles(cfg, payload, [profile["key"]]),
         base,
+        token_roles,
     )
     return source_templates.get(profile["key"], base)
 
 
 # --- Scrape rules ---
-TOKEN_ROLES = {"creator", "nickname", "title", "slug", "id", "ignore"}
+TOKEN_ROLES = {"username", "nickname", "title", "ignore"}
+LEGACY_TOKEN_ROLE_ALIASES = {"creator": "username"}
 _TOKEN_NAME_RE = re.compile(r"[^a-zA-Z0-9_]+")
 
 
@@ -280,12 +317,19 @@ def normalize_source_token_roles(raw: Any) -> dict[str, dict[str, str]]:
     for raw_key, raw_roles in source.items():
         key = normalize_source_key(raw_key)
         roles: dict[str, str] = {}
+        title_claimed = False
         if isinstance(raw_roles, dict):
             for raw_token, raw_role in raw_roles.items():
                 token = normalize_token_name(raw_token)
                 role = str(raw_role or "").strip().lower()
-                if token and role in TOKEN_ROLES:
-                    roles[token] = role
+                role = LEGACY_TOKEN_ROLE_ALIASES.get(role, role)
+                if not token or role not in TOKEN_ROLES:
+                    continue
+                if role == "title":
+                    if title_claimed:
+                        continue
+                    title_claimed = True
+                roles[token] = role
         if key and roles:
             out[key] = roles
     return out
@@ -315,10 +359,28 @@ def load_scrape_rules() -> dict[str, Any]:
 
 # --- Creator fields & title cleaning ---
 _CREATOR_FIELD_RE = re.compile(r"[^A-Za-z0-9_\[\]]+")
+_SCRAPER_CREATOR_FIELD_RE = re.compile(r"^scraper\[([A-Za-z_][A-Za-z0-9_]*)\]$")
+
+
+def scraper_creator_field(token: Any) -> str:
+    token_name = normalize_token_name(token)
+    return f"scraper[{token_name}]" if token_name else ""
+
+
+def scraper_token_from_creator_field(value: Any) -> str:
+    match = _SCRAPER_CREATOR_FIELD_RE.fullmatch(str(value or "").strip())
+    return match.group(1) if match else ""
+
+
+def is_scraper_creator_field(value: Any) -> bool:
+    return bool(scraper_token_from_creator_field(value))
 
 
 def normalize_creator_field(value: Any) -> str:
     # Keep identifier chars plus gallery-dl [sub] nesting; strip everything else.
+    raw = str(value or "").strip()
+    if raw.lower().startswith("scraper[") and raw.endswith("]"):
+        return scraper_creator_field(raw[8:-1])
     return _CREATOR_FIELD_RE.sub("", str(value or "").strip())
 
 
@@ -521,6 +583,7 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
     cfg = cfg or load_app_config()
     payload = load_saved_settings_file()
     source_profiles = get_effective_source_profiles(cfg, payload)
+    token_roles = get_effective_token_roles(payload)
     template_settings = normalize_template_settings(payload.get("template_settings"))
     return {
         "source_profiles": source_profiles,
@@ -535,11 +598,12 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
             cfg,
             source_profiles,
             template_settings,
+            token_roles,
         ),
         "default_quality": normalize_quality_selection(payload.get("default_quality")),
         "ytdlp_cookies": get_ytdlp_cookies_status(source_profiles),
         "source_scrape_rules": get_effective_scrape_rules(payload),
-        "source_token_roles": get_effective_token_roles(payload),
+        "source_token_roles": token_roles,
         "source_creator_fields": normalize_source_creator_fields(payload.get("source_creator_fields")),
         "source_title_cleaning": normalize_source_title_cleaning(payload.get("source_title_cleaning")),
     }
@@ -579,6 +643,16 @@ def persist_settings(
         },
     )
     managed_profiles = _settings_managed_profiles(source_profiles)
+    normalized_scrape_rules = normalize_scrape_rules(
+        raw_scrape_rules
+        if raw_scrape_rules is not None
+        else existing.get("source_scrape_rules") or existing.get("scrape_rules")
+    )
+    normalized_token_roles = normalize_source_token_roles(
+        raw_token_roles
+        if raw_token_roles is not None
+        else existing.get("source_token_roles") or existing.get("token_roles")
+    )
     template_settings = normalize_template_settings(raw_template_settings)
     existing.update(
         {
@@ -590,20 +664,13 @@ def persist_settings(
                 cfg,
                 managed_profiles,
                 template_settings,
+                normalized_token_roles,
             ),
             "default_quality": normalize_quality_selection(
                 raw_default_quality if raw_default_quality is not None else existing.get("default_quality")
             ),
-            "source_scrape_rules": normalize_scrape_rules(
-                raw_scrape_rules
-                if raw_scrape_rules is not None
-                else existing.get("source_scrape_rules") or existing.get("scrape_rules")
-            ),
-            "source_token_roles": normalize_source_token_roles(
-                raw_token_roles
-                if raw_token_roles is not None
-                else existing.get("source_token_roles") or existing.get("token_roles")
-            ),
+            "source_scrape_rules": normalized_scrape_rules,
+            "source_token_roles": normalized_token_roles,
             "source_creator_fields": normalize_source_creator_fields(
                 raw_creator_fields if raw_creator_fields is not None else existing.get("source_creator_fields")
             ),

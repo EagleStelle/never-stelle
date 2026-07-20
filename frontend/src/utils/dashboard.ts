@@ -380,7 +380,6 @@ export function createPlatformScrapeRules(
   source: Partial<PlatformScrapeRules> = {},
 ): PlatformScrapeRules {
   return {
-    enabled: Boolean(source.enabled),
     rules: Array.isArray(source.rules)
       ? source.rules.map(createScrapeRule)
       : [],
@@ -402,11 +401,9 @@ export function createSourceScrapeRules(
 }
 
 export const TOKEN_ROLES = new Set<TokenRole>([
-  "creator",
+  "username",
   "nickname",
   "title",
-  "slug",
-  "id",
   "ignore",
 ]);
 
@@ -435,13 +432,17 @@ export function createSourceTokenRoles(
   const out: SourceTokenRoles = {};
   for (const key of keys) {
     const roles: Record<string, TokenRole> = {};
+    let titleClaimed = false;
     for (const [token, role] of Object.entries(normalizedSource[key] || {})) {
       const normalizedToken = normalizeTokenName(token);
-      const normalizedRole = String(role || "")
-        .trim()
-        .toLowerCase() as TokenRole;
-      if (normalizedToken && TOKEN_ROLES.has(normalizedRole))
-        roles[normalizedToken] = normalizedRole;
+      const rawRole = String(role || "").trim().toLowerCase();
+      const normalizedRole = (rawRole === "creator" ? "username" : rawRole) as TokenRole;
+      if (!normalizedToken || !TOKEN_ROLES.has(normalizedRole)) continue;
+      if (normalizedRole === "title") {
+        if (titleClaimed) continue;
+        titleClaimed = true;
+      }
+      roles[normalizedToken] = normalizedRole;
     }
     out[key] = roles;
   }
@@ -449,12 +450,29 @@ export function createSourceTokenRoles(
 }
 
 const CREATOR_FIELD_RE = /[^A-Za-z0-9_[\]]+/g;
+const SCRAPER_CREATOR_FIELD_RE = /^scraper\[([A-Za-z_][A-Za-z0-9_]*)\]$/;
+
+export function scraperCreatorField(token: unknown): string {
+  const normalized = normalizeTokenName(token);
+  return normalized ? `scraper[${normalized}]` : "";
+}
+
+export function scraperTokenFromCreatorField(value: unknown): string {
+  const match = SCRAPER_CREATOR_FIELD_RE.exec(String(value || "").trim());
+  return match?.[1] || "";
+}
+
+export function isScraperCreatorField(value: unknown): boolean {
+  return Boolean(scraperTokenFromCreatorField(value));
+}
 
 // Keep identifier chars plus gallery-dl [sub] nesting; strip everything else.
 export function normalizeCreatorField(value: unknown): string {
-  return String(value || "")
-    .trim()
-    .replace(CREATOR_FIELD_RE, "");
+  const raw = String(value || "").trim();
+  if (raw.toLowerCase().startsWith("scraper[") && raw.endsWith("]")) {
+    return scraperCreatorField(raw.slice(8, -1));
+  }
+  return raw.replace(CREATOR_FIELD_RE, "");
 }
 
 export function createCreatorFieldRoles(

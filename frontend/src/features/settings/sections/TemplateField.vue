@@ -24,14 +24,17 @@ function onFocusOut(event: FocusEvent): void {
   if (!root.contains(event.relatedTarget as Node | null)) focused.value = false;
 }
 
-// Base tokens come from the server; custom tokens are derived from this source's rules.
+// Base tokens come from the server. Scraper rules set to "None" keep the old
+// custom-token behavior, while role-backed rules are represented by public tokens.
 const baseTokens = computed(() => settings.template_tokens || []);
 const customTokens = computed(() => {
   const seen = new Set(baseTokens.value.map((token) => token.key));
+  const roles = settingsDraft.source_token_roles[props.site.key] || {};
   const out: string[] = [];
   for (const rule of settingsDraft.source_scrape_rules[props.site.key]?.rules || []) {
     const key = normalizeTokenName(rule.token);
-    if (key && !seen.has(key)) {
+    const role = key ? roles[key] : "";
+    if (key && (!role || role === "ignore") && !seen.has(key)) {
       seen.add(key);
       out.push(key);
     }

@@ -11,6 +11,7 @@ from backend.app.services.settings import (
     get_effective_creator_fields,
     get_effective_template_settings,
     get_effective_title_cleaning,
+    is_scraper_creator_field,
     normalize_template_settings,
 )
 
@@ -93,7 +94,10 @@ def _creator_field_list(creator_fields: dict[str, Any] | None, role: str) -> lis
     if not isinstance(creator_fields, dict):
         return None
     values = creator_fields.get(role)
-    return [str(value) for value in values] if isinstance(values, list) and values else None
+    if not isinstance(values, list) or not values:
+        return None
+    fields = [str(value) for value in values if not is_scraper_creator_field(value)]
+    return fields or None
 
 
 def _effective_nickname_field(source_url: str) -> str:

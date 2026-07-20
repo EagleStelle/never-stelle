@@ -50,13 +50,12 @@ export interface ScrapeRule {
 }
 
 export interface PlatformScrapeRules {
-  enabled: boolean;
   rules: ScrapeRule[];
 }
 
 export type SourceScrapeRules = Record<string, PlatformScrapeRules>;
 export type TokenRole =
-  "creator" | "nickname" | "title" | "slug" | "id" | "ignore";
+  "username" | "nickname" | "title" | "ignore";
 export type SourceTokenRoles = Record<string, Record<string, TokenRole>>;
 
 // Per source, the ordered field-preference lists for the username/nickname tokens.

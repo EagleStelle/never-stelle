@@ -7,7 +7,11 @@ from typing import Any
 import httpx
 
 from backend.app.core.sources import normalize_source_key
-from backend.app.services.settings import find_cookies_file_for_source, find_cookies_file_for_url
+from backend.app.services.settings import (
+    find_cookies_file_for_source,
+    find_cookies_file_for_url,
+    scraper_token_from_creator_field,
+)
 
 from .constants import TEMPLATE_RE
 from .formats import _prepare_url
@@ -55,7 +59,7 @@ def normalize_scrape_rule(raw: Any) -> dict[str, Any] | None:
 def normalize_platform_rules(raw: Any) -> dict[str, Any]:
     source = raw if isinstance(raw, dict) else {}
     rules = [rule for rule in (normalize_scrape_rule(item) for item in source.get("rules") or []) if rule]
-    return {"enabled": bool(source.get("enabled")), "rules": rules}
+    return {"rules": rules}
 
 
 def normalize_scrape_rules(raw: Any) -> dict[str, dict[str, Any]]:
@@ -64,15 +68,15 @@ def normalize_scrape_rules(raw: Any) -> dict[str, dict[str, Any]]:
     for key, value in source.items():
         platform = normalize_platform_rules(value)
         source_key = normalize_source_key(key)
-        # Persist any platform the user has touched (enabled flag or defined rules).
-        if source_key and (platform["rules"] or platform["enabled"]):
+        # Persist only platforms that actually define rules; empty is inert.
+        if source_key and platform["rules"]:
             out[source_key] = platform
     return out
 
 
 def active_rules_for_key(rules_map: Any, source_key: str) -> list[dict[str, Any]]:
     platform = (rules_map if isinstance(rules_map, dict) else {}).get(normalize_source_key(source_key))
-    if not isinstance(platform, dict) or not platform.get("enabled"):
+    if not isinstance(platform, dict):
         return []
     return [rule for rule in (normalize_scrape_rule(item) for item in platform.get("rules") or []) if rule]
 
@@ -228,24 +232,97 @@ def _template_token_names(template_settings: Any) -> set[str]:
     return names
 
 
+def _scraper_role(value: Any) -> str:
+    role = str(value or "").strip().lower()
+    if role == "creator":
+        return "username"
+    return role if role in {"username", "nickname", "title"} else ""
+
+
+def _output_rules_for_template(
+    rules: list[dict[str, Any]],
+    roles: dict[str, str],
+    template_settings: Any,
+    creator_fields: Any = None,
+) -> list[tuple[dict[str, Any], str]]:
+    referenced = _template_token_names(template_settings)
+    if not referenced:
+        return []
+    rule_by_token = {_normalize_token(rule.get("token")): rule for rule in rules}
+    leading_role_tokens = {
+        role: _leading_scraper_tokens_for_role(creator_fields, role, roles, set(rule_by_token))
+        for role in ("username", "nickname")
+    }
+    out: list[tuple[dict[str, Any], str]] = []
+    claimed_role_tokens: set[str] = set()
+    for role in ("username", "nickname"):
+        if role not in referenced:
+            continue
+        for token in leading_role_tokens[role]:
+            rule = rule_by_token.get(token)
+            if rule:
+                out.append((rule, role))
+                claimed_role_tokens.add(token)
+    for rule in rules:
+        token = _normalize_token(rule.get("token"))
+        if token in claimed_role_tokens:
+            continue
+        role = _scraper_role(roles.get(token))
+        if role == "title" and role in referenced:
+            out.append((rule, role))
+        elif not role and token in referenced:
+            out.append((rule, token))
+    return out
+
+
+def _leading_scraper_tokens_for_role(
+    creator_fields: Any,
+    role: str,
+    roles: dict[str, str],
+    rule_tokens: set[str],
+) -> list[str]:
+    values = (creator_fields if isinstance(creator_fields, dict) else {}).get(role)
+    if not isinstance(values, list):
+        return []
+    out: list[str] = []
+    for value in values:
+        token = scraper_token_from_creator_field(value)
+        if not token:
+            break
+        if token in rule_tokens and _scraper_role(roles.get(token)) == role and token not in out:
+            out.append(token)
+    return out
+
+
 def resolve_scraped_tokens(
     source_url: str,
     source_key: str,
     template_settings: Any,
     rules_map: Any,
+    token_roles_map: Any = None,
     cookie_source_key: str = "",
+    creator_fields: Any = None,
 ) -> dict[str, str]:
-    """Scrape the page once for the tokens a task's templates actually use.
+    """Scrape the page once for scraper rules whose assigned roles are in use.
 
-    Returns {} (no fetch) when the platform is disabled, has no rules, or none of
-    its rule tokens appear in the folder/filename template.
+    Rules assigned to username/nickname/title return role-keyed overrides.
+    Rules with no role keep the old custom-token behavior and return their raw
+    token only when that token appears in a template.
     """
     rules = active_rules_for_key(rules_map, source_key)
     if not rules:
         return {}
-    referenced = _template_token_names(template_settings)
-    if referenced:
-        rules = [rule for rule in rules if rule["token"] in referenced]
-    if not rules:
+    roles = (token_roles_map if isinstance(token_roles_map, dict) else {}).get(normalize_source_key(source_key)) or {}
+    output_rules = _output_rules_for_template(rules, roles, template_settings, creator_fields)
+    if not output_rules:
         return {}
-    return scrape_tokens(fetch_html(source_url, cookie_source_key or source_key), rules)
+    selected_rules = [rule for rule, _ in output_rules]
+    raw_tokens = scrape_tokens(fetch_html(source_url, cookie_source_key or source_key), selected_rules)
+    out: dict[str, str] = {}
+    for rule, output_key in output_rules:
+        if output_key in out:
+            continue
+        value = str(raw_tokens.get(rule["token"]) or "").strip()
+        if value:
+            out[output_key] = value
+    return out

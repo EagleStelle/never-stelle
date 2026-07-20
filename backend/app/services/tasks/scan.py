@@ -10,6 +10,7 @@ from typing import Any
 from backend.app.core.config import discover_volume_roots
 from backend.app.core.sources import normalize_source_key
 from backend.app.db.database import utc_now
+from backend.app.services.settings import is_scraper_creator_field, scraper_token_from_creator_field
 
 from .constants import CREATOR_FIELD_DEFAULTS, CREATOR_FIELDS, TEMPLATE_RE
 from .files import is_media_file, recover_task_path
@@ -57,8 +58,12 @@ _COMMON_SOURCE_FOLDER_KEYS = {
 def _template_group(field: str, token_roles: dict[str, str] | None = None) -> str:
     # Map a template token to the capture group it feeds, or "" if it carries no signal.
     role = (token_roles or {}).get(field)
-    if role in {"creator", "id", "slug", "title"}:
-        return "creator" if role == "creator" else role
+    if role == "creator":
+        role = "username"
+    if role in CREATOR_FIELDS:
+        return "creator"
+    if role in {"id", "slug", "title"}:
+        return role
     if field in CREATOR_FIELDS:
         return "creator"
     if field in _ID_TOKENS:
@@ -344,11 +349,13 @@ def _scan_template_map() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
         cfg = load_app_config()
         effective = get_effective_saved_settings(cfg)
         base = normalize_template_settings(effective.get("template_settings"))
+        token_roles = effective.get("source_token_roles")
         per_source = normalize_source_template_selection(
             effective.get("source_templates") or effective.get("source_template_settings"),
             cfg,
             get_effective_source_profiles(cfg),
             base,
+            token_roles if isinstance(token_roles, dict) else {},
         )
         return base, per_source
     except Exception:
@@ -362,6 +369,28 @@ def _scan_token_role_map() -> dict[str, dict[str, str]]:
 
         roles = get_effective_saved_settings(load_app_config()).get("source_token_roles")
         return roles if isinstance(roles, dict) else {}
+    except Exception:
+        return {}
+
+
+def _scan_scrape_rule_tokens() -> dict[str, set[str]]:
+    try:
+        from backend.app.core.config import load_app_config
+        from backend.app.services.settings import get_effective_saved_settings
+
+        rules_map = get_effective_saved_settings(load_app_config()).get("source_scrape_rules")
+        out: dict[str, set[str]] = {}
+        if isinstance(rules_map, dict):
+            for raw_key, platform in rules_map.items():
+                key = normalize_source_key(raw_key)
+                tokens = {
+                    str(rule.get("token") or "").strip().lower()
+                    for rule in (platform.get("rules") if isinstance(platform, dict) else []) or []
+                    if isinstance(rule, dict) and str(rule.get("token") or "").strip()
+                }
+                if key and tokens:
+                    out[key] = tokens
+        return out
     except Exception:
         return {}
 
@@ -407,14 +436,74 @@ def _clean_probe_value(value: str) -> str:
     return "" if value.lower() in _EMPTY_CREATOR_VALUES else value
 
 
-def _creator_role_for_templates(folder_template: str, filename_template: str) -> str:
-    # {{username}} vs {{nickname}} is decided by the folder token first, else the filename token.
+def _normalize_scraper_role(role: str) -> str:
+    role = str(role or "").strip().lower()
+    if role == "creator":
+        return "username"
+    return role if role in CREATOR_FIELDS else ""
+
+
+def _creator_roles_for_templates(
+    folder_template: str,
+    filename_template: str,
+    token_roles: dict[str, str] | None = None,
+) -> list[str]:
+    roles: list[str] = []
+    role_map = token_roles or {}
     for template in (folder_template, filename_template):
         for match in TEMPLATE_RE.finditer(str(template or "")):
             field = match.group(1).strip().lower()
-            if field in CREATOR_FIELDS:
-                return field
-    return "username"
+            role = _normalize_scraper_role(role_map.get(field)) or (field if field in CREATOR_FIELDS else "")
+            if role and role not in roles:
+                roles.append(role)
+    return roles
+
+
+def _creator_role_for_templates(
+    folder_template: str,
+    filename_template: str,
+    token_roles: dict[str, str] | None = None,
+) -> str:
+    # {{username}} vs {{nickname}} is decided by the folder token first, else the filename token.
+    roles = _creator_roles_for_templates(folder_template, filename_template, token_roles)
+    return roles[0] if roles else "username"
+
+
+def _template_role_has_scraper_rule(
+    folder_template: str,
+    filename_template: str,
+    token_roles: dict[str, str] | None,
+    scrape_rule_tokens: set[str],
+    role: str,
+    order: list[str],
+) -> bool:
+    role = _normalize_scraper_role(role)
+    if not role or role not in _creator_roles_for_templates(folder_template, filename_template, token_roles):
+        return False
+    return bool(_leading_scraper_tokens_for_role(order, token_roles, scrape_rule_tokens, role))
+
+
+def _leading_scraper_tokens_for_role(
+    order: list[str],
+    token_roles: dict[str, str] | None,
+    scrape_rule_tokens: set[str],
+    role: str,
+) -> list[str]:
+    role = _normalize_scraper_role(role)
+    if not role:
+        return []
+    out: list[str] = []
+    for field in order or []:
+        token = scraper_token_from_creator_field(field)
+        if not token:
+            break
+        if token in scrape_rule_tokens and _normalize_scraper_role((token_roles or {}).get(token)) == role:
+            out.append(token)
+    return out
+
+
+def _probe_metadata_order(order: list[str]) -> list[str]:
+    return [field for field in order or [] if not is_scraper_creator_field(field)]
 
 
 def _probe_disk_creator(
@@ -573,7 +662,9 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
     location_index = _source_location_index(locations)
     source_folders = _source_folder_keys(locations)
     source_profile_keys = _scan_source_profile_keys()
-    templates = _TemplateResolver(*_scan_template_map(), _scan_token_role_map())
+    token_role_map = _scan_token_role_map()
+    scrape_rule_tokens_map = _scan_scrape_rule_tokens()
+    templates = _TemplateResolver(*_scan_template_map(), token_role_map)
     creator_fields_map = _scan_creator_fields_map()
     learned = load_learned_formats()
     learned_before = learned
@@ -622,11 +713,26 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         else:
             # Manually-placed file with no resolved creator yet: probe in the configured order.
             folder_template, filename_template = templates.templates_for(source_key)
-            role = _creator_role_for_templates(folder_template, filename_template)
+            source_roles = token_role_map.get(source_key) or {}
+            role = _creator_role_for_templates(folder_template, filename_template, source_roles)
             order = (creator_fields_map.get(source_key) or {}).get(role) or CREATOR_FIELD_DEFAULTS.get(role, [])
-            probed_creator, probed_url = _probe_disk_creator(learned, source_key, media_id, order, slug, disk_creator)
-            creator = probed_creator or disk_creator
-            source_url = probed_url or reconstruct_url(learned, source_key, media_id, creator=creator, slug=slug)
+            scraper_backed_role = _template_role_has_scraper_rule(
+                folder_template,
+                filename_template,
+                source_roles,
+                scrape_rule_tokens_map.get(source_key) or set(),
+                role,
+                order,
+            )
+            if scraper_backed_role:
+                creator = disk_creator
+                source_url = reconstruct_url(learned, source_key, media_id, creator="", slug=slug)
+            else:
+                probed_creator, probed_url = _probe_disk_creator(
+                    learned, source_key, media_id, _probe_metadata_order(order), slug, disk_creator
+                )
+                creator = probed_creator or disk_creator
+                source_url = probed_url or reconstruct_url(learned, source_key, media_id, creator=creator, slug=slug)
         display_filename = clean_gallerydl_display_filename(path.name, creator, source_key)
         save_history_entry_row(
             task_id,

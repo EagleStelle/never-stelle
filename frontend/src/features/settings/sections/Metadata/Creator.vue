@@ -39,7 +39,7 @@ const {
   probes,
   cleanupRules,
   titleLengthRule,
-  fieldList,
+  fieldListItems,
   reorderField,
   resetRole,
   isConfigured,
@@ -223,8 +223,8 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
               </div>
               <ul class="flex flex-col gap-1">
                 <li
-                  v-for="(field, index) in fieldList(site.key, role.key)"
-                  :key="field"
+                  v-for="(field, index) in fieldListItems(site.key, role.key)"
+                  :key="field.key"
                   draggable="true"
                   class="flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors cursor-grab active:cursor-grabbing"
                   :class="[
@@ -245,7 +245,7 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
                   <span
                     class="font-mono text-[0.8125rem] flex-1 min-w-0 truncate"
                   >
-                    {{ field }}
+                    {{ field.label }}
                   </span>
                 </li>
               </ul>
