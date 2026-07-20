@@ -107,7 +107,6 @@ function toggle(set: Set<string>, id: string): void {
               v-if="task.can_download"
               as="a"
               variant="primary"
-              size="xs"
               :href="taskFileUrl(task.vid)"
               download
               aria-label="Download file"
@@ -120,7 +119,6 @@ function toggle(set: Set<string>, id: string): void {
             <Button
               v-if="task.can_retry"
               variant="primary"
-              size="xs"
               type="button"
               aria-label="Retry download"
               title="Retry download"
@@ -133,7 +131,6 @@ function toggle(set: Set<string>, id: string): void {
             <Button
               v-if="task.can_cancel"
               variant="danger"
-              size="xs"
               type="button"
               aria-label="Cancel download"
               title="Cancel download"
@@ -145,8 +142,7 @@ function toggle(set: Set<string>, id: string): void {
             </Button>
             <Button
               v-if="task.can_remove"
-              variant="danger"
-              size="xs"
+              variant="primary"
               type="button"
               aria-label="Remove task from the list"
               title="Remove task from the list"

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import { Combobox } from "../../../../components/ui/combobox";
+import { ComboboxSelect as Combobox } from "../../../../components/ui/combobox";
 import type { QualitySelection } from "../../../../types";
 import { isCodecAllowed, isLosslessAudioFormat, resolveCodec } from "../../../../utils/dashboard";
 import { useSettingsContext } from "../../context";

@@ -1,9 +1,26 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 @theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
   --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
   --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-display:
@@ -11,12 +28,32 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
   --ease-glass: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
 }
 
 :root {
+  --radius: 0.5rem;
   --primary: #0a0711;
   --secondary: #2a2640;
   --accent: #ed9e59;
+  --background: var(--primary);
+  --foreground: #f8f4f5;
+  --card: rgba(22, 18, 32, 0.72);
+  --card-foreground: #f8f4f5;
+  --primary-foreground: #f8f4f5;
+  --secondary-foreground: #f8f4f5;
+  --accent-foreground: #1b1931;
+  --destructive: #ef4444;
+  --destructive-foreground: #f8f4f5;
+  --popover: rgba(16, 13, 25, 0.95);
+  --popover-foreground: #f8f4f5;
+  --muted: rgba(248, 244, 245, 0.1);
+  --muted-foreground: rgba(248, 244, 245, 0.62);
+  --border: var(--glass-border);
+  --input: var(--glass-border);
+  --ring: var(--accent);
   color-scheme: dark;
 
   /* Glassmorphism surface tokens */
@@ -36,6 +73,22 @@
   --primary: #f3f4f6;
   --secondary: #e5e7eb;
   --accent: #ed9e59;
+  --background: var(--primary);
+  --foreground: #000;
+  --card: rgba(255, 255, 255, 0.82);
+  --card-foreground: #000;
+  --primary-foreground: #000;
+  --secondary-foreground: #000;
+  --accent-foreground: #1b1931;
+  --destructive: #ef4444;
+  --destructive-foreground: #f8f4f5;
+  --popover: rgba(255, 255, 255, 0.95);
+  --popover-foreground: #000;
+  --muted: rgba(17, 24, 39, 0.08);
+  --muted-foreground: rgba(0, 0, 0, 0.58);
+  --border: var(--glass-border);
+  --input: var(--glass-border);
+  --ring: var(--accent);
   color-scheme: light;
 
   --glass-surface: rgba(255, 255, 255, 0.82);
@@ -78,15 +131,11 @@
     margin: 0;
     min-height: 100dvh;
     overflow-x: hidden;
-    background: var(--primary);
-    color: #f8f4f5;
+    background: var(--background);
+    color: var(--foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-  }
-
-  :root.light-mode body {
-    color: #000;
   }
 
   #app {
@@ -123,43 +172,6 @@
   :focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-  }
-
-  /* Native form fields in Settings -> glass */
-  input:not([type="file"]):not(.bg-transparent),
-  textarea,
-  select {
-    width: 100%;
-    min-width: 0;
-    padding: 0.55rem 0.75rem;
-    border-radius: 0.65rem;
-    background: linear-gradient(
-      135deg,
-      var(--glass-surface),
-      var(--glass-surface-2)
-    );
-    border: var(--glass-border-rule);
-    color: inherit;
-    outline: none;
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(185%)
-      contrast(1.04);
-    backdrop-filter: blur(var(--glass-blur)) saturate(185%) contrast(1.04);
-    background-clip: padding-box;
-    box-shadow: var(--glass-shadow);
-    transition:
-      border-color 220ms var(--ease-glass),
-      background 220ms var(--ease-glass);
-  }
-
-  input:not([type="file"]):not(.bg-transparent):focus,
-  textarea:focus,
-  select:focus {
-    border-color: var(--glass-border);
-    background: linear-gradient(
-      135deg,
-      var(--glass-surface-2),
-      var(--glass-surface)
-    );
   }
 
   input[type="file"] {
@@ -357,6 +369,26 @@
   to {
     transform: translateY(0);
     filter: blur(0);
+  }
+}
+
+@keyframes accordion-down {
+  from {
+    height: 0;
+  }
+
+  to {
+    height: var(--reka-accordion-content-height);
+  }
+}
+
+@keyframes accordion-up {
+  from {
+    height: var(--reka-accordion-content-height);
+  }
+
+  to {
+    height: 0;
   }
 }
 

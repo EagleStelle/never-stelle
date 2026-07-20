@@ -18,7 +18,6 @@ const emit = defineEmits<{
     aria-label="Task counts"
   >
     <Button
-      size="xs"
       type="button"
       class="shrink-0"
       title="Clear Queue"

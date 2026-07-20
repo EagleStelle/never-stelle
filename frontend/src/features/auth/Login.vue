@@ -48,7 +48,6 @@ async function submit(): Promise<void> {
       <div class="flex flex-col gap-2">
         <Input
           v-model="form.username"
-          size="xl"
           type="text"
           autocomplete="username"
           placeholder="Username"
@@ -60,7 +59,6 @@ async function submit(): Promise<void> {
         </Input>
         <Input
           v-model="form.password"
-          size="xl"
           type="password"
           autocomplete="current-password"
           placeholder="Password"
@@ -81,7 +79,6 @@ async function submit(): Promise<void> {
 
       <Button
         type="submit"
-        size="xl"
         class="w-full"
         :disabled="auth.loading.value"
       >

@@ -1,15 +1,20 @@
 <script setup lang="ts">
-import { Primitive } from 'reka-ui'
+import type { HTMLAttributes } from "vue";
+import { cn } from "@/lib/utils";
+
+const props = defineProps<{ class?: HTMLAttributes["class"] }>();
 </script>
 
 <template>
-  <div class="w-full overflow-auto rounded-lg glass">
-    <Primitive
-      as="table"
-      class="w-full min-w-full border-separate border-spacing-0 overflow-hidden text-left rounded-lg"
-      v-bind="$attrs"
+  <div
+    data-slot="table-container"
+    class="relative w-full overflow-auto rounded-lg glass"
+  >
+    <table
+      data-slot="table"
+      :class="cn('w-full caption-bottom text-sm', props.class)"
     >
       <slot />
-    </Primitive>
+    </table>
   </div>
 </template>

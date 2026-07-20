@@ -123,9 +123,9 @@ function connectNew(): void {
           }}</span>
         </div>
         <Button
-          variant="soft"
+          variant="primary"
           type="button"
-          class="shrink-0 bg-[#ef4444]! text-white! hover:bg-[#dc2626]!"
+          class="shrink-0"
           :title="`Delete ${site.label} cookies`"
           :aria-label="`Delete ${site.label} cookies`"
           @click="removeCookies(site.key)"

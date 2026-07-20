@@ -1,48 +1,37 @@
 <script setup lang="ts">
+import type { PrimitiveProps } from "reka-ui";
+import type { HTMLAttributes } from "vue";
+import type { ButtonVariants } from ".";
 import { computed, useSlots } from "vue";
 import { Primitive } from "reka-ui";
+import { cn } from "@/lib/utils";
+import { buttonVariants } from ".";
 
-type Size = "xs" | "sm" | "default" | "lg" | "xl";
+interface Props extends PrimitiveProps {
+  variant?: ButtonVariants["variant"];
+  size?: ButtonVariants["size"];
+  class?: HTMLAttributes["class"];
+}
 
-const props = withDefaults(
-  defineProps<{
-    variant?: string;
-    size?: Size;
-    as?: string;
-    asChild?: boolean;
-    class?: string;
-  }>(),
-  { size: "default", as: "button", asChild: false },
-);
-
-const BASE =
-  "group inline-flex items-center justify-center gap-1.5 border border-(--glass-border) bg-accent text-black font-sans font-medium leading-none whitespace-nowrap transition-all duration-300 ease-glass hover:bg-accent/45 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-accent disabled:active:scale-100";
-
-const SIZE_CLASS: Record<Size, { base: string; pad: string; square: string }> =
-  {
-    xs: { base: "h-8 text-xs rounded-lg", pad: "px-3", square: "w-8" },
-    sm: { base: "h-9 text-sm rounded-lg", pad: "px-4", square: "w-9" },
-    default: { base: "h-10 text-sm rounded-lg", pad: "px-5", square: "w-10" },
-    lg: { base: "h-11 text-base rounded-lg", pad: "px-6", square: "w-11" },
-    xl: { base: "h-12 text-lg rounded-lg", pad: "px-7", square: "w-12" },
-  };
-
+const props = withDefaults(defineProps<Props>(), {
+  as: "button",
+});
 const slots = useSlots();
 const iconOnly = computed(() => !!slots.icon && !slots.default);
-
-const classes = computed(() => {
-  const size = SIZE_CLASS[props.size];
-  return [
-    BASE,
-    size.base,
-    iconOnly.value ? size.square : size.pad,
-    props.class,
-  ];
-});
+const resolvedSize = computed<ButtonVariants["size"]>(() =>
+  props.size || (iconOnly.value ? "icon" : "default"),
+);
 </script>
 
 <template>
-  <Primitive :as="as" :as-child="asChild" :class="classes">
+  <Primitive
+    data-slot="button"
+    :data-variant="variant"
+    :data-size="resolvedSize"
+    :as="as"
+    :as-child="asChild"
+    :class="cn(buttonVariants({ variant, size: resolvedSize }), props.class)"
+  >
     <slot name="icon" />
     <slot />
   </Primitive>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch, watchEffect } from "vue";
-import { Dialog } from "../../components/ui/dialog";
+import { DialogShell as Dialog } from "../../components/ui/dialog";
 import { Button } from "../../components/ui/button";
 import {
   Table,
@@ -169,16 +169,14 @@ function formatDuration(seconds: number | null): string {
         class="flex shrink-0 items-center justify-end gap-2 border-t border-(--glass-border) px-5 py-4 sm:px-6"
       >
         <Button
-          size="lg"
+          variant="cancel"
           type="button"
-          class="bg-transparent! text-white! in-[.light-mode]:text-black! hover:bg-(--glass-hover)!"
           @click="openModel = false"
         >
           Cancel
         </Button>
         <Button
           variant="primary"
-          size="lg"
           type="button"
           :disabled="selectedCount === 0"
           @click="confirm"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Combobox } from "../../components/ui/combobox";
+import { ComboboxSelect as Combobox } from "../../components/ui/combobox";
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -26,7 +26,6 @@ const emit = defineEmits<{
 <template>
   <div class="flex flex-wrap items-center gap-2">
     <Combobox
-      size="lg"
       :model-value="activeMenu"
       :items="navigationItems"
       @update:model-value="(val) => emit('update:activeMenu', val as MenuKey)"
@@ -36,7 +35,6 @@ const emit = defineEmits<{
     />
 
     <Combobox
-      size="lg"
       :model-value="mediaFilter"
       :items="mediaFilterItems"
       @update:model-value="(val) => emit('update:mediaFilter', val as MediaFilter)"
@@ -46,7 +44,6 @@ const emit = defineEmits<{
     />
 
     <SegmentedControl
-      size="lg"
       :model-value="viewMode"
       @update:model-value="
         (val) => {

@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import { Primitive } from 'reka-ui'
+import type { HTMLAttributes } from "vue";
+import { cn } from "@/lib/utils";
+
+const props = defineProps<{ class?: HTMLAttributes["class"] }>();
 </script>
 
 <template>
-  <Primitive
-    as="td"
-    class="px-3 py-2 border-b border-b-(--glass-border) text-inherit align-middle"
-    v-bind="$attrs"
+  <td
+    data-slot="table-cell"
+    :class="
+      cn(
+        'p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 *:[[role=checkbox]]:translate-y-0.5',
+        props.class,
+      )
+    "
   >
     <slot />
-  </Primitive>
+  </td>
 </template>

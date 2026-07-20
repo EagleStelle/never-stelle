@@ -6,7 +6,7 @@ import IconUndo from "~icons/material-symbols/undo";
 import { TabsContent, TabsRoot } from "reka-ui";
 
 import { Button } from "../../components/ui/button";
-import { Dialog } from "../../components/ui/dialog";
+import { DialogShell as Dialog } from "../../components/ui/dialog";
 import type {
   CookiesMap,
   RuntimeSettings,
@@ -186,7 +186,7 @@ function selectSection(section: SettingsSection): void {
       </p>
     </div>
     <div class="flex justify-end gap-2">
-      <Button variant="soft" @click="confirmingClose = false">Cancel</Button>
+      <Button variant="cancel" @click="confirmingClose = false">Cancel</Button>
       <Button variant="primary" @click="discardAndClose">Discard</Button>
     </div>
   </Dialog>

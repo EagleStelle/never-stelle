@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { ToggleGroupRoot, type ToggleGroupRootProps } from "reka-ui";
-
-type Size = "xs" | "sm" | "default" | "lg" | "xl";
+import type { ToggleGroupRootProps } from "reka-ui";
+import { reactiveOmit } from "@vueuse/core";
+import { ToggleGroupRoot, useForwardProps } from "reka-ui";
+import { cn } from "@/lib/utils";
 
 const props = withDefaults(
-  defineProps<ToggleGroupRootProps & { class?: string; size?: Size }>(),
+  defineProps<ToggleGroupRootProps & { class?: string }>(),
   {
     type: "single",
-    size: "default",
   },
 );
 
@@ -16,32 +15,23 @@ const emit = defineEmits<{
   "update:modelValue": [value: any];
 }>();
 
-const SIZE_CLASS: Record<Size, string> = {
-  xs: "h-8 text-xs",
-  sm: "h-9 text-sm",
-  default: "h-10 text-sm",
-  lg: "h-11 text-base",
-  xl: "h-12 text-lg",
-};
-
-const sizeClass = computed(() => SIZE_CLASS[props.size]);
-
-const forwardedProps = computed(() => {
-  const { class: _, size: __, ...rest } = props;
-  return rest;
-});
+const delegatedProps = reactiveOmit(props, "class");
+const forwarded = useForwardProps(delegatedProps);
 </script>
 
 <template>
   <ToggleGroupRoot
-    v-bind="forwardedProps"
-    @update:modelValue="emit('update:modelValue', $event)"
-    :class="[
-      'inline-flex items-center gap-1 px-1 py-1 bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-(--glass-border) shadow-inner rounded-lg',
-      sizeClass,
-      props.class,
-    ]"
+    v-slot="slotProps"
+    data-slot="toggle-group"
+    v-bind="forwarded"
+    @update:model-value="emit('update:modelValue', $event)"
+    :class="
+      cn(
+        'inline-flex h-9 w-fit items-center gap-1 rounded-lg border border-(--glass-border) bg-black/20 px-1 py-1 text-sm shadow-inner backdrop-blur-md in-[.light-mode]:bg-white/40',
+        props.class,
+      )
+    "
   >
-    <slot />
+    <slot v-bind="slotProps" />
   </ToggleGroupRoot>
 </template>

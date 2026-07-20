@@ -5,6 +5,14 @@ import IconStop from "~icons/material-symbols/stop";
 import IconRetry from "~icons/material-symbols/replay";
 
 import { Button } from "../ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../ui/card";
 import SourcePicker from "./SourcePicker.vue";
 
 import { taskFileUrl } from "../../api";
@@ -45,59 +53,56 @@ function canCancel(task: TaskItem): boolean {
 function canRemove(task: TaskItem): boolean {
   return props.pageKind === "downloads" && task.can_remove;
 }
+
+function hasActions(task: TaskItem): boolean {
+  return canDownload(task) || canRetry(task) || canCancel(task) || canRemove(task);
+}
 </script>
 
 <template>
   <section class="grid grid-cols-1 gap-2">
-    <article
+    <Card
       v-for="task in props.tasks"
       :key="task.vid"
-      class="glass-rise glass glass-hoverable rounded-lg p-4 hover:-translate-y-0.5 relative overflow-hidden"
+      class="glass-rise glass-hoverable relative gap-4 overflow-hidden py-4 hover:-translate-y-0.5"
     >
-      <div class="absolute inset-0 pointer-events-none z-0" :style="taskBackgroundStyle(task)"></div>
-      <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-4 relative z-10">
-        <div class="min-w-0">
-          <h3
-            class="wrap-break-word leading-snug text-white in-[.light-mode]:text-black font-display font-semibold text-base tracking-tight"
-          >
-            <img
-              v-if="sourceIconUrl(task, props.sourceProfiles)"
-              :src="sourceIconUrl(task, props.sourceProfiles)"
-              class="mr-1.5 inline h-4 w-4 rounded-lg align-[-2px]"
-              alt=""
-              aria-hidden="true"
-            />
-            {{ taskTitle(task, props.sourceProfiles) }}
-          </h3>
+      <div
+        class="absolute inset-0 z-0 pointer-events-none"
+        :style="taskBackgroundStyle(task)"
+      ></div>
+
+      <CardHeader class="relative z-10">
+        <CardTitle
+          class="wrap-break-word font-display text-base leading-snug tracking-tight"
+        >
+          <img
+            v-if="sourceIconUrl(task, props.sourceProfiles)"
+            :src="sourceIconUrl(task, props.sourceProfiles)"
+            class="mr-1.5 inline h-4 w-4 rounded-lg align-[-2px]"
+            alt=""
+            aria-hidden="true"
+          />
+          {{ taskTitle(task, props.sourceProfiles) }}
+        </CardTitle>
+        <CardDescription>
           <a
             v-if="sourceLink(task)"
             :href="sourceLink(task)"
             target="_blank"
             rel="noopener noreferrer"
-            class="mt-2 block break-all text-accent text-[0.8rem] font-mono underline decoration-dotted underline-offset-2 hover:decoration-solid"
+            class="block break-all font-mono text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
           >
             {{ taskDetail(task) }}
           </a>
-          <div
-            v-else
-            class="mt-2 break-all text-white in-[.light-mode]:text-black text-[0.8rem] font-mono"
-          >
+          <span v-else class="block break-all font-mono">
             {{ taskDetail(task) }}
-          </div>
-          <div
-            v-if="task.status === 'failed' && task.error"
-            class="mt-2 wrap-break-word whitespace-pre-line text-white in-[.light-mode]:text-black"
-          >
-            {{ task.error }}
-          </div>
-        </div>
-
-        <div class="flex items-start justify-end gap-1.5">
+          </span>
+        </CardDescription>
+        <CardAction v-if="hasActions(task)" class="flex gap-1.5">
           <Button
             v-if="canDownload(task)"
             as="a"
             variant="soft"
-            size="default"
             :href="taskFileUrl(task.vid)"
             download
             aria-label="Download file"
@@ -110,7 +115,6 @@ function canRemove(task: TaskItem): boolean {
           <Button
             v-if="canRetry(task)"
             variant="soft"
-            size="default"
             type="button"
             aria-label="Retry download"
             title="Retry download"
@@ -122,8 +126,7 @@ function canRemove(task: TaskItem): boolean {
           </Button>
           <Button
             v-if="canCancel(task)"
-            variant="soft"
-            size="default"
+            variant="danger"
             type="button"
             aria-label="Cancel download"
             title="Cancel download"
@@ -136,7 +139,6 @@ function canRemove(task: TaskItem): boolean {
           <Button
             v-if="canRemove(task)"
             variant="soft"
-            size="default"
             type="button"
             aria-label="Remove task from the list"
             title="Remove task from the list"
@@ -146,8 +148,19 @@ function canRemove(task: TaskItem): boolean {
               <IconX aria-hidden="true" />
             </template>
           </Button>
-        </div>
+        </CardAction>
+      </CardHeader>
 
+      <CardContent
+        v-if="(task.status === 'failed' && task.error) || task.source_pending"
+        class="relative z-10 flex flex-col gap-4"
+      >
+        <div
+          v-if="task.status === 'failed' && task.error"
+          class="wrap-break-word whitespace-pre-line"
+        >
+          {{ task.error }}
+        </div>
         <SourcePicker
           v-if="task.source_pending"
           variant="card"
@@ -155,7 +168,7 @@ function canRemove(task: TaskItem): boolean {
           :source-profiles="props.sourceProfiles"
           @set-source="emit('set-source', $event)"
         />
-      </div>
-    </article>
+      </CardContent>
+    </Card>
   </section>
 </template>

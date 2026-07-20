@@ -58,7 +58,7 @@ function submitSource(event: Event): void {
         {{ profile.label }}
       </option>
     </datalist>
-    <Button variant="primary" size="sm" type="submit">Set</Button>
+    <Button variant="primary" type="submit">Set</Button>
   </form>
 
   <!-- Labelled editor with candidate chips for cards -->
@@ -71,7 +71,6 @@ function submitSource(event: Event): void {
         v-for="candidate in task.source_candidates || []"
         :key="candidate"
         variant="soft"
-        size="sm"
         type="button"
         class="rounded-lg"
         @click="pickSource(candidate)"
@@ -96,7 +95,7 @@ function submitSource(event: Event): void {
             {{ profile.label }}
           </option>
         </datalist>
-        <Button variant="primary" size="sm" type="submit">Set</Button>
+        <Button variant="primary" type="submit">Set</Button>
       </form>
     </div>
   </div>

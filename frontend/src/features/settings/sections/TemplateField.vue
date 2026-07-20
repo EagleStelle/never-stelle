@@ -71,7 +71,6 @@ function insert(token: string): void {
       <Button
         v-for="token in baseTokens"
         :key="token.key"
-        size="xs"
         type="button"
         class="font-mono"
         :title="token.description"
@@ -83,7 +82,6 @@ function insert(token: string): void {
       <Button
         v-for="token in customTokens"
         :key="token"
-        size="xs"
         type="button"
         class="font-mono"
         title="Custom scrape token"

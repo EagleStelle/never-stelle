@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import { Primitive } from 'reka-ui'
+import type { HTMLAttributes } from "vue";
+import { cn } from "@/lib/utils";
+
+const props = defineProps<{ class?: HTMLAttributes["class"] }>();
 </script>
 
 <template>
-  <Primitive
-    as="tr"
-    class="transition-[background] duration-200 ease-glass hover:bg-(--glass-hover) [&:last-child>td]:border-b-0"
-    v-bind="$attrs"
+  <tr
+    data-slot="table-row"
+    :class="
+      cn(
+        'border-b border-(--glass-border) transition-colors duration-200 ease-glass hover:bg-(--glass-hover) data-[state=selected]:bg-(--glass-hover)',
+        props.class,
+      )
+    "
   >
     <slot />
-  </Primitive>
+  </tr>
 </template>

@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { Primitive } from 'reka-ui'
+import type { HTMLAttributes } from "vue";
+import { cn } from "@/lib/utils";
+
+const props = defineProps<{ class?: HTMLAttributes["class"] }>();
 </script>
 
 <template>
-  <Primitive as="tbody" v-bind="$attrs">
+  <tbody
+    data-slot="table-body"
+    :class="cn('[&_tr:last-child]:border-0', props.class)"
+  >
     <slot />
-  </Primitive>
+  </tbody>
 </template>

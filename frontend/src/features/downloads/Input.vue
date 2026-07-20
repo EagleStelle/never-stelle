@@ -6,7 +6,7 @@ import IconMovie from "~icons/material-symbols/movie";
 import IconMusic from "~icons/material-symbols/music-note";
 import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
-import { Combobox } from "../../components/ui/combobox";
+import { ComboboxSelect as Combobox } from "../../components/ui/combobox";
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -56,7 +56,6 @@ const pasteFromClipboard = async () => {
     <form class="flex flex-col-reverse lg:flex-col gap-2 w-full" @submit.prevent="emit('addDownload')">
       <div class="flex items-center gap-2 w-full">
         <Input
-          size="lg"
           class="flex-1 min-w-0"
           :model-value="url"
           @update:model-value="(val) => emit('update:url', String(val))"
@@ -83,7 +82,6 @@ const pasteFromClipboard = async () => {
 
         <Button
           variant="primary"
-          size="lg"
           type="submit"
           class="shrink-0"
           aria-label="Download"
@@ -97,7 +95,7 @@ const pasteFromClipboard = async () => {
         </Button>
       </div>
 
-      <div class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-start gap-2 w-full pb-1">
+      <div class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-start gap-2 w-full py-1">
         <div class="flex items-center gap-2 shrink-0">
           <SegmentedControl
             v-if="qualityOptions.video.length"
@@ -105,7 +103,6 @@ const pasteFromClipboard = async () => {
             @update:model-value="(val) => { if (val) update({ mode: val as 'video' | 'audio' }); }"
             aria-label="Media type"
             class="shrink-0"
-            size="lg"
           >
             <SegmentedControlItem value="video" aria-label="Video">
               <IconMovie class="w-4 h-4" aria-hidden="true" />
@@ -121,7 +118,6 @@ const pasteFromClipboard = async () => {
               :model-value="quality.video_quality"
               :items="qualityOptions.video"
               @update:model-value="(val) => update({ video_quality: val })"
-              size="lg"
               class="shrink-0"
               placeholder="Quality..."
               empty-text="No presets."
@@ -132,7 +128,6 @@ const pasteFromClipboard = async () => {
               :model-value="quality.video_container"
               :items="qualityOptions.video_containers"
               @update:model-value="(val) => update({ video_container: val })"
-              size="lg"
               class="shrink-0"
               placeholder="Container..."
               empty-text="No containers."
@@ -143,7 +138,6 @@ const pasteFromClipboard = async () => {
               :model-value="quality.video_codec"
               :items="codecItems"
               @update:model-value="(val) => update({ video_codec: val })"
-              size="lg"
               class="shrink-0"
               placeholder="Codec..."
               empty-text="No codecs."
@@ -157,7 +151,6 @@ const pasteFromClipboard = async () => {
               :model-value="quality.audio_format"
               :items="qualityOptions.audio_formats"
               @update:model-value="(val) => update({ audio_format: val })"
-              size="lg"
               class="shrink-0"
               placeholder="Format..."
               empty-text="No formats."
@@ -168,7 +161,6 @@ const pasteFromClipboard = async () => {
               :model-value="quality.audio_bitrate"
               :items="qualityOptions.audio_bitrates"
               @update:model-value="(val) => update({ audio_bitrate: val })"
-              size="lg"
               class="shrink-0"
               placeholder="Bitrate..."
               empty-text="No bitrates."

@@ -1,91 +1,25 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from "vue";
-import { useAttrs } from "vue";
+import { computed, useAttrs, useSlots } from "vue";
 import { useVModel } from "@vueuse/core";
 import { cn } from "@/lib/utils";
-import { cva, type VariantProps } from "class-variance-authority";
 
-const inputVariants = cva(
-  "flex items-center min-w-0 rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-(--glass-border) shadow-inner focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass",
-  {
-    variants: {
-      size: {
-        xs: "h-8 p-0.5 gap-1",
-        sm: "h-9 p-1 gap-1",
-        default: "h-10 p-1 gap-1",
-        lg: "h-11 p-1 gap-1.5",
-        xl: "h-12 p-1.5 gap-1.5",
-      },
-    },
-    defaultVariants: {
-      size: "default",
-    },
-  },
-);
+const CONTAINER =
+  "flex items-center min-w-0 h-9 p-1 gap-1 rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-(--glass-border) shadow-inner focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass";
+const ICON =
+  "flex items-center justify-center shrink-0 w-7 h-7 ml-1 text-white in-[.light-mode]:text-black";
+const GAP = "w-3";
+const TEXT =
+  "flex-1 min-w-0 h-full bg-transparent outline-none text-base md:text-sm text-white in-[.light-mode]:text-black pr-2 placeholder:text-white/50 in-[.light-mode]:placeholder:text-black/50";
+const INPUT =
+  "h-9 w-full min-w-0 rounded-lg border border-(--glass-border) bg-black/20 px-3 py-1 text-base text-white shadow-inner outline-none transition-all duration-300 ease-glass placeholder:text-white/50 focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 in-[.light-mode]:bg-white/40 in-[.light-mode]:text-black in-[.light-mode]:placeholder:text-black/50 md:text-sm";
 
-const iconVariants = cva(
-  "flex items-center justify-center shrink-0 text-white in-[.light-mode]:text-black",
-  {
-    variants: {
-      size: {
-        xs: "w-7 h-7 ml-1",
-        sm: "w-7 h-7 ml-1",
-        default: "w-8 h-8 ml-1.5",
-        lg: "w-9 h-9 ml-1.5",
-        xl: "w-10 h-10 ml-2",
-      },
-    },
-    defaultVariants: {
-      size: "default",
-    },
-  },
-);
-
-const gapVariants = cva("", {
-  variants: {
-    size: {
-      xs: "w-2",
-      sm: "w-2.5",
-      default: "w-3",
-      lg: "w-4",
-      xl: "w-4",
-    },
-  },
-  defaultVariants: {
-    size: "default",
-  },
-});
-
-const textVariants = cva(
-  "flex-1 min-w-0 h-full bg-transparent outline-none text-white in-[.light-mode]:text-black pr-2 placeholder:text-white/50 in-[.light-mode]:placeholder:text-black/50",
-  {
-    variants: {
-      size: {
-        xs: "text-xs",
-        sm: "text-sm",
-        default: "text-sm",
-        lg: "text-base",
-        xl: "text-lg",
-      },
-    },
-    defaultVariants: {
-      size: "default",
-    },
-  },
-);
-
-type InputVariants = VariantProps<typeof inputVariants>;
-
-const props = withDefaults(
-  defineProps<{
-    defaultValue?: string | number;
-    modelValue?: string | number | null;
-    class?: HTMLAttributes["class"];
-    inputClass?: HTMLAttributes["class"];
-    size?: InputVariants["size"];
-  }>(),
-  { size: "default" },
-);
+const props = defineProps<{
+  defaultValue?: string | number;
+  modelValue?: string | number | null;
+  class?: HTMLAttributes["class"];
+  inputClass?: HTMLAttributes["class"];
+}>();
 
 const emits = defineEmits<{
   (e: "update:modelValue", payload: string | number): void;
@@ -101,14 +35,16 @@ defineOptions({
 });
 
 const attrs = useAttrs();
+const slots = useSlots();
+const hasChrome = computed(() => !!slots.icon || !!slots.action);
 </script>
 
 <template>
-  <div :class="cn(inputVariants({ size }), props.class, attrs.class as string)">
-    <div v-if="$slots.icon" :class="iconVariants({ size })">
+  <div v-if="hasChrome" :class="cn(CONTAINER, props.class, attrs.class as string)">
+    <div v-if="$slots.icon" :class="ICON">
       <slot name="icon" />
     </div>
-    <div v-else :class="gapVariants({ size })" />
+    <div v-else :class="GAP" />
 
     <input
       v-bind="{ ...attrs, class: undefined }"
@@ -117,9 +53,20 @@ const attrs = useAttrs();
         ($event as MouseEvent).detail === 3 &&
           ($event.target as HTMLInputElement).select()
       "
-      :class="cn(textVariants({ size }), props.inputClass)"
+      :class="cn(TEXT, props.inputClass)"
     />
 
     <slot name="action" />
   </div>
+  <input
+    v-else
+    v-bind="{ ...attrs, class: undefined }"
+    v-model="modelValue"
+    data-slot="input"
+    @click="
+      ($event as MouseEvent).detail === 3 &&
+        ($event.target as HTMLInputElement).select()
+    "
+    :class="cn(INPUT, props.class, attrs.class as string, props.inputClass)"
+  />
 </template>

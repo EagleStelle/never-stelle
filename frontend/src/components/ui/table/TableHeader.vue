@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { Primitive } from 'reka-ui'
+import type { HTMLAttributes } from "vue";
+import { cn } from "@/lib/utils";
+
+const props = defineProps<{ class?: HTMLAttributes["class"] }>();
 </script>
 
 <template>
-  <Primitive as="thead" v-bind="$attrs">
+  <thead data-slot="table-header" :class="cn('[&_tr]:border-b', props.class)">
     <slot />
-  </Primitive>
+  </thead>
 </template>

@@ -13,7 +13,6 @@ import NavBottom from "./components/layout/NavBottom.vue";
 import SettingsView from "./features/settings/View.vue";
 import { Toaster } from "./components/ui/sonner";
 import { Button } from "./components/ui/button";
-import { Combobox } from "./components/ui/combobox";
 import { Input } from "./components/ui/input";
 import {
   SegmentedControl,
@@ -178,7 +177,6 @@ const { height: statusBarHeight } = useElementSize(
                   <div class="flex items-center gap-2">
                     <Input
                       v-model="historySearch"
-                      size="lg"
                       class="flex-1 min-w-0"
                       type="text"
                       placeholder="Search history..."
@@ -190,7 +188,6 @@ const { height: statusBarHeight } = useElementSize(
                     </Input>
                     <Button
                       variant="primary"
-                      size="lg"
                       type="button"
                       class="shrink-0"
                       aria-label="Refresh history"
@@ -209,7 +206,7 @@ const { height: statusBarHeight } = useElementSize(
                   </div>
                 </section>
                 
-                <div class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-end gap-2 w-full pb-1">
+                <div class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-end gap-2 w-full py-1">
                   <div class="shrink-0 lg:ml-auto">
                     <DownloadFilters
                       :active-menu="activeMenu"
@@ -283,7 +280,6 @@ const { height: statusBarHeight } = useElementSize(
                     <div class="flex items-center gap-2">
                       <Input
                         v-model="historySearch"
-                        size="lg"
                         class="flex-1 min-w-0"
                         type="text"
                         placeholder="Search history..."
@@ -295,7 +291,6 @@ const { height: statusBarHeight } = useElementSize(
                       </Input>
                       <Button
                         variant="primary"
-                        size="lg"
                         type="button"
                         class="shrink-0"
                         aria-label="Refresh history"
@@ -314,7 +309,7 @@ const { height: statusBarHeight } = useElementSize(
                     </div>
                   </section>
                   
-                  <div class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-end gap-2 w-full pb-1">
+                  <div class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-end gap-2 w-full py-1">
                     <div class="shrink-0 lg:ml-auto">
                       <DownloadFilters
                         :active-menu="activeMenu"
