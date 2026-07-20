@@ -45,7 +45,11 @@ export function sourceLabelFromKey(key: string): string {
     .split("-")
     .map((part) => {
       const chunks = part.match(/[a-z]+|\d+/gi) || [part];
-      return chunks.map((chunk) => (/^\d+$/.test(chunk) ? chunk : chunk[0].toUpperCase() + chunk.slice(1))).join("");
+      return chunks
+        .map((chunk) =>
+          /^\d+$/.test(chunk) ? chunk : chunk[0].toUpperCase() + chunk.slice(1),
+        )
+        .join("");
     })
     .join(" ");
 }
@@ -59,7 +63,8 @@ export function displayHost(host: string): string {
     .replace(/^\*\./, "")
     .split(".")
     .filter(Boolean);
-  while (parts.length > 2 && COMMON_HOST_PREFIXES.has(parts[0])) parts = parts.slice(1);
+  while (parts.length > 2 && COMMON_HOST_PREFIXES.has(parts[0]))
+    parts = parts.slice(1);
   return parts.join(".");
 }
 
@@ -76,10 +81,14 @@ export function hostFromUrl(sourceUrl: string): string {
 
 export function faviconUrlForHost(host: string): string {
   const display = displayHost(host);
-  return display ? `https://www.google.com/s2/favicons?domain=${display}&sz=64` : "";
+  return display
+    ? `https://www.google.com/s2/favicons?domain=${display}&sz=64`
+    : "";
 }
 
-export function createSourceProfile(source: Partial<SourceProfile> = {}): SourceProfile {
+export function createSourceProfile(
+  source: Partial<SourceProfile> = {},
+): SourceProfile {
   const key = normalizeSourceKey(source.key || source.label || "");
   const raw = source as Partial<SourceProfile> & {
     externalBackend?: string;
@@ -88,29 +97,44 @@ export function createSourceProfile(source: Partial<SourceProfile> = {}): Source
   const profile: SourceProfile = {
     key,
     label: String(source.label || sourceLabelFromKey(key)),
-    hosts: Array.isArray(source.hosts) ? source.hosts.map(String).filter(Boolean) : [],
+    hosts: Array.isArray(source.hosts)
+      ? source.hosts.map(String).filter(Boolean)
+      : [],
     icon: source.icon || "",
     icon_url: source.icon_url || "",
   };
-  if (source.external !== undefined) profile.external = Boolean(source.external);
-  if (source.settings_managed !== undefined || raw.settingsManaged !== undefined) {
-    profile.settings_managed = Boolean(source.settings_managed ?? raw.settingsManaged);
+  if (source.external !== undefined)
+    profile.external = Boolean(source.external);
+  if (
+    source.settings_managed !== undefined ||
+    raw.settingsManaged !== undefined
+  ) {
+    profile.settings_managed = Boolean(
+      source.settings_managed ?? raw.settingsManaged,
+    );
   }
   const externalBackend = source.external_backend || raw.externalBackend || "";
   if (externalBackend) profile.external_backend = String(externalBackend);
   return profile;
 }
 
-export function isSourceSettingsManaged(source: Partial<SourceProfile>): boolean {
-  if (source.settings_managed !== undefined) return source.settings_managed !== false;
+export function isSourceSettingsManaged(
+  source: Partial<SourceProfile>,
+): boolean {
+  if (source.settings_managed !== undefined)
+    return source.settings_managed !== false;
   return !source.external;
 }
 
-export function settingsManagedSourceProfiles(profiles: SourceProfile[]): SourceProfile[] {
+export function settingsManagedSourceProfiles(
+  profiles: SourceProfile[],
+): SourceProfile[] {
   return profiles.filter(isSourceSettingsManaged);
 }
 
-export function mergeSourceProfiles(...sources: Array<Array<Partial<SourceProfile>> | undefined>): SourceProfile[] {
+export function mergeSourceProfiles(
+  ...sources: Array<Array<Partial<SourceProfile>> | undefined>
+): SourceProfile[] {
   const merged = new Map<string, SourceProfile>();
   for (const list of sources) {
     for (const item of list || []) {
@@ -126,7 +150,9 @@ export function mergeSourceProfiles(...sources: Array<Array<Partial<SourceProfil
       }
       merged.set(profile.key, {
         ...existing,
-        ...Object.fromEntries(Object.entries(profile).filter(([, value]) => value !== "")),
+        ...Object.fromEntries(
+          Object.entries(profile).filter(([, value]) => value !== ""),
+        ),
         hosts,
       });
     }
@@ -145,11 +171,14 @@ export function createSourceLocations(
 ): SourceLocations {
   const out: SourceLocations = {};
   for (const profile of profiles) out[profile.key] = source[profile.key] || "";
-  for (const [key, value] of Object.entries(source)) out[normalizeSourceKey(key)] = String(value || "");
+  for (const [key, value] of Object.entries(source))
+    out[normalizeSourceKey(key)] = String(value || "");
   return out;
 }
 
-export function createTemplateSettings(source: Partial<SavedSettings["template_settings"]> = {}) {
+export function createTemplateSettings(
+  source: Partial<SavedSettings["template_settings"]> = {},
+) {
   return {
     folder_template: source.folder_template || "",
     filename_template: source.filename_template || "",
@@ -198,12 +227,20 @@ const DEFAULT_QUALITY_OPTIONS: QualityOptions = {
 };
 
 function createQualityPreset(source: Partial<QualityPreset>): QualityPreset {
-  const key = String(source.key || "").trim().toLowerCase();
+  const key = String(source.key || "")
+    .trim()
+    .toLowerCase();
   return {
     key,
     label: String(source.label || key || "Unknown"),
     codecs: Array.isArray(source.codecs)
-      ? source.codecs.map((codec) => String(codec || "").trim().toLowerCase()).filter(Boolean)
+      ? source.codecs
+          .map((codec) =>
+            String(codec || "")
+              .trim()
+              .toLowerCase(),
+          )
+          .filter(Boolean)
       : undefined,
   };
 }
@@ -213,39 +250,74 @@ function createQualityPresetList(
   fallback: QualityPreset[],
 ): QualityPreset[] {
   const sourceItems = Array.isArray(source) ? source : [];
-  const items = sourceItems
-    .map(createQualityPreset)
-    .filter((item) => item.key);
+  const items = sourceItems.map(createQualityPreset).filter((item) => item.key);
   return items.length ? items : fallback.map(createQualityPreset);
 }
 
-export function createQualityOptions(source: Partial<QualityOptions> = {}): QualityOptions {
+export function createQualityOptions(
+  source: Partial<QualityOptions> = {},
+): QualityOptions {
   return {
     video: createQualityPresetList(source.video, DEFAULT_QUALITY_OPTIONS.video),
-    video_containers: createQualityPresetList(source.video_containers, DEFAULT_QUALITY_OPTIONS.video_containers),
-    video_codecs: createQualityPresetList(source.video_codecs, DEFAULT_QUALITY_OPTIONS.video_codecs),
-    audio_formats: createQualityPresetList(source.audio_formats, DEFAULT_QUALITY_OPTIONS.audio_formats),
-    audio_bitrates: createQualityPresetList(source.audio_bitrates, DEFAULT_QUALITY_OPTIONS.audio_bitrates),
+    video_containers: createQualityPresetList(
+      source.video_containers,
+      DEFAULT_QUALITY_OPTIONS.video_containers,
+    ),
+    video_codecs: createQualityPresetList(
+      source.video_codecs,
+      DEFAULT_QUALITY_OPTIONS.video_codecs,
+    ),
+    audio_formats: createQualityPresetList(
+      source.audio_formats,
+      DEFAULT_QUALITY_OPTIONS.audio_formats,
+    ),
+    audio_bitrates: createQualityPresetList(
+      source.audio_bitrates,
+      DEFAULT_QUALITY_OPTIONS.audio_bitrates,
+    ),
   };
 }
 
-export function containerCodecs(container: string, containers: QualityPreset[]): Set<string> {
-  const key = String(container || "").trim().toLowerCase();
+export function containerCodecs(
+  container: string,
+  containers: QualityPreset[],
+): Set<string> {
+  const key = String(container || "")
+    .trim()
+    .toLowerCase();
   return new Set(containers.find((item) => item.key === key)?.codecs || []);
 }
 
-export function isCodecAllowed(codec: string, container: string, containers: QualityPreset[]): boolean {
-  const key = String(codec || "").trim().toLowerCase();
+export function isCodecAllowed(
+  codec: string,
+  container: string,
+  containers: QualityPreset[],
+): boolean {
+  const key = String(codec || "")
+    .trim()
+    .toLowerCase();
   return key === "auto" || containerCodecs(container, containers).has(key);
 }
 
-export function resolveCodec(codec: string, container: string, containers: QualityPreset[]): string {
-  const key = String(codec || "").trim().toLowerCase();
+export function resolveCodec(
+  codec: string,
+  container: string,
+  containers: QualityPreset[],
+): string {
+  const key = String(codec || "")
+    .trim()
+    .toLowerCase();
   return isCodecAllowed(key, container, containers) ? key : "auto";
 }
 
-function optionKey(value: unknown, items: QualityPreset[], fallback: string): string {
-  const key = String(value || "").trim().toLowerCase();
+function optionKey(
+  value: unknown,
+  items: QualityPreset[],
+  fallback: string,
+): string {
+  const key = String(value || "")
+    .trim()
+    .toLowerCase();
   return items.some((item) => item.key === key) ? key : fallback;
 }
 
@@ -255,14 +327,26 @@ export function createQualitySelection(
 ): QualitySelection {
   const options = createQualityOptions(qualityOptions);
   const mode: MediaMode = source.mode === "audio" ? "audio" : "video";
-  const videoContainer = optionKey(source.video_container, options.video_containers, "mp4");
+  const videoContainer = optionKey(
+    source.video_container,
+    options.video_containers,
+    "mp4",
+  );
   return {
     mode,
     video_quality: optionKey(source.video_quality, options.video, "best"),
     video_container: videoContainer,
-    video_codec: resolveCodec(optionKey(source.video_codec, options.video_codecs, "auto"), videoContainer, options.video_containers),
+    video_codec: resolveCodec(
+      optionKey(source.video_codec, options.video_codecs, "auto"),
+      videoContainer,
+      options.video_containers,
+    ),
     audio_format: optionKey(source.audio_format, options.audio_formats, "mp3"),
-    audio_bitrate: optionKey(source.audio_bitrate, options.audio_bitrates, "best"),
+    audio_bitrate: optionKey(
+      source.audio_bitrate,
+      options.audio_bitrates,
+      "best",
+    ),
   };
 }
 
@@ -292,10 +376,14 @@ export function createScrapeRule(source: Partial<ScrapeRule> = {}): ScrapeRule {
   };
 }
 
-export function createPlatformScrapeRules(source: Partial<PlatformScrapeRules> = {}): PlatformScrapeRules {
+export function createPlatformScrapeRules(
+  source: Partial<PlatformScrapeRules> = {},
+): PlatformScrapeRules {
   return {
     enabled: Boolean(source.enabled),
-    rules: Array.isArray(source.rules) ? source.rules.map(createScrapeRule) : [],
+    rules: Array.isArray(source.rules)
+      ? source.rules.map(createScrapeRule)
+      : [],
   };
 }
 
@@ -304,12 +392,21 @@ export function createSourceScrapeRules(
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
 ): SourceScrapeRules {
   const out: SourceScrapeRules = {};
-  for (const profile of profiles) out[profile.key] = createPlatformScrapeRules(source[profile.key] || {});
-  for (const [key, value] of Object.entries(source)) out[normalizeSourceKey(key)] = createPlatformScrapeRules(value);
+  for (const profile of profiles)
+    out[profile.key] = createPlatformScrapeRules(source[profile.key] || {});
+  for (const [key, value] of Object.entries(source))
+    out[normalizeSourceKey(key)] = createPlatformScrapeRules(value);
   return out;
 }
 
-export const TOKEN_ROLES = new Set<TokenRole>(["creator", "nickname", "title", "slug", "id", "ignore"]);
+export const TOKEN_ROLES = new Set<TokenRole>([
+  "creator",
+  "nickname",
+  "title",
+  "slug",
+  "id",
+  "ignore",
+]);
 
 export function normalizeTokenName(value: unknown): string {
   const token = String(value || "")
@@ -337,8 +434,11 @@ export function createSourceTokenRoles(
     const roles: Record<string, TokenRole> = {};
     for (const [token, role] of Object.entries(normalizedSource[key] || {})) {
       const normalizedToken = normalizeTokenName(token);
-      const normalizedRole = String(role || "").trim().toLowerCase() as TokenRole;
-      if (normalizedToken && TOKEN_ROLES.has(normalizedRole)) roles[normalizedToken] = normalizedRole;
+      const normalizedRole = String(role || "")
+        .trim()
+        .toLowerCase() as TokenRole;
+      if (normalizedToken && TOKEN_ROLES.has(normalizedRole))
+        roles[normalizedToken] = normalizedRole;
     }
     out[key] = roles;
   }
@@ -349,10 +449,14 @@ const CREATOR_FIELD_RE = /[^A-Za-z0-9_[\]]+/g;
 
 // Keep identifier chars plus gallery-dl [sub] nesting; strip everything else.
 export function normalizeCreatorField(value: unknown): string {
-  return String(value || "").trim().replace(CREATOR_FIELD_RE, "");
+  return String(value || "")
+    .trim()
+    .replace(CREATOR_FIELD_RE, "");
 }
 
-export function createCreatorFieldRoles(source: Partial<CreatorFieldRoles> = {}): CreatorFieldRoles {
+export function createCreatorFieldRoles(
+  source: Partial<CreatorFieldRoles> = {},
+): CreatorFieldRoles {
   const list = (values: unknown): string[] => {
     const out: string[] = [];
     for (const value of Array.isArray(values) ? values : []) {
@@ -369,13 +473,17 @@ export function createSourceCreatorFields(
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
 ): SourceCreatorFields {
   const out: SourceCreatorFields = {};
-  for (const profile of profiles) out[profile.key] = createCreatorFieldRoles(source[profile.key] || {});
-  for (const [key, value] of Object.entries(source)) out[normalizeSourceKey(key)] = createCreatorFieldRoles(value);
+  for (const profile of profiles)
+    out[profile.key] = createCreatorFieldRoles(source[profile.key] || {});
+  for (const [key, value] of Object.entries(source))
+    out[normalizeSourceKey(key)] = createCreatorFieldRoles(value);
   return out;
 }
 
 // Keep only user-set flags; untouched sources stay empty so the server applies rule defaults.
-function createTitleCleaning(source: Record<string, boolean | number> = {}): Record<string, boolean | number> {
+function createTitleCleaning(
+  source: Record<string, boolean | number> = {},
+): Record<string, boolean | number> {
   const out: Record<string, boolean | number> = {};
   for (const [key, value] of Object.entries(source || {})) {
     if (key === "max_chars") {
@@ -393,12 +501,16 @@ export function createSourceTitleCleaning(
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
 ): SourceTitleCleaning {
   const out: SourceTitleCleaning = {};
-  for (const profile of profiles) out[profile.key] = createTitleCleaning(source[profile.key] || {});
-  for (const [key, value] of Object.entries(source)) out[normalizeSourceKey(key)] = createTitleCleaning(value);
+  for (const profile of profiles)
+    out[profile.key] = createTitleCleaning(source[profile.key] || {});
+  for (const [key, value] of Object.entries(source))
+    out[normalizeSourceKey(key)] = createTitleCleaning(value);
   return out;
 }
 
-export function createCookiesStatus(source: Partial<CookiesStatus> = {}): CookiesStatus {
+export function createCookiesStatus(
+  source: Partial<CookiesStatus> = {},
+): CookiesStatus {
   return {
     configured: Boolean(source.configured),
     source: source.source || "none",
@@ -407,16 +519,23 @@ export function createCookiesStatus(source: Partial<CookiesStatus> = {}): Cookie
   };
 }
 
-export function isMenuKey(value: string | null, sourceProfiles: SourceProfile[] = []): value is MenuKey {
+export function isMenuKey(
+  value: string | null,
+  sourceProfiles: SourceProfile[] = [],
+): value is MenuKey {
   if (!value) return false;
-  return value === "all" || sourceProfiles.some((profile) => profile.key === value);
+  return (
+    value === "all" || sourceProfiles.some((profile) => profile.key === value)
+  );
 }
 
 export function isPageKey(value: string | null): value is PageKey {
   return PAGE_KEYS.includes(value as PageKey);
 }
 
-export function isSettingsSection(value: string | null): value is SettingsSection {
+export function isSettingsSection(
+  value: string | null,
+): value is SettingsSection {
   return (
     value === "account" ||
     value === "downloads" ||
@@ -424,6 +543,7 @@ export function isSettingsSection(value: string | null): value is SettingsSectio
     value === "quality" ||
     value === "folder-template" ||
     value === "filename-template" ||
+    value === "creator" ||
     value === "scraper"
   );
 }
@@ -458,4 +578,3 @@ export function countTasks(tasks: TaskItem[]): TaskCounts {
     failed: tasks.filter((task) => task.status === "failed").length,
   };
 }
-

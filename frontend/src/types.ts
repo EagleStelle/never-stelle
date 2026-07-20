@@ -4,7 +4,8 @@ export const PAGE_KEYS = ["downloads", "history", "settings"] as const;
 export type SourceKey = string;
 export type MenuKey = "all" | SourceKey;
 export type PageKey = (typeof PAGE_KEYS)[number];
-export type TaskStatus = "pending" | "running" | "completed" | "failed" | string;
+export type TaskStatus =
+  "pending" | "running" | "completed" | "failed" | string;
 export type TaskFilter = "all" | "active" | "done";
 export type MediaFilter = "all" | "image" | "video";
 export type ViewMode = "grid" | "table";
@@ -16,7 +17,7 @@ export type SettingsSection =
   | "quality"
   | "folder-template"
   | "filename-template"
-  | "fields"
+  | "creator"
   | "scraper";
 export type ToastType = "success" | "error";
 
@@ -55,7 +56,8 @@ export interface PlatformScrapeRules {
 }
 
 export type SourceScrapeRules = Record<string, PlatformScrapeRules>;
-export type TokenRole = "creator" | "nickname" | "title" | "slug" | "id" | "ignore";
+export type TokenRole =
+  "creator" | "nickname" | "title" | "slug" | "id" | "ignore";
 export type SourceTokenRoles = Record<string, Record<string, TokenRole>>;
 
 // Per source, the ordered field-preference lists for the username/nickname tokens.
@@ -65,7 +67,10 @@ export interface CreatorFieldRoles {
 }
 export type SourceCreatorFields = Record<string, CreatorFieldRoles>;
 // Per source, title-cleaning flags plus a numeric max_chars; missing keys use the rule default.
-export type SourceTitleCleaning = Record<string, Record<string, boolean | number>>;
+export type SourceTitleCleaning = Record<
+  string,
+  Record<string, boolean | number>
+>;
 
 export interface TitleCleaningRule {
   key: string;

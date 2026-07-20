@@ -4,7 +4,7 @@ import IconCookie from "~icons/material-symbols/cookie";
 import IconDescription from "~icons/material-symbols/description";
 import IconFolder from "~icons/material-symbols/folder";
 import IconQuality from "~icons/material-symbols/high-quality";
-import IconFields from "~icons/material-symbols/badge";
+import IconCreator from "~icons/material-symbols/badge";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconScraper from "~icons/material-symbols/travel-explore";
 
@@ -15,8 +15,8 @@ import Locations from "./sections/Settings/Locations.vue";
 import Quality from "./sections/Settings/Quality.vue";
 import Filename from "./sections/Templates/Filename.vue";
 import Folder from "./sections/Templates/Folder.vue";
-import Fields from "./sections/Templates/Fields.vue";
-import Scraper from "./sections/Templates/Scraper.vue";
+import Creator from "./sections/Metadata/Creator.vue";
+import Scraper from "./sections/Metadata/Scraper.vue";
 
 export interface SettingsSectionDef {
   key: SettingsSection;
@@ -70,6 +70,24 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     requiresSources: false,
   },
   {
+    key: "creator",
+    label: "Creator",
+    group: "Metadata",
+    icon: IconCreator,
+    component: Creator,
+    focusId: (source) => `${source}CreatorProbeInput`,
+    requiresSources: true,
+  },
+  {
+    key: "scraper",
+    label: "Scraper",
+    group: "Metadata",
+    icon: IconScraper,
+    component: Scraper,
+    focusId: (source) => `${source}ScraperProbeInput`,
+    requiresSources: true,
+  },
+  {
     key: "folder-template",
     label: "Folder",
     group: "Templates",
@@ -87,27 +105,13 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     focusId: (source) => `${source}FilenameTemplateInput`,
     requiresSources: true,
   },
-  {
-    key: "fields",
-    label: "Fields",
-    group: "Templates",
-    icon: IconFields,
-    component: Fields,
-    focusId: (source) => `${source}FieldsProbeInput`,
-    requiresSources: true,
-  },
-  {
-    key: "scraper",
-    label: "Scraper",
-    group: "Templates",
-    icon: IconScraper,
-    component: Scraper,
-    requiresSources: true,
-  },
 ];
 
 // Ordered group labels, first-seen order preserved.
-export const SETTINGS_SECTION_GROUPS: string[] = SETTINGS_SECTION_DEFS.reduce<string[]>(
-  (groups, def) => (groups.includes(def.group) ? groups : [...groups, def.group]),
+export const SETTINGS_SECTION_GROUPS: string[] = SETTINGS_SECTION_DEFS.reduce<
+  string[]
+>(
+  (groups, def) =>
+    groups.includes(def.group) ? groups : [...groups, def.group],
   [],
 );

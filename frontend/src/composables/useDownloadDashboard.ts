@@ -48,14 +48,17 @@ const SETTINGS_SLUG_BY_SECTION: Record<SettingsSection, string> = {
   downloads: "locations",
   cookies: "cookies",
   quality: "quality",
+  creator: "creator",
+  scraper: "scraper",
   "folder-template": "folder",
   "filename-template": "filename",
-  fields: "fields",
-  scraper: "scraper",
 };
 
 const SETTINGS_SECTION_BY_SLUG = Object.fromEntries(
-  Object.entries(SETTINGS_SLUG_BY_SECTION).map(([section, slug]) => [slug, section]),
+  Object.entries(SETTINGS_SLUG_BY_SECTION).map(([section, slug]) => [
+    slug,
+    section,
+  ]),
 ) as Record<string, SettingsSection>;
 
 function settingsSectionFromSlug(slug: string): SettingsSection {
@@ -64,7 +67,8 @@ function settingsSectionFromSlug(slug: string): SettingsSection {
 
 function sourceInitials(label: string): string {
   const parts = label.trim().split(/\s+/).filter(Boolean);
-  const value = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : label.slice(0, 2);
+  const value =
+    parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : label.slice(0, 2);
   return value.toUpperCase() || "?";
 }
 
@@ -75,40 +79,65 @@ export function useDownloadDashboard() {
   const url = ref("");
   // Per-download override: follows the settings default until the user edits it,
   // then sticks for the session and never writes back to settings.
-  const downloadSelection = reactive<QualitySelection>(createQualitySelection());
+  const downloadSelection = reactive<QualitySelection>(
+    createQualitySelection(),
+  );
   const downloadQualityTouched = ref(false);
   const qualityOptions = computed(() => settingsState.settings.quality_options);
   function setDownloadQuality(selection: QualitySelection): void {
     downloadQualityTouched.value = true;
-    Object.assign(downloadSelection, createQualitySelection(selection, qualityOptions.value));
+    Object.assign(
+      downloadSelection,
+      createQualitySelection(selection, qualityOptions.value),
+    );
   }
   const taskQueue = useTaskQueue({
     getSavedSettings: settingsState.getSavedSettings,
-    getQuality: () => createQualitySelection(downloadSelection, qualityOptions.value),
+    getQuality: () =>
+      createQualitySelection(downloadSelection, qualityOptions.value),
     toast: sonner.toast,
     url,
   });
   watch(
     () => settingsState.settings.default_quality,
     (value) => {
-      if (!downloadQualityTouched.value) Object.assign(downloadSelection, createQualitySelection(value, qualityOptions.value));
+      if (!downloadQualityTouched.value)
+        Object.assign(
+          downloadSelection,
+          createQualitySelection(value, qualityOptions.value),
+        );
     },
     { deep: true, immediate: true },
   );
   watch(
     qualityOptions,
     (value) => {
-      Object.assign(downloadSelection, createQualitySelection(downloadSelection, value));
+      Object.assign(
+        downloadSelection,
+        createQualitySelection(downloadSelection, value),
+      );
     },
     { deep: true },
   );
 
-  const activePage = useLocalStorage<PageKey>("neverstelle.activePage", "downloads");
+  const activePage = useLocalStorage<PageKey>(
+    "neverstelle.activePage",
+    "downloads",
+  );
   const activeMenu = useLocalStorage<MenuKey>("neverstelle.activeMenu", "all");
-  const activeFilter = useLocalStorage<TaskFilter>("neverstelle.activeFilter", "all");
-  const mediaFilter = useLocalStorage<MediaFilter>("neverstelle.mediaFilter", "all");
+  const activeFilter = useLocalStorage<TaskFilter>(
+    "neverstelle.activeFilter",
+    "all",
+  );
+  const mediaFilter = useLocalStorage<MediaFilter>(
+    "neverstelle.mediaFilter",
+    "all",
+  );
   const viewMode = useLocalStorage<ViewMode>("neverstelle.viewMode", "grid");
-  const themeMode = useLocalStorage<"light" | "dark">("neverstelle.themeMode", "dark");
+  const themeMode = useLocalStorage<"light" | "dark">(
+    "neverstelle.themeMode",
+    "dark",
+  );
 
   if (!isPageKey(activePage.value)) activePage.value = "downloads";
   if (activePage.value === "settings") activePage.value = "downloads";
@@ -118,8 +147,12 @@ export function useDownloadDashboard() {
   if (themeMode.value !== "light") themeMode.value = "dark";
 
   // History is server-paginated; source + text search run in SQL, media filter client-side below.
-  const historySourceKey = computed(() => (activeMenu.value === "all" ? "" : activeMenu.value));
-  const historyEnabled = computed(() => auth.authenticated.value && activePage.value === "history");
+  const historySourceKey = computed(() =>
+    activeMenu.value === "all" ? "" : activeMenu.value,
+  );
+  const historyEnabled = computed(
+    () => auth.authenticated.value && activePage.value === "history",
+  );
   // User input drives historySearch; historySearchQuery drives the query key.
   const historySearch = ref("");
   const historySearchQuery = ref("");
@@ -141,7 +174,9 @@ export function useDownloadDashboard() {
           label: sourceLabelFromKey(key),
           hosts: [],
           icon: "",
-          icon_url: faviconUrlForHost(hostFromUrl(String(task.source_url || ""))),
+          icon_url: faviconUrlForHost(
+            hostFromUrl(String(task.source_url || "")),
+          ),
         };
       })
       .filter((profile) => profile.key),
@@ -150,10 +185,20 @@ export function useDownloadDashboard() {
   const menuKeyProfiles = computed<SourceProfile[]>(() =>
     Object.keys(taskQueue.countsByMenu.value)
       .filter((key) => key !== "all")
-      .map((key) => ({ key, label: sourceLabelFromKey(key), hosts: [], icon: "", icon_url: "" })),
+      .map((key) => ({
+        key,
+        label: sourceLabelFromKey(key),
+        hosts: [],
+        icon: "",
+        icon_url: "",
+      })),
   );
   const sourceProfiles = computed<SourceProfile[]>(() =>
-    mergeSourceProfiles(settingsState.sourceProfiles.value, taskSourceProfiles.value, menuKeyProfiles.value),
+    mergeSourceProfiles(
+      settingsState.sourceProfiles.value,
+      taskSourceProfiles.value,
+      menuKeyProfiles.value,
+    ),
   );
 
   const isLightMode = computed(() => themeMode.value === "light");
@@ -162,7 +207,9 @@ export function useDownloadDashboard() {
     ...sourceProfiles.value.map((profile) => ({
       key: profile.key,
       label: profile.label,
-      icon: SOURCE_ICON_COMPONENTS[profile.icon || profile.key] || FALLBACK_SOURCE_ICON,
+      icon:
+        SOURCE_ICON_COMPONENTS[profile.icon || profile.key] ||
+        FALLBACK_SOURCE_ICON,
       iconUrl: profile.icon_url || "",
       initials: sourceInitials(profile.label),
     })),
@@ -173,44 +220,84 @@ export function useDownloadDashboard() {
   ]);
   const menuTasks = computed(() => {
     const tasks = taskQueue.taskItems.value;
-    return activeMenu.value === "all" ? tasks : tasks.filter((task) => (task.source_key || "others") === activeMenu.value);
+    return activeMenu.value === "all"
+      ? tasks
+      : tasks.filter(
+          (task) => (task.source_key || "others") === activeMenu.value,
+        );
   });
   const mediaTasks = computed(() =>
     mediaFilter.value === "all"
       ? menuTasks.value
-      : menuTasks.value.filter((task) => mediaKindForTask(task) === mediaFilter.value),
+      : menuTasks.value.filter(
+          (task) => mediaKindForTask(task) === mediaFilter.value,
+        ),
   );
   const mediaFilterItems = computed(() => [
     { key: "all", label: "All media", icon: IconMedia },
     { key: "video", label: "Video", icon: IconVideo },
     { key: "image", label: "Images", icon: IconImage },
   ]);
-  const activeTasks = computed(() => mediaTasks.value.filter((task) => ["pending", "running", "failed"].includes(task.status)));
+  const activeTasks = computed(() =>
+    mediaTasks.value.filter((task) =>
+      ["pending", "running", "failed"].includes(task.status),
+    ),
+  );
   // History entries arrive already source-filtered from the server; apply the media filter here.
   const completedTasks = computed(() =>
     mediaFilter.value === "all"
       ? history.entries.value
-      : history.entries.value.filter((task) => mediaKindForTask(task) === mediaFilter.value),
+      : history.entries.value.filter(
+          (task) => mediaKindForTask(task) === mediaFilter.value,
+        ),
   );
   const countsForActiveMenu = computed<TaskCounts>(
-    () => taskQueue.countsByMenu.value[activeMenu.value] || { queued: 0, running: 0, completed: 0, failed: 0 },
+    () =>
+      taskQueue.countsByMenu.value[activeMenu.value] || {
+        queued: 0,
+        running: 0,
+        completed: 0,
+        failed: 0,
+      },
   );
   const activeMenuLabel = computed(() => {
     if (activeMenu.value === "all") return "All";
-    return sourceProfiles.value.find((profile) => profile.key === activeMenu.value)?.label || "matching";
+    return (
+      sourceProfiles.value.find((profile) => profile.key === activeMenu.value)
+        ?.label || "matching"
+    );
   });
   const countCards = computed(() => [
-    { label: "Queued", value: countsForActiveMenu.value.queued, icon: COUNT_ICONS.queued },
-    { label: "Active", value: countsForActiveMenu.value.running, icon: COUNT_ICONS.running },
-    { label: "Done", value: countsForActiveMenu.value.completed, icon: COUNT_ICONS.completed },
-    { label: "Failed", value: countsForActiveMenu.value.failed, icon: COUNT_ICONS.failed },
+    {
+      label: "Queued",
+      value: countsForActiveMenu.value.queued,
+      icon: COUNT_ICONS.queued,
+    },
+    {
+      label: "Active",
+      value: countsForActiveMenu.value.running,
+      icon: COUNT_ICONS.running,
+    },
+    {
+      label: "Done",
+      value: countsForActiveMenu.value.completed,
+      icon: COUNT_ICONS.completed,
+    },
+    {
+      label: "Failed",
+      value: countsForActiveMenu.value.failed,
+      icon: COUNT_ICONS.failed,
+    },
   ]);
 
   let applyingRoute = false;
 
   // Base page always owns the path; the open settings pane rides as a query param.
   function routeFor(): string {
-    const base = activePage.value === "history" ? PAGE_ROUTES.history : PAGE_ROUTES.downloads;
+    const base =
+      activePage.value === "history"
+        ? PAGE_ROUTES.history
+        : PAGE_ROUTES.downloads;
     if (!settingsState.settingsOpen.value) return base;
     const slug = SETTINGS_SLUG_BY_SECTION[settingsState.settingsSection.value];
     return slug ? `${base}?settings=${slug}` : base;
@@ -219,8 +306,11 @@ export function useDownloadDashboard() {
   function applyCurrentRoute(): void {
     const path = window.location.pathname || "/";
     // Accept legacy /settings/<slug> deep-links as a page + open the modal over it.
-    const legacy = path.startsWith("/settings") ? path.split("/").filter(Boolean).at(-1) || "account" : null;
-    const slug = legacy ?? new URLSearchParams(window.location.search).get("settings");
+    const legacy = path.startsWith("/settings")
+      ? path.split("/").filter(Boolean).at(-1) || "account"
+      : null;
+    const slug =
+      legacy ?? new URLSearchParams(window.location.search).get("settings");
     applyingRoute = true;
     activePage.value = path.startsWith("/history") ? "history" : "downloads";
     if (slug !== null) {
@@ -265,7 +355,10 @@ export function useDownloadDashboard() {
     viewMode.value = mode;
   }
 
-  function setSettingsSection(section: SettingsSection, shouldFocus = false): void {
+  function setSettingsSection(
+    section: SettingsSection,
+    shouldFocus = false,
+  ): void {
     settingsState.setSettingsSection(section, shouldFocus);
   }
 
@@ -299,7 +392,8 @@ export function useDownloadDashboard() {
   );
   watch(
     themeMode,
-    (mode) => document.documentElement.classList.toggle("light-mode", mode === "light"),
+    (mode) =>
+      document.documentElement.classList.toggle("light-mode", mode === "light"),
     { immediate: true },
   );
   useEventListener(window, "popstate", applyCurrentRoute);

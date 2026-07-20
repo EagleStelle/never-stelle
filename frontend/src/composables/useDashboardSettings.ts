@@ -2,7 +2,12 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { watchDebounced } from "@vueuse/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 
-import { deletePlatformCookies, getUiConfig, saveSettings, uploadPlatformCookies } from "../api";
+import {
+  deletePlatformCookies,
+  getUiConfig,
+  saveSettings,
+  uploadPlatformCookies,
+} from "../api";
 import { useAuth } from "./useAuth";
 import { DEFAULT_SOURCE_PROFILES, UI_CONFIG_QUERY_KEY } from "../ui";
 import type {
@@ -39,16 +44,29 @@ import {
   settingsManagedSourceProfiles,
 } from "../utils/dashboard";
 
-function replaceRecord<T>(target: Record<string, T>, source: Record<string, T>): void {
+function replaceRecord<T>(
+  target: Record<string, T>,
+  source: Record<string, T>,
+): void {
   for (const key of Object.keys(target)) delete target[key];
   Object.assign(target, source);
 }
 
-function replaceProfiles(target: SourceProfile[], source: SourceProfile[]): void {
-  target.splice(0, target.length, ...source.map((profile) => createSourceProfile(profile)));
+function replaceProfiles(
+  target: SourceProfile[],
+  source: SourceProfile[],
+): void {
+  target.splice(
+    0,
+    target.length,
+    ...source.map((profile) => createSourceProfile(profile)),
+  );
 }
 
-function recordForProfiles<T>(source: Record<string, T> = {}, profiles: SourceProfile[]): Record<string, T> {
+function recordForProfiles<T>(
+  source: Record<string, T> = {},
+  profiles: SourceProfile[],
+): Record<string, T> {
   const keys = new Set(profiles.map((profile) => profile.key));
   return Object.fromEntries(
     Object.entries(source).filter(([key]) => keys.has(normalizeSourceKey(key))),
@@ -59,8 +77,13 @@ function createCookiesMap(
   source: Record<string, Partial<CookiesStatus>> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
 ): CookiesMap {
-  const keys = new Set([...profiles.map((profile) => profile.key), ...Object.keys(source).map(normalizeSourceKey)]);
-  return Object.fromEntries([...keys].map((key) => [key, createCookiesStatus(source[key] || {})])) as CookiesMap;
+  const keys = new Set([
+    ...profiles.map((profile) => profile.key),
+    ...Object.keys(source).map(normalizeSourceKey),
+  ]);
+  return Object.fromEntries(
+    [...keys].map((key) => [key, createCookiesStatus(source[key] || {})]),
+  ) as CookiesMap;
 }
 
 interface UseDashboardSettingsOptions {
@@ -124,32 +147,67 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   });
   const saveSettingsMutation = useMutation({ mutationFn: saveSettings });
   const uploadCookiesMutation = useMutation({
-    mutationFn: ({ platform, file, source }: { platform: string; file: File; source?: string }) =>
-      uploadPlatformCookies(platform, file, source),
+    mutationFn: ({
+      platform,
+      file,
+      source,
+    }: {
+      platform: string;
+      file: File;
+      source?: string;
+    }) => uploadPlatformCookies(platform, file, source),
   });
-  const deleteCookiesMutation = useMutation({ mutationFn: (platform: string) => deletePlatformCookies(platform) });
+  const deleteCookiesMutation = useMutation({
+    mutationFn: (platform: string) => deletePlatformCookies(platform),
+  });
 
-  const sourceProfiles = computed<SourceProfile[]>(() => mergeSourceProfiles(settings.source_profiles));
+  const sourceProfiles = computed<SourceProfile[]>(() =>
+    mergeSourceProfiles(settings.source_profiles),
+  );
   const savedSettings = computed<SavedSettings>(() => getSavedSettings());
   const cookieStatuses = computed<CookiesMap>(() => settings.ytdlp_cookies);
 
   function normalizeSavedPayload(source: SavedSettings): SavedSettings {
-    const profiles = settingsManagedSourceProfiles(mergeSourceProfiles(DEFAULT_SOURCE_PROFILES, source.source_profiles));
+    const profiles = settingsManagedSourceProfiles(
+      mergeSourceProfiles(DEFAULT_SOURCE_PROFILES, source.source_profiles),
+    );
     const templateSettings = createTemplateSettings(source.template_settings);
     return {
       source_profiles: profiles,
-      site_locations: createSourceLocations(recordForProfiles(source.site_locations, profiles), profiles),
+      site_locations: createSourceLocations(
+        recordForProfiles(source.site_locations, profiles),
+        profiles,
+      ),
       template_settings: templateSettings,
-      source_templates: createSourceTemplates(recordForProfiles(source.source_templates, profiles), profiles, templateSettings),
-      default_quality: createQualitySelection(source.default_quality, settings.quality_options),
-      source_scrape_rules: createSourceScrapeRules(recordForProfiles(source.source_scrape_rules, profiles), profiles),
-      source_token_roles: createSourceTokenRoles(source.source_token_roles as SourceTokenRoles, profiles),
+      source_templates: createSourceTemplates(
+        recordForProfiles(source.source_templates, profiles),
+        profiles,
+        templateSettings,
+      ),
+      default_quality: createQualitySelection(
+        source.default_quality,
+        settings.quality_options,
+      ),
+      source_scrape_rules: createSourceScrapeRules(
+        recordForProfiles(source.source_scrape_rules, profiles),
+        profiles,
+      ),
+      source_token_roles: createSourceTokenRoles(
+        source.source_token_roles as SourceTokenRoles,
+        profiles,
+      ),
       source_creator_fields: createSourceCreatorFields(
-        recordForProfiles(source.source_creator_fields as SourceCreatorFields, profiles),
+        recordForProfiles(
+          source.source_creator_fields as SourceCreatorFields,
+          profiles,
+        ),
         profiles,
       ),
       source_title_cleaning: createSourceTitleCleaning(
-        recordForProfiles(source.source_title_cleaning as SourceTitleCleaning, profiles),
+        recordForProfiles(
+          source.source_title_cleaning as SourceTitleCleaning,
+          profiles,
+        ),
         profiles,
       ),
     };
@@ -157,7 +215,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
 
   function getSavedSettings(): SavedSettings {
     const profiles = settingsManagedSourceProfiles(
-      mergeSourceProfiles(DEFAULT_SOURCE_PROFILES, defaults.source_profiles, settings.source_profiles),
+      mergeSourceProfiles(
+        DEFAULT_SOURCE_PROFILES,
+        defaults.source_profiles,
+        settings.source_profiles,
+      ),
     );
     const templateSettings = createTemplateSettings({
       ...defaults.template_settings,
@@ -166,33 +228,66 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     return {
       source_profiles: profiles,
       site_locations: createSourceLocations(
-        recordForProfiles({ ...defaults.site_locations, ...settings.site_locations } as SourceLocations, profiles),
+        recordForProfiles(
+          {
+            ...defaults.site_locations,
+            ...settings.site_locations,
+          } as SourceLocations,
+          profiles,
+        ),
         profiles,
       ),
       template_settings: templateSettings,
       source_templates: createSourceTemplates(
-        recordForProfiles({ ...defaults.source_templates, ...settings.source_templates } as SourceTemplates, profiles),
+        recordForProfiles(
+          {
+            ...defaults.source_templates,
+            ...settings.source_templates,
+          } as SourceTemplates,
+          profiles,
+        ),
         profiles,
         templateSettings,
       ),
-      default_quality: createQualitySelection({
-        ...defaults.default_quality,
-        ...settings.default_quality,
-      }, settings.quality_options),
+      default_quality: createQualitySelection(
+        {
+          ...defaults.default_quality,
+          ...settings.default_quality,
+        },
+        settings.quality_options,
+      ),
       source_scrape_rules: createSourceScrapeRules(
-        recordForProfiles({ ...defaults.source_scrape_rules, ...settings.source_scrape_rules }, profiles),
+        recordForProfiles(
+          { ...defaults.source_scrape_rules, ...settings.source_scrape_rules },
+          profiles,
+        ),
         profiles,
       ),
       source_token_roles: createSourceTokenRoles(
-        { ...defaults.source_token_roles, ...settings.source_token_roles } as SourceTokenRoles,
+        {
+          ...defaults.source_token_roles,
+          ...settings.source_token_roles,
+        } as SourceTokenRoles,
         profiles,
       ),
       source_creator_fields: createSourceCreatorFields(
-        recordForProfiles({ ...defaults.source_creator_fields, ...settings.source_creator_fields }, profiles),
+        recordForProfiles(
+          {
+            ...defaults.source_creator_fields,
+            ...settings.source_creator_fields,
+          },
+          profiles,
+        ),
         profiles,
       ),
       source_title_cleaning: createSourceTitleCleaning(
-        recordForProfiles({ ...defaults.source_title_cleaning, ...settings.source_title_cleaning }, profiles),
+        recordForProfiles(
+          {
+            ...defaults.source_title_cleaning,
+            ...settings.source_title_cleaning,
+          },
+          profiles,
+        ),
         profiles,
       ),
     };
@@ -204,16 +299,34 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       password_configured: Boolean(data.auth?.password_configured),
     };
 
-    const profiles = mergeSourceProfiles(DEFAULT_SOURCE_PROFILES, data.source_profiles);
+    const profiles = mergeSourceProfiles(
+      DEFAULT_SOURCE_PROFILES,
+      data.source_profiles,
+    );
     const managedProfiles = settingsManagedSourceProfiles(profiles);
     replaceProfiles(defaults.source_profiles, profiles);
     replaceProfiles(settings.source_profiles, profiles);
 
-    const locations = data.source_default_locations || data.site_default_locations || {};
-    replaceRecord(defaults.site_locations, createSourceLocations(recordForProfiles(locations, managedProfiles), managedProfiles));
-    replaceRecord(settings.site_locations, createSourceLocations(recordForProfiles(locations, managedProfiles), managedProfiles));
+    const locations =
+      data.source_default_locations || data.site_default_locations || {};
+    replaceRecord(
+      defaults.site_locations,
+      createSourceLocations(
+        recordForProfiles(locations, managedProfiles),
+        managedProfiles,
+      ),
+    );
+    replaceRecord(
+      settings.site_locations,
+      createSourceLocations(
+        recordForProfiles(locations, managedProfiles),
+        managedProfiles,
+      ),
+    );
 
-    const templateSettings = createTemplateSettings(data.template_settings || {});
+    const templateSettings = createTemplateSettings(
+      data.template_settings || {},
+    );
     Object.assign(defaults.template_settings, templateSettings);
     Object.assign(settings.template_settings, templateSettings);
 
@@ -253,19 +366,36 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     replaceRecord(defaults.source_title_cleaning, titleCleaning);
     replaceRecord(settings.source_title_cleaning, titleCleaning);
 
-    settings.creator_field_defaults = createCreatorFieldRoles(data.creator_field_defaults || {});
-    settings.title_cleaning_rules = Array.isArray(data.title_cleaning_rules) ? data.title_cleaning_rules : [];
+    settings.creator_field_defaults = createCreatorFieldRoles(
+      data.creator_field_defaults || {},
+    );
+    settings.title_cleaning_rules = Array.isArray(data.title_cleaning_rules)
+      ? data.title_cleaning_rules
+      : [];
 
     const qualityOptions = createQualityOptions(data.quality_options || {});
     settings.quality_options = qualityOptions;
 
-    const defaultQuality = createQualitySelection(data.default_quality || {}, qualityOptions);
+    const defaultQuality = createQualitySelection(
+      data.default_quality || {},
+      qualityOptions,
+    );
     Object.assign(defaults.default_quality, defaultQuality);
     Object.assign(settings.default_quality, defaultQuality);
 
-    settings.template_tokens = Array.isArray(data.template_tokens) ? data.template_tokens : [];
-    settings.download_locations = Array.isArray(data.download_locations) ? data.download_locations : [];
-    replaceRecord(settings.ytdlp_cookies, createCookiesMap(recordForProfiles(data.ytdlp_cookies || {}, managedProfiles), managedProfiles));
+    settings.template_tokens = Array.isArray(data.template_tokens)
+      ? data.template_tokens
+      : [];
+    settings.download_locations = Array.isArray(data.download_locations)
+      ? data.download_locations
+      : [];
+    replaceRecord(
+      settings.ytdlp_cookies,
+      createCookiesMap(
+        recordForProfiles(data.ytdlp_cookies || {}, managedProfiles),
+        managedProfiles,
+      ),
+    );
   }
 
   function cacheUiConfig(data: UiConfigResponse): void {
@@ -273,7 +403,10 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     queryClient.setQueryData(UI_CONFIG_QUERY_KEY, data);
   }
 
-  async function persistSettings(payload: SavedSettings, successMessage = ""): Promise<void> {
+  async function persistSettings(
+    payload: SavedSettings,
+    successMessage = "",
+  ): Promise<void> {
     cacheUiConfig(await saveSettingsMutation.mutateAsync(payload));
     if (successMessage) toast(successMessage);
   }
@@ -283,44 +416,68 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     const normalized = normalizeSavedPayload(current);
     replaceProfiles(settingsDraft.source_profiles, normalized.source_profiles);
     replaceRecord(settingsDraft.site_locations, normalized.site_locations);
-    Object.assign(settingsDraft.template_settings, normalized.template_settings);
+    Object.assign(
+      settingsDraft.template_settings,
+      normalized.template_settings,
+    );
     replaceRecord(settingsDraft.source_templates, normalized.source_templates);
     Object.assign(settingsDraft.default_quality, normalized.default_quality);
-    replaceRecord(settingsDraft.source_scrape_rules, normalized.source_scrape_rules);
-    replaceRecord(settingsDraft.source_token_roles, normalized.source_token_roles);
-    replaceRecord(settingsDraft.source_creator_fields, normalized.source_creator_fields);
-    replaceRecord(settingsDraft.source_title_cleaning, normalized.source_title_cleaning);
+    replaceRecord(
+      settingsDraft.source_scrape_rules,
+      normalized.source_scrape_rules,
+    );
+    replaceRecord(
+      settingsDraft.source_token_roles,
+      normalized.source_token_roles,
+    );
+    replaceRecord(
+      settingsDraft.source_creator_fields,
+      normalized.source_creator_fields,
+    );
+    replaceRecord(
+      settingsDraft.source_title_cleaning,
+      normalized.source_title_cleaning,
+    );
     lastSavedSnapshot = JSON.stringify(normalizeSavedPayload(settingsDraft));
   }
 
-  function setSettingsSection(section: SettingsSection, shouldFocus = false): void {
+  function setSettingsSection(
+    section: SettingsSection,
+    shouldFocus = false,
+  ): void {
     settingsSection.value = section;
     if (!shouldFocus) return;
-    const firstSource = settingsManagedSourceProfiles(sourceProfiles.value)[0]?.key || "settings";
+    const firstSource =
+      settingsManagedSourceProfiles(sourceProfiles.value)[0]?.key || "settings";
     const focusTargets: Record<SettingsSection, string> = {
       account: "accountUsernameInput",
       downloads: `${firstSource}LocationInput`,
       cookies: `${firstSource}CookiesInput`,
       quality: "defaultQualityMode",
+      creator: `${firstSource}CreatorProbeInput`,
+      scraper: `${firstSource}ScraperProbeInput`,
       "folder-template": `${firstSource}FolderTemplateInput`,
       "filename-template": `${firstSource}FilenameTemplateInput`,
-      fields: `${firstSource}FieldsProbeInput`,
-      scraper: `${firstSource}ScraperEnable`,
     };
-    void nextTick(() => document.getElementById(focusTargets[settingsSection.value])?.focus());
+    void nextTick(() =>
+      document.getElementById(focusTargets[settingsSection.value])?.focus(),
+    );
   }
 
-  function openSettings(event?: Event, section: SettingsSection = "downloads"): void {
-    lastFocusedTrigger.value = event?.currentTarget instanceof HTMLElement
-      ? event.currentTarget
-      : document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
+  function openSettings(
+    event?: Event,
+    section: SettingsSection = "downloads",
+  ): void {
+    lastFocusedTrigger.value =
+      event?.currentTarget instanceof HTMLElement
+        ? event.currentTarget
+        : document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
     copySettingsToDraft();
     settingsOpen.value = true;
     setSettingsSection(section, true);
   }
-
 
   function closeSettings(): void {
     settingsOpen.value = false;
@@ -349,14 +506,22 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       return;
     }
     try {
-      cacheUiConfig(await uploadCookiesMutation.mutateAsync({ platform: normalizeSourceKey(platform), file }));
+      cacheUiConfig(
+        await uploadCookiesMutation.mutateAsync({
+          platform: normalizeSourceKey(platform),
+          file,
+        }),
+      );
       toast("Cookies connected.");
     } catch (error) {
       toast(errorMessage(error, "Could not connect cookies."), "error");
     }
   }
 
-  async function connectCookiesForSource(source: string, file?: File): Promise<void> {
+  async function connectCookiesForSource(
+    source: string,
+    file?: File,
+  ): Promise<void> {
     if (!source.trim()) {
       toast("Paste a link or domain first.", "error");
       return;
@@ -366,7 +531,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       return;
     }
     try {
-      cacheUiConfig(await uploadCookiesMutation.mutateAsync({ platform: "others", file, source: source.trim() }));
+      cacheUiConfig(
+        await uploadCookiesMutation.mutateAsync({
+          platform: "others",
+          file,
+          source: source.trim(),
+        }),
+      );
       toast("Cookies connected.");
     } catch (error) {
       toast(errorMessage(error, "Could not connect cookies."), "error");
@@ -403,7 +574,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   });
 
   const hasUnsavedChanges = computed(() => {
-    return JSON.stringify(normalizeSavedPayload(settingsDraft)) !== lastSavedSnapshot;
+    return (
+      JSON.stringify(normalizeSavedPayload(settingsDraft)) !== lastSavedSnapshot
+    );
   });
 
   return {

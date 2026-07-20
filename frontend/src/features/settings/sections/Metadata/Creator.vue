@@ -16,9 +16,9 @@ import {
   TableRow,
 } from "../../../../components/ui/table";
 import {
-  useFieldsSettings,
+  useCreatorSettings,
   type CreatorRole,
-} from "../../composables/useFieldsSettings";
+} from "../../composables/useCreatorSettings";
 import { useSettingsContext } from "../../context";
 import SettingsRow from "../../SettingsRow.vue";
 import {
@@ -48,7 +48,7 @@ const {
   maxChars,
   setMaxChars,
   runProbe,
-} = useFieldsSettings(settingsDraft, settings, editableSourceProfiles);
+} = useCreatorSettings(settingsDraft, settings, editableSourceProfiles);
 
 // Native drag-and-drop reordering, scoped to one (source, role) list at a time.
 const drag = reactive<{
@@ -125,7 +125,7 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
           <SettingsRow label="Probe URL">
             <div class="flex items-center gap-2 w-full">
               <Input
-                :id="`${site.key}FieldsProbeInput`"
+                :id="`${site.key}CreatorProbeInput`"
                 v-model="probes[site.key].url"
                 type="text"
                 inputmode="url"

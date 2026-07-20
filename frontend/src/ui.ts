@@ -39,17 +39,25 @@ export const REUSED_TASK_FALLBACK = "Already in your list.";
 // the only feedback: the row never reaches the queue.
 export const QUEUE_FAILED_MESSAGE = "Could not queue.";
 
-export const SETTINGS_SECTIONS: Array<{ key: SettingsSection; label: string; route: string }> = [
+export const SETTINGS_SECTIONS: Array<{
+  key: SettingsSection;
+  label: string;
+  route: string;
+}> = [
   { key: "account", label: "Account", route: "/settings/account" },
   { key: "downloads", label: "Locations", route: "/settings/locations" },
   { key: "cookies", label: "Cookies", route: "/settings/cookies" },
   { key: "quality", label: "Quality", route: "/settings/quality" },
+  { key: "creator", label: "Creator", route: "/settings/creator" },
+  { key: "scraper", label: "Scraper", route: "/settings/scraper" },
   { key: "folder-template", label: "Folder", route: "/settings/folder" },
   { key: "filename-template", label: "Filename", route: "/settings/filename" },
-  { key: "scraper", label: "Scraper", route: "/settings/scraper" },
 ];
 
-export const COUNT_ICONS: Record<"queued" | "running" | "completed" | "failed", Component> = {
+export const COUNT_ICONS: Record<
+  "queued" | "running" | "completed" | "failed",
+  Component
+> = {
   queued: IconClock,
   running: IconSpinner,
   completed: IconCheck,

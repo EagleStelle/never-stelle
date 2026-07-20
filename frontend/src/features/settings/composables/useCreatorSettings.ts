@@ -33,7 +33,7 @@ const FALLBACK_TITLE_LENGTH_RULE: TitleCleaningRule = {
 };
 
 // Per-source username/nickname field lists, title-cleaning toggles, and the field probe.
-export function useFieldsSettings(
+export function useCreatorSettings(
   settingsDraft: SavedSettings,
   settings: RuntimeSettings,
   editableSourceProfiles: ComputedRef<SourceProfile[]>,
