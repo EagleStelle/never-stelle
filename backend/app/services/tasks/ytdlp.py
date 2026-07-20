@@ -85,9 +85,8 @@ _YTDLP_FIELD = {
     "title": "%(title|Unknown)s",
     "id": "%(id|NA)s",
     "quality": "%(format_id,format_note,resolution|Unknown)s",
-    "source": "%(format_id,format_note,resolution|Unknown)s",
-    "ext": "%(ext)s",
 }
+_REMOVED_TEMPLATE_FIELDS = {"source", "ext"}
 
 
 def _creator_field_list(creator_fields: dict[str, Any] | None, role: str) -> list[str] | None:
@@ -118,6 +117,8 @@ def _yt_dlp_field(
         return ytdlp_username_field(_creator_field_list(creator_fields, "username"))
     if field == "nickname":
         return ytdlp_nickname_field(_creator_field_list(creator_fields, "nickname"))
+    if field in _REMOVED_TEMPLATE_FIELDS:
+        return ""
     return _YTDLP_FIELD.get(field, f"%({name}|Unknown)s")
 
 

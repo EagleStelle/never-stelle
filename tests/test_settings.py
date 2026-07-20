@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import backend.app.services.auth as auth_module
 import backend.app.services.settings as settings_module
 import backend.app.services.tasks.planning as planning_module
 from backend.app.services.settings import (
@@ -39,6 +40,40 @@ def test_normalize_template_keeps_custom_values():
     )
     assert result["folder_template"] == "{{username}}"
     assert result["filename_template"] == "{{title}}"
+
+
+def test_settings_response_exposes_supported_template_tokens_only(monkeypatch):
+    monkeypatch.setattr(
+        auth_module,
+        "auth_public_payload",
+        lambda: {"username": "", "password_configured": False},
+    )
+    monkeypatch.setattr(settings_module, "get_effective_source_profiles", lambda *args, **kwargs: [])
+    monkeypatch.setattr(settings_module, "get_ytdlp_cookies_status", lambda *args, **kwargs: {})
+    monkeypatch.setattr(settings_module, "get_effective_scrape_rules", lambda *args, **kwargs: {})
+    monkeypatch.setattr(settings_module, "get_effective_token_roles", lambda *args, **kwargs: {})
+
+    response = settings_module.build_settings_response(
+        {"downloadLocations": []},
+        {
+            "source_profiles": [],
+            "site_locations": {},
+            "template_settings": normalize_template_settings({}),
+            "source_templates": {},
+            "ytdlp_cookies": {},
+            "source_scrape_rules": {},
+            "source_token_roles": {},
+        },
+    )
+
+    assert [token["key"] for token in response["template_tokens"]] == [
+        "username",
+        "nickname",
+        "title",
+        "slug",
+        "id",
+        "quality",
+    ]
 
 
 def test_normalize_source_token_roles_keeps_known_roles():

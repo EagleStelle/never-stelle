@@ -217,20 +217,21 @@ Output folders and filenames are built from placeholders. Supported placeholders
 | `{{username}}` | Uploader handle.                |
 | `{{nickname}}` | Uploader display name.          |
 | `{{title}}`    | Media title.                    |
-| `{{slug}}`     | Descriptive slug from the URL.  |
+| `{{slug}}`     | Descriptive slug from the URL path. |
 | `{{id}}`       | Media id.                       |
 | `{{quality}}`  | Selected quality (`source` for best). |
-| `{{source}}`   | Alias for `{{quality}}`.        |
-| `{{ext}}`      | File extension.                 |
 
 `{{username}}` resolves to the handle from the URL when present, else the engine's
 handle field; `{{nickname}}` resolves to the display name. On platforms without a
 distinct handle or display name, both fall back to whatever the extractor provides.
 
-`{{slug}}` resolves to the descriptive slug in the URL path (e.g. a
-`.../video/<id>/<slug>/` path yields the `<slug>` segment), detected dynamically
-with no per-site rules. It is empty for URLs that carry no slug, so pair it with a
-fallback like `{{title}}`.
+`{{slug}}` is derived from the source URL, not from `yt-dlp` or `gallery-dl`
+metadata. A `.../video/<id>/<slug>/` path yields the `<slug>` segment; URLs with
+no descriptive path segment leave it empty, so pair it with a fallback like
+`{{title}}`.
+
+File extensions are appended by the downloader output builders automatically, so
+templates do not need an extension placeholder.
 
 Defaults:
 

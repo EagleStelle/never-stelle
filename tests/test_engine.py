@@ -12,6 +12,7 @@ from backend.app.services.tasks.constants import (
     default_quality_selection,
     normalize_quality_selection,
     quality_options,
+    template_tokens,
 )
 from backend.app.services.tasks.engine import all_engines
 from backend.app.services.tasks.worker import _count_progress, _looks_unsupported, _should_try_next_engine
@@ -61,6 +62,17 @@ def test_quality_options_expose_all_pickers():
     by_key = {o["key"]: o for o in options["video_containers"]}
     assert set(by_key["webm"]["codecs"]) == {"av1", "vp9"}
     assert "vp9" not in by_key["mp4"]["codecs"]
+
+
+def test_template_tokens_expose_supported_public_tokens_only():
+    assert [token["key"] for token in template_tokens()] == [
+        "username",
+        "nickname",
+        "title",
+        "slug",
+        "id",
+        "quality",
+    ]
 
 
 def test_codec_allowed_for_container_matrix():

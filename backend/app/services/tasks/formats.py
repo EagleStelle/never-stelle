@@ -291,7 +291,7 @@ def derived_token_value(
         return creator_from_url(source_url, strip_at=_strip_handle_at(cleaning)) or None
     if field == "slug":
         return slug_from_url(source_url)
-    if field in {"quality", "source"}:
+    if field == "quality":
         # Selected combo label when threaded; None falls back to delivered format.
         return quality_label(quality) if quality is not None else None
     return None

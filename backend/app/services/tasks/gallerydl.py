@@ -58,9 +58,8 @@ _GALLERYDL_FIELD = {
     "title": '{title|content|"untitled"}',
     "id": '{id|num|"NA"}',
     "quality": '{width|"?"}x{height|"?"}',
-    "source": '{width|"?"}x{height|"?"}',
-    "ext": "{extension}",
 }
+_REMOVED_TEMPLATE_FIELDS = {"source", "ext"}
 # Directory and filename packed into one output_template; only the builder splits it.
 _TEMPLATE_SEP = "\x1f"
 _COUNT_TIMEOUT_SECONDS = 60
@@ -173,6 +172,8 @@ def _gallerydl_field(
         return gallerydl_username_field(_creator_field_list(creator_fields, "username"))
     if field == "nickname":
         return gallerydl_nickname_field(_creator_field_list(creator_fields, "nickname"))
+    if field in _REMOVED_TEMPLATE_FIELDS:
+        return ""
     return _GALLERYDL_FIELD.get(field, "")
 
 

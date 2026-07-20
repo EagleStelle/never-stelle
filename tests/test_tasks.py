@@ -1589,7 +1589,7 @@ def test_slug_from_url_reads_digit_prefixed_slug_beside_numeric_id():
     url = "https://rule34video.com/video/3056158/84-minus8/"
     assert media_id_from_url(url) == "3056158"
     assert slug_from_url(url) == "84-minus8"
-    result = convert_template_to_ytdlp("{{slug}}_{{source}}", url, {"mode": "video", "video_quality": "best"})
+    result = convert_template_to_ytdlp("{{slug}}_{{quality}}", url, {"mode": "video", "video_quality": "best"})
     assert result == "84-minus8_source"
 
 
@@ -1619,19 +1619,24 @@ def test_convert_template_quality_uses_selected_label_best_reads_source():
     assert convert_template_to_ytdlp(tmpl, url, {"mode": "video", "video_quality": "1080p"}).endswith("_1080p")
 
 
-def test_convert_template_source_alias_uses_selected_quality_label():
+def test_convert_template_source_token_is_removed():
     tmpl = "{{slug}}_{{source}} [{{id}}]"
     url = "https://rule34video.com/video/3238394/wsds-minus8/"
 
     result = convert_template_to_ytdlp(tmpl, url, {"mode": "video", "video_quality": "best"})
 
-    assert result.startswith("wsds-minus8_source [")
+    assert result.startswith("wsds-minus8_ [")
+
+
+def test_convert_template_ext_token_is_removed():
+    assert convert_template_to_ytdlp("{{ext}}", "https://example.com/x") == ""
+    assert gallerydl_module.convert_template_to_gallerydl("{{ext}}", "https://example.com/x") == ""
 
 
 def test_convert_template_quality_without_selection_keeps_metadata_specifier():
     # Direct callers with no quality threaded through fall back to the delivered format.
     assert "%(format_id" in convert_template_to_ytdlp("{{quality}}", "https://example.com/x")
-    assert "%(format_id" in convert_template_to_ytdlp("{{source}}", "https://example.com/x")
+    assert convert_template_to_ytdlp("{{source}}", "https://example.com/x") == ""
 
 
 def test_learn_download_ignores_unknown_host():
@@ -2021,8 +2026,8 @@ def test_scan_media_library_reconstructs_slug_url_from_filename_template(
         scan_module,
         "_scan_template_map",
         lambda: (
-            {"folder_template": "", "filename_template": "{{slug}}_{{source}} [{{id}}]"},
-            {"rule34video": {"folder_template": "", "filename_template": "{{slug}}_{{source}} [{{id}}]"}},
+            {"folder_template": "", "filename_template": "{{slug}}_{{quality}} [{{id}}]"},
+            {"rule34video": {"folder_template": "", "filename_template": "{{slug}}_{{quality}} [{{id}}]"}},
         ),
     )
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
