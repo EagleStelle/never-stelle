@@ -252,6 +252,142 @@ def test_settings_app_json_migrates_legacy_shapes_on_startup(tmp_path, monkeypat
     }
 
 
+def test_settings_app_json_can_use_legacy_learned_formats_row_on_startup(tmp_path, monkeypatch):
+    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+
+    format_template = "https://rule34video.com/video/{id}/{creator}"
+    legacy_formats = {
+        "rule34video": {
+            "template": format_template,
+        }
+    }
+    legacy_app = {
+        "source_template_settings": {
+            "rule34video": {
+                "folder_template": "{{artist}}",
+                "filename_template": "{{caption}} [{{id}}]",
+            }
+        },
+        "token_roles": {
+            "rule34video": {
+                "artist": "username",
+                "caption": "title",
+            }
+        },
+        "scrape_rules": {
+            "rule34video": {
+                "rules": [
+                    {
+                        "token": "artist",
+                        "selector": ".artist",
+                    }
+                ],
+            }
+        },
+    }
+    with database_module.transaction() as connection:
+        connection.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+            ("learned_formats", json.dumps(legacy_formats), "2026-07-05T00:00:00+00:00"),
+        )
+        connection.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+            ("app", json.dumps(legacy_app), "2026-07-05T00:00:00+00:00"),
+        )
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        row = connection.execute("SELECT value FROM settings WHERE key = ?", ("app",)).fetchone()
+        legacy_row = connection.execute("SELECT value FROM settings WHERE key = ?", ("learned_formats",)).fetchone()
+    migrated = json.loads(row["value"])
+
+    assert legacy_row is None
+    assert migrated["source_templates"] == {
+        "rule34video": {
+            format_template: {
+                "folder_template": "{{artist}}",
+                "filename_template": "{{title}} [{{id}}]",
+            }
+        }
+    }
+    assert migrated["source_scrape_rules"]["rule34video"]["rules"][0]["format"] == format_template
+
+
+def test_engine_tags_migrate_ytdlp_rows_to_gallerydl_on_startup(tmp_path, monkeypatch):
+    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    now = "2026-07-05T00:00:00+00:00"
+    with database_module.transaction() as connection:
+        connection.execute(
+            "INSERT INTO queue (id, source_url, status, source_key, progress_pct, payload, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "ytdlp:1",
+                "https://example.test/post/1",
+                "failed",
+                "example",
+                0,
+                json.dumps(
+                    {
+                        "engine": "ytdlp",
+                        "engine_policy": "auto",
+                        "source_url": "https://example.test/post/1",
+                        "output_template": "/media/example/clip.%(ext)s",
+                    }
+                ),
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO history (task_id, source_url, source_key, payload, completed_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "ytdlp:done",
+                "https://example.test/post/2",
+                "example",
+                json.dumps({"task_type": "ytdlp", "source_url": "https://example.test/post/2"}),
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO history (task_id, source_url, source_key, payload, completed_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "disk:keep",
+                "https://example.test/post/3",
+                "example",
+                json.dumps({"task_type": "disk", "source_url": "https://example.test/post/3"}),
+                now,
+                now,
+            ),
+        )
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+
+    with database_module.transaction() as connection:
+        queue_payload = json.loads(
+            connection.execute("SELECT payload FROM queue WHERE id = ?", ("ytdlp:1",)).fetchone()["payload"]
+        )
+        history_payload = json.loads(
+            connection.execute("SELECT payload FROM history WHERE task_id = ?", ("ytdlp:done",)).fetchone()["payload"]
+        )
+        disk_payload = json.loads(
+            connection.execute("SELECT payload FROM history WHERE task_id = ?", ("disk:keep",)).fetchone()["payload"]
+        )
+
+    assert queue_payload["engine"] == "gallerydl"
+    assert "engine_policy" not in queue_payload
+    # Stale yt-dlp output template is dropped so the worker rebuilds it.
+    assert "output_template" not in queue_payload
+    assert history_payload["task_type"] == "gallerydl"
+    # Reconstructed `disk` rows are not a download engine and must survive intact.
+    assert disk_payload["task_type"] == "disk"
+
+
 def _seed_history(monkeypatch, tmp_path):
     monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
     monkeypatch.setattr(database_module, "_INITIALIZED", False)

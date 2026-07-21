@@ -56,7 +56,7 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
         resolved_folder = str(task.get("resolved_folder") or "").strip()
         recovered_filename = str(task.get("resolved_filename") or "").strip()
     source_url = str(task.get("source_url") or "")
-    task_type = str(task.get("engine") or "ytdlp")
+    task_type = str(task.get("engine") or "gallerydl")
     source_key = normalize_source_key(task.get("source_key")) or detect_source_key(source_url)
     can_download = bool(
         status == "completed"
@@ -111,7 +111,7 @@ def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "creator": entry.get("creator") or entry.get("artist") or "",
         "source_pending": entry.get("source_pending", False),
         "source_candidates": entry.get("source_candidates", []),
-        "engine": entry.get("task_type") or entry.get("engine") or "ytdlp",
+        "engine": entry.get("task_type") or entry.get("engine") or "gallerydl",
         "resolved_folder": entry.get("resolved_folder", ""),
         "resolved_filename": entry.get("resolved_filename", ""),
         "resolved_full_path": entry.get("resolved_full_path", ""),

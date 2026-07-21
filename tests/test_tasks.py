@@ -274,7 +274,8 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
         "https://example.test/watch?v=1",
         quality={"mode": "audio", "audio_format": "opus", "audio_bitrate": "320"},
     )
-    assert captured["task"]["engine_policy"] == "auto"
+    assert captured["task"]["engine"] == "gallerydl"
+    assert "engine_policy" not in captured["task"]
     assert captured["task"]["quality"] == {
         "mode": "audio",
         "video_quality": "best",
@@ -295,8 +296,18 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     assert captured["task"]["quality"]["video_codec"] == "h264"
 
 
-def test_retry_task_opts_into_auto_engine_policy(monkeypatch: pytest.MonkeyPatch):
-    store = {"tasks": {"ytdlp:failed": {"status": "failed", "engine": "ytdlp"}}}
+def test_retry_task_migrates_to_gallerydl_engine(monkeypatch: pytest.MonkeyPatch):
+    store = {
+        "tasks": {
+            "ytdlp:failed": {
+                "status": "failed",
+                "engine": "ytdlp",
+                "source_url": "https://example.test/watch?v=1",
+                "output_dir": "/media/example",
+                "template_settings": {"folder_template": "", "filename_template": "{{title}} [{{id}}]"},
+            }
+        }
+    }
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(operations_module, "load_task_store", lambda: store)
@@ -310,66 +321,38 @@ def test_retry_task_opts_into_auto_engine_policy(monkeypatch: pytest.MonkeyPatch
     operations_module.retry_task("ytdlp:failed")
 
     assert captured["status"] == "pending"
-    assert captured["engine_policy"] == "auto"
+    assert captured["engine"] == "gallerydl"
+    assert "engine_policy" not in captured
+    assert "{extension}" in str(captured["output_template"])
 
 
-def test_queue_task_bypasses_stale_ytdlp_video_history_when_gallerydl_reports_images(
-    tmp_path: Path,
+def test_queue_task_reuses_history_regardless_of_stored_engine(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    from backend.app.services.tasks.planning import ResolvedTaskSettings
-
+    # Dedup is engine-agnostic: a prior download (even one tagged ytdlp) is
+    # reused rather than re-queued, so queue_task never reaches task creation.
     source_url = "https://example.test/post/abc123"
-    resolved = ResolvedTaskSettings(
-        source_key="example",
-        source_profile={"key": "example", "label": "Example"},
-        source_profiles=[{"key": "example", "label": "Example", "hosts": []}],
-        site_locations={"example": str(tmp_path)},
-        output_dir=str(tmp_path),
-        template_settings={"folder_template": "", "filename_template": "{{title}} [{{id}}]"},
-    )
-    captured: dict[str, dict] = {}
+    entry = {
+        "task_type": "ytdlp",
+        "source_url": source_url,
+        "resolved_filename": "Clip [abc123].mp4",
+    }
 
-    monkeypatch.setattr(operations_module, "ensure_worker", lambda: None)
     monkeypatch.setattr(operations_module, "resolve_redirect_url", lambda url: url)
     monkeypatch.setattr(operations_module, "find_active_by_source", lambda url: (None, None))
-    monkeypatch.setattr(
-        operations_module,
-        "find_history_by_source",
-        lambda url: (
-            "ytdlp:old",
-            {
-                "task_type": "ytdlp",
-                "source_url": source_url,
-                "resolved_filename": "Wrong preview [abc123].mp4",
-            },
-        ),
-    )
-    monkeypatch.setattr(
-        gallerydl_module,
-        "probe_gallerydl_media",
-        lambda *args, **kwargs: {"count": 1, "kinds": ["image"]},
-    )
-    monkeypatch.setattr(operations_module, "load_app_config", lambda: {})
-    monkeypatch.setattr(operations_module, "resolve_task_settings", lambda *a, **k: resolved)
-    monkeypatch.setattr(operations_module, "is_allowed_location", lambda location: True)
-    monkeypatch.setattr(
-        operations_module,
-        "get_effective_saved_settings",
-        lambda cfg: {"default_quality": {"mode": "video"}},
-    )
-    monkeypatch.setattr(operations_module, "task_to_api", lambda task_id, task: task)
-    monkeypatch.setattr(
-        operations_module,
-        "update_task",
-        lambda task_id, **kwargs: captured.update({"task": kwargs}) or kwargs,
-    )
+    monkeypatch.setattr(operations_module, "find_history_by_source", lambda url: ("ytdlp:old", entry))
+    monkeypatch.setattr(operations_module, "history_to_api", lambda task_id, e: {"vid": task_id, **e})
+
+    def _fail(*args, **kwargs):
+        raise AssertionError("reuse must short-circuit before task creation")
+
+    monkeypatch.setattr(operations_module, "resolve_task_settings", _fail)
+    monkeypatch.setattr(operations_module, "update_task", _fail)
 
     tasks, reused = operations_module.queue_task(source_url)
 
-    assert reused is False
-    assert tasks == [captured["task"]]
-    assert captured["task"]["engine_policy"] == "auto"
+    assert reused is True
+    assert tasks == [{"vid": "ytdlp:old", **entry}]
 
 
 def test_parse_filename_media_id_accepts_numbered_gallerydl_suffix():
@@ -1161,24 +1144,22 @@ def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(
     assert saved[task_id]["engine"] == "gallerydl"
 
 
-def test_worker_auto_policy_uses_gallerydl_when_preflight_finds_images(
+def test_worker_runs_gallerydl_without_preflight(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
     image = tmp_path / "Creator - Image [abc123]_1.jpg"
     image.write_bytes(b"image")
     source_url = "https://www.example.test/post/abc123"
-    task_id = "ytdlp:auto-gallery"
+    task_id = "gallerydl:no-preflight"
     store = {
         "tasks": {
             task_id: {
-                "engine": "ytdlp",
-                "engine_policy": "auto",
+                "engine": "gallerydl",
                 "source_url": source_url,
                 "source_key": "example",
                 "status": "pending",
                 "output_dir": str(tmp_path),
-                "output_template": str(tmp_path / "queued-ytdlp.%(ext)s"),
                 "resolved_folder": str(tmp_path),
                 "template_settings": {
                     "folder_template": "",
@@ -1218,10 +1199,9 @@ def test_worker_auto_policy_uses_gallerydl_when_preflight_finds_images(
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
     monkeypatch.setattr(
         gallerydl_module,
-        "probe_gallerydl_media",
-        lambda *args, **kwargs: {"count": 1, "kinds": ["image"]},
+        "count_gallerydl_items",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("worker must not count before download")),
     )
-    monkeypatch.setattr(gallerydl_module, "count_gallerydl_items", lambda *args, **kwargs: 1)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -1229,8 +1209,8 @@ def test_worker_auto_policy_uses_gallerydl_when_preflight_finds_images(
 
     completed = store["tasks"][task_id]
     assert [cmd[0] for cmd in commands] == ["gallery-dl"]
+    # No stored template: the worker rebuilds a gallery-dl filename, not a yt-dlp one.
     assert commands[0][commands[0].index("--filename") + 1].endswith(".{extension}")
-    assert "queued-ytdlp.%(ext)s" not in commands[0]
     assert completed["status"] == "completed"
     assert completed["engine"] == "gallerydl"
     assert saved[task_id]["engine"] == "gallerydl"
@@ -1268,7 +1248,6 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
     }
     saved: dict[str, dict] = {}
     commands: list[list[str]] = []
-    count_kwargs: list[dict] = []
 
     class FakeProcess:
         def __init__(self, lines: list[str], rc: int):
@@ -1306,11 +1285,11 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
     monkeypatch.setattr(worker_module, "update_task", fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
 
-    def fake_count_gallerydl_items(*args, **kwargs):
-        count_kwargs.append(kwargs)
-        return 3
-
-    monkeypatch.setattr(gallerydl_module, "count_gallerydl_items", fake_count_gallerydl_items)
+    monkeypatch.setattr(
+        gallerydl_module,
+        "count_gallerydl_items",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("worker must not count before download")),
+    )
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -1324,7 +1303,6 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
     filter_expr = gallery_cmd[gallery_cmd.index("--filter") + 1]
     assert "mp4" in filter_expr
     assert "webm" in filter_expr
-    assert ".mp4" in count_kwargs[0]["excluded_extensions"]
     assert set(saved) == {task_id}
     assert clean_video.is_file()
     assert clean_image.is_file()

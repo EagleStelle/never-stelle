@@ -12,8 +12,7 @@ from backend.app.core.sources import normalize_source_key
 from backend.app.services import swaratelle
 from backend.app.services.settings import get_effective_saved_settings
 
-from . import gallerydl as gallerydl_module
-from .constants import VIDEO_EXTENSIONS, normalize_quality_selection
+from .constants import normalize_quality_selection
 from .engine import select_engine
 from .files import find_numbered_media_siblings, recover_task_path
 from .formats import reconstruct_url_candidates
@@ -57,9 +56,8 @@ def queue_task(
 
     history_id, history_entry = find_history_by_source(source_url)
     if history_id and history_entry:
-        if _history_reusable_for_source(source_url, history_entry):
-            history_entry = _correct_reconstructed_url(history_id, history_entry, source_url)
-            return [history_to_api(history_id, history_entry)], True
+        history_entry = _correct_reconstructed_url(history_id, history_entry, source_url)
+        return [history_to_api(history_id, history_entry)], True
 
     cfg = load_app_config()
     resolved_settings = resolve_task_settings(
@@ -85,7 +83,6 @@ def queue_task(
     output_template = engine.build_output_template(source_url, output_dir, resolved_settings.template_settings, quality)
     task = {
         "engine": engine.name,
-        "engine_policy": "auto",
         "source_url": source_url,
         "source_key": source_key,
         "status": "pending",
@@ -105,29 +102,6 @@ def queue_task(
     update_task(task_id, **task)
     ensure_worker()
     return [task_to_api(task_id, task)], False
-
-
-def _history_media_kind(entry: dict[str, Any]) -> str:
-    for value in (entry.get("resolved_full_path"), entry.get("resolved_filename")):
-        suffix = Path(str(value or "")).suffix.lower()
-        if suffix in VIDEO_EXTENSIONS:
-            return "video"
-    return ""
-
-
-def _gallerydl_reports_image_media(source_url: str) -> bool:
-    try:
-        result = gallerydl_module.probe_gallerydl_media(source_url)
-    except Exception:
-        return False
-    return "image" in set(result.get("kinds") or [])
-
-
-def _history_reusable_for_source(source_url: str, entry: dict[str, Any]) -> bool:
-    engine = str(entry.get("task_type") or entry.get("engine") or "").strip().lower()
-    if engine != "ytdlp" or _history_media_kind(entry) != "video":
-        return True
-    return not _gallerydl_reports_image_media(source_url)
 
 
 def _correct_reconstructed_url(task_id: str, entry: dict[str, Any], source_url: str) -> dict[str, Any]:
@@ -184,7 +158,25 @@ def retry_task(task_id: str) -> None:
         raise FileNotFoundError("Task was not found.")
     if task.get("status") != "failed":
         raise PermissionError("Only failed downloads can be retried.")
-    update_task(task_id, status="pending", progress_pct=0, error="", last_log_lines=[], engine_policy="auto")
+    source_url = canonicalize_source_url(str(task.get("source_url") or ""))
+    engine = select_engine(source_url)
+    updates: dict[str, Any] = {
+        "status": "pending",
+        "progress_pct": 0,
+        "error": "",
+        "last_log_lines": [],
+        "engine": engine.name,
+    }
+    output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
+    if source_url and output_dir:
+        template_settings = task.get("template_settings") if isinstance(task.get("template_settings"), dict) else None
+        updates["output_template"] = engine.build_output_template(
+            source_url,
+            output_dir,
+            template_settings,
+            normalize_quality_selection(task.get("quality")),
+        )
+    update_task(task_id, **updates)
     ensure_worker()
 
 
@@ -252,7 +244,7 @@ def resolve_task_file(task_id: str) -> tuple[Path, str, Path | None]:
     if not task and history_entry:
         task = {
             "status": "completed",
-            "engine": history_entry.get("task_type") or history_entry.get("engine") or "ytdlp",
+            "engine": history_entry.get("task_type") or history_entry.get("engine") or "gallerydl",
             "creator": history_entry.get("creator") or history_entry.get("artist") or "",
             "source_url": history_entry.get("source_url", ""),
             "resolved_full_path": history_entry.get("resolved_full_path", ""),

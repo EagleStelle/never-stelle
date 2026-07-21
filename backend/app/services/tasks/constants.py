@@ -56,10 +56,11 @@ TEMPLATE_RE = re.compile(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}")
 # and the folder/filename creator group; the engines map each to distinct fields.
 CREATOR_FIELDS = {"username", "nickname"}
 
-# Video mode caps resolution and restricts `--format` to codecs the merge container
-# can play, sets the container, soft-prefers a codec (`-S vcodec:<c>`). Audio mode
-# extracts a track at a bitrate (skipped for lossless). gallery-dl's ytdl downloader
-# maps audio mode to best video (it handles galleries, not audio extraction).
+# Video mode caps resolution and prefers codecs the merge container can play,
+# then falls back to looser yt-dlp selectors for extractors with sparse codec
+# metadata. Audio mode extracts a track at a bitrate (skipped for lossless).
+# gallery-dl's ytdl downloader maps audio mode to best video (it handles
+# galleries, not audio extraction).
 DEFAULT_MEDIA_MODE = "video"
 DEFAULT_VIDEO_QUALITY = "best"
 DEFAULT_VIDEO_CONTAINER = "mp4"
@@ -119,14 +120,34 @@ def container_acodec_filter(container: Any) -> str:
 
 
 def video_format_selector(video_quality: Any, container: Any) -> str:
-    # Every branch carries both filters so a remux never yields an unplayable file;
-    # a bare `best` fallback is deliberately omitted for that reason.
+    # Prefer playable-in-container streams first, but keep recovery fallbacks for
+    # sites whose extractors do not expose vcodec/acodec fields. Without these,
+    # yt-dlp can reject otherwise downloadable direct video URLs before it tries
+    # a plain media URL.
     preset = VIDEO_QUALITY_PRESETS.get(str(video_quality or "").strip(), VIDEO_QUALITY_PRESETS[DEFAULT_VIDEO_QUALITY])
     height = preset["height"]
     height_filter = f"[height<={height}]" if height else ""
     vcodec = container_vcodec_filter(container)
     acodec = container_acodec_filter(container)
-    return f"bestvideo*{height_filter}{vcodec}+bestaudio{acodec}/best{height_filter}{vcodec}{acodec}"
+    container_key = str(container or "").strip().lower()
+    branches = [
+        f"bestvideo*{height_filter}{vcodec}+bestaudio{acodec}",
+        f"best{height_filter}{vcodec}{acodec}",
+    ]
+    if height_filter or vcodec or acodec:
+        if container_key in VIDEO_CONTAINER_PRESETS:
+            branches.append(f"best{height_filter}[ext={container_key}]")
+        branches.extend(
+            [
+                f"bestvideo*{height_filter}+bestaudio",
+                f"best{height_filter}",
+                "bestvideo*+bestaudio",
+                "best",
+            ]
+        )
+    return "/".join(dict.fromkeys(branches))
+
+
 AUDIO_FORMAT_PRESETS: dict[str, dict[str, str]] = {
     "mp3": {"label": "MP3"},
     "m4a": {"label": "M4A"},

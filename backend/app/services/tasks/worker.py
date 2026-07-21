@@ -25,7 +25,6 @@ from backend.app.services.settings import (
     load_token_roles,
 )
 
-from . import gallerydl as gallerydl_module
 from .cache import drop_file_cache
 from .constants import (
     AUDIO_EXTENSIONS,
@@ -38,7 +37,7 @@ from .constants import (
     normalize_quality_selection,
     normalize_title_cleaning,
 )
-from .engine import Engine, all_engines, engine_by_name, engine_for_task
+from .engine import Engine, all_engines, engine_for_task
 from .files import find_newest_media_file, find_numbered_media_siblings, is_media_file, recover_task_path
 from .formats import creator_from_url, media_id_from_url, reconstruct_url
 from .history import save_history_entry
@@ -316,7 +315,7 @@ def _learn_creator_fields_from_download(
     # so the first download learns without a separate (and flaky) enqueue-time probe.
     if not metadata or has_learned_creator_fields(source_url, source_key):
         return
-    engine_key = engine_name if engine_name in CREATOR_FIELD_CANDIDATES else "ytdlp"
+    engine_key = engine_name if engine_name in CREATOR_FIELD_CANDIDATES else "gallerydl"
     present = [
         field
         for field in CREATOR_FIELD_CANDIDATES.get(engine_key, ())
@@ -1380,39 +1379,9 @@ def _run_engine_attempts(
     return rc, last_dest, emitted_paths
 
 
-def _auto_engine_policy(task: dict[str, Any]) -> bool:
-    return str(task.get("engine_policy") or "").strip().lower() == "auto"
-
-
-def _gallerydl_probe_finds_images(source_url: str, cookie_source_key: str) -> bool:
-    if not source_url:
-        return False
-    try:
-        result = gallerydl_module.probe_gallerydl_media(
-            source_url,
-            with_cookies=has_cookies_for_source(cookie_source_key),
-            cookie_source_key=cookie_source_key,
-        )
-    except Exception:
-        return False
-    return "image" in set(result.get("kinds") or [])
-
-
-def _engine_run_order(
-    task: dict[str, Any],
-    source_url: str = "",
-    cookie_source_key: str = "",
-) -> list[Engine]:
+def _engine_run_order(task: dict[str, Any]) -> list[Engine]:
     primary = engine_for_task(task)
-    default_order = [primary, *[engine for engine in all_engines() if engine is not primary]]
-    if not _auto_engine_policy(task):
-        return default_order
-    gallery_engine = engine_by_name("gallerydl")
-    if primary is gallery_engine:
-        return default_order
-    if _gallerydl_probe_finds_images(source_url or str(task.get("source_url") or ""), cookie_source_key):
-        return [gallery_engine]
-    return default_order
+    return [primary, *[engine for engine in all_engines() if engine is not primary]]
 
 
 def _task_template_settings(task: dict[str, Any]) -> dict[str, str] | None:
@@ -1434,7 +1403,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
     raw_source_key = normalize_source_key(task.get("source_key"))
     task_source_key = raw_source_key or detect_source_key(source_url)
     cookie_source_key = raw_source_key or detect_cookie_source(source_url)
-    candidates = _engine_run_order(task, source_url, cookie_source_key)
+    candidates = _engine_run_order(task)
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
 

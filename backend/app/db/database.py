@@ -408,8 +408,30 @@ def _migrate_schema(connection: sqlite3.Connection) -> None:
     connection.execute("UPDATE queue SET source_key = '' WHERE source_key = 'others'")
     connection.execute("UPDATE history SET source_key = '' WHERE source_key = 'others'")
     connection.execute("DELETE FROM cookies WHERE key = 'ytdlp_cookies::others'")
+    _migrate_engine_tags(connection)
     _migrate_legacy_learned_formats_row(connection)
     _migrate_legacy_settings_json(connection)
+
+
+def _migrate_engine_tags(connection: sqlite3.Connection) -> None:
+    # gallery-dl is now the universal broker engine; yt-dlp survives only as a
+    # fallback and as gallery-dl's ytdl backend. Rewrite persisted rows so no
+    # queue task routes to yt-dlp as its primary engine and no history row
+    # reports a stale engine. `disk` (reconstructed) tags are left intact.
+    # Drop the stale output_template too: it was built for yt-dlp's `%(ext)s`
+    # syntax and is meaningless to gallery-dl. The worker rebuilds it on run.
+    connection.execute(
+        "UPDATE queue SET payload = json_remove("
+        "json_set(payload, '$.engine', 'gallerydl'), '$.engine_policy', '$.output_template') "
+        "WHERE json_valid(payload) AND ("
+        "json_extract(payload, '$.engine') IS NOT 'gallerydl' "
+        "OR json_extract(payload, '$.engine_policy') IS NOT NULL)"
+    )
+    for key in ("$.task_type", "$.engine"):
+        connection.execute(
+            f"UPDATE history SET payload = json_set(payload, '{key}', 'gallerydl') "
+            f"WHERE json_valid(payload) AND json_extract(payload, '{key}') = 'ytdlp'"
+        )
 
 
 def _decode_json(value: str | None, fallback: Any) -> Any:

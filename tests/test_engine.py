@@ -92,10 +92,14 @@ def test_container_acodec_filter_restricts_incompatible_audio():
 
 def test_video_format_selector_carries_filters_on_every_branch():
     fmt = video_format_selector("720p", "mp4")
-    assert fmt.count("[height<=720]") == 2
-    assert fmt.count(container_vcodec_filter("mp4")) == 2
-    assert fmt.count(container_acodec_filter("mp4")) == 2
-    assert not fmt.endswith("/best")
+    strict = (
+        f"bestvideo*[height<=720]{container_vcodec_filter('mp4')}"
+        f"+bestaudio{container_acodec_filter('mp4')}"
+        f"/best[height<=720]{container_vcodec_filter('mp4')}{container_acodec_filter('mp4')}"
+    )
+    assert fmt.startswith(strict)
+    assert "/best[height<=720][ext=mp4]/" in fmt
+    assert fmt.endswith("/best")
     assert video_format_selector("best", "mkv") == "bestvideo*+bestaudio/best"
 
 
@@ -321,18 +325,18 @@ def _has_cli_pair(cmd: list[str], option: str, value: str) -> bool:
         "not a url",
     ],
 )
-def test_select_engine_always_defaults_to_ytdlp(url):
-    assert select_engine(url).name == "ytdlp"
+def test_select_engine_always_defaults_to_gallerydl(url):
+    assert select_engine(url).name == "gallerydl"
 
 
 def test_all_engines_includes_both_backends():
     assert {engine.name for engine in all_engines()} == {"ytdlp", "gallerydl"}
 
 
-def test_engine_by_name_falls_back_to_ytdlp():
+def test_engine_by_name_falls_back_to_gallerydl():
     assert engine_by_name("gallerydl").name == "gallerydl"
     assert engine_by_name("ytdlp").name == "ytdlp"
-    assert engine_by_name("bogus").name == "ytdlp"
+    assert engine_by_name("bogus").name == "gallerydl"
 
 
 def test_engine_for_task_prefers_explicit_engine_over_url():
@@ -340,8 +344,8 @@ def test_engine_for_task_prefers_explicit_engine_over_url():
     assert engine_for_task(task).name == "gallerydl"
 
 
-def test_engine_for_task_defaults_to_ytdlp_when_untagged():
-    assert engine_for_task({"source_url": "https://www.pixiv.net/en/artworks/1"}).name == "ytdlp"
+def test_engine_for_task_defaults_to_gallerydl_when_untagged():
+    assert engine_for_task({"source_url": "https://www.pixiv.net/en/artworks/1"}).name == "gallerydl"
 
 
 def test_looks_unsupported_flags_wrong_engine_errors():
@@ -378,8 +382,12 @@ def test_ytdlp_engine_progress_and_path_parsing():
 def test_gallerydl_engine_progress_and_path_parsing():
     engine = engine_by_name("gallerydl")
     assert engine.parse_progress("no percentages here") is None
+    assert engine.parse_progress("[download]  50.0% of 10MiB") == 50.0
     assert engine.extract_output_path("/media/imgur/artist/photo.jpg") == "/media/imgur/artist/photo.jpg"
     assert engine.extract_output_path('"/media/imgur/artist/photo.png"') == "/media/imgur/artist/photo.png"
+    assert engine.extract_output_path("[download] Destination: /media/imgur/artist/clip.mp4") == (
+        "/media/imgur/artist/clip.mp4"
+    )
     assert engine.extract_output_path("[download] skipping existing file") == ""
     assert engine.extract_output_path("/media/imgur/notes.txt") == ""
 
@@ -485,9 +493,14 @@ def test_build_gallerydl_command_routes_streams_through_ytdlp(monkeypatch):
     )
 
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.module=yt_dlp")
+    assert _has_cli_pair(cmd, "-o", "extractor.ytdl.enabled=true")
+    assert _has_cli_pair(cmd, "-o", "extractor.ytdl.module=yt_dlp")
     assert _has_cli_pair(cmd, "-o", f"downloader.ytdl.format={video_format_selector('best', 'mp4')}")
+    assert _has_cli_pair(cmd, "-o", f"extractor.ytdl.format={video_format_selector('best', 'mp4')}")
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mp4")
+    assert _has_cli_pair(cmd, "-o", "extractor.ytdl.raw-options.merge_output_format=mp4")
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.ffmpeg_location=/usr/bin/ffmpeg")
+    assert _has_cli_pair(cmd, "-o", "extractor.ytdl.raw-options.ffmpeg_location=/usr/bin/ffmpeg")
 
 
 def test_build_gallerydl_command_omits_ffmpeg_option_when_absent(monkeypatch):
@@ -500,6 +513,7 @@ def test_build_gallerydl_command_omits_ffmpeg_option_when_absent(monkeypatch):
 
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.module=yt_dlp")
     assert not any(str(arg).startswith("downloader.ytdl.raw-options.ffmpeg_location=") for arg in cmd)
+    assert not any(str(arg).startswith("extractor.ytdl.raw-options.ffmpeg_location=") for arg in cmd)
 
 
 def test_build_gallerydl_command_normalizes_windows_ffmpeg_path(monkeypatch):
@@ -511,6 +525,7 @@ def test_build_gallerydl_command_normalizes_windows_ffmpeg_path(monkeypatch):
     )
 
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.ffmpeg_location=C:/tools/ffmpeg/ffmpeg.exe")
+    assert _has_cli_pair(cmd, "-o", "extractor.ytdl.raw-options.ffmpeg_location=C:/tools/ffmpeg/ffmpeg.exe")
 
 
 def test_ytdlp_command_defaults_to_best_video_merge():
@@ -610,7 +625,9 @@ def test_gallerydl_command_applies_capped_quality_to_ytdl_downloader(monkeypatch
     )
 
     assert _has_cli_pair(cmd, "-o", f"downloader.ytdl.format={video_format_selector('480p', 'mp4')}")
+    assert _has_cli_pair(cmd, "-o", f"extractor.ytdl.format={video_format_selector('480p', 'mp4')}")
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mp4")
+    assert _has_cli_pair(cmd, "-o", "extractor.ytdl.raw-options.merge_output_format=mp4")
 
 
 def test_gallerydl_command_honors_video_container(monkeypatch):
@@ -623,6 +640,7 @@ def test_gallerydl_command_honors_video_container(monkeypatch):
     )
 
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mkv")
+    assert _has_cli_pair(cmd, "-o", "extractor.ytdl.raw-options.merge_output_format=mkv")
 
 
 def test_gallerydl_command_honors_video_codec(monkeypatch):
@@ -635,6 +653,7 @@ def test_gallerydl_command_honors_video_codec(monkeypatch):
     )
 
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.format_sort=vcodec:vp09")
+    assert _has_cli_pair(cmd, "-o", "extractor.ytdl.raw-options.format_sort=vcodec:vp09")
 
 
 def test_gallerydl_audio_mode_still_downloads_best_video(monkeypatch):
@@ -649,6 +668,7 @@ def test_gallerydl_audio_mode_still_downloads_best_video(monkeypatch):
     )
 
     assert _has_cli_pair(cmd, "-o", f"downloader.ytdl.format={video_format_selector('best', 'mp4')}")
+    assert _has_cli_pair(cmd, "-o", f"extractor.ytdl.format={video_format_selector('best', 'mp4')}")
 
 
 def test_count_gallerydl_items_disables_tiktok_audio(monkeypatch):
@@ -666,25 +686,6 @@ def test_count_gallerydl_items_disables_tiktok_audio(monkeypatch):
 
     assert gallerydl.count_gallerydl_items("https://www.tiktok.com/@x/photo/1") == 2
     assert _has_cli_pair(captured["cmd"], "-o", "extractor.tiktok.audio=false")
-
-
-def test_probe_gallerydl_media_classifies_download_urls(monkeypatch):
-    class Result:
-        returncode = 0
-        stdout = "\n".join(
-            [
-                "https://cdn.example.test/1.jpg?token=x",
-                "https://cdn.example.test/2.mp4",
-                "https://cdn.example.test/readme.txt",
-            ]
-        )
-
-    monkeypatch.setattr(gallerydl.subprocess, "run", lambda *args, **kwargs: Result())
-
-    assert gallerydl.probe_gallerydl_media("https://example.test/post/1") == {
-        "count": 3,
-        "kinds": ["image", "video"],
-    }
 
 
 def test_ytdlp_command_enables_youtube_js_solver():

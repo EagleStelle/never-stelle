@@ -5,7 +5,6 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
 
 from backend.app.services.settings import (
     find_cookies_file_for_source,
@@ -19,11 +18,9 @@ from backend.app.services.settings import (
 
 from .constants import (
     CREATOR_ROLE_CHAINS,
-    IMAGE_EXTENSIONS,
     MEDIA_EXTENSIONS,
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
-    VIDEO_EXTENSIONS,
     normalize_quality_selection,
     video_format_selector,
 )
@@ -76,9 +73,11 @@ _COUNT_TIMEOUT_SECONDS = 60
 _MAX_COUNT = 5000
 _TIKTOK_NO_AUDIO_OPTION = "extractor.tiktok.audio=false"
 # HLS/DASH streams gallery-dl can't fetch itself are handed to yt-dlp via its
-# `ytdl` downloader (ytdl-scheme URLs only; image files still use http). Match
-# the primary engine's format so both engines produce the same quality output.
-_YTDL_MODULE_OPTION = "downloader.ytdl.module=yt_dlp"
+# `ytdl` downloader, and unsupported top-level URLs can be delegated to the
+# gallery-dl ytdl extractor. Keep both integration points configured alike.
+_YTDL_DOWNLOADER_MODULE_OPTION = "downloader.ytdl.module=yt_dlp"
+_YTDL_EXTRACTOR_ENABLED_OPTION = "extractor.ytdl.enabled=true"
+_YTDL_EXTRACTOR_MODULE_OPTION = "extractor.ytdl.module=yt_dlp"
 
 
 def _ytdl_downloader_options(quality: dict[str, str] | None = None) -> list[str]:
@@ -91,21 +90,31 @@ def _ytdl_downloader_options(quality: dict[str, str] | None = None) -> list[str]
     format_string = video_format_selector(video_quality, container)
     options = [
         "-o",
-        _YTDL_MODULE_OPTION,
+        _YTDL_DOWNLOADER_MODULE_OPTION,
+        "-o",
+        _YTDL_EXTRACTOR_ENABLED_OPTION,
+        "-o",
+        _YTDL_EXTRACTOR_MODULE_OPTION,
         "-o",
         f"downloader.ytdl.format={format_string}",
         "-o",
+        f"extractor.ytdl.format={format_string}",
+        "-o",
         f"downloader.ytdl.raw-options.merge_output_format={container}",
+        "-o",
+        f"extractor.ytdl.raw-options.merge_output_format={container}",
     ]
     codec_sort = VIDEO_CODEC_PRESETS[selection["video_codec"]]["sort"]
     if not audio_mode and codec_sort:
         # Soft preference; the format filter enforces container compatibility.
         options.extend(["-o", f"downloader.ytdl.raw-options.format_sort=vcodec:{codec_sort}"])
+        options.extend(["-o", f"extractor.ytdl.raw-options.format_sort=vcodec:{codec_sort}"])
     ffmpeg_location = detect_ffmpeg_location()
     if ffmpeg_location:
         # Forward slashes dodge gallery-dl JSON-escape parsing of the option value.
         normalized = ffmpeg_location.replace("\\", "/")
         options.extend(["-o", f"downloader.ytdl.raw-options.ffmpeg_location={normalized}"])
+        options.extend(["-o", f"extractor.ytdl.raw-options.ffmpeg_location={normalized}"])
     return options
 
 
@@ -124,7 +133,7 @@ def _gallerydl_list_urls(
     cookie_source_key: str = "",
     excluded_extensions: set[str] | None = None,
 ) -> list[str]:
-    # `-g` lists file URLs without downloading, giving a cheap media preflight.
+    # `-g` lists file URLs without downloading; callers use it only for counts.
     cmd = ["gallery-dl", "-g", "-o", _TIKTOK_NO_AUDIO_OPTION]
     filter_expr = _excluded_extension_filter(excluded_extensions)
     if filter_expr:
@@ -152,39 +161,6 @@ def _gallerydl_list_urls(
     if result.returncode != 0:
         return []
     return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
-
-
-def _download_url_kind(value: str) -> str:
-    try:
-        parsed = urlparse(str(value or "").strip())
-        path = unquote(parsed.path if parsed.scheme else str(value or ""))
-    except Exception:
-        path = str(value or "")
-    suffix = Path(path).suffix.lower()
-    if suffix in IMAGE_EXTENSIONS:
-        return "image"
-    if suffix in VIDEO_EXTENSIONS:
-        return "video"
-    if suffix in MEDIA_EXTENSIONS:
-        return "media"
-    return ""
-
-
-def probe_gallerydl_media(
-    source_url: str,
-    *,
-    with_cookies: bool = False,
-    cookie_source_key: str = "",
-    excluded_extensions: set[str] | None = None,
-) -> dict[str, Any]:
-    urls = _gallerydl_list_urls(
-        source_url,
-        with_cookies=with_cookies,
-        cookie_source_key=cookie_source_key,
-        excluded_extensions=excluded_extensions,
-    )
-    kinds = sorted({kind for url in urls if (kind := _download_url_kind(url))})
-    return {"count": min(len(urls), _MAX_COUNT), "kinds": kinds}
 
 
 def count_gallerydl_items(

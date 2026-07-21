@@ -16,9 +16,6 @@ class Engine:
     # True when the backend reports its own byte-percentage (else count-based).
     emits_progress: bool = False
 
-    def matches(self, source_url: str) -> bool:
-        raise NotImplementedError
-
     def count_items(
         self,
         source_url: str,
@@ -70,9 +67,6 @@ class YtdlpEngine(Engine):
     id_prefix = "ytdlp"
     needs_ffmpeg = True
     emits_progress = True
-
-    def matches(self, source_url: str) -> bool:
-        return True
 
     def build_output_template(
         self,
@@ -126,10 +120,6 @@ class GallerydlEngine(Engine):
     needs_ffmpeg = False
     emits_progress = False
 
-    def matches(self, source_url: str) -> bool:
-        # Fallback-only: reached when yt-dlp reports the URL unsupported.
-        return False
-
     def count_items(
         self,
         source_url: str,
@@ -138,12 +128,9 @@ class GallerydlEngine(Engine):
         cookie_source_key: str = "",
         excluded_extensions: set[str] | None = None,
     ) -> int:
-        return gallerydl.count_gallerydl_items(
-            source_url,
-            with_cookies=with_cookies,
-            cookie_source_key=cookie_source_key,
-            excluded_extensions=excluded_extensions,
-        )
+        # Avoid a second gallery-dl extraction pass before every task. The worker
+        # uses an unknown-total progress curve as file paths are emitted.
+        return 0
 
     def build_output_template(
         self,
@@ -181,16 +168,21 @@ class GallerydlEngine(Engine):
             quality=quality,
         )
 
+    def parse_progress(self, line: str) -> float | None:
+        match = PROGRESS_RE.search(str(line or ""))
+        return float(match.group(1)) if match else None
+
     def extract_output_path(self, line: str) -> str:
-        return gallerydl.extract_gallerydl_path(line)
+        return gallerydl.extract_gallerydl_path(line) or extract_downloaded_path(line)
 
     def read_creator(self, sidecar_path: str, source_url: str) -> str:
         return ""
 
 
-# yt-dlp is the default; gallery-dl is the runtime fallback.
+# gallery-dl is the default broker; yt-dlp remains available for legacy rows.
 _YTDLP = YtdlpEngine()
-_ENGINES: tuple[Engine, ...] = (GallerydlEngine(), _YTDLP)
+_GALLERYDL = GallerydlEngine()
+_ENGINES: tuple[Engine, ...] = (_GALLERYDL, _YTDLP)
 _BY_NAME: dict[str, Engine] = {engine.name: engine for engine in _ENGINES}
 
 
@@ -199,14 +191,11 @@ def all_engines() -> tuple[Engine, ...]:
 
 
 def select_engine(source_url: str) -> Engine:
-    for engine in _ENGINES:
-        if engine.matches(source_url):
-            return engine
-    return _YTDLP
+    return _GALLERYDL
 
 
 def engine_by_name(name: str) -> Engine:
-    return _BY_NAME.get(str(name or "").strip().lower(), _YTDLP)
+    return _BY_NAME.get(str(name or "").strip().lower(), _GALLERYDL)
 
 
 def engine_for_task(task: dict[str, Any]) -> Engine:
