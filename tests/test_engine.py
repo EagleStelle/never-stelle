@@ -170,6 +170,31 @@ def test_resolve_scraped_tokens_returns_role_keyed_overrides(monkeypatch):
     assert result == {"username": "Trace Artist", "title": "Scraped Title"}
 
 
+def test_resolve_scraped_tokens_creator_role_feeds_username_and_nickname(monkeypatch):
+    rules = {"rule34video": {"rules": [{"token": "artist", "xpath": "//*[@id='artist']", "attr": "text"}]}}
+    roles = {"rule34video": {"artist": "creator"}}
+    monkeypatch.setattr(
+        enrich,
+        "fetch_html",
+        lambda *args: "<main><b id='artist'>Trace Artist</b></main>",
+    )
+
+    # A Creator-role token leads both role lists, so a template using either resolves.
+    result = enrich.resolve_scraped_tokens(
+        "https://rule34video.com/video/1/post",
+        "rule34video",
+        {"folder_template": "{{username}}", "filename_template": "{{nickname}} [{{id}}]"},
+        rules,
+        roles,
+        creator_fields={
+            "username": ["scraper[artist]", "uploader"],
+            "nickname": ["scraper[artist]", "uploader"],
+        },
+    )
+
+    assert result == {"username": "Trace Artist", "nickname": "Trace Artist"}
+
+
 def test_resolve_scraped_tokens_uses_first_top_scraper_creator_field(monkeypatch):
     rules = {
         "rule34video": {

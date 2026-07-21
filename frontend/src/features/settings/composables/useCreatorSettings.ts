@@ -96,10 +96,7 @@ export function useCreatorSettings(
   }
 
   function sourceHasSavedCreatorFields(key: string): boolean {
-    const roles = settings.source_creator_fields[key];
-    return Boolean(
-      roles && (roles.username.length > 0 || roles.nickname.length > 0),
-    );
+    return Boolean(settings.source_creator_fields[key]);
   }
 
   function sourceHasDraftCreatorFields(key: string): boolean {
@@ -127,7 +124,9 @@ export function useCreatorSettings(
     ];
     for (const raw of candidates) {
       const token = normalizeTokenName(raw);
-      if (!token || seen.has(token) || roles[token] !== role) continue;
+      if (!token || seen.has(token)) continue;
+      const tokenRole = roles[token] || "ignore";
+      if (tokenRole !== role && tokenRole !== "creator") continue;
       seen.add(token);
       out.push(token);
     }
@@ -148,13 +147,16 @@ export function useCreatorSettings(
     const assigned = assignedScraperFields(key, role);
     const assignedSet = new Set(assigned);
     const out: string[] = [];
+    // Prepend newly assigned scraper fields to the top
+    for (const field of assigned) {
+      if (!values.map(normalizeCreatorField).includes(field)) {
+        out.push(field);
+      }
+    }
     for (const value of values) {
       const field = normalizeCreatorField(value);
       if (!field) continue;
       if (isScraperCreatorField(field) && !assignedSet.has(field)) continue;
-      if (!out.includes(field)) out.push(field);
-    }
-    for (const field of assigned) {
       if (!out.includes(field)) out.push(field);
     }
     return out;
@@ -331,16 +333,14 @@ export function useCreatorSettings(
       const response = await probeCreatorFields(url, key);
       currentState.fields = response.fields;
       const learned = createCreatorFieldRoles(response.creator_fields || {});
-      if (learned.username.length || learned.nickname.length) {
-        const targetKey = response.source_key || key;
-        const draftRoles = creatorRoles(targetKey);
-        draftRoles.username = mergeLearnedFields(targetKey, "username", learned.username);
-        draftRoles.nickname = mergeLearnedFields(targetKey, "nickname", learned.nickname);
-        settings.source_creator_fields[targetKey] = {
-          username: [...draftRoles.username],
-          nickname: [...draftRoles.nickname],
-        };
-      }
+      const targetKey = response.source_key || key;
+      const draftRoles = creatorRoles(targetKey);
+      draftRoles.username = mergeLearnedFields(targetKey, "username", learned.username);
+      draftRoles.nickname = mergeLearnedFields(targetKey, "nickname", learned.nickname);
+      settings.source_creator_fields[targetKey] = {
+        username: [...draftRoles.username],
+        nickname: [...draftRoles.nickname],
+      };
       currentState.message = response.fields.length ? "" : "No creator fields found.";
     } catch (error) {
       currentState.fields = [];

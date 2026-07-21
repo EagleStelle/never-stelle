@@ -35,7 +35,7 @@ export function useTokenRoles(settingsDraft: SavedSettings) {
 
   function migrateTemplateToken(key: string, token: string, role: TokenRole): void {
     const normalized = normalizeTokenName(token);
-    if (!normalized || role === "ignore" || normalized === role) return;
+    if (!normalized || role === "ignore" || role === "creator" || normalized === role) return;
     const templates = settingsDraft.source_templates[key];
     if (!templates) return;
     for (const field of ["folder_template", "filename_template"] as const) {
@@ -53,9 +53,11 @@ export function useTokenRoles(settingsDraft: SavedSettings) {
     const roles = settingsDraft.source_creator_fields[key];
     if (!roles) return;
     const targetRoles =
-      role === "username" || role === "nickname"
+      role === "creator" || !role
+        ? (["username", "nickname"] as const)
+        : role === "username" || role === "nickname"
         ? [role]
-        : (["username", "nickname"] as const);
+        : ([] as const);
     for (const targetRole of targetRoles) {
       roles[targetRole] = (roles[targetRole] || []).filter((value) => value !== field);
     }

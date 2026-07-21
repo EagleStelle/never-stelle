@@ -227,7 +227,7 @@ def _template_role_replacements(token_roles: dict[str, str] | None) -> dict[str,
     return {
         token: role
         for token, role in roles.items()
-        if token and role in {"username", "nickname", "title"} and token != role
+        if token and role in {"title"} and token != role
     }
 
 
@@ -299,8 +299,8 @@ def get_effective_template_settings(source_url: str = "") -> dict[str, str]:
 
 
 # --- Scrape rules ---
-TOKEN_ROLES = {"username", "nickname", "title", "ignore"}
-LEGACY_TOKEN_ROLE_ALIASES = {"creator": "username"}
+TOKEN_ROLES = {"creator", "title", "ignore"}
+LEGACY_TOKEN_ROLE_ALIASES = {"username": "creator", "nickname": "creator"}
 _TOKEN_NAME_RE = re.compile(r"[^a-zA-Z0-9_]+")
 
 
@@ -600,6 +600,56 @@ def normalize_source_title_cleaning(raw: Any) -> dict[str, dict[str, Any]]:
     return out
 
 
+def _assigned_scraper_creator_fields(source_key: str, payload: dict[str, Any]) -> list[str]:
+    # Scraper/slug tokens assigned the Creator role, as scraper[...] fields, in rule order.
+    # A creator token feeds both username and nickname, so the same list leads both roles.
+    key = normalize_source_key(source_key)
+    roles = get_effective_token_roles(payload).get(key) or {}
+    if not roles:
+        return []
+    tokens = [
+        *((get_effective_scrape_rules(payload).get(key) or {}).get("rules") or []),
+        *(get_effective_slug_tokens(payload).get(key) or []),
+    ]
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in tokens:
+        token = normalize_token_name((item or {}).get("token"))
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        if roles.get(token) != "creator":
+            continue
+        field = scraper_creator_field(token)
+        if field:
+            out.append(field)
+    return out
+
+
+def _with_assigned_scraper_creator_fields(
+    source_key: str, base: dict[str, list[str]], payload: dict[str, Any]
+) -> dict[str, list[str]]:
+    # Backend mirror of the frontend: a Creator-role token leads both the username and
+    # nickname lists without being persisted into either, and a scraper field no longer
+    # assigned that role is dropped. An unassigned token leaves the list untouched.
+    assigned = _assigned_scraper_creator_fields(source_key, payload)
+    if not assigned and not any(is_scraper_creator_field(field) for fields in base.values() for field in fields):
+        return base
+    assigned_set = set(assigned)
+    out: dict[str, list[str]] = {}
+    for role in ("username", "nickname"):
+        existing = list(base.get(role) or [])
+        merged: list[str] = [field for field in assigned if field not in existing]
+        for field in existing:
+            if is_scraper_creator_field(field) and field not in assigned_set:
+                continue
+            if field not in merged:
+                merged.append(field)
+        if merged:
+            out[role] = merged
+    return out
+
+
 def get_effective_creator_fields(source_url: str = "") -> dict[str, list[str]]:
     payload = load_saved_settings_file()
     mapping = normalize_source_creator_fields(payload.get("source_creator_fields"))
@@ -608,9 +658,8 @@ def get_effective_creator_fields(source_url: str = "") -> dict[str, list[str]]:
     profile = get_source_profile_for_url(source_url, payload=payload)
     key = normalize_source_key(profile.get("key"))
     saved = mapping.get(key) or {}
-    if _has_creator_field_roles(saved):
-        return saved
-    return get_source_creator_field_defaults([profile]).get(key, {})
+    base = saved if _has_creator_field_roles(saved) else get_source_creator_field_defaults([profile]).get(key, {})
+    return _with_assigned_scraper_creator_fields(key, base, payload)
 
 
 def get_effective_title_cleaning(source_url: str = "") -> dict[str, Any]:

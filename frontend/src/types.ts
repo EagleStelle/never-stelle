@@ -57,7 +57,7 @@ export interface PlatformScrapeRules {
 
 export type SourceScrapeRules = Record<string, PlatformScrapeRules>;
 export type TokenRole =
-  "username" | "nickname" | "title" | "ignore";
+  "creator" | "username" | "nickname" | "title" | "ignore";
 export type SourceTokenRoles = Record<string, Record<string, TokenRole>>;
 
 // Per source, the URL-part → named token mappings the user configured from the

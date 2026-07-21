@@ -132,7 +132,7 @@ def test_normalize_source_token_roles_keeps_known_roles():
         }
     )
 
-    assert result == {"rule34video": {"artist_name": "username", "title": "title"}}
+    assert result == {"rule34video": {"artist_name": "creator", "title": "title"}}
 
 
 def test_normalize_source_templates_migrates_role_backed_scrape_tokens():
@@ -146,7 +146,7 @@ def test_normalize_source_templates_migrates_role_backed_scrape_tokens():
     )
 
     assert result["rule34video"] == {
-        "folder_template": "{{username}}",
+        "folder_template": "{{artist}}",
         "filename_template": "{{title}} [{{id}}]",
     }
 
@@ -190,6 +190,44 @@ def test_get_effective_creator_fields_resolves_per_source(monkeypatch):
     monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
     assert get_effective_creator_fields("https://youtube.com/x") == {"username": ["channel"]}
     assert get_effective_creator_fields("") == {}
+
+
+def test_get_effective_creator_fields_leads_both_roles_with_creator_scraper_token(monkeypatch):
+    import backend.app.services.settings as settings_mod
+
+    # A token assigned the Creator role must lead both username and nickname even when
+    # the source has no persisted creator-field lists, so naming resolves either role.
+    monkeypatch.setattr(
+        settings_mod,
+        "load_saved_settings_file",
+        lambda: {
+            "source_scrape_rules": {"rule34video": {"rules": [{"token": "artist", "xpath": "//*[@id='a']"}]}},
+            "source_token_roles": {"rule34video": {"artist": "creator"}},
+        },
+    )
+    monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "rule34video"})
+
+    fields = get_effective_creator_fields("https://rule34video.com/video/1/post")
+
+    assert fields["username"][0] == "scraper[artist]"
+    assert fields["nickname"][0] == "scraper[artist]"
+
+
+def test_get_effective_creator_fields_drops_unassigned_scraper_field(monkeypatch):
+    import backend.app.services.settings as settings_mod
+
+    # A persisted scraper field whose role is no longer Creator is dropped from the list.
+    monkeypatch.setattr(
+        settings_mod,
+        "load_saved_settings_file",
+        lambda: {
+            "source_creator_fields": {"rule34video": {"username": ["scraper[artist]", "uploader"]}},
+            "source_token_roles": {"rule34video": {"artist": "ignore"}},
+        },
+    )
+    monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "rule34video"})
+
+    assert get_effective_creator_fields("https://rule34video.com/video/1/post") == {"username": ["uploader"]}
 
 
 def test_get_effective_creator_fields_uses_learned_url_creator_defaults(monkeypatch):

@@ -234,9 +234,9 @@ def _template_token_names(template_settings: Any) -> set[str]:
 
 def _scraper_role(value: Any) -> str:
     role = str(value or "").strip().lower()
-    if role == "creator":
-        return "username"
-    return role if role in {"username", "nickname", "title"} else ""
+    if role in ("creator", "username", "nickname"):
+        return "creator"
+    return role if role == "title" else ""
 
 
 def _output_rules_for_template(
@@ -289,7 +289,8 @@ def _leading_scraper_tokens_for_role(
         token = scraper_token_from_creator_field(value)
         if not token:
             break
-        if token in rule_tokens and _scraper_role(roles.get(token)) == role and token not in out:
+        assigned = _scraper_role(roles.get(token))
+        if token in rule_tokens and (assigned == "creator" or assigned == role) and token not in out:
             out.append(token)
     return out
 

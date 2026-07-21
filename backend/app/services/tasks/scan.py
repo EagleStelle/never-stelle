@@ -491,9 +491,9 @@ def _same_url_creator_value(left: str, right: str) -> bool:
 
 def _normalize_scraper_role(role: str) -> str:
     role = str(role or "").strip().lower()
-    if role == "creator":
-        return "username"
-    return role if role in CREATOR_FIELDS else ""
+    if role in ("creator", "username", "nickname"):
+        return "creator"
+    return role if role == "title" else ""
 
 
 def _creator_roles_for_templates(
@@ -530,8 +530,11 @@ def _template_role_has_scraper_rule(
     role: str,
     order: list[str],
 ) -> bool:
-    role = _normalize_scraper_role(role)
-    if not role or role not in _creator_roles_for_templates(folder_template, filename_template, token_roles):
+    norm_role = _normalize_scraper_role(role)
+    if not norm_role:
+        return False
+    template_roles = _creator_roles_for_templates(folder_template, filename_template, token_roles)
+    if not any(_normalize_scraper_role(r) == "creator" for r in template_roles):
         return False
     return bool(_leading_scraper_tokens_for_role(order, token_roles, scrape_rule_tokens, role))
 
@@ -542,17 +545,31 @@ def _leading_scraper_tokens_for_role(
     scrape_rule_tokens: set[str],
     role: str,
 ) -> list[str]:
-    role = _normalize_scraper_role(role)
-    if not role:
+    norm_role = _normalize_scraper_role(role)
+    if not norm_role:
         return []
     out: list[str] = []
     for field in order or []:
         token = scraper_token_from_creator_field(field)
         if not token:
             break
-        if token in scrape_rule_tokens and _normalize_scraper_role((token_roles or {}).get(token)) == role:
+        assigned = _normalize_scraper_role((token_roles or {}).get(token))
+        if token in scrape_rule_tokens and assigned == norm_role:
             out.append(token)
     return out
+
+
+def _template_has_active_scraper_rule(
+    folder_template: str,
+    filename_template: str,
+    scrape_rule_tokens: set[str],
+) -> bool:
+    for template in (folder_template, filename_template):
+        for match in TEMPLATE_RE.finditer(str(template or "")):
+            field = match.group(1).strip().lower()
+            if field in scrape_rule_tokens:
+                return True
+    return False
 
 
 def _probe_metadata_order(order: list[str]) -> list[str]:
@@ -794,6 +811,10 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
                 scrape_rule_tokens_map.get(source_key) or set(),
                 role,
                 order,
+            ) or _template_has_active_scraper_rule(
+                folder_template,
+                filename_template,
+                scrape_rule_tokens_map.get(source_key) or set(),
             )
             if scraper_backed_role:
                 creator = disk_creator

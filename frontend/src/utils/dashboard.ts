@@ -444,8 +444,7 @@ export function createSourceSlugTokens(
 }
 
 export const TOKEN_ROLES = new Set<TokenRole>([
-  "username",
-  "nickname",
+  "creator",
   "title",
   "ignore",
 ]);
@@ -479,7 +478,9 @@ export function createSourceTokenRoles(
     for (const [token, role] of Object.entries(normalizedSource[key] || {})) {
       const normalizedToken = normalizeTokenName(token);
       const rawRole = String(role || "").trim().toLowerCase();
-      const normalizedRole = (rawRole === "creator" ? "username" : rawRole) as TokenRole;
+      const normalizedRole = (
+        rawRole === "username" || rawRole === "nickname" ? "creator" : rawRole
+      ) as TokenRole;
       if (!normalizedToken || !TOKEN_ROLES.has(normalizedRole)) continue;
       if (normalizedRole === "title") {
         if (titleClaimed) continue;

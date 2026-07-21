@@ -45,8 +45,7 @@ const SCRAPE_ATTR_ITEMS = [
 
 const ROLE_ITEMS: { key: TokenRole; label: string }[] = [
   { key: "ignore", label: "None" },
-  { key: "username", label: "Username" },
-  { key: "nickname", label: "Nickname" },
+  { key: "creator", label: "Creator" },
   { key: "title", label: "Title" },
 ];
 
