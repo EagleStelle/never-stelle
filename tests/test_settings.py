@@ -8,6 +8,7 @@ from backend.app.services.settings import (
     BUILTIN_FOLDER_TEMPLATE,
     get_effective_creator_fields,
     get_effective_title_cleaning,
+    get_source_creator_field_defaults,
     normalize_source_creator_fields,
     normalize_source_location_selection,
     normalize_source_slug_tokens,
@@ -189,6 +190,58 @@ def test_get_effective_creator_fields_resolves_per_source(monkeypatch):
     monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
     assert get_effective_creator_fields("https://youtube.com/x") == {"username": ["channel"]}
     assert get_effective_creator_fields("") == {}
+
+
+def test_get_effective_creator_fields_uses_learned_url_creator_defaults(monkeypatch):
+    import backend.app.services.settings as settings_mod
+    import backend.app.services.tasks.store as store_mod
+
+    monkeypatch.setattr(settings_mod, "load_saved_settings_file", lambda: {})
+    monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
+    monkeypatch.setattr(
+        store_mod,
+        "load_learned_formats",
+        lambda: {"tiktok": {"url_creator_fields": {"username": ["uploader"]}}},
+    )
+
+    fields = get_effective_creator_fields("https://www.tiktok.com/@moli0n/video/1")
+
+    assert fields["username"][0] == "uploader"
+    assert "uploader_id" in fields["username"]
+
+
+def test_saved_creator_fields_override_learned_url_creator_defaults(monkeypatch):
+    import backend.app.services.settings as settings_mod
+    import backend.app.services.tasks.store as store_mod
+
+    monkeypatch.setattr(
+        settings_mod,
+        "load_saved_settings_file",
+        lambda: {"source_creator_fields": {"tiktok": {"username": ["channel"]}}},
+    )
+    monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
+    monkeypatch.setattr(
+        store_mod,
+        "load_learned_formats",
+        lambda: {"tiktok": {"url_creator_fields": {"username": ["uploader"]}}},
+    )
+
+    assert get_effective_creator_fields("https://www.tiktok.com/@moli0n/video/1") == {"username": ["channel"]}
+
+
+def test_source_creator_field_defaults_include_learned_first(monkeypatch):
+    import backend.app.services.tasks.store as store_mod
+
+    monkeypatch.setattr(
+        store_mod,
+        "load_learned_formats",
+        lambda: {"tiktok": {"url_creator_fields": {"username": ["uploader"]}}},
+    )
+
+    defaults = get_source_creator_field_defaults([{"key": "tiktok"}])
+
+    assert defaults["tiktok"]["username"][0] == "uploader"
+    assert "uploader_id" in defaults["tiktok"]["username"]
 
 
 def test_save_learned_creator_fields_persists_only_real_probe_fields(monkeypatch):

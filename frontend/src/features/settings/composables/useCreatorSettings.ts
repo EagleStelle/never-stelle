@@ -110,6 +110,8 @@ export function useCreatorSettings(
     if (sourceHasSavedCreatorFields(key)) {
       return settings.source_creator_fields[key]?.[role] || [];
     }
+    const learned = settings.source_creator_field_defaults[key]?.[role] || [];
+    if (learned.length) return learned;
     return defaults.value[role];
   }
 

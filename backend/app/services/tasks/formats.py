@@ -6,7 +6,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunpa
 
 from backend.app.core.sources import normalize_source_key, source_key_from_url
 
-from .constants import normalize_title_cleaning, quality_label
+from .constants import CREATOR_ROLE_CHAINS, normalize_title_cleaning, quality_label
 
 _ID_TOKEN = "{id}"
 _CREATOR_TOKEN = "{creator}"
@@ -193,6 +193,10 @@ def _clean_creator(value: str, *, strip_at: bool = True) -> str:
     if strip_at:
         value = value.lstrip("@")
     return value.strip()
+
+
+def _creator_match_value(value: Any) -> str:
+    return unquote(str(value or "")).strip().strip("/").lstrip("@").strip().casefold()
 
 
 def _looks_like_slug(value: str) -> bool:
@@ -417,6 +421,73 @@ def _entry_templates(entry: dict[str, Any]) -> list[str]:
     return templates
 
 
+def _creator_role_fields(role: str) -> list[str]:
+    fields: list[str] = []
+    for engine_chains in CREATOR_ROLE_CHAINS.values():
+        for field in engine_chains.get(role, ()):
+            if field not in fields:
+                fields.append(field)
+    return fields
+
+
+def _normalize_url_creator_fields(value: Any) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    for role in ("username", "nickname"):
+        fields: list[str] = []
+        raw_fields = value.get(role)
+        if not isinstance(raw_fields, list):
+            continue
+        for raw_field in raw_fields:
+            field = str(raw_field or "").strip()
+            if field and field not in fields:
+                fields.append(field)
+        if fields:
+            out[role] = fields
+    return out
+
+
+def _infer_url_creator_fields(url_creator: str, metadata: dict[str, Any] | None) -> dict[str, list[str]]:
+    target = _creator_match_value(url_creator)
+    if not target or not isinstance(metadata, dict):
+        return {}
+    for role in ("username", "nickname"):
+        matches: list[str] = []
+        for field in _creator_role_fields(role):
+            if _creator_match_value(metadata.get(field)) == target and field not in matches:
+                matches.append(field)
+        if matches:
+            return {role: matches}
+    return {}
+
+
+def _merge_url_creator_fields(existing: Any, learned: dict[str, list[str]]) -> dict[str, list[str]]:
+    out = _normalize_url_creator_fields(existing)
+    for role, fields in learned.items():
+        current = out.setdefault(role, [])
+        for field in fields:
+            if field not in current:
+                current.append(field)
+    return {role: fields for role, fields in out.items() if fields}
+
+
+def _url_creator_role(entry: dict[str, Any]) -> str:
+    fields = _normalize_url_creator_fields(entry.get("url_creator_fields"))
+    if fields.get("username"):
+        return "username"
+    if fields.get("nickname"):
+        return "nickname"
+    return "creator"
+
+
+def _display_templates(entry: dict[str, Any], templates: list[str]) -> list[str]:
+    role = _url_creator_role(entry)
+    if role == "creator":
+        return templates
+    return [template.replace(_CREATOR_TOKEN, f"{{{role}}}") for template in templates]
+
+
 def describe_learned_segments(entry: dict[str, Any]) -> dict[str, Any]:
     """Break a source's primary learned template into UI-selectable segments.
 
@@ -424,13 +495,16 @@ def describe_learned_segments(entry: dict[str, Any]) -> dict[str, Any]:
     other path segment or query key is selectable so the user can name a slug token
     for it. Positions use the same ``path:<n>`` / ``query:<key>`` encoding as id_part.
     """
-    templates = _entry_templates(entry if isinstance(entry, dict) else {})
+    entry = entry if isinstance(entry, dict) else {}
+    templates = _entry_templates(entry)
     if not templates:
         return {"templates": [], "segments": []}
+    display_templates = _display_templates(entry, templates)
+    creator_label = f"{{{_url_creator_role(entry)}}}"
     try:
         parsed = urlparse(templates[0])
     except Exception:
-        return {"templates": templates, "segments": []}
+        return {"templates": display_templates, "segments": []}
     segments: list[dict[str, Any]] = []
     raw_segments = [part for part in str(parsed.path or "").split("/") if part.strip()]
     for index, segment in enumerate(raw_segments):
@@ -438,7 +512,7 @@ def describe_learned_segments(entry: dict[str, Any]) -> dict[str, Any]:
         if segment == _ID_TOKEN:
             segments.append({"part": part, "label": _ID_TOKEN, "kind": "id", "reserved": True})
         elif segment in (_CREATOR_TOKEN, f"@{_CREATOR_TOKEN}"):
-            segments.append({"part": part, "label": _CREATOR_TOKEN, "kind": "creator", "reserved": True})
+            segments.append({"part": part, "label": creator_label, "kind": "creator", "reserved": True})
         elif segment == _VAR_TOKEN:
             segments.append({"part": part, "label": _VAR_TOKEN, "kind": "var", "reserved": False})
         else:
@@ -449,10 +523,15 @@ def describe_learned_segments(entry: dict[str, Any]) -> dict[str, Any]:
             segments.append({"part": part, "label": f"{key}={_ID_TOKEN}", "kind": "id", "reserved": True})
         else:
             segments.append({"part": part, "label": f"{key}={unquote(value)}", "kind": "query", "reserved": False})
-    return {"templates": templates, "segments": segments}
+    return {"templates": display_templates, "segments": segments}
 
 
-def learn_download(learned: dict[str, Any], source_url: str, media_id: str) -> dict[str, Any]:
+def learn_download(
+    learned: dict[str, Any],
+    source_url: str,
+    media_id: str,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     analysis = analyze_url(source_url, media_id)
     canonical = str(analysis.get("canonical") or "")
     key = source_key_from_url(canonical or source_url)
@@ -469,7 +548,9 @@ def learn_download(learned: dict[str, Any], source_url: str, media_id: str) -> d
     entry["host"] = str(entry.get("host") or analysis.get("host") or "")
     entry["id_part"] = str(entry.get("id_part") or analysis.get("id_part") or "")
     if analysis.get("creator_part"):
-        entry["creator_part"] = str(entry.get("creator_part") or analysis.get("creator_part") or "")
+        url_creator_fields = _infer_url_creator_fields(str(analysis.get("creator") or ""), metadata)
+        if url_creator_fields:
+            entry["url_creator_fields"] = _merge_url_creator_fields(entry.get("url_creator_fields"), url_creator_fields)
     entry["samples"] = int(entry.get("samples") or 0) + 1
     if media_id:
         _record_id_signature(entry, media_id)

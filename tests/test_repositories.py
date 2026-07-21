@@ -16,24 +16,28 @@ def test_learned_formats_persist_to_formats_table(tmp_path, monkeypatch):
         {},
         "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489?lang=en&q=fzyahoo&t=1781279478413",
         "7493558766131039489",
+        {"uploader": "fzyahoo.com"},
     )
     repositories.save_learned_formats_payload(payload)
 
     with database_module.transaction() as connection:
-        rows = connection.execute("SELECT source_key, templates, creator_part FROM formats").fetchall()
+        rows = connection.execute("SELECT source_key, templates, url_creator_fields FROM formats").fetchall()
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(formats)").fetchall()}
         legacy = connection.execute("SELECT value FROM settings WHERE key = ?", ("learned_formats",)).fetchone()
 
     assert legacy is None
     assert "template" not in columns
     assert "templates" in columns
+    assert "url_creator_fields" in columns
+    assert "creator_part" not in columns
     assert len(rows) == 1
     assert rows[0]["source_key"] == "tiktok"
     assert json.loads(rows[0]["templates"]) == ["https://www.tiktok.com/@{creator}/video/{id}"]
-    assert rows[0]["creator_part"] == "path:0"
+    assert json.loads(rows[0]["url_creator_fields"]) == {"username": ["uploader"]}
 
     loaded = repositories.load_learned_formats_payload()
     assert loaded["tiktok"]["templates"] == ["https://www.tiktok.com/@{creator}/video/{id}"]
+    assert loaded["tiktok"]["url_creator_fields"] == {"username": ["uploader"]}
     assert "template" not in loaded["tiktok"]
 
 
@@ -79,6 +83,8 @@ def test_learned_formats_migrate_template_column_to_templates(tmp_path, monkeypa
     assert loaded["tiktok"]["templates"] == ["https://www.tiktok.com/@{creator}/photo/{id}"]
     assert "template" not in columns
     assert "templates" in columns
+    assert "url_creator_fields" in columns
+    assert "creator_part" not in columns
 
 
 def test_learned_formats_migrate_legacy_settings_row(tmp_path, monkeypatch):

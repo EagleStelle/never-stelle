@@ -468,6 +468,64 @@ def normalize_source_creator_fields(raw: Any) -> dict[str, dict[str, list[str]]]
     return out
 
 
+def _has_creator_field_roles(value: Any) -> bool:
+    roles = value if isinstance(value, dict) else {}
+    return any(bool(roles.get(role)) for role in ("username", "nickname"))
+
+
+def _creator_field_defaults_with_learned(learned: dict[str, list[str]]) -> dict[str, list[str]]:
+    from backend.app.services.tasks.constants import creator_field_defaults
+
+    defaults = creator_field_defaults()
+    out: dict[str, list[str]] = {}
+    for role in ("username", "nickname"):
+        fields: list[str] = []
+        for value in [*(learned.get(role) or []), *(defaults.get(role) or [])]:
+            field = normalize_creator_field(value)
+            if field and field not in fields:
+                fields.append(field)
+        if fields:
+            out[role] = fields
+    return out
+
+
+def get_source_creator_field_defaults(
+    source_profiles: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, list[str]]]:
+    from backend.app.services.tasks.store import load_learned_formats
+
+    learned_by_source = normalize_source_creator_fields(
+        {
+            raw_key: (entry or {}).get("url_creator_fields")
+            for raw_key, entry in (load_learned_formats() or {}).items()
+            if isinstance(entry, dict)
+        }
+    )
+    keys = (
+        {normalize_source_key(profile.get("key")) for profile in source_profiles if normalize_source_key(profile.get("key"))}
+        if source_profiles is not None
+        else set(learned_by_source)
+    )
+    out: dict[str, dict[str, list[str]]] = {}
+    for key in sorted(keys | set(learned_by_source)):
+        learned = learned_by_source.get(key) or {}
+        if _has_creator_field_roles(learned):
+            out[key] = _creator_field_defaults_with_learned(learned)
+    return out
+
+
+def get_effective_source_creator_fields_map(
+    source_profiles: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, list[str]]]:
+    saved = normalize_source_creator_fields(load_saved_settings_file().get("source_creator_fields"))
+    defaults = get_source_creator_field_defaults(source_profiles)
+    out = dict(defaults)
+    for key, roles in saved.items():
+        if _has_creator_field_roles(roles):
+            out[key] = roles
+    return out
+
+
 def normalize_source_title_cleaning(raw: Any) -> dict[str, dict[str, Any]]:
     from backend.app.services.tasks.constants import normalize_title_cleaning
 
@@ -486,10 +544,14 @@ def normalize_source_title_cleaning(raw: Any) -> dict[str, dict[str, Any]]:
 def get_effective_creator_fields(source_url: str = "") -> dict[str, list[str]]:
     payload = load_saved_settings_file()
     mapping = normalize_source_creator_fields(payload.get("source_creator_fields"))
-    if not source_url or not mapping:
+    if not source_url:
         return {}
     profile = get_source_profile_for_url(source_url, payload=payload)
-    return mapping.get(profile["key"], {})
+    key = normalize_source_key(profile.get("key"))
+    saved = mapping.get(key) or {}
+    if _has_creator_field_roles(saved):
+        return saved
+    return get_source_creator_field_defaults([profile]).get(key, {})
 
 
 def get_effective_title_cleaning(source_url: str = "") -> dict[str, Any]:
@@ -780,6 +842,7 @@ def build_settings_response(
         "source_slug_tokens": saved.get("source_slug_tokens", get_effective_slug_tokens()),
         "learned_formats": get_learned_formats_for_ui(),
         "source_creator_fields": saved.get("source_creator_fields", {}),
+        "source_creator_field_defaults": get_source_creator_field_defaults(saved.get("source_profiles")),
         "source_title_cleaning": saved.get("source_title_cleaning", {}),
         "creator_field_defaults": creator_field_defaults(),
         "title_cleaning_rules": title_cleaning_rules(),

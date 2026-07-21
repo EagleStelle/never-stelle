@@ -65,13 +65,32 @@ def _dedupe_templates(values: Any) -> list[str]:
     return seen
 
 
+def _normalize_creator_fields(value: Any) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    for role in ("username", "nickname"):
+        fields: list[str] = []
+        raw_fields = value.get(role)
+        if not isinstance(raw_fields, list):
+            continue
+        for raw_field in raw_fields:
+            field = str(raw_field or "").strip()
+            if field and field not in fields:
+                fields.append(field)
+        if fields:
+            out[role] = fields
+    return out
+
+
 def _format_entry_from_row(row: Any) -> dict[str, Any]:
     templates = _dedupe_templates(_decode(str(row["templates"] or ""), []))
+    url_creator_fields = _normalize_creator_fields(_decode(str(row["url_creator_fields"] or ""), {}))
     entry: dict[str, Any] = {
         "templates": templates,
+        "url_creator_fields": url_creator_fields,
         "host": str(row["host"] or ""),
         "id_part": str(row["id_part"] or ""),
-        "creator_part": str(row["creator_part"] or ""),
         "samples": int(row["samples"] or 0),
     }
     id_min = int(row["id_min"] or 0)
@@ -83,7 +102,7 @@ def _format_entry_from_row(row: Any) -> dict[str, Any]:
     id_classes = [item for item in str(row["id_classes"] or "").split(",") if item]
     if id_classes:
         entry["id_classes"] = id_classes
-    return {key: value for key, value in entry.items() if value not in ("", [], None)}
+    return {key: value for key, value in entry.items() if value not in ("", [], {}, None)}
 
 
 def _normalize_format_payload(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -97,11 +116,13 @@ def _normalize_format_payload(payload: dict[str, Any]) -> dict[str, dict[str, An
         entry = dict(raw_entry)
         templates = _dedupe_templates(entry.get("templates"))
         legacy_template = str(entry.pop("template", "") or "").strip()
+        entry.pop("creator_part", None)
         if legacy_template and legacy_template not in templates:
             templates = [legacy_template, *templates]
         if not templates:
             continue
         entry["templates"] = templates
+        entry["url_creator_fields"] = _normalize_creator_fields(entry.get("url_creator_fields"))
         normalized[key] = entry
     return normalized
 
@@ -125,11 +146,12 @@ def _save_format_rows(connection: Any, payload: dict[str, Any]) -> None:
     for key, entry in normalized.items():
         id_classes = ",".join(sorted(str(item) for item in (entry.get("id_classes") or []) if str(item)))
         templates = _dedupe_templates(entry.get("templates"))
+        url_creator_fields = _normalize_creator_fields(entry.get("url_creator_fields"))
         connection.execute(
             """
             INSERT OR REPLACE INTO formats (
-                source_key, host, templates, id_min, id_max, id_classes,
-                id_part, creator_part, samples, created_at, updated_at
+                source_key, host, templates, url_creator_fields, id_min, id_max, id_classes,
+                id_part, samples, created_at, updated_at
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -137,11 +159,11 @@ def _save_format_rows(connection: Any, payload: dict[str, Any]) -> None:
                 key,
                 str(entry.get("host") or ""),
                 _encode(templates),
+                _encode(url_creator_fields),
                 int(entry.get("id_min") or 0),
                 int(entry.get("id_max") or 0),
                 id_classes,
                 str(entry.get("id_part") or ""),
-                str(entry.get("creator_part") or ""),
                 int(entry.get("samples") or 0),
                 existing.get(key, now),
                 now,
@@ -153,8 +175,8 @@ def load_learned_formats_payload() -> dict[str, Any]:
     with transaction() as connection:
         rows = connection.execute(
             """
-            SELECT source_key, host, templates, id_min, id_max, id_classes,
-                   id_part, creator_part, samples
+            SELECT source_key, host, templates, url_creator_fields, id_min, id_max, id_classes,
+                   id_part, samples
             FROM formats
             ORDER BY source_key
             """

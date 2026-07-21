@@ -57,11 +57,11 @@ CREATE TABLE IF NOT EXISTS formats (
     source_key TEXT PRIMARY KEY,
     host TEXT NOT NULL DEFAULT '',
     templates TEXT NOT NULL DEFAULT '',
+    url_creator_fields TEXT NOT NULL DEFAULT '',
     id_min INTEGER NOT NULL DEFAULT 0,
     id_max INTEGER NOT NULL DEFAULT 0,
     id_classes TEXT NOT NULL DEFAULT '',
     id_part TEXT NOT NULL DEFAULT '',
-    creator_part TEXT NOT NULL DEFAULT '',
     samples INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -157,9 +157,13 @@ def _migrate_schema(connection: sqlite3.Connection) -> None:
     if "templates" not in columns:
         connection.execute("ALTER TABLE formats ADD COLUMN templates TEXT NOT NULL DEFAULT ''")
         columns.add("templates")
+    if "url_creator_fields" not in columns:
+        connection.execute("ALTER TABLE formats ADD COLUMN url_creator_fields TEXT NOT NULL DEFAULT ''")
+        columns.add("url_creator_fields")
     if "template" in columns:
         _migrate_format_templates(connection)
-        _drop_format_template_column(connection)
+    if "template" in columns or "creator_part" in columns:
+        _drop_format_legacy_columns(connection)
     connection.execute("UPDATE queue SET source_key = '' WHERE source_key = 'others'")
     connection.execute("UPDATE history SET source_key = '' WHERE source_key = 'others'")
     connection.execute("DELETE FROM cookies WHERE key = 'ytdlp_cookies::others'")
@@ -195,7 +199,7 @@ def _migrate_format_templates(connection: sqlite3.Connection) -> None:
         )
 
 
-def _drop_format_template_column(connection: sqlite3.Connection) -> None:
+def _drop_format_legacy_columns(connection: sqlite3.Connection) -> None:
     connection.execute("DROP INDEX IF EXISTS idx_formats_host")
     connection.execute("DROP TABLE IF EXISTS formats_next")
     connection.execute(
@@ -204,11 +208,11 @@ def _drop_format_template_column(connection: sqlite3.Connection) -> None:
             source_key TEXT PRIMARY KEY,
             host TEXT NOT NULL DEFAULT '',
             templates TEXT NOT NULL DEFAULT '',
+            url_creator_fields TEXT NOT NULL DEFAULT '',
             id_min INTEGER NOT NULL DEFAULT 0,
             id_max INTEGER NOT NULL DEFAULT 0,
             id_classes TEXT NOT NULL DEFAULT '',
             id_part TEXT NOT NULL DEFAULT '',
-            creator_part TEXT NOT NULL DEFAULT '',
             samples INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -218,12 +222,13 @@ def _drop_format_template_column(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         INSERT INTO formats_next (
-            source_key, host, templates, id_min, id_max, id_classes,
-            id_part, creator_part, samples, created_at, updated_at
+            source_key, host, templates, url_creator_fields, id_min, id_max, id_classes,
+            id_part, samples, created_at, updated_at
         )
         SELECT source_key, COALESCE(host, ''), COALESCE(templates, ''),
+               COALESCE(url_creator_fields, ''),
                COALESCE(id_min, 0), COALESCE(id_max, 0), COALESCE(id_classes, ''),
-               COALESCE(id_part, ''), COALESCE(creator_part, ''), COALESCE(samples, 0),
+               COALESCE(id_part, ''), COALESCE(samples, 0),
                created_at, updated_at
         FROM formats
         """

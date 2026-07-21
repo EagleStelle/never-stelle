@@ -286,10 +286,15 @@ def _cleanup_file(path: str) -> None:
         pass
 
 
-def _learn_source_format(source_url: str, filename: str, media_id: str = "") -> None:
+def _learn_source_format(
+    source_url: str,
+    filename: str,
+    media_id: str = "",
+    metadata: dict[str, str] | None = None,
+) -> None:
     # Teach the DB this source's URL shape + id signature from a real download.
     media_id = str(media_id or "").strip() or parse_filename_media_id(filename)[0]
-    persist_source_format(source_url, media_id)
+    persist_source_format(source_url, media_id, metadata)
 
 
 def _path_key(path: Path | str) -> str:
@@ -1645,7 +1650,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     template_settings=template_settings or {},
                 )
                 completed_rows.append((row_task_id, completed_task))
-                _learn_source_format(item_source_url, display_filename, media_id)
+                _learn_source_format(item_source_url, display_filename, media_id, metadata)
             for row_task_id, completed_task in completed_rows:
                 save_history_entry(row_task_id, completed_task)
                 remove_task_record(row_task_id)

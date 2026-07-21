@@ -122,9 +122,9 @@ def ensure_creator_fields_learned(source_url: str, source_key: str = "") -> dict
     )
 
 
-def learn_source_format(source_url: str, media_id: str) -> bool:
+def learn_source_format(source_url: str, media_id: str, metadata: dict[str, Any] | None = None) -> bool:
     learned = load_learned_formats()
-    updated = learn_download(learned, source_url, media_id)
+    updated = learn_download(learned, source_url, media_id, metadata)
     if updated == learned:
         return False
     save_learned_formats(updated)
@@ -144,5 +144,6 @@ def update_learned_formats_with_download(
     learned: dict[str, Any],
     source_url: str,
     media_id: str,
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return learn_download(learned, source_url, media_id)
+    return learn_download(learned, source_url, media_id, metadata)

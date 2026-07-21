@@ -1504,6 +1504,11 @@ def test_scan_media_library_uses_learned_tiktok_photo_template(
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
     monkeypatch.setattr(
         scan_module,
+        "_scan_probe_metadata",
+        lambda url, *, with_cookies=False: {"uploader": "fzyahoo.com"},
+    )
+    monkeypatch.setattr(
+        scan_module,
         "save_history_entry_row",
         lambda task_id, payload: saved.update({task_id: payload}),
     )
@@ -1534,7 +1539,6 @@ def test_learn_download_marks_creator_segment():
     learned = learn_download({}, "https://twitter.com/DohaVT/status/2073635724684054528", "2073635724684054528")
     learned = learn_download(learned, "https://twitter.com/Other/status/1111111111111111111", "1111111111111111111")
     assert learned["twitter"]["templates"][0] == "https://twitter.com/{creator}/status/{id}"
-    assert learned["twitter"]["creator_part"] == "path:0"
 
 
 def test_learn_download_trims_seo_query_and_keeps_creator_token():
@@ -1565,6 +1569,43 @@ def test_learn_download_keeps_multiple_templates_per_source():
         "https://www.tiktok.com/@{creator}/video/{id}",
         "https://www.tiktok.com/@{creator}/photo/{id}",
     }
+
+
+def test_learn_download_stores_url_creator_username_field():
+    learned = learn_download(
+        {},
+        "https://www.tiktok.com/@moli0n/video/7645876413593128210",
+        "7645876413593128210",
+        {"uploader": "moli0n", "channel": "Moli Display"},
+    )
+
+    assert learned["tiktok"]["url_creator_fields"]["username"][0] == "uploader"
+
+
+def test_describe_learned_segments_displays_url_creator_role():
+    learned = learn_download(
+        {},
+        "https://www.tiktok.com/@moli0n/video/7645876413593128210",
+        "7645876413593128210",
+        {"uploader": "moli0n"},
+    )
+
+    described = describe_learned_segments(learned["tiktok"])
+
+    assert learned["tiktok"]["templates"][0] == "https://www.tiktok.com/@{creator}/video/{id}"
+    assert described["templates"][0] == "https://www.tiktok.com/@{username}/video/{id}"
+    assert described["segments"][0]["label"] == "{username}"
+
+
+def test_learn_download_url_creator_role_tie_prefers_username():
+    learned = learn_download(
+        {},
+        "https://www.tiktok.com/@moli0n/video/7645876413593128210",
+        "7645876413593128210",
+        {"uploader": "moli0n"},
+    )
+
+    assert learned["tiktok"]["url_creator_fields"] == {"username": ["uploader"]}
 
 
 def test_reconstruct_url_candidates_returns_every_learned_route():
@@ -2156,6 +2197,92 @@ def test_scan_probes_manual_file_in_configured_username_order(tmp_path: Path, mo
     assert saved["disk:abc123"]["artist"] == "UCopaque123"
     assert saved["disk:abc123"]["source_url"] == "https://www.youtube.com/watch?v=abc123"
     assert probed == ["https://www.youtube.com/watch?v=abc123"]
+
+
+def test_scan_reconstructs_creator_route_when_probe_matches_url_creator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media_id = "7645876413593128210"
+    learned = learn_download(
+        {},
+        f"https://www.tiktok.com/@moli0n/video/{media_id}",
+        media_id,
+        {"uploader": "moli0n"},
+    )
+    media_root = tmp_path / "media"
+    platform_dir = media_root / "tiktok"
+    creator_dir = platform_dir / "moli0n"
+    creator_dir.mkdir(parents=True)
+    (creator_dir / f"Soft Light [{media_id}].mp4").write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"tiktok": str(platform_dir)})
+    monkeypatch.setattr(scan_module, "_scan_source_profile_keys", lambda: {"tiktok"})
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_template_map",
+        lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
+    )
+    monkeypatch.setattr(scan_module, "_scan_creator_fields_map", lambda: {"tiktok": {"username": ["uploader"]}})
+    monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: {"uploader": "moli0n"})
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    scan_module.scan_media_library([media_root])
+
+    assert saved[f"disk:{media_id}"]["artist"] == "moli0n"
+    assert saved[f"disk:{media_id}"]["source_url"] == f"https://www.tiktok.com/@moli0n/video/{media_id}"
+
+
+def test_scan_skips_creator_route_when_probe_field_mismatches_url_creator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media_id = "7645876413593128210"
+    learned = learn_download(
+        {},
+        f"https://www.tiktok.com/@moli0n/video/{media_id}",
+        media_id,
+        {"uploader": "moli0n"},
+    )
+    media_root = tmp_path / "media"
+    platform_dir = media_root / "tiktok"
+    creator_dir = platform_dir / "wrongname"
+    creator_dir.mkdir(parents=True)
+    (creator_dir / f"Soft Light [{media_id}].mp4").write_bytes(b"video")
+
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"tiktok": str(platform_dir)})
+    monkeypatch.setattr(scan_module, "_scan_source_profile_keys", lambda: {"tiktok"})
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_template_map",
+        lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
+    )
+    monkeypatch.setattr(scan_module, "_scan_creator_fields_map", lambda: {"tiktok": {"username": ["uploader"]}})
+    monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: {"uploader": "moli0n"})
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    scan_module.scan_media_library([media_root])
+
+    assert saved[f"disk:{media_id}"]["artist"] == "wrongname"
+    assert saved[f"disk:{media_id}"]["source_url"] == ""
 
 
 def test_scan_probe_uses_nickname_order_when_folder_token_is_nickname(

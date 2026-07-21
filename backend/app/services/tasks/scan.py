@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from backend.app.core.config import discover_volume_roots
 from backend.app.core.sources import normalize_source_key
@@ -457,12 +458,13 @@ def _scan_source_profile_keys() -> set[str]:
 
 
 def _scan_creator_fields_map() -> dict[str, dict[str, list[str]]]:
-    # Per-source username/nickname field priority the user configured in settings.
+    # Per-source username/nickname field priority: user settings first, then learned URL defaults.
     try:
         from backend.app.core.config import load_app_config
-        from backend.app.services.settings import get_effective_saved_settings
+        from backend.app.services.settings import get_effective_source_creator_fields_map, get_effective_source_profiles
 
-        fields = get_effective_saved_settings(load_app_config()).get("source_creator_fields")
+        cfg = load_app_config()
+        fields = get_effective_source_creator_fields_map(get_effective_source_profiles(cfg))
         return fields if isinstance(fields, dict) else {}
     except Exception:
         return {}
@@ -479,8 +481,12 @@ def _scan_probe_metadata(url: str, *, with_cookies: bool = False) -> dict[str, s
 
 
 def _clean_probe_value(value: str) -> str:
-    value = str(value or "").strip().lstrip("@").strip()
+    value = unquote(str(value or "")).strip().lstrip("@").strip()
     return "" if value.lower() in _EMPTY_CREATOR_VALUES else value
+
+
+def _same_url_creator_value(left: str, right: str) -> bool:
+    return _clean_probe_value(left).casefold() == _clean_probe_value(right).casefold()
 
 
 def _normalize_scraper_role(role: str) -> str:
@@ -570,20 +576,26 @@ def _probe_disk_creator(
     """
     if not order:
         return "", ""
-    probe_urls = reconstruct_url_candidates(learned, source_key, media_id, creator="", slug_values=slug_values)
+    probe_candidates: list[tuple[str, str]] = [
+        (url, "") for url in reconstruct_url_candidates(learned, source_key, media_id, creator="", slug_values=slug_values)
+    ]
     if disk_creator:
         for url in reconstruct_url_candidates(
             learned, source_key, media_id, creator=disk_creator, slug_values=slug_values
         ):
-            if url not in probe_urls:
-                probe_urls.append(url)
-    for url in probe_urls[:_MAX_PROBE_CANDIDATES]:
+            if all(existing_url != url for existing_url, _ in probe_candidates):
+                probe_candidates.append((url, disk_creator))
+    for url, url_creator in probe_candidates[:_MAX_PROBE_CANDIDATES]:
         # Anonymous first; retry authenticated only when the anonymous probe finds nothing.
         flat = _scan_probe_metadata(url) or _scan_probe_metadata(url, with_cookies=True)
         if not flat:
             continue
         for field in order:
             value = _clean_probe_value(flat.get(field, ""))
+            if not value:
+                continue
+            if url_creator and not _same_url_creator_value(value, url_creator):
+                break
             if value:
                 return value, url
     return "", ""
@@ -791,9 +803,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
                     learned, source_key, media_id, _probe_metadata_order(order), slug_values, disk_creator
                 )
                 creator = probed_creator or disk_creator
-                source_url = probed_url or reconstruct_url(
-                    learned, source_key, media_id, creator=creator, slug_values=slug_values
-                )
+                source_url = probed_url or reconstruct_url(learned, source_key, media_id, creator="", slug_values=slug_values)
         display_filename = clean_gallerydl_display_filename(path.name, creator, source_key)
         save_history_entry_row(
             task_id,

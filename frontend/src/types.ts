@@ -187,6 +187,7 @@ export interface RuntimeSettings extends SavedSettings {
   quality_options: QualityOptions;
   template_tokens: TemplateToken[];
   creator_field_defaults: CreatorFieldRoles;
+  source_creator_field_defaults: SourceCreatorFields;
   title_cleaning_rules: TitleCleaningRule[];
   learned_formats: LearnedFormats;
 }
@@ -204,6 +205,7 @@ export interface UiConfigResponse {
   source_slug_tokens?: Record<string, SlugToken[]>;
   learned_formats?: LearnedFormats;
   source_creator_fields?: Record<string, Partial<CreatorFieldRoles>>;
+  source_creator_field_defaults?: Record<string, Partial<CreatorFieldRoles>>;
   source_title_cleaning?: Record<string, Record<string, boolean | number>>;
   creator_field_defaults?: Partial<CreatorFieldRoles>;
   title_cleaning_rules?: TitleCleaningRule[];

@@ -125,6 +125,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     quality_options: createQualityOptions(),
     template_tokens: [],
     creator_field_defaults: { username: [], nickname: [] },
+    source_creator_field_defaults: createSourceCreatorFields(),
     title_cleaning_rules: [],
     learned_formats: {},
   });
@@ -398,6 +399,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
 
     settings.creator_field_defaults = createCreatorFieldRoles(
       data.creator_field_defaults || {},
+    );
+    replaceRecord(
+      settings.source_creator_field_defaults,
+      createSourceCreatorFields(
+        recordForProfiles(data.source_creator_field_defaults || {}, managedProfiles),
+        managedProfiles,
+      ),
     );
     settings.title_cleaning_rules = Array.isArray(data.title_cleaning_rules)
       ? data.title_cleaning_rules
