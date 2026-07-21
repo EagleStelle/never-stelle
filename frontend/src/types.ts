@@ -145,7 +145,6 @@ export interface ScrapeTestResponse {
 export interface QualityPreset {
   key: string;
   label: string;
-  codecs?: string[];
 }
 
 export interface QualitySelection {

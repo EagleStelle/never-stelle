@@ -200,9 +200,9 @@ const DEFAULT_QUALITY_OPTIONS: QualityOptions = {
     { key: "480p", label: "480p" },
   ],
   video_containers: [
-    { key: "mp4", label: "MP4", codecs: ["av1", "h264", "h265"] },
-    { key: "mkv", label: "MKV", codecs: ["av1", "vp9", "h264", "h265"] },
-    { key: "webm", label: "WebM", codecs: ["av1", "vp9"] },
+    { key: "mp4", label: "MP4" },
+    { key: "mkv", label: "MKV" },
+    { key: "webm", label: "WebM" },
   ],
   video_codecs: [
     { key: "auto", label: "Auto" },
@@ -234,15 +234,6 @@ function createQualityPreset(source: Partial<QualityPreset>): QualityPreset {
   return {
     key,
     label: String(source.label || key || "Unknown"),
-    codecs: Array.isArray(source.codecs)
-      ? source.codecs
-          .map((codec) =>
-            String(codec || "")
-              .trim()
-              .toLowerCase(),
-          )
-          .filter(Boolean)
-      : undefined,
   };
 }
 
@@ -279,38 +270,6 @@ export function createQualityOptions(
   };
 }
 
-export function containerCodecs(
-  container: string,
-  containers: QualityPreset[],
-): Set<string> {
-  const key = String(container || "")
-    .trim()
-    .toLowerCase();
-  return new Set(containers.find((item) => item.key === key)?.codecs || []);
-}
-
-export function isCodecAllowed(
-  codec: string,
-  container: string,
-  containers: QualityPreset[],
-): boolean {
-  const key = String(codec || "")
-    .trim()
-    .toLowerCase();
-  return key === "auto" || containerCodecs(container, containers).has(key);
-}
-
-export function resolveCodec(
-  codec: string,
-  container: string,
-  containers: QualityPreset[],
-): string {
-  const key = String(codec || "")
-    .trim()
-    .toLowerCase();
-  return isCodecAllowed(key, container, containers) ? key : "auto";
-}
-
 function optionKey(
   value: unknown,
   items: QualityPreset[],
@@ -328,20 +287,11 @@ export function createQualitySelection(
 ): QualitySelection {
   const options = createQualityOptions(qualityOptions);
   const mode: MediaMode = source.mode === "audio" ? "audio" : "video";
-  const videoContainer = optionKey(
-    source.video_container,
-    options.video_containers,
-    "mp4",
-  );
   return {
     mode,
     video_quality: optionKey(source.video_quality, options.video, "best"),
-    video_container: videoContainer,
-    video_codec: resolveCodec(
-      optionKey(source.video_codec, options.video_codecs, "auto"),
-      videoContainer,
-      options.video_containers,
-    ),
+    video_container: optionKey(source.video_container, options.video_containers, "mp4"),
+    video_codec: optionKey(source.video_codec, options.video_codecs, "auto"),
     audio_format: optionKey(source.audio_format, options.audio_formats, "mp3"),
     audio_bitrate: optionKey(
       source.audio_bitrate,

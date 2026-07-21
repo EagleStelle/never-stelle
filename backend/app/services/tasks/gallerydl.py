@@ -21,9 +21,8 @@ from .constants import (
     MEDIA_EXTENSIONS,
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
-    VIDEO_QUALITY_PRESETS,
-    codec_allowed_for_container,
     normalize_quality_selection,
+    video_format_selector,
 )
 from .formats import derived_token_value
 from .naming import detect_ffmpeg_location, sanitize_path_literal
@@ -85,8 +84,8 @@ def _ytdl_downloader_options(quality: dict[str, str] | None = None) -> list[str]
     selection = normalize_quality_selection(quality)
     audio_mode = selection["mode"] == "audio"
     video_quality = "best" if audio_mode else selection["video_quality"]
-    format_string = VIDEO_QUALITY_PRESETS[video_quality]["ytdlp"]
     container = "mp4" if audio_mode else selection["video_container"]
+    format_string = video_format_selector(video_quality, container)
     options = [
         "-o",
         _YTDL_MODULE_OPTION,
@@ -96,7 +95,8 @@ def _ytdl_downloader_options(quality: dict[str, str] | None = None) -> list[str]
         f"downloader.ytdl.raw-options.merge_output_format={container}",
     ]
     codec_sort = VIDEO_CODEC_PRESETS[selection["video_codec"]]["sort"]
-    if not audio_mode and codec_sort and codec_allowed_for_container(selection["video_codec"], container):
+    if not audio_mode and codec_sort:
+        # Soft preference; the format filter enforces container compatibility.
         options.extend(["-o", f"downloader.ytdl.raw-options.format_sort=vcodec:{codec_sort}"])
     ffmpeg_location = detect_ffmpeg_location()
     if ffmpeg_location:

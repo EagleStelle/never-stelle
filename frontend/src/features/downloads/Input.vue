@@ -12,9 +12,8 @@ import {
   SegmentedControlItem,
 } from "../../components/ui/segmented-control";
 
-import { computed } from "vue";
 import type { QualityOptions, QualitySelection, SavedSettings } from "../../types";
-import { createQualitySelection, isCodecAllowed, isLosslessAudioFormat } from "../../utils/dashboard";
+import { createQualitySelection, isLosslessAudioFormat } from "../../utils/dashboard";
 
 const props = defineProps<{
   savedSettings: SavedSettings;
@@ -28,14 +27,6 @@ const emit = defineEmits<{
   "update:url": [url: string];
   "update:quality": [quality: QualitySelection];
 }>();
-
-// Grey out codecs the chosen container can't hold.
-const codecItems = computed(() =>
-  props.qualityOptions.video_codecs.map((codec) => ({
-    ...codec,
-    disabled: !isCodecAllowed(codec.key, props.quality.video_container, props.qualityOptions.video_containers),
-  })),
-);
 
 function update(patch: Partial<QualitySelection>): void {
   emit("update:quality", createQualitySelection({ ...props.quality, ...patch }, props.qualityOptions));
@@ -134,9 +125,9 @@ const pasteFromClipboard = async () => {
               aria-label="Video container"
             />
             <Combobox
-              v-if="codecItems.length"
+              v-if="qualityOptions.video_codecs.length"
               :model-value="quality.video_codec"
-              :items="codecItems"
+              :items="qualityOptions.video_codecs"
               @update:model-value="(val) => update({ video_codec: val })"
               class="shrink-0"
               placeholder="Codec..."

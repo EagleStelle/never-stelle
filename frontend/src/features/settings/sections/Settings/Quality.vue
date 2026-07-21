@@ -1,37 +1,11 @@
 <script setup lang="ts">
-import { computed } from "vue";
-
 import { ComboboxSelect as Combobox } from "../../../../components/ui/combobox";
-import type { QualitySelection } from "../../../../types";
-import { isCodecAllowed, isLosslessAudioFormat, resolveCodec } from "../../../../utils/dashboard";
+import { isLosslessAudioFormat } from "../../../../utils/dashboard";
 import { useSettingsContext } from "../../context";
 import SettingsLabel from "../../SettingsLabel.vue";
 import SettingsRow from "../../SettingsRow.vue";
 
 const { settings, settingsDraft } = useSettingsContext();
-
-// Grey out codecs the chosen container can't hold.
-const codecItems = computed(() =>
-  settings.quality_options.video_codecs.map((codec) => ({
-    ...codec,
-    disabled: !isCodecAllowed(
-      codec.key,
-      settingsDraft.default_quality.video_container,
-      settings.quality_options.video_containers,
-    ),
-  })),
-);
-
-// Mutate the draft in place; a container switch may invalidate the codec -> Auto.
-function setDefaultQuality(patch: Partial<QualitySelection>): void {
-  const quality = settingsDraft.default_quality;
-  Object.assign(quality, patch);
-  quality.video_codec = resolveCodec(
-    quality.video_codec,
-    quality.video_container,
-    settings.quality_options.video_containers,
-  );
-}
 </script>
 
 <template>
@@ -51,7 +25,7 @@ function setDefaultQuality(patch: Partial<QualitySelection>): void {
     <Combobox
       :model-value="settingsDraft.default_quality.video_container"
       :items="settings.quality_options.video_containers"
-      @update:model-value="(val) => setDefaultQuality({ video_container: val })"
+      @update:model-value="(val) => (settingsDraft.default_quality.video_container = val)"
       layout="fill"
       placeholder="Choose a container"
       empty-text="No containers."
@@ -60,8 +34,8 @@ function setDefaultQuality(patch: Partial<QualitySelection>): void {
   <SettingsRow label="Codec">
     <Combobox
       :model-value="settingsDraft.default_quality.video_codec"
-      :items="codecItems"
-      @update:model-value="(val) => setDefaultQuality({ video_codec: val })"
+      :items="settings.quality_options.video_codecs"
+      @update:model-value="(val) => (settingsDraft.default_quality.video_codec = val)"
       layout="fill"
       placeholder="Choose a codec"
       empty-text="No codecs."

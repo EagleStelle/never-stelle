@@ -283,7 +283,7 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
         quality={"mode": "video", "video_container": "webm", "video_codec": "h264"},
     )
     assert captured["task"]["quality"]["video_container"] == "webm"
-    assert captured["task"]["quality"]["video_codec"] == "auto"
+    assert captured["task"]["quality"]["video_codec"] == "h264"
 
 
 def test_parse_filename_media_id_accepts_numbered_gallerydl_suffix():

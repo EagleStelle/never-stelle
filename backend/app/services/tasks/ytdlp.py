@@ -20,10 +20,9 @@ from .constants import (
     CREATOR_ROLE_CHAINS,
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
-    VIDEO_QUALITY_PRESETS,
-    codec_allowed_for_container,
     is_lossless_audio,
     normalize_quality_selection,
+    video_format_selector,
 )
 from .formats import derived_token_value
 from .naming import (
@@ -192,7 +191,11 @@ def build_ytdlp_command(
 ) -> list[str]:
     selection = normalize_quality_selection(quality)
     audio_mode = selection["mode"] == "audio"
-    selected_format = "bestaudio/best" if audio_mode else VIDEO_QUALITY_PRESETS[selection["video_quality"]]["ytdlp"]
+    selected_format = (
+        "bestaudio/best"
+        if audio_mode
+        else video_format_selector(selection["video_quality"], selection["video_container"])
+    )
     cmd = [
         "yt-dlp",
         "--newline",
@@ -214,9 +217,8 @@ def build_ytdlp_command(
     else:
         cmd.extend(["--merge-output-format", selection["video_container"]])
         codec_sort = VIDEO_CODEC_PRESETS[selection["video_codec"]]["sort"]
-        # Skip the preference when the container can't hold it — avoids forcing a re-encode.
-        if codec_sort and codec_allowed_for_container(selection["video_codec"], selection["video_container"]):
-            # Soft codec preference: prefer this vcodec, fall back when unavailable.
+        if codec_sort:
+            # Soft preference; the --format filter enforces container compatibility.
             cmd.extend(["-S", f"vcodec:{codec_sort}"])
     if _is_youtube_url(source_url):
         cmd.extend(["--js-runtimes", "node", "--remote-components", "ejs:github"])

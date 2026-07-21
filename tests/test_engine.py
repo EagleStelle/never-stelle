@@ -9,11 +9,13 @@ import backend.app.services.tasks.gallerydl as gallerydl
 import backend.app.services.tasks.ytdlp as ytdlp
 from backend.app.services.tasks import engine_by_name, engine_for_task, select_engine
 from backend.app.services.tasks.constants import (
-    codec_allowed_for_container,
+    container_acodec_filter,
+    container_vcodec_filter,
     default_quality_selection,
     normalize_quality_selection,
     quality_options,
     template_tokens,
+    video_format_selector,
 )
 from backend.app.services.tasks.engine import all_engines
 from backend.app.services.tasks.worker import _count_progress, _looks_unsupported, _should_try_next_engine
@@ -50,7 +52,7 @@ def test_normalize_quality_selection_defaults_and_validates():
         "audio_format": "opus",
         "audio_bitrate": "192",
     }
-    assert normalize_quality_selection({"video_container": "mp4", "video_codec": "vp9"})["video_codec"] == "auto"
+    assert normalize_quality_selection({"video_container": "mp4", "video_codec": "vp9"})["video_codec"] == "vp9"
 
 
 def test_quality_options_expose_all_pickers():
@@ -60,9 +62,6 @@ def test_quality_options_expose_all_pickers():
     assert {o["key"] for o in options["video_codecs"]} == {"auto", "av1", "vp9", "h264", "h265"}
     assert {o["key"] for o in options["audio_formats"]} == {"mp3", "m4a", "opus", "aac", "flac", "wav"}
     assert {o["key"] for o in options["audio_bitrates"]} == {"best", "320", "192", "128"}
-    by_key = {o["key"]: o for o in options["video_containers"]}
-    assert set(by_key["webm"]["codecs"]) == {"av1", "vp9"}
-    assert "vp9" not in by_key["mp4"]["codecs"]
 
 
 def test_template_tokens_expose_supported_public_tokens_only():
@@ -75,15 +74,32 @@ def test_template_tokens_expose_supported_public_tokens_only():
     ]
 
 
-def test_codec_allowed_for_container_matrix():
-    assert codec_allowed_for_container("auto", "webm") is True
-    assert codec_allowed_for_container("av1", "mp4") is True
-    assert codec_allowed_for_container("vp9", "mp4") is False
-    assert codec_allowed_for_container("h264", "webm") is False
-    assert codec_allowed_for_container("vp9", "mkv") is True
+def test_container_vcodec_filter_restricts_incompatible_codecs():
+    mp4 = container_vcodec_filter("mp4")
+    assert "vp09" not in mp4 and "vp9" not in mp4
+    assert "av01" in mp4 and "avc1" in mp4
+    webm = container_vcodec_filter("webm")
+    assert "avc1" not in webm and "vp09" in webm
+    assert container_vcodec_filter("mkv") == ""
 
 
-def test_ytdlp_command_drops_codec_pref_incompatible_with_container():
+def test_container_acodec_filter_restricts_incompatible_audio():
+    assert "opus" in container_acodec_filter("webm")
+    assert "mp4a" not in container_acodec_filter("webm")
+    assert "mp4a" in container_acodec_filter("mp4")
+    assert container_acodec_filter("mkv") == ""
+
+
+def test_video_format_selector_carries_filters_on_every_branch():
+    fmt = video_format_selector("720p", "mp4")
+    assert fmt.count("[height<=720]") == 2
+    assert fmt.count(container_vcodec_filter("mp4")) == 2
+    assert fmt.count(container_acodec_filter("mp4")) == 2
+    assert not fmt.endswith("/best")
+    assert video_format_selector("best", "mkv") == "bestvideo*+bestaudio/best"
+
+
+def test_ytdlp_command_filters_format_to_container_codecs():
     cmd = ytdlp.build_ytdlp_command(
         "https://www.youtube.com/watch?v=x",
         "/usr/bin/ffmpeg",
@@ -92,7 +108,8 @@ def test_ytdlp_command_drops_codec_pref_incompatible_with_container():
     )
 
     assert cmd[cmd.index("--merge-output-format") + 1] == "webm"
-    assert "-S" not in cmd
+    assert cmd[cmd.index("--format") + 1] == video_format_selector("best", "webm")
+    assert cmd[cmd.index("-S") + 1] == "vcodec:avc1"
 
 
 def test_ytdlp_username_field_uses_configured_list_authoritatively():
@@ -466,7 +483,7 @@ def test_build_gallerydl_command_routes_streams_through_ytdlp(monkeypatch):
     )
 
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.module=yt_dlp")
-    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.format=bestvideo*+bestaudio/best")
+    assert _has_cli_pair(cmd, "-o", f"downloader.ytdl.format={video_format_selector('best', 'mp4')}")
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mp4")
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.ffmpeg_location=/usr/bin/ffmpeg")
 
@@ -501,7 +518,7 @@ def test_ytdlp_command_defaults_to_best_video_merge():
         "/media/out.%(ext)s",
     )
 
-    assert cmd[cmd.index("--format") + 1] == "bestvideo*+bestaudio/best"
+    assert cmd[cmd.index("--format") + 1] == video_format_selector("best", "mp4")
     assert cmd[cmd.index("--merge-output-format") + 1] == "mp4"
     assert "--extract-audio" not in cmd
 
@@ -514,7 +531,7 @@ def test_ytdlp_command_caps_resolution():
         quality={"mode": "video", "video_quality": "720p"},
     )
 
-    assert cmd[cmd.index("--format") + 1] == "bestvideo*[height<=720]+bestaudio/best[height<=720]/best"
+    assert cmd[cmd.index("--format") + 1] == video_format_selector("720p", "mp4")
     assert cmd[cmd.index("--merge-output-format") + 1] == "mp4"
     assert "-S" not in cmd
 
@@ -590,9 +607,7 @@ def test_gallerydl_command_applies_capped_quality_to_ytdl_downloader(monkeypatch
         quality={"mode": "video", "video_quality": "480p"},
     )
 
-    assert _has_cli_pair(
-        cmd, "-o", "downloader.ytdl.format=bestvideo*[height<=480]+bestaudio/best[height<=480]/best"
-    )
+    assert _has_cli_pair(cmd, "-o", f"downloader.ytdl.format={video_format_selector('480p', 'mp4')}")
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mp4")
 
 
@@ -631,7 +646,7 @@ def test_gallerydl_audio_mode_still_downloads_best_video(monkeypatch):
         quality={"mode": "audio", "audio_format": "mp3", "audio_bitrate": "320"},
     )
 
-    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.format=bestvideo*+bestaudio/best")
+    assert _has_cli_pair(cmd, "-o", f"downloader.ytdl.format={video_format_selector('best', 'mp4')}")
 
 
 def test_count_gallerydl_items_disables_tiktok_audio(monkeypatch):
