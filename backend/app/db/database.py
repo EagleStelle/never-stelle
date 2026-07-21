@@ -14,6 +14,7 @@ from backend.app.core.config import DATABASE_PATH
 from backend.app.core.sources import normalize_source_key
 
 _TOKEN_NAME_RE = re.compile(r"[^a-zA-Z0-9_]+")
+_FORMAT_TOKEN_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 _DB_LOCK = threading.RLock()
 _INITIALIZED = False
@@ -182,7 +183,8 @@ def _migrate_legacy_settings_json(connection: sqlite3.Connection) -> None:
             del payload[old_key]
             modified = True
 
-    first_templates = _first_format_templates(connection)
+    format_templates = _format_templates_by_source(connection)
+    first_templates = {key: templates[0] for key, templates in format_templates.items() if templates}
 
     normalized_token_roles = _normalize_settings_token_roles(payload.get("source_token_roles"))
     if payload.get("source_token_roles") != normalized_token_roles:
@@ -202,7 +204,7 @@ def _migrate_legacy_settings_json(connection: sqlite3.Connection) -> None:
     if "source_scrape_rules" in payload:
         source_scrape_rules = _migrate_settings_scrape_rules(
             payload.get("source_scrape_rules"),
-            first_templates,
+            format_templates,
         )
         if payload.get("source_scrape_rules") != source_scrape_rules:
             payload["source_scrape_rules"] = source_scrape_rules
@@ -285,14 +287,14 @@ def _migrate_template_settings_tokens(
     }
 
 
-def _first_format_templates(connection: sqlite3.Connection) -> dict[str, str]:
-    out: dict[str, str] = {}
+def _format_templates_by_source(connection: sqlite3.Connection) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
     rows = connection.execute("SELECT source_key, templates FROM formats ORDER BY source_key").fetchall()
     for row in rows:
         key = normalize_source_key(row["source_key"])
         templates = _decode_templates(row["templates"])
         if key and templates:
-            out[key] = templates[0]
+            out[key] = templates
     return out
 
 
@@ -328,7 +330,7 @@ def _migrate_settings_source_templates(
 
 def _migrate_settings_scrape_rules(
     raw: Any,
-    first_templates: dict[str, str],
+    format_templates: dict[str, list[str]],
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
     source = raw if isinstance(raw, dict) else {}
     out: dict[str, dict[str, list[dict[str, Any]]]] = {}
@@ -362,13 +364,46 @@ def _migrate_settings_scrape_rules(
                     "attr": str(raw_rule.get("attr") or "").strip() or "text",
                     "multi": bool(raw_rule.get("multi")),
                     "xpath": xpath,
-                    "format": str(raw_rule.get("format") or "").strip() or first_templates.get(key, ""),
+                    "format": _migrate_rule_format_scope(
+                        str(raw_rule.get("format") or "").strip(),
+                        format_templates.get(key) or [],
+                    ),
                 }
             )
             valid_count += 1
         if rules:
             out[key] = {"rules": rules}
     return out
+
+
+def _format_scope_key(template: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        token = _normalize_token_name(match.group(1))
+        if token == "id":
+            return "{id}"
+        if token in {"creator", "username", "nickname"}:
+            return "{creator}"
+        return "{var}"
+
+    return _FORMAT_TOKEN_RE.sub(replace, str(template or "").strip())
+
+
+def _migrate_rule_format_scope(rule_format: str, templates: list[str]) -> str:
+    value = str(rule_format or "").strip()
+    if not templates:
+        return value
+    if value in templates:
+        return value
+    if not value:
+        return templates[0]
+
+    scope = _format_scope_key(value)
+    matches = [template for template in templates if _format_scope_key(template) == scope]
+    if len(matches) == 1:
+        return matches[0]
+    if len(templates) == 1:
+        return templates[0]
+    return value
 
 
 def _migrate_schema(connection: sqlite3.Connection) -> None:

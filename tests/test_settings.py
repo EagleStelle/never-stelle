@@ -12,6 +12,7 @@ from backend.app.services.settings import (
     get_source_creator_field_defaults,
     normalize_source_creator_fields,
     normalize_source_location_selection,
+    normalize_source_scrape_rules,
     normalize_source_slug_tokens,
     normalize_source_template_selection,
     normalize_source_title_cleaning,
@@ -162,6 +163,29 @@ def test_normalize_source_token_roles_keeps_known_roles():
     )
 
     assert result == {"rule34video": {"artist_name": "creator", "title": "title"}}
+
+
+def test_normalize_source_scrape_rules_rescopes_stale_variable_format():
+    result = normalize_source_scrape_rules(
+        {
+            "rule34video": {
+                "rules": [
+                    {
+                        "token": "artist",
+                        "selector": "a.item",
+                        "format": "https://rule34video.com/video/{id}/{slug}",
+                    }
+                ]
+            }
+        },
+        {
+            "rule34video": {
+                "templates": ["https://rule34video.com/video/{id}/{var}"],
+            }
+        },
+    )
+
+    assert result["rule34video"]["rules"][0]["format"] == "https://rule34video.com/video/{id}/{var}"
 
 
 def test_normalize_source_templates_migrates_role_backed_scrape_tokens():

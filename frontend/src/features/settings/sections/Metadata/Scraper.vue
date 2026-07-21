@@ -32,6 +32,7 @@ import type { ScrapeRule, TokenRole } from "../../../../types";
 import { displayUrlTemplate, tokenLabel } from "../../../../utils/dashboard";
 import { useScrapeTests } from "../../composables/useScrapeTests";
 import { useSettingsContext } from "../../context";
+import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
 import SettingsLabel from "../../SettingsLabel.vue";
 import {
   Accordion,
@@ -124,12 +125,9 @@ const {
             </div>
           </div>
 
-          <p
-            v-if="scrapeTests[site.key].message"
-            class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55"
-          >
+          <SettingsEmptyCard v-if="scrapeTests[site.key].message">
             {{ scrapeTests[site.key].message }}
-          </p>
+          </SettingsEmptyCard>
 
           <Table
             v-if="scrapeTests[site.key].results.length"

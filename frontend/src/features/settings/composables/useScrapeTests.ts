@@ -63,13 +63,17 @@ export function useScrapeTests(
   }
 
   // Rules shown under one format: those tagged with it, plus legacy (formatless) rules
-  // folded into the first format — the same target the backend treats them as. The flat
-  // index rides along so edit/remove/expand address the one per-source rules list.
+  // folded into the first format. Stale format scopes from older learned templates are
+  // also shown there so saved rules never disappear from the editor.
   function rulesForFormat(key: string, template: string): { rule: ScrapeRule; index: number }[] {
-    const first = formatsFor(key)[0] || "";
+    const formats = formatsFor(key);
+    const first = formats[0] || "";
+    const knownFormats = new Set(formats);
     const out: { rule: ScrapeRule; index: number }[] = [];
     platformRules(key).rules.forEach((rule, index) => {
-      const belongs = rule.format ? rule.format === template : template === first;
+      const belongs = rule.format
+        ? rule.format === template || (!knownFormats.has(rule.format) && template === first)
+        : template === first;
       if (belongs) {
         out.push({ rule, index });
       }

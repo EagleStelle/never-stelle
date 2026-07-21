@@ -316,6 +316,58 @@ def test_settings_app_json_can_use_legacy_learned_formats_row_on_startup(tmp_pat
     assert migrated["source_scrape_rules"]["rule34video"]["rules"][0]["format"] == format_template
 
 
+def test_settings_app_json_rescopes_stale_scrape_rule_format_on_startup(tmp_path, monkeypatch):
+    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+
+    current_format = "https://rule34video.com/video/{id}/{var}"
+    stale_format = "https://rule34video.com/video/{id}/{slug}"
+    repositories.save_learned_formats_payload(
+        {
+            "rule34video": {
+                "templates": [current_format],
+            }
+        }
+    )
+    legacy_app = {
+        "source_token_roles": {
+            "rule34video": {
+                "artist": "creator",
+            }
+        },
+        "source_scrape_rules": {
+            "rule34video": {
+                "rules": [
+                    {
+                        "token": "artist",
+                        "match_label": "Artist",
+                        "selector": "a.item",
+                        "attr": "text",
+                        "format": stale_format,
+                    }
+                ],
+            }
+        },
+    }
+    with database_module.transaction() as connection:
+        connection.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+            ("app", json.dumps(legacy_app), "2026-07-05T00:00:00+00:00"),
+        )
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        row = connection.execute("SELECT value FROM settings WHERE key = ?", ("app",)).fetchone()
+    migrated = json.loads(row["value"])
+
+    rule = migrated["source_scrape_rules"]["rule34video"]["rules"][0]
+    assert rule["token"] == "artist"
+    assert rule["format"] == current_format
+    assert migrated["source_token_roles"]["rule34video"]["artist"] == "creator"
+
+
 def test_engine_tags_migrate_ytdlp_rows_to_gallerydl_on_startup(tmp_path, monkeypatch):
     monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
     monkeypatch.setattr(database_module, "_INITIALIZED", False)
