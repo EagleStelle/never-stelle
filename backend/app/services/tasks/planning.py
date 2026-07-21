@@ -68,8 +68,8 @@ def resolve_task_settings(
     
     platform_templates = selected_templates.get(source_key) or {}
     
-    from backend.app.services.tasks.store import load_learned_formats
     from backend.app.services.tasks.formats import _canonical_shape, match_template
+    from backend.app.services.tasks.store import load_learned_formats
     
     learned = load_learned_formats()
     matched = match_template(learned, source_key, source_url)

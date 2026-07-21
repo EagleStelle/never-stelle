@@ -266,8 +266,8 @@ def normalize_source_template_selection(
         source_profiles if source_profiles is not None else get_effective_source_profiles(cfg)
     )
     
-    from backend.app.services.tasks.store import load_learned_formats
     from backend.app.services.tasks.formats import _entry_templates
+    from backend.app.services.tasks.store import load_learned_formats
     learned = load_learned_formats()
     
     out: dict[str, dict[str, dict[str, str]]] = {}
@@ -288,7 +288,9 @@ def normalize_source_template_selection(
             for format_template, val in raw_val.items():
                 if isinstance(val, dict):
                     normalized = normalize_template_settings(val)
-                    out[key][format_template] = migrate_template_settings_tokens(normalized, (token_roles or {}).get(key))
+                    out[key][format_template] = migrate_template_settings_tokens(
+                        normalized, (token_roles or {}).get(key)
+                    )
                     
     return out
 
@@ -311,8 +313,8 @@ def get_effective_template_settings(source_url: str = "") -> dict[str, str]:
     
     platform_templates = source_templates.get(profile["key"]) or {}
     
-    from backend.app.services.tasks.store import load_learned_formats
     from backend.app.services.tasks.formats import _canonical_shape, match_template
+    from backend.app.services.tasks.store import load_learned_formats
     
     learned = load_learned_formats()
     matched = match_template(learned, profile["key"], source_url)
@@ -404,8 +406,8 @@ def normalize_source_slug_tokens(raw: Any) -> dict[str, list[dict[str, str]]]:
     source = raw if isinstance(raw, dict) else {}
     out: dict[str, list[dict[str, str]]] = {}
     
-    from backend.app.services.tasks.store import load_learned_formats
     from backend.app.services.tasks.formats import describe_learned_segments
+    from backend.app.services.tasks.store import load_learned_formats
     learned_formats = load_learned_formats() or {}
 
     for raw_key, raw_list in source.items():

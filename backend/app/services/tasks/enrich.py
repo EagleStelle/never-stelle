@@ -390,8 +390,8 @@ def active_slug_rules_for_key(slug_map: Any, source_key: str) -> list[dict[str, 
                 if token and part:
                     configured_by_part[part] = token
 
-    from backend.app.services.tasks.store import load_learned_formats
     from backend.app.services.tasks.formats import describe_learned_segments
+    from backend.app.services.tasks.store import load_learned_formats
     
     out: list[dict[str, str]] = []
     learned = load_learned_formats().get(normalize_source_key(source_key))

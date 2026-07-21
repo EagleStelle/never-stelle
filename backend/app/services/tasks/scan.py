@@ -650,7 +650,9 @@ class _TemplateResolver:
             return [""]
         return list(templates_dict.keys())
 
-    def for_source_format(self, source_key: str, format_template: str = "") -> tuple[re.Pattern[str] | None, re.Pattern[str] | None]:
+    def for_source_format(
+        self, source_key: str, format_template: str = ""
+    ) -> tuple[re.Pattern[str] | None, re.Pattern[str] | None]:
         if source_key not in self._cache:
             self._cache[source_key] = {}
         if format_template not in self._cache[source_key]:
