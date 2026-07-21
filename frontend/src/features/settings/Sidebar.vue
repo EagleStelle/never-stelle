@@ -1,12 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import IconClose from "~icons/material-symbols/close";
-import IconSave from "~icons/material-symbols/save";
 import IconSearch from "~icons/material-symbols/search";
-import IconUndo from "~icons/material-symbols/undo";
 import { TabsList, TabsTrigger } from "reka-ui";
 
-import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import {
   Sidebar,
@@ -20,11 +17,7 @@ import {
 import type { SettingsSection } from "../../types";
 import { SETTINGS_SECTION_DEFS, SETTINGS_SECTION_GROUPS } from "./sections";
 
-defineProps<{ hasUnsavedChanges: boolean }>();
-
 const emit = defineEmits<{
-  save: [];
-  clear: [];
   close: [];
   select: [section: SettingsSection];
 }>();
@@ -54,28 +47,6 @@ const groups = computed(() => {
     <div class="flex sm:hidden items-center justify-between px-1">
       <div class="flex items-center gap-2">
         <span class="text-lg font-bold ml-1">Settings</span>
-        <template v-if="hasUnsavedChanges">
-          <Button
-            variant="soft"
-            @click="emit('clear')"
-            title="Clear changes"
-            aria-label="Clear changes"
-          >
-            <template #icon>
-              <IconUndo class="w-4 h-4" aria-hidden="true" />
-            </template>
-          </Button>
-          <Button
-            variant="primary"
-            @click="emit('save')"
-            title="Save changes"
-            aria-label="Save changes"
-          >
-            <template #icon>
-              <IconSave class="w-4 h-4" aria-hidden="true" />
-            </template>
-          </Button>
-        </template>
       </div>
       <button
         type="button"

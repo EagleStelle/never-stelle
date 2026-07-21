@@ -531,21 +531,29 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     settingsOpen.value = false;
   }
 
+  // Settings auto-persist: debounce draft edits, then save. No manual Save/Clear.
+  let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
   async function saveSettingsDraft(): Promise<void> {
     const payload = normalizeSavedPayload(settingsDraft);
     const snapshot = JSON.stringify(payload);
     if (snapshot === lastSavedSnapshot) return;
     lastSavedSnapshot = snapshot;
     try {
-      await persistSettings(payload, "Settings saved.");
+      await persistSettings(payload);
     } catch (error) {
+      // Let the next edit (or close-flush) retry instead of marking it saved.
+      lastSavedSnapshot = "";
       toast(errorMessage(error, "Could not save settings."), "error");
     }
   }
 
-  function clearSettingsDraft(): void {
-    copySettingsToDraft();
-    toast("Changes cleared.");
+  async function flushSettings(): Promise<void> {
+    if (autoSaveTimer !== null) {
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+    }
+    await saveSettingsDraft();
   }
 
   async function connectCookies(platform: string, file?: File): Promise<void> {
@@ -659,14 +667,27 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   );
   watch(settingsOpen, (open) => {
     document.body.classList.toggle("dialog-open", open);
-    if (!open) lastFocusedTrigger.value?.focus();
+    if (open) {
+      // Downloads learn creator fields server-side; refetch so the list is current on open.
+      queryClient.invalidateQueries({ queryKey: UI_CONFIG_QUERY_KEY });
+    } else {
+      void flushSettings();
+      lastFocusedTrigger.value?.focus();
+    }
   });
 
-  const hasUnsavedChanges = computed(() => {
-    return (
-      JSON.stringify(normalizeSavedPayload(settingsDraft)) !== lastSavedSnapshot
-    );
-  });
+  // Persist edits automatically once the draft diverges from what's saved.
+  watch(
+    () => JSON.stringify(normalizeSavedPayload(settingsDraft)),
+    (snapshot) => {
+      if (!draftSeeded || snapshot === lastSavedSnapshot) return;
+      if (autoSaveTimer !== null) clearTimeout(autoSaveTimer);
+      autoSaveTimer = setTimeout(() => {
+        autoSaveTimer = null;
+        void saveSettingsDraft();
+      }, 500);
+    },
+  );
 
   return {
     closeSettings,
@@ -676,7 +697,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     learnFormat,
     reorderFormatTemplates,
     getSavedSettings,
-    hasUnsavedChanges,
     openSettings,
     removeCookies,
     savedSettings,
@@ -686,7 +706,5 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     settingsOpen,
     settingsSection,
     sourceProfiles,
-    saveSettingsDraft,
-    clearSettingsDraft,
   };
 }

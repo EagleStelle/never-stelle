@@ -17,7 +17,7 @@ from .engine import select_engine
 from .files import find_numbered_media_siblings, recover_task_path
 from .formats import reconstruct_url_candidates
 from .history import find_active_by_source, find_history_by_id, find_history_by_source
-from .learning import ensure_creator_fields_learned, learn_source_id_signature
+from .learning import learn_source_id_signature
 from .naming import clean_gallerydl_display_filename
 from .planning import resolve_task_settings
 from .scan import parse_filename_media_id
@@ -77,7 +77,6 @@ def queue_task(
         label = str(resolved_settings.source_profile.get("label") or "selected")
         raise ValueError(f"Choose a valid {label} download location from Settings.")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
-    ensure_creator_fields_learned(source_url, source_key)
 
     engine = select_engine(source_url)
     task_id = f"{engine.id_prefix}:{uuid.uuid4().hex[:12]}"

@@ -28,10 +28,12 @@ from backend.app.services.settings import (
 from .cache import drop_file_cache
 from .constants import (
     AUDIO_EXTENSIONS,
+    CREATOR_FIELD_CANDIDATES,
     CREATOR_FIELDS,
     IMAGE_EXTENSIONS,
     TEMPLATE_RE,
     VIDEO_EXTENSIONS,
+    creator_roles_from_probe_fields,
     normalize_quality_selection,
     normalize_title_cleaning,
 )
@@ -39,8 +41,8 @@ from .engine import Engine, all_engines, engine_for_task
 from .files import find_newest_media_file, find_numbered_media_siblings, is_media_file, recover_task_path
 from .formats import creator_from_url, media_id_from_url, reconstruct_url
 from .history import save_history_entry
+from .learning import has_learned_creator_fields, save_learned_creator_fields, update_learned_formats_with_download
 from .learning import learn_source_format as persist_source_format
-from .learning import update_learned_formats_with_download
 from .naming import (
     clean_gallerydl_disk_filename,
     clean_gallerydl_display_filename,
@@ -296,6 +298,24 @@ def _learn_source_format(
     # Teach the DB this source's URL shape + id signature from a real download.
     media_id = str(media_id or "").strip() or parse_filename_media_id(filename)[0]
     persist_source_format(source_url, media_id, metadata)
+
+
+def _learn_creator_fields_from_download(
+    source_url: str, source_key: str, engine_name: str, metadata: dict[str, str] | None
+) -> None:
+    # Teach Settings this source's creator-field order from a real download's metadata,
+    # so the first download learns without a separate (and flaky) enqueue-time probe.
+    if not metadata or has_learned_creator_fields(source_url, source_key):
+        return
+    engine_key = engine_name if engine_name in CREATOR_FIELD_CANDIDATES else "ytdlp"
+    present = [
+        field
+        for field in CREATOR_FIELD_CANDIDATES.get(engine_key, ())
+        if str(metadata.get(field) or "").strip()
+    ]
+    roles = creator_roles_from_probe_fields({engine_key: present})
+    if roles:
+        save_learned_creator_fields(source_url, source_key, roles, only_when_missing=True)
 
 
 def _path_key(path: Path | str) -> str:
@@ -1548,6 +1568,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 collapse_source_items,
             )
             completed_rows: list[tuple[str, dict[str, Any]]] = []
+            creator_fields_learned = False
             for index, group in enumerate(groups):
                 media_id = str(group.get("media_id") or "").strip()
                 raw_path = Path(group["path"])
@@ -1632,6 +1653,9 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     if _path_key(record["path"]) == _path_key(raw_path):
                         row_engine = record["engine"].name
                         break
+                if not creator_fields_learned:
+                    _learn_creator_fields_from_download(item_source_url, item_source_key, row_engine, metadata)
+                    creator_fields_learned = True
                 completed_task = update_task(
                     row_task_id,
                     status="completed",

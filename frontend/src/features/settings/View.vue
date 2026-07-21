@@ -1,11 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from "vue";
+import { computed, nextTick } from "vue";
 import IconClose from "~icons/material-symbols/close";
-import IconSave from "~icons/material-symbols/save";
-import IconUndo from "~icons/material-symbols/undo";
 import { TabsContent, TabsRoot } from "reka-ui";
 
-import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { DialogShell as Dialog } from "../../components/ui/dialog";
 import type {
@@ -27,7 +24,6 @@ const props = defineProps<{
   settings: RuntimeSettings;
   settingsDraft: SavedSettings;
   sourceProfiles: SourceProfile[];
-  hasUnsavedChanges: boolean;
   learnFormat: (url: string) => Promise<string>;
   reorderFormatTemplates: (sourceKey: string, templates: string[]) => Promise<void>;
 }>();
@@ -38,28 +34,13 @@ const emit = defineEmits<{
   removeCookies: [platform: string];
   "update:open": [open: boolean];
   "update:section": [section: SettingsSection];
-  save: [];
-  clear: [];
 }>();
 
-const confirmingClose = ref(false);
-
-// Gate every close path (X / Esc / click-outside) on unsaved edits.
+// Edits auto-save, so every close path (X / Esc / click-outside) just closes.
 const openModel = computed({
   get: () => props.open,
-  set: (value) => {
-    if (!value && props.hasUnsavedChanges) {
-      confirmingClose.value = true;
-      return;
-    }
-    emit("update:open", value);
-  },
+  set: (value) => emit("update:open", value),
 });
-
-function discardAndClose(): void {
-  confirmingClose.value = false;
-  emit("update:open", false);
-}
 
 const sectionModel = computed({
   get: () => props.section,
@@ -116,9 +97,6 @@ function selectSection(section: SettingsSection): void {
       orientation="vertical"
     >
       <SettingsSidebar
-        :has-unsaved-changes="hasUnsavedChanges"
-        @save="emit('save')"
-        @clear="emit('clear')"
         @close="openModel = false"
         @select="selectSection"
       />
@@ -129,22 +107,7 @@ function selectSection(section: SettingsSection): void {
         <div
           class="hidden sm:flex h-14 shrink-0 items-center justify-between px-4 gap-2 border-0 border-b border-(--glass-border) mb-4 sm:mb-0 sm:border-0"
         >
-          <div class="flex items-center gap-2">
-            <template v-if="hasUnsavedChanges">
-              <Button variant="soft" @click="emit('clear')">
-                <template #icon>
-                  <IconUndo class="w-5 h-5" aria-hidden="true" />
-                </template>
-                Clear
-              </Button>
-              <Button variant="primary" @click="emit('save')">
-                <template #icon>
-                  <IconSave class="w-5 h-5" aria-hidden="true" />
-                </template>
-                Save
-              </Button>
-            </template>
-          </div>
+          <div></div>
           <button
             type="button"
             @click="openModel = false"
@@ -176,26 +139,5 @@ function selectSection(section: SettingsSection): void {
         </div>
       </div>
     </TabsRoot>
-  </Dialog>
-
-  <Dialog
-    v-model:open="confirmingClose"
-    title="Discard changes?"
-    description="You have unsaved changes."
-    hide-title
-    :show-close="false"
-    overlay-class="fixed inset-0 z-80 bg-black/60 backdrop-blur-sm"
-    content-class="fixed left-1/2 top-1/2 z-90 flex w-[min(400px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-2xl border border-(--glass-border) bg-primary p-6 focus:outline-none"
-  >
-    <div class="flex flex-col gap-1">
-      <h2 class="text-lg font-semibold">Discard changes?</h2>
-      <p class="text-sm text-white/60 in-[.light-mode]:text-black/60">
-        You have unsaved changes. Close without saving?
-      </p>
-    </div>
-    <div class="flex justify-end gap-2">
-      <Button variant="cancel" @click="confirmingClose = false">Cancel</Button>
-      <Button variant="primary" @click="discardAndClose">Discard</Button>
-    </div>
   </Dialog>
 </template>

@@ -41,6 +41,8 @@ from backend.app.services.tasks.naming import (
     clean_gallerydl_disk_filename,
     clean_gallerydl_display_filename,
     clean_template_filename,
+    sanitize_filename_component,
+    sanitize_path_literal,
     strip_numbered_suffix,
     strip_placeholder_title,
 )
@@ -2682,3 +2684,10 @@ def test_clean_template_filename_shorten_defaults_off_and_keeps_long_title():
     assert default == full
     assert len(shortened) < len(full)
     assert long_title in full
+
+
+def test_sanitize_lookalike_slashes():
+    assert sanitize_filename_component("AC⧸DC") == "AC_DC"
+    assert sanitize_filename_component("Folder⧹Subfolder") == "Folder_Subfolder"
+    assert sanitize_path_literal("AC⧸DC") == "AC_DC"
+    assert sanitize_path_literal("Folder⧹Subfolder") == "Folder_Subfolder"

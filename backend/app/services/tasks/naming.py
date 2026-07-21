@@ -8,7 +8,7 @@ from typing import Any
 
 from .constants import CREATOR_FIELDS, TEMPLATE_RE, TITLE_MAX_CHARS_DEFAULT, normalize_title_cleaning
 
-_INVALID_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_INVALID_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f\u29f8\u29f9]')
 _SPACING_RE = re.compile(r"\s+")
 _SEPARATOR_SPACING_RE = re.compile(r"\s*([-|,;:·｜])\s*")
 _HASHTAG_RE = re.compile(r"(?<!\w)[#＃]\w[\w'’-]*")
@@ -58,8 +58,9 @@ def sanitize_path_literal(value: str) -> str:
 
 
 def _is_empty_title(value: str) -> bool:
-    normalized = str(value or "").strip().strip("\"'`").strip().lower()
-    return normalized in _EMPTY_TITLE_VALUES
+    if not value:
+        return True
+    return str(value).strip(" \t\n\r\"'`").lower() in _EMPTY_TITLE_VALUES
 
 
 def shorten_filename_title(title: str, max_chars: int = TITLE_MAX_CHARS) -> str:
@@ -79,12 +80,10 @@ def shorten_filename_title(title: str, max_chars: int = TITLE_MAX_CHARS) -> str:
 
 def _apply_shorten(title: str, flags: dict[str, Any]) -> str:
     # Normalize spacing always; only truncate to max_chars when `shorten` is enabled.
-    value = _SPACING_RE.sub(" ", str(title or "")).strip()
-    if not value or _is_empty_title(value):
-        return ""
     if not flags.get("shorten", True):
-        return value
-    return shorten_filename_title(value, flags.get("max_chars", TITLE_MAX_CHARS))
+        value = _SPACING_RE.sub(" ", str(title or "")).strip()
+        return "" if _is_empty_title(value) else value
+    return shorten_filename_title(title, flags.get("max_chars", TITLE_MAX_CHARS))
 
 
 def _normalize_match_key(value: str) -> str:
@@ -130,10 +129,11 @@ def _creator_alias_set(creator: str, creator_aliases: tuple[str, ...] | None) ->
 
 def _strip_trailing_creator_alias(value: str, aliases: list[str]) -> str:
     # Drop a trailing "｜ Creator" byline that repeats the resolved creator/display name.
-    for alias in aliases:
-        pattern = re.compile(rf"(?i)\s*[{_STRONG_SEPARATORS}]\s*{re.escape(alias)}\s*$")
-        value = pattern.sub("", value)
-    return value
+    if not aliases:
+        return value
+    escaped_aliases = "|".join(re.escape(alias) for alias in aliases)
+    pattern = re.compile(rf"(?i)\s*[{_STRONG_SEPARATORS}]\s*(?:{escaped_aliases})\s*$")
+    return pattern.sub("", value)
 
 
 def clean_social_title(
