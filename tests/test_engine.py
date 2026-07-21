@@ -70,7 +70,6 @@ def test_template_tokens_expose_supported_public_tokens_only():
         "username",
         "nickname",
         "title",
-        "slug",
         "id",
         "quality",
     ]

@@ -10,7 +10,6 @@ from .constants import normalize_title_cleaning, quality_label
 
 _ID_TOKEN = "{id}"
 _CREATOR_TOKEN = "{creator}"
-_SLUG_TOKEN = "{slug}"
 _VAR_TOKEN = "{var}"
 _SPLIT_RE = re.compile(r"([/?&=#])")
 _ROUTE_SEGMENT_RE = re.compile(r"^[a-z][a-z-]{0,24}s?$")
@@ -205,26 +204,12 @@ def _looks_like_slug(value: str) -> bool:
     return any(sep in value for sep in ("-", "_", " "))
 
 
-def _slug_url_value(value: str) -> str:
+def _segment_url_value(value: str) -> str:
+    # Re-encode a descriptive segment for a URL: collapse spaces around/into hyphens.
     value = unquote(str(value or "")).strip().strip("/")
     value = re.sub(r"\s*-\s*", "-", value)
     value = re.sub(r"\s+", "-", value)
     return value.strip("-")
-
-
-def _slug_index_for_path_id(segments: list[str], id_index: int | None, creator_index: int | None) -> int | None:
-    # With an id anchor, the slug is the descriptive segment beside it (usually
-    # after) — anchoring keeps a hyphenated creator handle from being read as a slug.
-    if id_index is not None:
-        for candidate in (id_index + 1, id_index - 1):
-            if 0 <= candidate < len(segments) and candidate != creator_index and _looks_like_slug(segments[candidate]):
-                return candidate
-        return None
-    # No id resolved yet (download time): the last descriptive, non-creator segment.
-    for candidate in range(len(segments) - 1, -1, -1):
-        if candidate != creator_index and _looks_like_slug(segments[candidate]):
-            return candidate
-    return None
 
 
 def analyze_url(source_url: str, media_id: str = "", *, strip_creator_at: bool = True) -> dict[str, Any]:
@@ -232,10 +217,7 @@ def analyze_url(source_url: str, media_id: str = "", *, strip_creator_at: bool =
     try:
         parsed = urlparse(canonical)
     except Exception:
-        return {
-            "canonical": canonical, "host": "", "id_part": "",
-            "creator_part": "", "creator": "", "slug_part": "", "slug": "",
-        }
+        return {"canonical": canonical, "host": "", "id_part": "", "creator_part": "", "creator": ""}
     segments = _path_segments(parsed.path)
     id_index = _infer_path_id_index(segments, media_id)
     id_part = f"path:{id_index}" if id_index is not None else ""
@@ -245,25 +227,45 @@ def analyze_url(source_url: str, media_id: str = "", *, strip_creator_at: bool =
 
     creator_index = _creator_index_for_path_id(segments, id_index)
     creator = _clean_creator(segments[creator_index], strip_at=strip_creator_at) if creator_index is not None else ""
-    slug_index = _slug_index_for_path_id(segments, id_index, creator_index)
-    slug = unquote(str(segments[slug_index])).strip() if slug_index is not None else ""
     return {
         "canonical": canonical,
         "host": parsed.netloc.lower(),
         "id_part": id_part,
         "creator_part": f"path:{creator_index}" if creator_index is not None else "",
         "creator": creator,
-        "slug_part": f"path:{slug_index}" if slug_index is not None else "",
-        "slug": slug,
     }
+
+
+def extract_url_part(source_url: str, part: str) -> str:
+    """Value at a learned-format position (``path:<n>`` / ``query:<key>``) in a real URL.
+
+    Path indices are read from the canonicalized path so they align with the learned
+    template; query values are read from the raw URL by key (canonicalization may drop
+    low-signal query params, so key lookup on the raw URL is the robust source).
+    """
+    part = str(part or "").strip()
+    if part.startswith("path:"):
+        canonical = canonicalize_url(source_url)
+        if not canonical:
+            return ""
+        try:
+            index = int(part.split(":", 1)[1])
+        except ValueError:
+            return ""
+        segments = _path_segments(urlparse(canonical).path)
+        return segments[index] if 0 <= index < len(segments) else ""
+    if part.startswith("query:"):
+        key = part.split(":", 1)[1]
+        try:
+            parsed = urlparse(_prepare_url(source_url))
+        except Exception:
+            return ""
+        return dict(parse_qsl(parsed.query)).get(key, "")
+    return ""
 
 
 def creator_from_url(source_url: str, media_id: str = "", *, strip_at: bool = True) -> str:
     return str(analyze_url(source_url, media_id, strip_creator_at=strip_at).get("creator") or "")
-
-
-def slug_from_url(source_url: str, media_id: str = "") -> str:
-    return str(analyze_url(source_url, media_id).get("slug") or "")
 
 
 def derived_token_value(
@@ -289,8 +291,6 @@ def derived_token_value(
     if field == "username":
         # URL handle when present; None lets each engine use its own handle field.
         return creator_from_url(source_url, strip_at=_strip_handle_at(cleaning)) or None
-    if field == "slug":
-        return slug_from_url(source_url)
     if field == "quality":
         # Selected combo label when threaded; None falls back to delivered format.
         return quality_label(quality) if quality is not None else None
@@ -350,7 +350,6 @@ def _url_shape(source_url: str, media_id: str) -> str:
     decoded_segments = _path_segments(parsed.path)
     id_part = str(analysis.get("id_part") or "")
     creator_part = str(analysis.get("creator_part") or "")
-    slug_part = str(analysis.get("slug_part") or "")
 
     if id_part.startswith("path:"):
         try:
@@ -366,13 +365,6 @@ def _url_shape(source_url: str, media_id: str) -> str:
             index = -1
         if 0 <= index < len(raw_segments) and 0 <= index < len(decoded_segments):
             raw_segments[index] = f"@{_CREATOR_TOKEN}" if decoded_segments[index].startswith("@") else _CREATOR_TOKEN
-    if slug_part.startswith("path:"):
-        try:
-            index = int(slug_part.split(":", 1)[1])
-        except ValueError:
-            index = -1
-        if 0 <= index < len(raw_segments):
-            raw_segments[index] = _SLUG_TOKEN
 
     path = "/" + "/".join(raw_segments) if parsed.path.startswith("/") else "/".join(raw_segments)
     query_pairs = []
@@ -400,36 +392,9 @@ def _generalize(learned_template: str, shape: str) -> str:
             out.append(_ID_TOKEN)
         elif _CREATOR_TOKEN in (a, b):
             out.append(_CREATOR_TOKEN)
-        elif _SLUG_TOKEN in (a, b):
-            out.append(_SLUG_TOKEN)
         else:
             out.append(_VAR_TOKEN)
     return "".join(out)
-
-
-def _template_with_slug_token(template: str) -> str:
-    """Repair older learned id+literal-slug templates into id+{slug} templates."""
-    if _SLUG_TOKEN in template or _ID_TOKEN not in template:
-        return template
-    try:
-        parsed = urlparse(template)
-    except Exception:
-        return template
-    raw_segments = [part for part in str(parsed.path or "").split("/") if part.strip()]
-    try:
-        id_index = raw_segments.index(_ID_TOKEN)
-    except ValueError:
-        return template
-    for candidate in (id_index + 1, id_index - 1):
-        if not 0 <= candidate < len(raw_segments):
-            continue
-        segment = raw_segments[candidate]
-        if "{" in segment or "}" in segment or not _looks_like_slug(segment):
-            continue
-        raw_segments[candidate] = _SLUG_TOKEN
-        path = "/" + "/".join(raw_segments) if parsed.path.startswith("/") else "/".join(raw_segments)
-        return urlunparse((parsed.scheme, parsed.netloc, path, "", parsed.query, ""))
-    return template
 
 
 def _record_id_signature(entry: dict[str, Any], media_id: str) -> None:
@@ -448,10 +413,45 @@ def _entry_templates(entry: dict[str, Any]) -> list[str]:
         values.extend(raw_templates)
     templates: list[str] = []
     for value in values:
-        template = _template_with_slug_token(str(value or "").strip())
+        template = str(value or "").strip()
         if template and template not in templates:
             templates.append(template)
     return templates
+
+
+def describe_learned_segments(entry: dict[str, Any]) -> dict[str, Any]:
+    """Break a source's primary learned template into UI-selectable segments.
+
+    id/creator placeholders are ``reserved`` (auto tokens, not user-nameable); every
+    other path segment or query key is selectable so the user can name a slug token
+    for it. Positions use the same ``path:<n>`` / ``query:<key>`` encoding as id_part.
+    """
+    templates = _entry_templates(entry if isinstance(entry, dict) else {})
+    if not templates:
+        return {"templates": [], "segments": []}
+    try:
+        parsed = urlparse(templates[0])
+    except Exception:
+        return {"templates": templates, "segments": []}
+    segments: list[dict[str, Any]] = []
+    raw_segments = [part for part in str(parsed.path or "").split("/") if part.strip()]
+    for index, segment in enumerate(raw_segments):
+        part = f"path:{index}"
+        if segment == _ID_TOKEN:
+            segments.append({"part": part, "label": _ID_TOKEN, "kind": "id", "reserved": True})
+        elif segment in (_CREATOR_TOKEN, f"@{_CREATOR_TOKEN}"):
+            segments.append({"part": part, "label": _CREATOR_TOKEN, "kind": "creator", "reserved": True})
+        elif segment == _VAR_TOKEN:
+            segments.append({"part": part, "label": _VAR_TOKEN, "kind": "var", "reserved": False})
+        else:
+            segments.append({"part": part, "label": unquote(segment), "kind": "literal", "reserved": False})
+    for key, value in parse_qsl(parsed.query, keep_blank_values=False):
+        part = f"query:{key}"
+        if value == _ID_TOKEN:
+            segments.append({"part": part, "label": f"{key}={_ID_TOKEN}", "kind": "id", "reserved": True})
+        else:
+            segments.append({"part": part, "label": f"{key}={unquote(value)}", "kind": "query", "reserved": False})
+    return {"templates": templates, "segments": segments}
 
 
 def learn_download(learned: dict[str, Any], source_url: str, media_id: str) -> dict[str, Any]:
@@ -495,13 +495,47 @@ def learn_media_id(learned: dict[str, Any], source_key: str, media_id: str) -> d
     return updated
 
 
+def _fill_template_slug_parts(template: str, slug_values: dict[str, str]) -> str:
+    # Substitute learned-format positions (``path:<n>`` / ``query:<key>``) with the
+    # user's captured slug values, so a segment that generalized to {var} becomes fillable.
+    if not slug_values:
+        return template
+    try:
+        parsed = urlparse(template)
+    except Exception:
+        return template
+    raw_segments = [part for part in str(parsed.path or "").split("/") if part.strip()]
+    query_overrides: dict[str, str] = {}
+    for part, value in slug_values.items():
+        encoded = quote(_segment_url_value(value), safe="")
+        if not encoded:
+            continue
+        part = str(part)
+        if part.startswith("path:"):
+            try:
+                index = int(part.split(":", 1)[1])
+            except ValueError:
+                continue
+            if 0 <= index < len(raw_segments):
+                raw_segments[index] = encoded
+        elif part.startswith("query:"):
+            query_overrides[part.split(":", 1)[1]] = encoded
+    path = "/" + "/".join(raw_segments) if str(parsed.path or "").startswith("/") else "/".join(raw_segments)
+    if query_overrides:
+        pairs = [(key, query_overrides.get(key, value)) for key, value in parse_qsl(parsed.query, keep_blank_values=False)]
+        query = "&".join(f"{key}={value}" for key, value in pairs)
+    else:
+        query = parsed.query
+    return urlunparse((parsed.scheme, parsed.netloc, path, "", query, ""))
+
+
 def reconstruct_url_candidates(
     learned: dict[str, Any],
     source_key: str,
     media_id: str,
     *,
     creator: str = "",
-    slug: str = "",
+    slug_values: dict[str, str] | None = None,
 ) -> list[str]:
     """Fill every learned template for this source; a probe picks the real one."""
     entry = learned.get(normalize_source_key(source_key)) or {}
@@ -510,21 +544,18 @@ def reconstruct_url_candidates(
     if not media_id:
         return []
     creator_value = quote(str(creator or "").strip().lstrip("@"), safe="")
-    slug_value = quote(_slug_url_value(slug), safe="")
+    slug_values = slug_values if isinstance(slug_values, dict) else {}
     urls: list[str] = []
     for template in templates:
-        if not template or _VAR_TOKEN in template or _ID_TOKEN not in template:
+        if not template or _ID_TOKEN not in template:
             continue
-        if _CREATOR_TOKEN in template and not creator_value:
+        filled = _fill_template_slug_parts(template, slug_values)
+        # An unfilled variable segment means the template can't be reconstructed.
+        if _VAR_TOKEN in filled:
             continue
-        if _SLUG_TOKEN in template and not slug_value:
+        if _CREATOR_TOKEN in filled and not creator_value:
             continue
-        url = (
-            template
-            .replace(_ID_TOKEN, media_id)
-            .replace(_CREATOR_TOKEN, creator_value)
-            .replace(_SLUG_TOKEN, slug_value)
-        )
+        url = filled.replace(_ID_TOKEN, media_id).replace(_CREATOR_TOKEN, creator_value)
         if url not in urls:
             urls.append(url)
     return urls
@@ -536,9 +567,9 @@ def reconstruct_url(
     media_id: str,
     *,
     creator: str = "",
-    slug: str = "",
+    slug_values: dict[str, str] | None = None,
 ) -> str:
-    candidates = reconstruct_url_candidates(learned, source_key, media_id, creator=creator, slug=slug)
+    candidates = reconstruct_url_candidates(learned, source_key, media_id, creator=creator, slug_values=slug_values)
     return candidates[0] if candidates else ""
 
 

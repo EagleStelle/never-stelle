@@ -39,7 +39,6 @@ UNRECOVERABLE_MEDIA_IDS = {"", "na", "n-a", "n/a", "none", "null", "unknown"}
 _MAX_PROBE_CANDIDATES = 2
 _EMPTY_CREATOR_VALUES = {"", "unknown", "none", "null", "undefined", "na", "n/a"}
 _ID_TOKENS = {"id"}
-_SLUG_TOKENS = {"slug"}
 _EXT_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$")
 _COMMON_SOURCE_FOLDER_KEYS = {
     "bilibili",
@@ -55,32 +54,67 @@ _COMMON_SOURCE_FOLDER_KEYS = {
 }
 
 
-def _template_group(field: str, token_roles: dict[str, str] | None = None) -> str:
+def _template_group(
+    field: str,
+    token_roles: dict[str, str] | None = None,
+    slug_tokens: set[str] | None = None,
+) -> str:
     # Map a template token to the capture group it feeds, or "" if it carries no signal.
     role = (token_roles or {}).get(field)
     if role == "creator":
         role = "username"
     if role in CREATOR_FIELDS:
         return "creator"
-    if role in {"id", "slug", "title"}:
+    if role in {"id", "title"}:
         return role
     if field in CREATOR_FIELDS:
         return "creator"
     if field in _ID_TOKENS:
         return "id"
-    if field in _SLUG_TOKENS:
-        return "slug"
     if field == "title":
         return "title"
+    # A configured slug token (no role) captures under its own name so its URL part
+    # can be recovered from the filename and reconstructed back into a link.
+    if slug_tokens and field in slug_tokens:
+        return field
     return ""
+
+
+def _slug_values_from_fields(
+    slug_rules: list[dict[str, str]],
+    roles: dict[str, str],
+    slug_names: set[str],
+    *field_maps: dict[str, str],
+) -> dict[str, str]:
+    # Recover each configured slug part's value from the fields captured out of the
+    # filename/folder, keyed by URL part so reconstruct_url can fill the learned shape.
+    out: dict[str, str] = {}
+    for rule in slug_rules:
+        token = str(rule.get("token") or "")
+        part = str(rule.get("part") or "")
+        if not token or not part or part in out:
+            continue
+        group = _template_group(token, roles, slug_names)
+        if not group:
+            continue
+        for fields in field_maps:
+            value = str(fields.get(group, "") or "").strip()
+            if value:
+                out[part] = value
+                break
+    return out
 
 
 def _template_pattern(group: str) -> str:
     return r"[A-Za-z0-9_-]+" if group == "id" else r"[^/]+?"
 
 
-def compile_template(template: str, token_roles: dict[str, str] | None = None) -> re.Pattern[str] | None:
-    """Turn a ``{{token}}`` naming template into a matcher exposing creator/id/title groups."""
+def compile_template(
+    template: str,
+    token_roles: dict[str, str] | None = None,
+    slug_tokens: set[str] | None = None,
+) -> re.Pattern[str] | None:
+    """Turn a ``{{token}}`` naming template into a matcher exposing creator/id/title/slug groups."""
     value = _EXT_TAIL_RE.sub("", str(template or "").strip())
     if not value:
         return None
@@ -89,7 +123,7 @@ def compile_template(template: str, token_roles: dict[str, str] | None = None) -
     cursor = 0
     for match in TEMPLATE_RE.finditer(value):
         parts.append(re.escape(value[cursor : match.start()]))
-        group = _template_group(match.group(1).strip().lower(), token_roles)
+        group = _template_group(match.group(1).strip().lower(), token_roles, slug_tokens)
         pattern = _template_pattern(group)
         if group and group not in used:
             used.add(group)
@@ -395,6 +429,19 @@ def _scan_scrape_rule_tokens() -> dict[str, set[str]]:
         return {}
 
 
+def _scan_slug_tokens_map() -> dict[str, list[dict[str, str]]]:
+    # Per-source {part, token} slug rules the user configured; used to capture named
+    # URL parts from filenames and reconstruct links generically (no platform logic).
+    try:
+        from backend.app.core.config import load_app_config
+        from backend.app.services.settings import get_effective_saved_settings
+
+        slug_map = get_effective_saved_settings(load_app_config()).get("source_slug_tokens")
+        return slug_map if isinstance(slug_map, dict) else {}
+    except Exception:
+        return {}
+
+
 def _scan_source_profile_keys() -> set[str]:
     try:
         from backend.app.core.config import load_app_config
@@ -511,7 +558,7 @@ def _probe_disk_creator(
     source_key: str,
     media_id: str,
     order: list[str],
-    slug: str,
+    slug_values: dict[str, str],
     disk_creator: str,
 ) -> tuple[str, str]:
     """Probe a manually-placed file's reconstructed link and pick its creator.
@@ -523,9 +570,9 @@ def _probe_disk_creator(
     """
     if not order:
         return "", ""
-    probe_urls = reconstruct_url_candidates(learned, source_key, media_id, creator="", slug=slug)
+    probe_urls = reconstruct_url_candidates(learned, source_key, media_id, creator="", slug_values=slug_values)
     if disk_creator:
-        for url in reconstruct_url_candidates(learned, source_key, media_id, creator=disk_creator, slug=slug):
+        for url in reconstruct_url_candidates(learned, source_key, media_id, creator=disk_creator, slug_values=slug_values):
             if url not in probe_urls:
                 probe_urls.append(url)
     for url in probe_urls[:_MAX_PROBE_CANDIDATES]:
@@ -548,20 +595,26 @@ class _TemplateResolver:
         base: dict[str, str],
         per_source: dict[str, dict[str, str]],
         token_roles: dict[str, dict[str, str]] | None = None,
+        slug_tokens: dict[str, list[dict[str, str]]] | None = None,
     ) -> None:
         self._base = base
         self._per_source = per_source
         self._token_roles = token_roles or {}
+        self._slug_tokens = slug_tokens or {}
         self._cache: dict[str, tuple[re.Pattern[str] | None, re.Pattern[str] | None]] = {}
         self.base_filename = compile_template(base.get("filename_template") or "")
+
+    def slug_rules_for(self, source_key: str) -> list[dict[str, str]]:
+        return self._slug_tokens.get(normalize_source_key(source_key)) or []
 
     def for_source(self, source_key: str) -> tuple[re.Pattern[str] | None, re.Pattern[str] | None]:
         if source_key not in self._cache:
             settings = self._per_source.get(source_key) or self._base
             roles = self._token_roles.get(normalize_source_key(source_key)) or {}
+            slug_names = {rule["token"] for rule in self.slug_rules_for(source_key) if rule.get("token")}
             self._cache[source_key] = (
-                compile_template(settings.get("folder_template") or "", roles),
-                compile_template(settings.get("filename_template") or "", roles),
+                compile_template(settings.get("folder_template") or "", roles, slug_names),
+                compile_template(settings.get("filename_template") or "", roles, slug_names),
             )
         return self._cache[source_key]
 
@@ -664,7 +717,8 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
     source_profile_keys = _scan_source_profile_keys()
     token_role_map = _scan_token_role_map()
     scrape_rule_tokens_map = _scan_scrape_rule_tokens()
-    templates = _TemplateResolver(*_scan_template_map(), token_role_map)
+    slug_tokens_map = _scan_slug_tokens_map()
+    templates = _TemplateResolver(*_scan_template_map(), token_role_map, slug_tokens_map)
     creator_fields_map = _scan_creator_fields_map()
     learned = load_learned_formats()
     learned_before = learned
@@ -697,7 +751,11 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         folder_pattern, filename_pattern = templates.for_source(source_key)
         filename_fields = _match_template(filename_pattern, path.stem)
         title = filename_fields.get("title", title)
-        slug = filename_fields.get("slug", "")
+        source_roles = token_role_map.get(source_key) or {}
+        slug_rules = templates.slug_rules_for(source_key)
+        slug_names = {rule["token"] for rule in slug_rules if rule.get("token")}
+        # Recover configured URL parts from the filename so links reconstruct generically.
+        slug_values = _slug_values_from_fields(slug_rules, source_roles, slug_names, filename_fields)
         disk_creator = (
             _creator_for_file(root, path, source_folders, folder_pattern, filename_pattern)
             or _creator_from_title(title)
@@ -708,12 +766,11 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
             # Already resolved by a past scan or a real download: never re-probe, keep it as-is.
             creator = prior_creator
             source_url = str(prior.get("source_url") or "").strip() or reconstruct_url(
-                learned, source_key, media_id, creator=creator, slug=slug
+                learned, source_key, media_id, creator=creator, slug_values=slug_values
             )
         else:
             # Manually-placed file with no resolved creator yet: probe in the configured order.
             folder_template, filename_template = templates.templates_for(source_key)
-            source_roles = token_role_map.get(source_key) or {}
             role = _creator_role_for_templates(folder_template, filename_template, source_roles)
             order = (creator_fields_map.get(source_key) or {}).get(role) or CREATOR_FIELD_DEFAULTS.get(role, [])
             scraper_backed_role = _template_role_has_scraper_rule(
@@ -726,13 +783,15 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
             )
             if scraper_backed_role:
                 creator = disk_creator
-                source_url = reconstruct_url(learned, source_key, media_id, creator="", slug=slug)
+                source_url = reconstruct_url(learned, source_key, media_id, creator="", slug_values=slug_values)
             else:
                 probed_creator, probed_url = _probe_disk_creator(
-                    learned, source_key, media_id, _probe_metadata_order(order), slug, disk_creator
+                    learned, source_key, media_id, _probe_metadata_order(order), slug_values, disk_creator
                 )
                 creator = probed_creator or disk_creator
-                source_url = probed_url or reconstruct_url(learned, source_key, media_id, creator=creator, slug=slug)
+                source_url = probed_url or reconstruct_url(
+                    learned, source_key, media_id, creator=creator, slug_values=slug_values
+                )
         display_filename = clean_gallerydl_display_filename(path.name, creator, source_key)
         save_history_entry_row(
             task_id,

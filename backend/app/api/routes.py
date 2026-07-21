@@ -54,6 +54,7 @@ class SettingsPayload(BaseModel):
     default_quality: dict[str, str] = Field(default_factory=dict)
     source_scrape_rules: dict[str, Any] = Field(default_factory=dict)
     source_token_roles: dict[str, Any] = Field(default_factory=dict)
+    source_slug_tokens: dict[str, Any] = Field(default_factory=dict)
     source_creator_fields: dict[str, Any] = Field(default_factory=dict)
     source_title_cleaning: dict[str, Any] = Field(default_factory=dict)
 
@@ -271,6 +272,7 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
         payload.source_token_roles,
         payload.source_creator_fields,
         payload.source_title_cleaning,
+        payload.source_slug_tokens,
     )
     return build_settings_response(cfg, saved)
 

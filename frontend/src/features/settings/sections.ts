@@ -7,6 +7,7 @@ import IconQuality from "~icons/material-symbols/high-quality";
 import IconCreator from "~icons/material-symbols/badge";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconScraper from "~icons/material-symbols/travel-explore";
+import IconSlug from "~icons/material-symbols/link";
 
 import type { SettingsSection } from "../../types";
 import Account from "./sections/Settings/Account.vue";
@@ -17,6 +18,7 @@ import Filename from "./sections/Templates/Filename.vue";
 import Folder from "./sections/Templates/Folder.vue";
 import Creator from "./sections/Metadata/Creator.vue";
 import Scraper from "./sections/Metadata/Scraper.vue";
+import Slug from "./sections/Metadata/Slug.vue";
 
 export interface SettingsSectionDef {
   key: SettingsSection;
@@ -76,6 +78,14 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     icon: IconCreator,
     component: Creator,
     focusId: (source) => `${source}CreatorProbeInput`,
+    requiresSources: true,
+  },
+  {
+    key: "slug",
+    label: "Slug",
+    group: "Metadata",
+    icon: IconSlug,
+    component: Slug,
     requiresSources: true,
   },
   {

@@ -21,6 +21,7 @@ from backend.app.services.settings import (
     has_cookies_for_source,
     is_scraper_creator_field,
     load_scrape_rules,
+    load_slug_tokens,
     load_token_roles,
 )
 
@@ -36,7 +37,7 @@ from .constants import (
 )
 from .engine import Engine, all_engines, engine_for_task
 from .files import find_newest_media_file, find_numbered_media_siblings, is_media_file, recover_task_path
-from .formats import creator_from_url, media_id_from_url, reconstruct_url, slug_from_url
+from .formats import creator_from_url, media_id_from_url, reconstruct_url
 from .history import save_history_entry
 from .learning import learn_source_format as persist_source_format
 from .learning import update_learned_formats_with_download
@@ -782,8 +783,10 @@ def _filename_nickname(
 
 
 def _reconstruct_item_url(source_url: str, source_key: str, media_id: str, creator: str) -> str:
+    # Freshly learned from this one URL, so descriptive segments are still literals in
+    # the template (no {var}); {id}/{creator} fill is all that's needed.
     learned = update_learned_formats_with_download({}, source_url, media_id)
-    return reconstruct_url(learned, source_key, media_id, creator=creator, slug=slug_from_url(source_url, media_id))
+    return reconstruct_url(learned, source_key, media_id, creator=creator)
 
 
 def _distinct_metadata_item_url(source_url: str, metadata: dict[str, str]) -> str:
@@ -1367,7 +1370,7 @@ def _task_template_settings(task: dict[str, Any]) -> dict[str, str] | None:
 
 
 def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
-    from .enrich import resolve_scraped_tokens
+    from .enrich import resolve_scraped_tokens, resolve_slug_tokens
 
     source_url = canonicalize_source_url(str(task.get("source_url") or ""))
     output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
@@ -1386,16 +1389,26 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
 
     token_roles = load_token_roles()
     creator_fields = get_effective_creator_fields(source_url)
-    # Page-scraped values for public roles (username/nickname/title) on platforms
-    # with enabled rules; {} when disabled or none of the roles appear in templates.
-    extra_tokens = resolve_scraped_tokens(
+    # URL-part slug tokens (no fetch) plus page-scraped values, both mapped through the
+    # shared role pipeline. Scraper HTML wins on a name/role collision.
+    extra_tokens = resolve_slug_tokens(
         source_url,
         task_source_key,
         template_settings,
-        load_scrape_rules(),
+        load_slug_tokens(),
         token_roles,
-        cookie_source_key,
         creator_fields,
+    )
+    extra_tokens.update(
+        resolve_scraped_tokens(
+            source_url,
+            task_source_key,
+            template_settings,
+            load_scrape_rules(),
+            token_roles,
+            cookie_source_key,
+            creator_fields,
+        )
     )
 
     sidecar_handle, creator_sidecar = tempfile.mkstemp(prefix="nvs-creator-", suffix=".txt")

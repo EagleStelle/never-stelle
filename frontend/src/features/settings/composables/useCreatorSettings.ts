@@ -117,8 +117,13 @@ export function useCreatorSettings(
     const roles = settingsDraft.source_token_roles[key] || {};
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const rule of settingsDraft.source_scrape_rules[key]?.rules || []) {
-      const token = normalizeTokenName(rule.token);
+    // Both scraper HTML tokens and slug URL-part tokens feed creator the same way.
+    const candidates = [
+      ...(settingsDraft.source_scrape_rules[key]?.rules || []).map((rule) => rule.token),
+      ...(settingsDraft.source_slug_tokens[key] || []).map((slug) => slug.token),
+    ];
+    for (const raw of candidates) {
+      const token = normalizeTokenName(raw);
       if (!token || seen.has(token) || roles[token] !== role) continue;
       seen.add(token);
       out.push(token);

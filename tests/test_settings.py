@@ -11,6 +11,7 @@ from backend.app.services.settings import (
     normalize_source_creator_fields,
     normalize_source_location_selection,
     normalize_source_template_selection,
+    normalize_source_slug_tokens,
     normalize_source_title_cleaning,
     normalize_source_token_roles,
     normalize_template_settings,
@@ -70,10 +71,51 @@ def test_settings_response_exposes_supported_template_tokens_only(monkeypatch):
         "username",
         "nickname",
         "title",
-        "slug",
         "id",
         "quality",
     ]
+
+
+def test_normalize_source_slug_tokens_validates_parts_and_dedupes():
+    result = normalize_source_slug_tokens(
+        {
+            "rule34video": [
+                {"part": "path:2", "token": "Chapter"},
+                {"part": "path:2", "token": "dupe-part"},
+                {"part": "path:3", "token": "chapter"},
+                {"part": "bogus", "token": "nope"},
+                {"part": "query:v", "token": "video"},
+                "junk",
+            ],
+            "": [{"part": "path:0", "token": "x"}],
+        }
+    )
+    # Token name is normalized; a repeated part or token is dropped; malformed parts drop.
+    assert result["rule34video"] == [
+        {"part": "path:2", "token": "chapter"},
+        {"part": "query:v", "token": "video"},
+    ]
+    assert "" not in result
+
+
+def test_resolve_slug_tokens_maps_url_part_to_role_and_custom_token():
+    from backend.app.services.tasks.enrich import resolve_slug_tokens
+
+    slug_map = {
+        "rule34video": [
+            {"part": "path:0", "token": "kind"},
+            {"part": "path:2", "token": "series"},
+        ]
+    }
+    templates = {"folder_template": "", "filename_template": "{{title}} - {{series}} [{{id}}]"}
+    roles = {"rule34video": {"kind": "title"}}
+    url = "https://rule34video.com/video/3238394/wsds-minus8/"
+
+    resolved = resolve_slug_tokens(url, "rule34video", templates, slug_map, roles)
+
+    # 'kind' is role-assigned title -> keyed by role; 'series' is a custom token by name.
+    assert resolved["title"] == "video"
+    assert resolved["series"] == "wsds-minus8"
 
 
 def test_normalize_source_token_roles_keeps_known_roles():

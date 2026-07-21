@@ -17,7 +17,9 @@ import {
   type SourceCreatorFields,
   type SourceLocations,
   type SourceProfile,
+  type SlugToken,
   type SourceScrapeRules,
+  type SourceSlugTokens,
   type SourceTemplates,
   type SourceTitleCleaning,
   type SourceTokenRoles,
@@ -396,6 +398,47 @@ export function createSourceScrapeRules(
   for (const [key, value] of Object.entries(source)) {
     const normalizedKey = normalizeSourceKey(key);
     if (normalizedKey) out[normalizedKey] = createPlatformScrapeRules(value);
+  }
+  return out;
+}
+
+const SLUG_PART_RE = /^(path:\d+|query:\S+)$/;
+
+export function normalizeSlugPart(value: unknown): string {
+  const part = String(value || "").trim();
+  return SLUG_PART_RE.test(part) ? part : "";
+}
+
+export function createSlugToken(source: Partial<SlugToken> = {}): SlugToken {
+  return {
+    part: normalizeSlugPart(source.part),
+    token: normalizeTokenName(source.token),
+  };
+}
+
+export function createSourceSlugTokens(
+  source: Record<string, SlugToken[]> = {},
+  profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
+): SourceSlugTokens {
+  const normalizeList = (list: SlugToken[] | undefined): SlugToken[] => {
+    const out: SlugToken[] = [];
+    const seenParts = new Set<string>();
+    const seenTokens = new Set<string>();
+    for (const item of Array.isArray(list) ? list : []) {
+      const entry = createSlugToken(item);
+      if (!entry.part || !entry.token) continue;
+      if (seenParts.has(entry.part) || seenTokens.has(entry.token)) continue;
+      seenParts.add(entry.part);
+      seenTokens.add(entry.token);
+      out.push(entry);
+    }
+    return out;
+  };
+  const out: SourceSlugTokens = {};
+  for (const profile of profiles) out[profile.key] = normalizeList(source[profile.key]);
+  for (const [key, value] of Object.entries(source)) {
+    const normalizedKey = normalizeSourceKey(key);
+    if (normalizedKey) out[normalizedKey] = normalizeList(value);
   }
   return out;
 }

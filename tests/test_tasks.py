@@ -30,10 +30,11 @@ from backend.app.services.tasks.formats import (
     guess_sources,
     learn_download,
     learn_media_id,
+    describe_learned_segments,
+    extract_url_part,
     media_id_from_url,
     reconstruct_url,
     reconstruct_url_candidates,
-    slug_from_url,
     url_dedup_key,
 )
 from backend.app.services.tasks.naming import (
@@ -1586,22 +1587,27 @@ def test_reconstruct_url_candidates_returns_every_learned_route():
     }
 
 
-def test_learn_download_reconstructs_slug_id_route_dynamically():
+def test_learn_download_keeps_descriptive_segment_literal_for_single_sample():
+    # Slug is no longer auto-detected: a lone descriptive segment stays literal in the
+    # learned shape; a configured slug part overrides it at reconstruction time.
     learned = learn_download(
         {},
         "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/",
         "4483553",
     )
 
-    assert learned["rule34video"]["template"] == "https://rule34video.com/video/{id}/{slug}"
-    assert reconstruct_url(learned, "rule34video", "3238394") == ""
+    assert learned["rule34video"]["template"] == "https://rule34video.com/video/{id}/daiwa-scarlet-suokanawer"
     assert (
-        reconstruct_url(learned, "rule34video", "3238394", slug="wsds-minus8")
+        reconstruct_url(learned, "rule34video", "3238394")
+        == "https://rule34video.com/video/3238394/daiwa-scarlet-suokanawer"
+    )
+    assert (
+        reconstruct_url(learned, "rule34video", "3238394", slug_values={"path:2": "wsds-minus8"})
         == "https://rule34video.com/video/3238394/wsds-minus8"
     )
 
 
-def test_reconstruct_url_replaces_stale_literal_slug_with_filename_slug():
+def test_reconstruct_url_replaces_literal_segment_with_configured_slug_value():
     learned = {
         "rule34video": {
             "template": "https://rule34video.com/video/{id}/cocolia-rand-sutekimeppou",
@@ -1609,9 +1615,8 @@ def test_reconstruct_url_replaces_stale_literal_slug_with_filename_slug():
         }
     }
 
-    assert reconstruct_url(learned, "rule34video", "3238394") == ""
     assert (
-        reconstruct_url(learned, "rule34video", "3238394", slug="wsds - minus8")
+        reconstruct_url(learned, "rule34video", "3238394", slug_values={"path:2": "wsds - minus8"})
         == "https://rule34video.com/video/3238394/wsds-minus8"
     )
 
@@ -1635,59 +1640,49 @@ def test_creator_from_url_uses_handle_segment_without_at_sign():
     assert creator_from_url("https://x.com/ININIinNINI/status/2073390288501166083") == "ININIinNINI"
 
 
-def test_slug_from_url_lifts_descriptive_path_segment():
-    # The site's own slug, not the metadata title, with no resolved id needed.
-    url = "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/"
-    assert slug_from_url(url) == "daiwa-scarlet-suokanawer"
-
-
-def test_slug_from_url_reads_two_word_slug_beside_numeric_id():
-    # A two-word slug with a digit-fused word must not be mistaken for the id.
-    url = "https://rule34video.com/video/3238394/wsds-minus8/"
-    assert slug_from_url(url) == "wsds-minus8"
-
-
-def test_slug_from_url_reads_digit_prefixed_slug_beside_numeric_id():
+def test_extract_url_part_reads_configured_path_segment():
+    # A configured slug part reads its value straight from the (canonical) URL, generically.
     url = "https://rule34video.com/video/3056158/84-minus8/"
     assert media_id_from_url(url) == "3056158"
-    assert slug_from_url(url) == "84-minus8"
-    result = convert_template_to_ytdlp("{{slug}}_{{quality}}", url, {"mode": "video", "video_quality": "best"})
-    assert result == "84-minus8_source"
+    assert extract_url_part(url, "path:2") == "84-minus8"
+    assert extract_url_part(url, "path:0") == "video"
+    assert extract_url_part(url, "path:9") == ""
 
 
-def test_slug_from_url_absent_when_no_descriptive_segment():
-    assert slug_from_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ") == ""
-    assert slug_from_url("https://twitter.com/someuser/status/1234567890123456") == ""
+def test_extract_url_part_reads_query_value():
+    url = "https://example.com/watch?v=dQw4w9WgXcQ&list=PL123"
+    assert extract_url_part(url, "query:list") == "PL123"
+    assert extract_url_part(url, "query:missing") == ""
 
 
-def test_slug_from_url_does_not_read_hyphenated_creator_handle_as_slug():
-    # A hyphenated handle is the creator, not a title slug.
-    assert creator_from_url("https://example.com/user/john-doe/status/123") == "john-doe"
-    assert slug_from_url("https://example.com/user/john-doe/status/123") == ""
-
-
-def test_convert_template_fills_slug_token_from_url():
-    result = convert_template_to_ytdlp(
-        "{{username}} - {{slug}} [{{id}}]",
+def test_describe_learned_segments_marks_id_reserved_and_slug_selectable():
+    learned = learn_download(
+        {},
         "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/",
+        "4483553",
     )
-    assert " - daiwa-scarlet-suokanawer [" in result
+    described = describe_learned_segments(learned["rule34video"])
+    parts = {seg["part"]: seg for seg in described["segments"]}
+    assert parts["path:1"]["kind"] == "id" and parts["path:1"]["reserved"] is True
+    # The descriptive segment is selectable so the user can name a slug token for it.
+    assert parts["path:2"]["reserved"] is False
+    assert parts["path:2"]["label"] == "daiwa-scarlet-suokanawer"
 
 
 def test_convert_template_quality_uses_selected_label_best_reads_source():
-    tmpl = "{{slug}}_{{quality}}"
+    tmpl = "{{id}}_{{quality}}"
     url = "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/"
     assert convert_template_to_ytdlp(tmpl, url, {"mode": "video", "video_quality": "best"}).endswith("_source")
     assert convert_template_to_ytdlp(tmpl, url, {"mode": "video", "video_quality": "1080p"}).endswith("_1080p")
 
 
 def test_convert_template_source_token_is_removed():
-    tmpl = "{{slug}}_{{source}} [{{id}}]"
+    tmpl = "{{id}}_{{source}}"
     url = "https://rule34video.com/video/3238394/wsds-minus8/"
 
     result = convert_template_to_ytdlp(tmpl, url, {"mode": "video", "video_quality": "best"})
 
-    assert result.startswith("wsds-minus8_ [")
+    assert result == "%(id|NA)s_"
 
 
 def test_convert_template_ext_token_is_removed():
@@ -2091,6 +2086,12 @@ def test_scan_media_library_reconstructs_slug_url_from_filename_template(
             {"folder_template": "", "filename_template": "{{slug}}_{{quality}} [{{id}}]"},
             {"rule34video": {"folder_template": "", "filename_template": "{{slug}}_{{quality}} [{{id}}]"}},
         ),
+    )
+    # The user mapped path segment 2 to a slug token named "slug"; capture + reconstruct.
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_slug_tokens_map",
+        lambda: {"rule34video": [{"part": "path:2", "token": "slug"}]},
     )
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
     monkeypatch.setattr(

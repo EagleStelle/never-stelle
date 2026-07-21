@@ -17,7 +17,8 @@ export type SettingsSection =
   | "folder-template"
   | "filename-template"
   | "creator"
-  | "scraper";
+  | "scraper"
+  | "slug";
 export type ToastType = "success" | "error";
 
 export type SourceLocations = Record<string, string>;
@@ -57,6 +58,30 @@ export type SourceScrapeRules = Record<string, PlatformScrapeRules>;
 export type TokenRole =
   "username" | "nickname" | "title" | "ignore";
 export type SourceTokenRoles = Record<string, Record<string, TokenRole>>;
+
+// Per source, the URL-part → named token mappings the user configured from the
+// learned format. `part` is a position: "path:<n>" or "query:<key>".
+export interface SlugToken {
+  part: string;
+  token: string;
+}
+export type SourceSlugTokens = Record<string, SlugToken[]>;
+
+// Read-only learned URL shape surfaced for the Slug pane. Segments with reserved:true
+// are auto tokens (id/creator) shown but not user-nameable.
+export type LearnedSegmentKind =
+  "id" | "creator" | "var" | "literal" | "query";
+export interface LearnedSegment {
+  part: string;
+  label: string;
+  kind: LearnedSegmentKind;
+  reserved: boolean;
+}
+export interface LearnedFormat {
+  templates: string[];
+  segments: LearnedSegment[];
+}
+export type LearnedFormats = Record<string, LearnedFormat>;
 
 // Per source, the ordered field-preference lists for the username/nickname tokens.
 export interface CreatorFieldRoles {
@@ -145,6 +170,7 @@ export interface SavedSettings {
   default_quality: QualitySelection;
   source_scrape_rules: SourceScrapeRules;
   source_token_roles: SourceTokenRoles;
+  source_slug_tokens: SourceSlugTokens;
   source_creator_fields: SourceCreatorFields;
   source_title_cleaning: SourceTitleCleaning;
 }
@@ -162,6 +188,7 @@ export interface RuntimeSettings extends SavedSettings {
   template_tokens: TemplateToken[];
   creator_field_defaults: CreatorFieldRoles;
   title_cleaning_rules: TitleCleaningRule[];
+  learned_formats: LearnedFormats;
 }
 
 export interface UiConfigResponse {
@@ -174,6 +201,8 @@ export interface UiConfigResponse {
   source_templates?: Record<string, Partial<TemplateSettings>>;
   source_scrape_rules?: Record<string, Partial<PlatformScrapeRules>>;
   source_token_roles?: Record<string, Record<string, string>>;
+  source_slug_tokens?: Record<string, SlugToken[]>;
+  learned_formats?: LearnedFormats;
   source_creator_fields?: Record<string, Partial<CreatorFieldRoles>>;
   source_title_cleaning?: Record<string, Record<string, boolean | number>>;
   creator_field_defaults?: Partial<CreatorFieldRoles>;

@@ -13,12 +13,14 @@ import { DEFAULT_SOURCE_PROFILES, UI_CONFIG_QUERY_KEY } from "../ui";
 import type {
   CookiesMap,
   CookiesStatus,
+  LearnedFormats,
   RuntimeSettings,
   SavedSettings,
   SettingsSection,
   SourceCreatorFields,
   SourceLocations,
   SourceProfile,
+  SourceSlugTokens,
   SourceTemplates,
   SourceTitleCleaning,
   SourceTokenRoles,
@@ -34,6 +36,7 @@ import {
   createSourceLocations,
   createSourceProfile,
   createSourceScrapeRules,
+  createSourceSlugTokens,
   createSourceTemplates,
   createSourceTitleCleaning,
   createSourceTokenRoles,
@@ -101,6 +104,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_quality: createQualitySelection(),
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
+    source_slug_tokens: createSourceSlugTokens(),
     source_creator_fields: createSourceCreatorFields(),
     source_title_cleaning: createSourceTitleCleaning(),
   });
@@ -113,6 +117,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_quality: createQualitySelection(),
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
+    source_slug_tokens: createSourceSlugTokens(),
     source_creator_fields: createSourceCreatorFields(),
     source_title_cleaning: createSourceTitleCleaning(),
     download_locations: [],
@@ -121,6 +126,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     template_tokens: [],
     creator_field_defaults: { username: [], nickname: [] },
     title_cleaning_rules: [],
+    learned_formats: {},
   });
   const settingsDraft = reactive<SavedSettings>({
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
@@ -130,6 +136,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_quality: createQualitySelection(),
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
+    source_slug_tokens: createSourceSlugTokens(),
     source_creator_fields: createSourceCreatorFields(),
     source_title_cleaning: createSourceTitleCleaning(),
   });
@@ -194,6 +201,10 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       ),
       source_token_roles: createSourceTokenRoles(
         source.source_token_roles as SourceTokenRoles,
+        profiles,
+      ),
+      source_slug_tokens: createSourceSlugTokens(
+        recordForProfiles(source.source_slug_tokens as SourceSlugTokens, profiles),
         profiles,
       ),
       source_creator_fields: createSourceCreatorFields(
@@ -268,6 +279,16 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
           ...defaults.source_token_roles,
           ...settings.source_token_roles,
         } as SourceTokenRoles,
+        profiles,
+      ),
+      source_slug_tokens: createSourceSlugTokens(
+        recordForProfiles(
+          {
+            ...defaults.source_slug_tokens,
+            ...settings.source_slug_tokens,
+          } as SourceSlugTokens,
+          profiles,
+        ),
         profiles,
       ),
       source_creator_fields: createSourceCreatorFields(
@@ -351,6 +372,15 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     );
     replaceRecord(defaults.source_token_roles, tokenRoles);
     replaceRecord(settings.source_token_roles, tokenRoles);
+
+    const slugTokens = createSourceSlugTokens(
+      recordForProfiles(data.source_slug_tokens || {}, managedProfiles),
+      managedProfiles,
+    );
+    replaceRecord(defaults.source_slug_tokens, slugTokens);
+    replaceRecord(settings.source_slug_tokens, slugTokens);
+
+    settings.learned_formats = (data.learned_formats || {}) as LearnedFormats;
 
     const creatorFields = createSourceCreatorFields(
       recordForProfiles(data.source_creator_fields || {}, managedProfiles),
@@ -456,6 +486,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       quality: "defaultQualityMode",
       creator: `${firstSource}CreatorProbeInput`,
       scraper: `${firstSource}ScraperProbeInput`,
+      slug: `${firstSource}SlugSection`,
       "folder-template": `${firstSource}FolderTemplateInput`,
       "filename-template": `${firstSource}FilenameTemplateInput`,
     };

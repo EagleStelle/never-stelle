@@ -357,6 +357,65 @@ def load_scrape_rules() -> dict[str, Any]:
     return get_effective_scrape_rules()
 
 
+# --- Slug tokens (per-source URL-part → named token, driven by the learned format) ---
+_SLUG_PART_RE = re.compile(r"^(path:\d+|query:\S+)$")
+
+
+def normalize_slug_part(value: Any) -> str:
+    part = str(value or "").strip()
+    return part if _SLUG_PART_RE.fullmatch(part) else ""
+
+
+def normalize_source_slug_tokens(raw: Any) -> dict[str, list[dict[str, str]]]:
+    # Per source, an ordered list of {part, token}. A part or token may appear once;
+    # empties and malformed entries are dropped so the resolver never sees junk.
+    source = raw if isinstance(raw, dict) else {}
+    out: dict[str, list[dict[str, str]]] = {}
+    for raw_key, raw_list in source.items():
+        key = normalize_source_key(raw_key)
+        if not key or not isinstance(raw_list, list):
+            continue
+        tokens: list[dict[str, str]] = []
+        seen_tokens: set[str] = set()
+        seen_parts: set[str] = set()
+        for item in raw_list:
+            if not isinstance(item, dict):
+                continue
+            token = normalize_token_name(item.get("token"))
+            part = normalize_slug_part(item.get("part"))
+            if not token or not part or token in seen_tokens or part in seen_parts:
+                continue
+            seen_tokens.add(token)
+            seen_parts.add(part)
+            tokens.append({"part": part, "token": token})
+        if tokens:
+            out[key] = tokens
+    return out
+
+
+def get_effective_slug_tokens(payload: dict[str, Any] | None = None) -> dict[str, list[dict[str, str]]]:
+    payload = payload if isinstance(payload, dict) else load_saved_settings_file()
+    return normalize_source_slug_tokens(payload.get("source_slug_tokens"))
+
+
+def load_slug_tokens() -> dict[str, list[dict[str, str]]]:
+    return get_effective_slug_tokens()
+
+
+def get_learned_formats_for_ui() -> dict[str, dict[str, Any]]:
+    # Read-only per-source learned URL shape + selectable segments for the Slug pane.
+    from backend.app.services.tasks.formats import describe_learned_segments
+    from backend.app.services.tasks.store import load_learned_formats
+
+    out: dict[str, dict[str, Any]] = {}
+    for raw_key, entry in (load_learned_formats() or {}).items():
+        key = normalize_source_key(raw_key)
+        described = describe_learned_segments(entry if isinstance(entry, dict) else {})
+        if key and described.get("segments"):
+            out[key] = described
+    return out
+
+
 # --- Creator fields & title cleaning ---
 _CREATOR_FIELD_RE = re.compile(r"[^A-Za-z0-9_\[\]]+")
 _SCRAPER_CREATOR_FIELD_RE = re.compile(r"^scraper\[([A-Za-z_][A-Za-z0-9_]*)\]$")
@@ -604,6 +663,7 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
         "ytdlp_cookies": get_ytdlp_cookies_status(source_profiles),
         "source_scrape_rules": get_effective_scrape_rules(payload),
         "source_token_roles": token_roles,
+        "source_slug_tokens": get_effective_slug_tokens(payload),
         "source_creator_fields": normalize_source_creator_fields(payload.get("source_creator_fields")),
         "source_title_cleaning": normalize_source_title_cleaning(payload.get("source_title_cleaning")),
     }
@@ -620,6 +680,7 @@ def persist_settings(
     raw_token_roles: Any = None,
     raw_creator_fields: Any = None,
     raw_title_cleaning: Any = None,
+    raw_slug_tokens: Any = None,
 ) -> dict[str, Any]:
     from backend.app.services.tasks.constants import normalize_quality_selection
     from backend.app.services.tasks.enrich import normalize_scrape_rules
@@ -653,6 +714,9 @@ def persist_settings(
         if raw_token_roles is not None
         else existing.get("source_token_roles") or existing.get("token_roles")
     )
+    normalized_slug_tokens = normalize_source_slug_tokens(
+        raw_slug_tokens if raw_slug_tokens is not None else existing.get("source_slug_tokens")
+    )
     template_settings = normalize_template_settings(raw_template_settings)
     existing.update(
         {
@@ -671,6 +735,7 @@ def persist_settings(
             ),
             "source_scrape_rules": normalized_scrape_rules,
             "source_token_roles": normalized_token_roles,
+            "source_slug_tokens": normalized_slug_tokens,
             "source_creator_fields": normalize_source_creator_fields(
                 raw_creator_fields if raw_creator_fields is not None else existing.get("source_creator_fields")
             ),
@@ -712,6 +777,8 @@ def build_settings_response(
         "ytdlp_cookies": saved.get("ytdlp_cookies", get_ytdlp_cookies_status(saved.get("source_profiles"))),
         "source_scrape_rules": saved.get("source_scrape_rules", get_effective_scrape_rules()),
         "source_token_roles": saved.get("source_token_roles", get_effective_token_roles()),
+        "source_slug_tokens": saved.get("source_slug_tokens", get_effective_slug_tokens()),
+        "learned_formats": get_learned_formats_for_ui(),
         "source_creator_fields": saved.get("source_creator_fields", {}),
         "source_title_cleaning": saved.get("source_title_cleaning", {}),
         "creator_field_defaults": creator_field_defaults(),

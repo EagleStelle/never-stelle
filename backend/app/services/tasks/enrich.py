@@ -14,7 +14,7 @@ from backend.app.services.settings import (
 )
 
 from .constants import TEMPLATE_RE
-from .formats import _prepare_url
+from .formats import _prepare_url, extract_url_part
 from .naming import sanitize_path_literal
 
 # Per-platform user rules turn a page's own markup into filename/folder tokens,
@@ -294,6 +294,22 @@ def _leading_scraper_tokens_for_role(
     return out
 
 
+def _map_output_values(
+    output_rules: list[tuple[dict[str, Any], str]],
+    raw_values: dict[str, str],
+) -> dict[str, str]:
+    # Fold {token: value} into the {output_key: value} the templates expect (role key
+    # for role-assigned tokens, raw token for customs); first non-empty per key wins.
+    out: dict[str, str] = {}
+    for rule, output_key in output_rules:
+        if output_key in out:
+            continue
+        value = str(raw_values.get(rule["token"]) or "").strip()
+        if value:
+            out[output_key] = value
+    return out
+
+
 def resolve_scraped_tokens(
     source_url: str,
     source_key: str,
@@ -318,11 +334,50 @@ def resolve_scraped_tokens(
         return {}
     selected_rules = [rule for rule, _ in output_rules]
     raw_tokens = scrape_tokens(fetch_html(source_url, cookie_source_key or source_key), selected_rules)
-    out: dict[str, str] = {}
-    for rule, output_key in output_rules:
-        if output_key in out:
+    return _map_output_values(output_rules, raw_tokens)
+
+
+def active_slug_rules_for_key(slug_map: Any, source_key: str) -> list[dict[str, str]]:
+    rules = (slug_map if isinstance(slug_map, dict) else {}).get(normalize_source_key(source_key))
+    out: list[dict[str, str]] = []
+    for item in rules or []:
+        if not isinstance(item, dict):
             continue
-        value = str(raw_tokens.get(rule["token"]) or "").strip()
-        if value:
-            out[output_key] = value
+        token = _normalize_token(item.get("token"))
+        part = str(item.get("part") or "").strip()
+        if token and part:
+            out.append({"token": token, "part": part})
     return out
+
+
+def resolve_slug_tokens(
+    source_url: str,
+    source_key: str,
+    template_settings: Any,
+    slug_map: Any,
+    token_roles_map: Any = None,
+    creator_fields: Any = None,
+) -> dict[str, str]:
+    """URL-part slug tokens for one source, mapped through the shared role pipeline.
+
+    Reuses the scraper's ``_output_rules_for_template`` so a slug token assigned
+    username/nickname/title returns a role-keyed override and a roleless one returns
+    its named custom token — the only difference from the HTML scraper is that the
+    value comes from a URL segment (via ``extract_url_part``) instead of page markup.
+    """
+    rules = active_slug_rules_for_key(slug_map, source_key)
+    if not rules:
+        return {}
+    roles = (token_roles_map if isinstance(token_roles_map, dict) else {}).get(normalize_source_key(source_key)) or {}
+    output_rules = _output_rules_for_template(rules, roles, template_settings, creator_fields)
+    if not output_rules:
+        return {}
+    raw_values: dict[str, str] = {}
+    for rule, _ in output_rules:
+        token = rule["token"]
+        if token in raw_values:
+            continue
+        value = sanitize_path_literal(extract_url_part(source_url, str(rule.get("part") or "")))
+        if value:
+            raw_values[token] = value
+    return _map_output_values(output_rules, raw_values)

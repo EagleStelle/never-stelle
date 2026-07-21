@@ -186,7 +186,6 @@ TEMPLATE_TOKEN_PRESETS: dict[str, str] = {
     "username": "Uploader handle",
     "nickname": "Uploader display name",
     "title": "Cleaned media title",
-    "slug": "Descriptive URL slug",
     "id": "Media ID",
     "quality": "Selected quality label",
 }
