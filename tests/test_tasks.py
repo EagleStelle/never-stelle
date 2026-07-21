@@ -1707,6 +1707,64 @@ def test_describe_learned_segments_marks_id_reserved_and_slug_selectable():
     # The descriptive segment is selectable so the user can name a slug token for it.
     assert parts["path:2"]["reserved"] is False
     assert parts["path:2"]["label"] == "daiwa-scarlet-suokanawer"
+    # A constant route word is not a useful token, so it stays reserved.
+    assert parts["path:0"]["label"] == "video" and parts["path:0"]["reserved"] is True
+
+
+def test_learn_download_merges_same_pattern_slug_to_var():
+    # Two downloads of the same route differing only in the descriptive slug generalize
+    # to a single {var} template instead of piling up near-duplicate literals.
+    learned = learn_download(
+        {},
+        "https://rule34video.com/video/4497669/cleaning-the-base/",
+        "4497669",
+    )
+    learned = learn_download(
+        learned,
+        "https://rule34video.com/video/4499077/charlie-s-late-christmas-special-chaosarts/",
+        "4499077",
+    )
+    assert learned["rule34video"]["templates"] == ["https://rule34video.com/video/{id}/{var}"]
+
+
+def test_learn_download_third_same_pattern_is_idempotent():
+    learned = learn_download({}, "https://rule34video.com/video/4497669/cleaning-the-base/", "4497669")
+    learned = learn_download(learned, "https://rule34video.com/video/4499077/charlie-special/", "4499077")
+    learned = learn_download(learned, "https://rule34video.com/video/4500123/another-title-here/", "4500123")
+    assert learned["rule34video"]["templates"] == ["https://rule34video.com/video/{id}/{var}"]
+    assert learned["rule34video"]["samples"] == 3
+
+
+def test_describe_marks_var_selectable_after_merge():
+    learned = learn_download({}, "https://rule34video.com/video/4497669/cleaning-the-base/", "4497669")
+    learned = learn_download(learned, "https://rule34video.com/video/4499077/charlie-special/", "4499077")
+    parts = {seg["part"]: seg for seg in describe_learned_segments(learned["rule34video"])["segments"]}
+    assert parts["path:0"]["reserved"] is True
+    assert parts["path:1"]["kind"] == "id" and parts["path:1"]["reserved"] is True
+    assert parts["path:2"]["kind"] == "var" and parts["path:2"]["reserved"] is False
+
+
+def test_reconstruct_after_merge_needs_slug_value():
+    # Once a slug generalizes to {var} the link can't be rebuilt from the id alone;
+    # a configured slug value fills the position, otherwise there is no candidate.
+    learned = learn_download({}, "https://rule34video.com/video/4497669/cleaning-the-base/", "4497669")
+    learned = learn_download(learned, "https://rule34video.com/video/4499077/charlie-special/", "4499077")
+    assert reconstruct_url(learned, "rule34video", "3238394") == ""
+    assert (
+        reconstruct_url(learned, "rule34video", "3238394", slug_values={"path:2": "wsds-minus8"})
+        == "https://rule34video.com/video/3238394/wsds-minus8"
+    )
+
+
+def test_learn_download_keeps_distinct_route_words_unmerged():
+    # Differing route words (video vs photo) are different routes, not a slug, so both
+    # templates survive for reconstruction instead of collapsing to {var}.
+    learned = learn_download({}, "https://www.tiktok.com/@a/video/7493558766131039489", "7493558766131039489")
+    learned = learn_download(learned, "https://www.tiktok.com/@a/photo/7420705673542978833", "7420705673542978833")
+    assert set(learned["tiktok"]["templates"]) == {
+        "https://www.tiktok.com/@{creator}/video/{id}",
+        "https://www.tiktok.com/@{creator}/photo/{id}",
+    }
 
 
 def test_convert_template_quality_uses_selected_label_best_reads_source():

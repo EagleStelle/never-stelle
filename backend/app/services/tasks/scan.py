@@ -594,7 +594,8 @@ def _probe_disk_creator(
     if not order:
         return "", ""
     probe_candidates: list[tuple[str, str]] = [
-        (url, "") for url in reconstruct_url_candidates(learned, source_key, media_id, creator="", slug_values=slug_values)
+        (url, "")
+        for url in reconstruct_url_candidates(learned, source_key, media_id, creator="", slug_values=slug_values)
     ]
     if disk_creator:
         for url in reconstruct_url_candidates(
@@ -824,7 +825,9 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
                     learned, source_key, media_id, _probe_metadata_order(order), slug_values, disk_creator
                 )
                 creator = probed_creator or disk_creator
-                source_url = probed_url or reconstruct_url(learned, source_key, media_id, creator="", slug_values=slug_values)
+                source_url = probed_url or reconstruct_url(
+                    learned, source_key, media_id, creator="", slug_values=slug_values
+                )
         display_filename = clean_gallerydl_display_filename(path.name, creator, source_key)
         save_history_entry_row(
             task_id,

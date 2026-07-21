@@ -24,7 +24,7 @@ import {
   TableRow,
 } from "../../../../components/ui/table";
 import type { ScrapeRule, TokenRole } from "../../../../types";
-import { normalizeTokenName } from "../../../../utils/dashboard";
+import { normalizeTokenName, tokenLabel } from "../../../../utils/dashboard";
 import { useScrapeTests } from "../../composables/useScrapeTests";
 import { useSettingsContext } from "../../context";
 import SettingsRow from "../../SettingsRow.vue";
@@ -48,11 +48,6 @@ const ROLE_ITEMS: { key: TokenRole; label: string }[] = [
   { key: "creator", label: "Creator" },
   { key: "title", label: "Title" },
 ];
-
-// Built in script so the literal braces never reach the template tokenizer.
-function tokenLabel(token: string): string {
-  return `{{${token}}}`;
-}
 
 function ruleTitle(rule: ScrapeRule, index: number): string {
   const token = normalizeTokenName(rule.token);

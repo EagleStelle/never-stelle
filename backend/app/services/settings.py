@@ -561,7 +561,11 @@ def get_source_creator_field_defaults(
         }
     )
     keys = (
-        {normalize_source_key(profile.get("key")) for profile in source_profiles if normalize_source_key(profile.get("key"))}
+        {
+            normalize_source_key(profile.get("key"))
+            for profile in source_profiles
+            if normalize_source_key(profile.get("key"))
+        }
         if source_profiles is not None
         else set(learned_by_source)
     )

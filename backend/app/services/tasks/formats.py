@@ -381,14 +381,23 @@ def _url_shape(source_url: str, media_id: str) -> str:
     return urlunparse((parsed.scheme, parsed.netloc, path, "", query, ""))
 
 
-def _generalize(learned_template: str, shape: str) -> str:
-    if learned_template == shape:
-        return learned_template
-    left = _SPLIT_RE.split(learned_template)
+def _is_slugish(cell: str) -> bool:
+    # A position that already generalized to {var}, or a descriptive title slug.
+    return cell == _VAR_TOKEN or _looks_like_slug(cell)
+
+
+def _merge_shape(template: str, shape: str) -> str | None:
+    """Merge two same-source URL shapes into one template, or None if they are
+    genuinely different routes. Positions differing only in a descriptive slug
+    collapse to {var}; a differing route word (video vs photo) marks a distinct
+    route and blocks the merge so both templates survive for reconstruction."""
+    if template == shape:
+        return template
+    left = _SPLIT_RE.split(template)
     right = _SPLIT_RE.split(shape)
     if len(left) != len(right):
-        return learned_template
-    out = []
+        return None
+    out: list[str] = []
     for a, b in zip(left, right, strict=False):
         if a == b:
             out.append(a)
@@ -396,9 +405,28 @@ def _generalize(learned_template: str, shape: str) -> str:
             out.append(_ID_TOKEN)
         elif _CREATOR_TOKEN in (a, b):
             out.append(_CREATOR_TOKEN)
-        else:
+        elif _is_slugish(a) and _is_slugish(b):
             out.append(_VAR_TOKEN)
+        else:
+            return None
     return "".join(out)
+
+
+def _absorb_shape(templates: list[str], shape: str) -> list[str]:
+    # Merge the new shape into the first template it generalizes with (same route,
+    # differing only in a slug → {var}); otherwise it is a new route, appended last.
+    for index, template in enumerate(templates):
+        merged = _merge_shape(template, shape)
+        if merged is not None:
+            templates[index] = merged
+            break
+    else:
+        templates.append(shape)
+    deduped: list[str] = []
+    for template in templates:
+        if template not in deduped:
+            deduped.append(template)
+    return deduped
 
 
 def _record_id_signature(entry: dict[str, Any], media_id: str) -> None:
@@ -488,12 +516,48 @@ def _display_templates(entry: dict[str, Any], templates: list[str]) -> list[str]
     return [template.replace(_CREATOR_TOKEN, f"{{{role}}}") for template in templates]
 
 
-def describe_learned_segments(entry: dict[str, Any]) -> dict[str, Any]:
-    """Break a source's primary learned template into UI-selectable segments.
+def _template_segments(template: str, creator_label: str) -> list[dict[str, Any]]:
+    # Selectable segments of one learned template. id/creator placeholders are reserved
+    # auto tokens; a constant route word (video, watch) is reserved too since it never
+    # varies — only descriptive slugs and {var} positions are user-nameable tokens.
+    try:
+        parsed = urlparse(template)
+    except Exception:
+        return []
+    out: list[dict[str, Any]] = []
+    raw_segments = [part for part in str(parsed.path or "").split("/") if part.strip()]
+    for index, segment in enumerate(raw_segments):
+        part = f"path:{index}"
+        if segment == _ID_TOKEN:
+            out.append({"part": part, "label": _ID_TOKEN, "kind": "id", "reserved": True})
+        elif segment in (_CREATOR_TOKEN, f"@{_CREATOR_TOKEN}"):
+            out.append({"part": part, "label": creator_label, "kind": "creator", "reserved": True})
+        elif segment == _VAR_TOKEN:
+            out.append({"part": part, "label": _VAR_TOKEN, "kind": "var", "reserved": False})
+        else:
+            out.append({
+                "part": part,
+                "label": unquote(segment),
+                "kind": "literal",
+                "reserved": not _looks_like_slug(segment),
+            })
+    for key, value in parse_qsl(parsed.query, keep_blank_values=False):
+        part = f"query:{key}"
+        if value == _ID_TOKEN:
+            out.append({"part": part, "label": f"{key}={_ID_TOKEN}", "kind": "id", "reserved": True})
+        else:
+            out.append({"part": part, "label": f"{key}={unquote(value)}", "kind": "query", "reserved": False})
+    return out
 
-    id/creator placeholders are ``reserved`` (auto tokens, not user-nameable); every
-    other path segment or query key is selectable so the user can name a slug token
-    for it. Positions use the same ``path:<n>`` / ``query:<key>`` encoding as id_part.
+
+def describe_learned_segments(entry: dict[str, Any]) -> dict[str, Any]:
+    """Break a source's learned templates into UI-selectable segments.
+
+    id/creator placeholders and constant route words are ``reserved`` (not user-nameable);
+    descriptive slug segments and {var} positions are selectable so the user can name a
+    slug token. Positions use the same ``path:<n>`` / ``query:<key>`` encoding as id_part.
+    Segments are unioned across every learned route (video, photo, …) and keyed by part,
+    so a source with several routes still exposes each configurable position once.
     """
     entry = entry if isinstance(entry, dict) else {}
     templates = _entry_templates(entry)
@@ -501,28 +565,18 @@ def describe_learned_segments(entry: dict[str, Any]) -> dict[str, Any]:
         return {"templates": [], "segments": []}
     display_templates = _display_templates(entry, templates)
     creator_label = f"{{{_url_creator_role(entry)}}}"
-    try:
-        parsed = urlparse(templates[0])
-    except Exception:
-        return {"templates": display_templates, "segments": []}
     segments: list[dict[str, Any]] = []
-    raw_segments = [part for part in str(parsed.path or "").split("/") if part.strip()]
-    for index, segment in enumerate(raw_segments):
-        part = f"path:{index}"
-        if segment == _ID_TOKEN:
-            segments.append({"part": part, "label": _ID_TOKEN, "kind": "id", "reserved": True})
-        elif segment in (_CREATOR_TOKEN, f"@{_CREATOR_TOKEN}"):
-            segments.append({"part": part, "label": creator_label, "kind": "creator", "reserved": True})
-        elif segment == _VAR_TOKEN:
-            segments.append({"part": part, "label": _VAR_TOKEN, "kind": "var", "reserved": False})
-        else:
-            segments.append({"part": part, "label": unquote(segment), "kind": "literal", "reserved": False})
-    for key, value in parse_qsl(parsed.query, keep_blank_values=False):
-        part = f"query:{key}"
-        if value == _ID_TOKEN:
-            segments.append({"part": part, "label": f"{key}={_ID_TOKEN}", "kind": "id", "reserved": True})
-        else:
-            segments.append({"part": part, "label": f"{key}={unquote(value)}", "kind": "query", "reserved": False})
+    seen: dict[str, dict[str, Any]] = {}
+    for template in templates:
+        for segment in _template_segments(template, creator_label):
+            part = segment["part"]
+            existing = seen.get(part)
+            if existing is None:
+                seen[part] = segment
+                segments.append(segment)
+            elif segment["reserved"] and not existing["reserved"]:
+                # A reserved role (id/creator) at a position wins over a plain literal.
+                existing.update(segment)
     return {"templates": display_templates, "segments": segments}
 
 
@@ -541,8 +595,8 @@ def learn_download(
     shape = _url_shape(canonical, media_id)
     entry = dict(learned.get(key) or {})
     templates = _entry_templates(entry)
-    if shape and shape not in templates:
-        templates.append(shape)
+    if shape:
+        templates = _absorb_shape(templates, shape)
     if templates:
         entry["templates"] = templates
     entry["host"] = str(entry.get("host") or analysis.get("host") or "")

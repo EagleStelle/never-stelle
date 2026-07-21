@@ -28,6 +28,8 @@ const {
   tokenForPart,
   setSelected,
   setTokenName,
+  segmentLabel,
+  displayTemplate,
   tokenRole,
   isTitleRoleDisabled,
   setTokenRole,
@@ -66,9 +68,11 @@ function updateRole(key: string, token: string, value: unknown): void {
 
         <div v-else class="flex flex-col gap-[0.85rem]">
           <p
+            v-for="template in learnedFormat(site.key)?.templates || []"
+            :key="template"
             class="wrap-anywhere font-mono text-[0.75rem] text-white/50 in-[.light-mode]:text-black/50"
           >
-            {{ learnedFormat(site.key)?.templates[0] }}
+            {{ displayTemplate(site.key, template) }}
           </p>
 
           <p
@@ -91,7 +95,7 @@ function updateRole(key: string, token: string, value: unknown): void {
               />
               <span class="min-w-0 flex-1">
                 <span class="block truncate font-mono text-[0.8125rem]">
-                  {{ segment.label }}
+                  {{ segmentLabel(site.key, segment) }}
                 </span>
                 <span
                   class="block truncate text-[0.75rem] text-white/50 in-[.light-mode]:text-black/50"

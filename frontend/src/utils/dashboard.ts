@@ -458,6 +458,13 @@ export function normalizeTokenName(value: unknown): string {
   return /^[a-zA-Z_]/.test(token) ? token : "";
 }
 
+// A filename token as it appears in templates: {{token}}. Built in script so the literal
+// braces never reach Vue's template tokenizer. Defined once, reused by every pane that
+// renders a token chip (Scraper, Slug).
+export function tokenLabel(token: string): string {
+  return `{{${token}}}`;
+}
+
 export function createSourceTokenRoles(
   source: Record<string, Record<string, string>> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
