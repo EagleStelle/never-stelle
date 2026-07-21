@@ -254,6 +254,8 @@ def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any
     seen: set[str] = set()
     for engine, flat in probed:
         engine_fields = _creator_probe_fields(flat, engine)
+        if resolved_key == "facebook":
+            engine_fields = [item for item in engine_fields if item["field"] not in ("uploader", "uploader_id")]
         fields_by_engine[engine] = [item["field"] for item in engine_fields]
         for item in engine_fields:
             if item["field"] in seen:

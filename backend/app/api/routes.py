@@ -294,8 +294,9 @@ def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
     # selector grabs before the rules are saved. Never persists anything.
     from backend.app.services.settings import detect_cookie_source
     from backend.app.services.tasks.enrich import fetch_html, normalize_scrape_rule, scrape_tokens
+    from backend.app.services.tasks.urls import resolve_redirect_url
 
-    url = payload.url.strip()
+    url = resolve_redirect_url(payload.url.strip())
     if not url:
         raise HTTPException(status_code=400, detail="Paste a sample URL first.")
     rules = [rule for rule in (normalize_scrape_rule(item) for item in payload.rules) if rule]
@@ -316,11 +317,13 @@ def probe_fields(payload: ProbeFieldsPayload) -> dict[str, Any]:
     # Dump a link's metadata (no download) so the user can map username/nickname fields.
     from backend.app.services.tasks.learning import save_learned_creator_fields
     from backend.app.services.tasks.probe import probe_creator_fields
+    from backend.app.services.tasks.urls import resolve_redirect_url
 
+    url = resolve_redirect_url(payload.url)
     try:
-        result = probe_creator_fields(payload.url, payload.source_key)
+        result = probe_creator_fields(url, payload.source_key)
         learned = save_learned_creator_fields(
-            payload.url,
+            url,
             str(result.get("source_key") or payload.source_key),
             result.get("creator_fields"),
             only_when_missing=False,
@@ -340,8 +343,10 @@ def probe_fields(payload: ProbeFieldsPayload) -> dict[str, Any]:
 def learn_format(payload: LearnFormatPayload) -> dict[str, Any]:
     # Add a platform from a link and learn its URL format; returns the full settings
     # response so learned_formats and source_profiles refresh like a save does.
+    from backend.app.services.tasks.urls import resolve_redirect_url
+
     try:
-        result = add_source_and_learn_format(payload.url)
+        result = add_source_and_learn_format(resolve_redirect_url(payload.url))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     cfg = load_app_config()
