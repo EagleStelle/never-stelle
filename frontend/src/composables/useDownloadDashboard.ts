@@ -217,9 +217,8 @@ export function useDownloadDashboard() {
   );
 
   const isLightMode = computed(() => themeMode.value === "light");
-  const navigationItems = computed(() => [
-    { key: "all", label: "All platforms", icon: IconTray },
-    ...sourceProfiles.value.map((profile) => ({
+  const navigationItems = computed(() => {
+    const profiles = sourceProfiles.value.map((profile) => ({
       key: profile.key,
       label: profile.label,
       icon:
@@ -227,8 +226,13 @@ export function useDownloadDashboard() {
         FALLBACK_SOURCE_ICON,
       iconUrl: profile.icon_url || "",
       initials: sourceInitials(profile.label),
-    })),
-  ]);
+    })).sort((a, b) => a.label.localeCompare(b.label));
+
+    return [
+      { key: "all", label: "All platforms", icon: IconTray },
+      ...profiles,
+    ];
+  });
   const pageItems = computed(() => [
     { key: "downloads" as PageKey, label: "Downloads", icon: IconTray },
     { key: "history" as PageKey, label: "History", icon: IconHistory },

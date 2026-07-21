@@ -39,8 +39,12 @@ const emit = defineEmits<{
   "update:modelValue": [value: string];
 }>();
 
+const activeItem = computed(() => {
+  return props.items.find((i) => i.key === props.modelValue) || null;
+});
+
 const activeLabel = computed(() => {
-  return props.items.find((i) => i.key === props.modelValue)?.label || "";
+  return activeItem.value?.label || "";
 });
 
 const searchTerm = ref("");
@@ -127,14 +131,35 @@ const hasItemVisual = computed(() =>
           >
             {{ label }}
           </span>
-          <span
+          <div
             :class="[
-              'col-start-1 row-start-1 min-w-0 max-w-[min(28rem,calc(100vw-5rem))] truncate text-left',
+              'col-start-1 row-start-1 min-w-0 max-w-[min(28rem,calc(100vw-5rem))] flex items-center gap-2 text-left',
               !activeLabel && 'opacity-55',
             ]"
           >
-            {{ activeLabel || props.placeholder || "Search..." }}
-          </span>
+            <template v-if="activeItem">
+              <img
+                v-if="activeItem.iconUrl"
+                :src="activeItem.iconUrl"
+                class="w-4 h-4 shrink-0 rounded-lg"
+                alt=""
+                aria-hidden="true"
+              />
+              <component
+                :is="activeItem.icon"
+                v-else-if="activeItem.icon"
+                class="w-4 h-4 shrink-0"
+                aria-hidden="true"
+              />
+              <span
+                v-else-if="activeItem.initials"
+                class="inline-flex h-5 min-w-5 items-center justify-center rounded glass-soft px-1 text-[0.65rem] font-semibold"
+              >
+                {{ activeItem.initials }}
+              </span>
+            </template>
+            <span class="truncate">{{ activeLabel || props.placeholder || "Search..." }}</span>
+          </div>
           <ChevronsUpDownIcon
             class="col-start-2 row-start-1 size-4 shrink-0 opacity-50"
             aria-hidden="true"
