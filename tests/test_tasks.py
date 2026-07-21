@@ -1527,13 +1527,13 @@ def _learned_youtube_twitter() -> dict:
 
 
 def test_learn_download_derives_url_template():
-    assert _learned_youtube_twitter()["youtube"]["template"] == "https://www.youtube.com/watch?v={id}"
+    assert _learned_youtube_twitter()["youtube"]["templates"][0] == "https://www.youtube.com/watch?v={id}"
 
 
 def test_learn_download_marks_creator_segment():
     learned = learn_download({}, "https://twitter.com/DohaVT/status/2073635724684054528", "2073635724684054528")
     learned = learn_download(learned, "https://twitter.com/Other/status/1111111111111111111", "1111111111111111111")
-    assert learned["twitter"]["template"] == "https://twitter.com/{creator}/status/{id}"
+    assert learned["twitter"]["templates"][0] == "https://twitter.com/{creator}/status/{id}"
     assert learned["twitter"]["creator_part"] == "path:0"
 
 
@@ -1544,7 +1544,7 @@ def test_learn_download_trims_seo_query_and_keeps_creator_token():
         "7493558766131039489",
     )
 
-    assert learned["tiktok"]["template"] == "https://www.tiktok.com/@{creator}/video/{id}"
+    assert learned["tiktok"]["templates"][0] == "https://www.tiktok.com/@{creator}/video/{id}"
     assert reconstruct_url(learned, "tiktok", "7493558766131039489") == ""
 
 
@@ -1560,7 +1560,7 @@ def test_learn_download_keeps_multiple_templates_per_source():
         "7420705673542978833",
     )
 
-    assert learned["tiktok"]["template"] == "https://www.tiktok.com/@{creator}/video/{id}"
+    assert learned["tiktok"]["templates"][0] == "https://www.tiktok.com/@{creator}/video/{id}"
     assert set(learned["tiktok"]["templates"]) == {
         "https://www.tiktok.com/@{creator}/video/{id}",
         "https://www.tiktok.com/@{creator}/photo/{id}",
@@ -1596,7 +1596,7 @@ def test_learn_download_keeps_descriptive_segment_literal_for_single_sample():
         "4483553",
     )
 
-    assert learned["rule34video"]["template"] == "https://rule34video.com/video/{id}/daiwa-scarlet-suokanawer"
+    assert learned["rule34video"]["templates"][0] == "https://rule34video.com/video/{id}/daiwa-scarlet-suokanawer"
     assert (
         reconstruct_url(learned, "rule34video", "3238394")
         == "https://rule34video.com/video/3238394/daiwa-scarlet-suokanawer"
@@ -1610,7 +1610,6 @@ def test_learn_download_keeps_descriptive_segment_literal_for_single_sample():
 def test_reconstruct_url_replaces_literal_segment_with_configured_slug_value():
     learned = {
         "rule34video": {
-            "template": "https://rule34video.com/video/{id}/cocolia-rand-sutekimeppou",
             "templates": ["https://rule34video.com/video/{id}/cocolia-rand-sutekimeppou"],
         }
     }
@@ -2064,7 +2063,6 @@ def test_scan_media_library_reconstructs_slug_url_from_filename_template(
 ):
     learned = {
         "rule34video": {
-            "template": "https://rule34video.com/video/{id}/cocolia-rand-sutekimeppou",
             "templates": ["https://rule34video.com/video/{id}/cocolia-rand-sutekimeppou"],
         }
     }

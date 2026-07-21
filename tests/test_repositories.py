@@ -20,17 +20,21 @@ def test_learned_formats_persist_to_formats_table(tmp_path, monkeypatch):
     repositories.save_learned_formats_payload(payload)
 
     with database_module.transaction() as connection:
-        rows = connection.execute("SELECT source_key, template, creator_part FROM formats").fetchall()
+        rows = connection.execute("SELECT source_key, templates, creator_part FROM formats").fetchall()
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(formats)").fetchall()}
         legacy = connection.execute("SELECT value FROM settings WHERE key = ?", ("learned_formats",)).fetchone()
 
     assert legacy is None
+    assert "template" not in columns
+    assert "templates" in columns
     assert len(rows) == 1
     assert rows[0]["source_key"] == "tiktok"
-    assert rows[0]["template"] == "https://www.tiktok.com/@{creator}/video/{id}"
+    assert json.loads(rows[0]["templates"]) == ["https://www.tiktok.com/@{creator}/video/{id}"]
     assert rows[0]["creator_part"] == "path:0"
 
     loaded = repositories.load_learned_formats_payload()
-    assert loaded["tiktok"]["template"] == "https://www.tiktok.com/@{creator}/video/{id}"
+    assert loaded["tiktok"]["templates"] == ["https://www.tiktok.com/@{creator}/video/{id}"]
+    assert "template" not in loaded["tiktok"]
 
 
 def test_learned_formats_persist_multiple_templates(tmp_path, monkeypatch):
@@ -49,8 +53,8 @@ def test_learned_formats_persist_multiple_templates(tmp_path, monkeypatch):
     }
 
 
-def test_learned_formats_migrate_adds_templates_column(tmp_path, monkeypatch):
-    # An older formats table with no templates column must gain one, keeping its row.
+def test_learned_formats_migrate_template_column_to_templates(tmp_path, monkeypatch):
+    # An older formats table with only template must copy it into templates, then drop it.
     monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
     monkeypatch.setattr(database_module, "_INITIALIZED", False)
     database_module.initialize_database()
@@ -69,14 +73,19 @@ def test_learned_formats_migrate_adds_templates_column(tmp_path, monkeypatch):
     monkeypatch.setattr(database_module, "_INITIALIZED", False)
 
     loaded = repositories.load_learned_formats_payload()
+    with database_module.transaction() as connection:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(formats)").fetchall()}
+
     assert loaded["tiktok"]["templates"] == ["https://www.tiktok.com/@{creator}/photo/{id}"]
+    assert "template" not in columns
+    assert "templates" in columns
 
 
 def test_learned_formats_migrate_legacy_settings_row(tmp_path, monkeypatch):
     monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
     monkeypatch.setattr(database_module, "_INITIALIZED", False)
 
-    legacy = learn_download({}, "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ")
+    legacy = {"youtube": {"template": "https://www.youtube.com/watch?v={id}"}}
     with database_module.transaction() as connection:
         connection.execute(
             "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
@@ -86,11 +95,11 @@ def test_learned_formats_migrate_legacy_settings_row(tmp_path, monkeypatch):
     loaded = repositories.load_learned_formats_payload()
 
     with database_module.transaction() as connection:
-        format_row = connection.execute("SELECT template FROM formats WHERE source_key = ?", ("youtube",)).fetchone()
+        format_row = connection.execute("SELECT templates FROM formats WHERE source_key = ?", ("youtube",)).fetchone()
         legacy_row = connection.execute("SELECT value FROM settings WHERE key = ?", ("learned_formats",)).fetchone()
 
-    assert loaded["youtube"]["template"] == "https://www.youtube.com/watch?v={id}"
-    assert format_row["template"] == "https://www.youtube.com/watch?v={id}"
+    assert loaded["youtube"]["templates"] == ["https://www.youtube.com/watch?v={id}"]
+    assert json.loads(format_row["templates"]) == ["https://www.youtube.com/watch?v={id}"]
     assert legacy_row is None
 
 

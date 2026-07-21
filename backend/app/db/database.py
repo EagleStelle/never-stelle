@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -55,7 +56,6 @@ CREATE INDEX IF NOT EXISTS idx_history_order ON history(completed_at DESC, updat
 CREATE TABLE IF NOT EXISTS formats (
     source_key TEXT PRIMARY KEY,
     host TEXT NOT NULL DEFAULT '',
-    template TEXT NOT NULL DEFAULT '',
     templates TEXT NOT NULL DEFAULT '',
     id_min INTEGER NOT NULL DEFAULT 0,
     id_max INTEGER NOT NULL DEFAULT 0,
@@ -156,6 +156,78 @@ def _migrate_schema(connection: sqlite3.Connection) -> None:
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(formats)")}
     if "templates" not in columns:
         connection.execute("ALTER TABLE formats ADD COLUMN templates TEXT NOT NULL DEFAULT ''")
+        columns.add("templates")
+    if "template" in columns:
+        _migrate_format_templates(connection)
+        _drop_format_template_column(connection)
     connection.execute("UPDATE queue SET source_key = '' WHERE source_key = 'others'")
     connection.execute("UPDATE history SET source_key = '' WHERE source_key = 'others'")
     connection.execute("DELETE FROM cookies WHERE key = 'ytdlp_cookies::others'")
+
+
+def _decode_templates(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        payload = json.loads(value)
+    except Exception:
+        return []
+    if not isinstance(payload, list):
+        return []
+    out: list[str] = []
+    for item in payload:
+        template = str(item or "").strip()
+        if template and template not in out:
+            out.append(template)
+    return out
+
+
+def _migrate_format_templates(connection: sqlite3.Connection) -> None:
+    rows = connection.execute("SELECT source_key, template, templates FROM formats").fetchall()
+    for row in rows:
+        legacy = str(row["template"] or "").strip()
+        templates = _decode_templates(row["templates"])
+        if legacy and legacy not in templates:
+            templates = [legacy, *templates]
+        connection.execute(
+            "UPDATE formats SET templates = ? WHERE source_key = ?",
+            (json.dumps(templates, ensure_ascii=False), row["source_key"]),
+        )
+
+
+def _drop_format_template_column(connection: sqlite3.Connection) -> None:
+    connection.execute("DROP INDEX IF EXISTS idx_formats_host")
+    connection.execute("DROP TABLE IF EXISTS formats_next")
+    connection.execute(
+        """
+        CREATE TABLE formats_next (
+            source_key TEXT PRIMARY KEY,
+            host TEXT NOT NULL DEFAULT '',
+            templates TEXT NOT NULL DEFAULT '',
+            id_min INTEGER NOT NULL DEFAULT 0,
+            id_max INTEGER NOT NULL DEFAULT 0,
+            id_classes TEXT NOT NULL DEFAULT '',
+            id_part TEXT NOT NULL DEFAULT '',
+            creator_part TEXT NOT NULL DEFAULT '',
+            samples INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO formats_next (
+            source_key, host, templates, id_min, id_max, id_classes,
+            id_part, creator_part, samples, created_at, updated_at
+        )
+        SELECT source_key, COALESCE(host, ''), COALESCE(templates, ''),
+               COALESCE(id_min, 0), COALESCE(id_max, 0), COALESCE(id_classes, ''),
+               COALESCE(id_part, ''), COALESCE(creator_part, ''), COALESCE(samples, 0),
+               created_at, updated_at
+        FROM formats
+        """
+    )
+    connection.execute("DROP TABLE formats")
+    connection.execute("ALTER TABLE formats_next RENAME TO formats")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_formats_host ON formats(host)")

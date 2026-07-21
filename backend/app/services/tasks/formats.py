@@ -407,10 +407,8 @@ def _record_id_signature(entry: dict[str, Any], media_id: str) -> None:
 
 
 def _entry_templates(entry: dict[str, Any]) -> list[str]:
-    values: list[Any] = [entry.get("template")]
     raw_templates = entry.get("templates")
-    if isinstance(raw_templates, list):
-        values.extend(raw_templates)
+    values = raw_templates if isinstance(raw_templates, list) else []
     templates: list[str] = []
     for value in values:
         template = str(value or "").strip()
@@ -467,7 +465,6 @@ def learn_download(learned: dict[str, Any], source_url: str, media_id: str) -> d
     if shape and shape not in templates:
         templates.append(shape)
     if templates:
-        entry["template"] = templates[0]
         entry["templates"] = templates
     entry["host"] = str(entry.get("host") or analysis.get("host") or "")
     entry["id_part"] = str(entry.get("id_part") or analysis.get("id_part") or "")
