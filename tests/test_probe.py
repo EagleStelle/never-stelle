@@ -180,6 +180,32 @@ def test_probe_creator_fields_merges_both_engines(monkeypatch):
     assert result["creator_fields"]["nickname"] == ["username"]
 
 
+def test_probe_creator_fields_promotes_field_matching_url_creator(monkeypatch):
+    monkeypatch.setattr(
+        probe_module,
+        "_ytdlp_dump",
+        lambda url: (
+            {
+                "id": "7487436336081734913",
+                "uploader_id": "6673617364291994625",
+                "uploader": "fzyahoo.com",
+                "channel": "❤️",
+                "channel_id": "MS4wLjABAAAAC0QSwXXGjf1xr3FVnQxnr33V3X5v-QJrnH8KaGbJ5tQQlt8cyC_9OrrBOdb_NMhe",
+                "artist": "spidey",
+            },
+            "",
+        ),
+    )
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: None)
+    monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "tiktok")
+
+    result = probe_creator_fields("https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913")
+
+    assert [field["field"] for field in result["fields"]][:2] == ["uploader", "uploader_id"]
+    assert result["url_creator_fields"] == {"username": ["uploader"]}
+    assert result["creator_fields"]["username"][:2] == ["uploader", "uploader_id"]
+
+
 def test_probe_creator_fields_skips_engine_that_returns_nothing(monkeypatch):
     monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url: (None, "unsupported url"))
     monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: {"username": "bob"})

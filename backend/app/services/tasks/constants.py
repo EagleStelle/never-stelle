@@ -330,6 +330,42 @@ def rank_creator_role_fields(role: str, fields: list[str] | tuple[str, ...]) -> 
     return ranked
 
 
+def promote_creator_role_fields(
+    role: str,
+    fields: list[str] | tuple[str, ...],
+    promoted: list[str] | tuple[str, ...],
+) -> list[str]:
+    """Move learned URL-creator fields ahead of the normal role order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for source in (promoted, fields):
+        for value in source:
+            field = str(value or "").strip()
+            if field and field not in seen:
+                seen.add(field)
+                out.append(field)
+    return out
+
+
+def promote_creator_field_roles(
+    fields_by_role: dict[str, list[str] | tuple[str, ...]] | None,
+    promoted_by_role: dict[str, list[str] | tuple[str, ...]] | None,
+) -> dict[str, list[str]]:
+    """Promote URL-derived creator fields role-by-role while preserving all others."""
+    fields_by_role = fields_by_role if isinstance(fields_by_role, dict) else {}
+    promoted_by_role = promoted_by_role if isinstance(promoted_by_role, dict) else {}
+    out: dict[str, list[str]] = {}
+    for role in ("username", "nickname"):
+        ranked = promote_creator_role_fields(
+            role,
+            fields_by_role.get(role) or (),
+            promoted_by_role.get(role) or (),
+        )
+        if ranked:
+            out[role] = ranked
+    return out
+
+
 def creator_roles_from_probe_fields(fields_by_engine: dict[str, list[str] | tuple[str, ...]]) -> dict[str, list[str]]:
     """Build username/nickname lists from fields that a live probe actually saw."""
     out: dict[str, list[str]] = {}

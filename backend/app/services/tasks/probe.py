@@ -8,8 +8,8 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from backend.app.core.sources import normalize_source_key, source_key_from_url
 from backend.app.services.settings import find_cookies_file_for_url
 
-from .constants import CREATOR_FIELD_CANDIDATES, creator_roles_from_probe_fields
-from .formats import _prepare_url
+from .constants import CREATOR_FIELD_CANDIDATES, creator_roles_from_probe_fields, promote_creator_field_roles
+from .formats import _prepare_url, infer_url_creator_fields
 
 # YouTube mix/radio playlists carry an ``RD`` list id and are endless, so we
 # never expand them; we download only the video the link points at.
@@ -145,6 +145,40 @@ def _creator_probe_fields(flat: dict[str, str], engine: str) -> list[dict[str, s
     return fields
 
 
+def _append_creator_field_roles(
+    existing: dict[str, list[str]],
+    learned: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    out = {role: list(fields) for role, fields in existing.items()}
+    for role in ("username", "nickname"):
+        fields = out.setdefault(role, [])
+        for field in learned.get(role, []):
+            if field and field not in fields:
+                fields.append(field)
+        if not fields:
+            out.pop(role, None)
+    return out
+
+
+def _promote_probe_fields(
+    fields: list[dict[str, str]],
+    promoted: dict[str, list[str]],
+) -> list[dict[str, str]]:
+    if not fields or not promoted:
+        return fields
+    promoted_fields: list[str] = []
+    for role in ("username", "nickname"):
+        for field in promoted.get(role, []):
+            if field not in promoted_fields:
+                promoted_fields.append(field)
+    if not promoted_fields:
+        return fields
+    by_field = {item["field"]: item for item in fields}
+    out = [by_field[field] for field in promoted_fields if field in by_field]
+    out.extend(item for item in fields if item["field"] not in promoted_fields)
+    return out
+
+
 def _ytdlp_dump(url: str, *, with_cookies: bool = True) -> tuple[dict[str, Any] | None, str]:
     cmd = ["yt-dlp", "--dump-json", "--no-warnings", "--no-download", "--playlist-items", "1"]
     cookies_file = find_cookies_file_for_url(url) if with_cookies else ""
@@ -251,16 +285,30 @@ def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any
 
     fields: list[dict[str, str]] = []
     fields_by_engine: dict[str, list[str]] = {}
+    url_creator_fields: dict[str, list[str]] = {}
     seen: set[str] = set()
     for engine, flat in probed:
         engine_fields = _creator_probe_fields(flat, engine)
         if resolved_key == "facebook":
             engine_fields = [item for item in engine_fields if item["field"] not in ("uploader", "uploader_id")]
         fields_by_engine[engine] = [item["field"] for item in engine_fields]
+        available_fields = set(fields_by_engine[engine])
+        inferred = {
+            role: [field for field in fields if field in available_fields]
+            for role, fields in infer_url_creator_fields(url, flat).items()
+        }
+        url_creator_fields = _append_creator_field_roles(url_creator_fields, inferred)
         for item in engine_fields:
             if item["field"] in seen:
                 continue
             seen.add(item["field"])
             fields.append(item)
     creator_fields = creator_roles_from_probe_fields(fields_by_engine)
-    return {"source_key": resolved_key, "fields": fields, "creator_fields": creator_fields}
+    creator_fields = promote_creator_field_roles(creator_fields, url_creator_fields)
+    fields = _promote_probe_fields(fields, url_creator_fields)
+    return {
+        "source_key": resolved_key,
+        "fields": fields,
+        "creator_fields": creator_fields,
+        "url_creator_fields": url_creator_fields,
+    }

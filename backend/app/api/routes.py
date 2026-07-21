@@ -331,17 +331,23 @@ def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
 @router.post("/settings/probe-fields")
 def probe_fields(payload: ProbeFieldsPayload) -> dict[str, Any]:
     # Dump a link's metadata (no download) so the user can map username/nickname fields.
-    from backend.app.services.tasks.learning import save_learned_creator_fields
+    from backend.app.services.tasks.learning import save_learned_creator_fields, save_learned_url_creator_fields
     from backend.app.services.tasks.probe import probe_creator_fields
     from backend.app.services.tasks.urls import resolve_redirect_url
 
     url = resolve_redirect_url(payload.url)
     try:
         result = probe_creator_fields(url, payload.source_key)
+        save_learned_url_creator_fields(
+            url,
+            str(result.get("source_key") or payload.source_key),
+            result.get("url_creator_fields"),
+        )
         learned = save_learned_creator_fields(
             url,
             str(result.get("source_key") or payload.source_key),
             result.get("creator_fields"),
+            url_creator_fields=result.get("url_creator_fields"),
             only_when_missing=False,
             merge=True,
         )

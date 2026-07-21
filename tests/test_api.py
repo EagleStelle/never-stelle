@@ -132,6 +132,42 @@ def test_add_task_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
     assert captured["source_templates"] == source_templates
 
 
+def test_probe_fields_saves_url_creator_hint_to_learned_format(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    import backend.app.services.tasks.probe as probe_module
+    from backend.app.db import repositories
+
+    format_template = "https://www.tiktok.com/@{creator}/video/{id}"
+    repositories.save_learned_formats_payload({"tiktok": {"templates": [format_template]}})
+    monkeypatch.setattr(
+        probe_module,
+        "probe_creator_fields",
+        lambda url, source_key: {
+            "source_key": "tiktok",
+            "fields": [
+                {"field": "uploader", "value": "fzyahoo.com"},
+                {"field": "uploader_id", "value": "6673617364291994625"},
+            ],
+            "creator_fields": {"username": ["uploader", "uploader_id"]},
+            "url_creator_fields": {"username": ["uploader"]},
+        },
+    )
+
+    response = client.post(
+        "/api/settings/probe-fields",
+        json={
+            "url": "https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913",
+            "source_key": "tiktok",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["creator_fields"] == {"username": ["uploader", "uploader_id"]}
+    assert repositories.load_learned_formats_payload()["tiktok"]["url_creator_fields"] == {
+        "username": ["uploader"]
+    }
+
+
 def test_auth_login_session_and_logout(tmp_path, monkeypatch):
     use_temp_auth_db(tmp_path, monkeypatch)
 

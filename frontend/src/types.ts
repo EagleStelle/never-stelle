@@ -118,6 +118,7 @@ export interface ProbeFieldsResponse {
   source_key: string;
   fields: ProbeField[];
   creator_fields?: Partial<CreatorFieldRoles>;
+  url_creator_fields?: Partial<CreatorFieldRoles>;
   saved?: boolean;
 }
 

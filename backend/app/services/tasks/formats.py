@@ -490,14 +490,46 @@ def _infer_url_creator_fields(url_creator: str, metadata: dict[str, Any] | None)
     return {}
 
 
+def infer_url_creator_fields(
+    source_url: str,
+    metadata: dict[str, Any] | None,
+    media_id: str = "",
+) -> dict[str, list[str]]:
+    """Creator-role fields whose metadata value matches the URL creator segment."""
+    if not isinstance(metadata, dict):
+        return {}
+    inferred_media_id = str(media_id or metadata.get("id") or "").strip()
+    analysis = analyze_url(source_url, inferred_media_id)
+    return _infer_url_creator_fields(str(analysis.get("creator") or ""), metadata)
+
+
 def _merge_url_creator_fields(existing: Any, learned: dict[str, list[str]]) -> dict[str, list[str]]:
     out = _normalize_url_creator_fields(existing)
     for role, fields in learned.items():
-        current = out.setdefault(role, [])
+        current = [field for field in out.get(role, []) if field not in fields]
+        out[role] = []
         for field in fields:
-            if field not in current:
-                current.append(field)
+            if field not in out[role]:
+                out[role].append(field)
+        out[role].extend(current)
     return {role: fields for role, fields in out.items() if fields}
+
+
+def learn_url_creator_fields(
+    learned: dict[str, Any],
+    source_key: str,
+    url_creator_fields: Any,
+) -> dict[str, Any]:
+    key = normalize_source_key(source_key)
+    fields = _normalize_url_creator_fields(url_creator_fields)
+    entry = learned.get(key) if isinstance(learned, dict) else None
+    if not key or not fields or not isinstance(entry, dict):
+        return learned
+    updated_entry = dict(entry)
+    updated_entry["url_creator_fields"] = _merge_url_creator_fields(entry.get("url_creator_fields"), fields)
+    updated = dict(learned)
+    updated[key] = updated_entry
+    return updated
 
 
 def _url_creator_role(entry: dict[str, Any]) -> str:
