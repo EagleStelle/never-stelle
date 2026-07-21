@@ -27,11 +27,11 @@ from backend.app.services.tasks import (
 from backend.app.services.tasks.formats import (
     conflicts_with_source,
     creator_from_url,
+    describe_learned_segments,
+    extract_url_part,
     guess_sources,
     learn_download,
     learn_media_id,
-    describe_learned_segments,
-    extract_url_part,
     media_id_from_url,
     reconstruct_url,
     reconstruct_url_candidates,

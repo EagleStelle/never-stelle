@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-import backend.app.services.tasks.gallerydl as gallerydl
 import backend.app.services.tasks.enrich as enrich
+import backend.app.services.tasks.gallerydl as gallerydl
 import backend.app.services.tasks.ytdlp as ytdlp
 from backend.app.services.tasks import engine_by_name, engine_for_task, select_engine
 from backend.app.services.tasks.constants import (

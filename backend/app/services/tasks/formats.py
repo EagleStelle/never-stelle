@@ -522,7 +522,10 @@ def _fill_template_slug_parts(template: str, slug_values: dict[str, str]) -> str
             query_overrides[part.split(":", 1)[1]] = encoded
     path = "/" + "/".join(raw_segments) if str(parsed.path or "").startswith("/") else "/".join(raw_segments)
     if query_overrides:
-        pairs = [(key, query_overrides.get(key, value)) for key, value in parse_qsl(parsed.query, keep_blank_values=False)]
+        pairs = [
+            (key, query_overrides.get(key, value))
+            for key, value in parse_qsl(parsed.query, keep_blank_values=False)
+        ]
         query = "&".join(f"{key}={value}" for key, value in pairs)
     else:
         query = parsed.query

@@ -572,7 +572,9 @@ def _probe_disk_creator(
         return "", ""
     probe_urls = reconstruct_url_candidates(learned, source_key, media_id, creator="", slug_values=slug_values)
     if disk_creator:
-        for url in reconstruct_url_candidates(learned, source_key, media_id, creator=disk_creator, slug_values=slug_values):
+        for url in reconstruct_url_candidates(
+            learned, source_key, media_id, creator=disk_creator, slug_values=slug_values
+        ):
             if url not in probe_urls:
                 probe_urls.append(url)
     for url in probe_urls[:_MAX_PROBE_CANDIDATES]:
