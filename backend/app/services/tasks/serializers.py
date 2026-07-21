@@ -12,7 +12,6 @@ from backend.app.services.settings import get_effective_source_profiles
 
 from .constants import STATUS_LABELS, STATUS_ORDER, normalize_quality_selection
 from .files import recover_task_path
-from .formats import creator_from_url
 from .naming import clean_gallerydl_display_filename
 from .scan import parse_filename_media_id
 from .store import (
@@ -66,7 +65,7 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
     )
     raw_filename = str(task.get("resolved_filename") or "").strip() or recovered_filename
     media_id, _ = parse_filename_media_id(raw_filename)
-    creator = str(creator_from_url(source_url, media_id) or task.get("creator") or "")
+    creator = str(task.get("creator") or "")
     resolved_filename = (
         clean_gallerydl_display_filename(raw_filename, creator, source_key)
         if task_type in {"gallerydl", "disk"}

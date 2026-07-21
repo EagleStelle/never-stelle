@@ -165,6 +165,54 @@ def test_gallerydl_richest_metadata_finds_largest_dict():
     assert best == {"id": 1, "user": "a", "title": "t"}
 
 
+def test_gallerydl_tiktok_photo_author_fields_are_creator_candidates(monkeypatch):
+    monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url: (None, "unsupported url"))
+    monkeypatch.setattr(
+        probe_module,
+        "_gallerydl_dump",
+        lambda url: {
+            "id": "7420705673542978833",
+            "author": {
+                "id": "6673617364291994625",
+                "nickname": "FZ Yahoo",
+                "secUid": "MS4wLjABAAAAC0QSwXXGjf1xr3FVnQxnr33V3X5v-QJrnH8KaGbJ5tQQlt8cyC_9OrrBOdb_NMhe",
+                "uniqueId": "fzyahoo.com",
+            },
+        },
+    )
+    monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "tiktok")
+
+    result = probe_creator_fields("https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833")
+
+    assert [field["field"] for field in result["fields"]] == ["author[uniqueId]", "author[nickname]"]
+    assert result["creator_fields"] == {
+        "username": ["author[uniqueId]"],
+        "nickname": ["author[nickname]"],
+    }
+    assert result["url_creator_fields"] == {}
+
+
+def test_gallerydl_dump_uses_tiktok_no_audio_probe_option(monkeypatch):
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+
+        class Result:
+            returncode = 0
+            stdout = "[[2, {\"author\": {\"uniqueId\": \"bob\"}}]]"
+
+        return Result()
+
+    monkeypatch.setattr(probe_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(probe_module, "find_cookies_file_for_url", lambda url: "")
+
+    assert probe_module._gallerydl_dump("https://www.tiktok.com/@bob/photo/1") == {
+        "author": {"uniqueId": "bob"}
+    }
+    assert captured["cmd"][:4] == ["gallery-dl", "-j", "-o", "extractor.tiktok.audio=false"]
+
+
 def test_probe_creator_fields_merges_both_engines(monkeypatch):
     monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url: ({"uploader_id": "bob_h", "title": "hey"}, ""))
     monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: {"username": "bob", "title": "hey"})
@@ -180,7 +228,79 @@ def test_probe_creator_fields_merges_both_engines(monkeypatch):
     assert result["creator_fields"]["nickname"] == ["username"]
 
 
-def test_probe_creator_fields_promotes_field_matching_url_creator(monkeypatch):
+def test_probe_creator_fields_keeps_bare_facebook_reel_uploader(monkeypatch):
+    monkeypatch.setattr(
+        probe_module,
+        "_ytdlp_dump",
+        lambda url: (
+            {
+                "id": "849162654788919",
+                "uploader": "Tomet Fonn",
+                "uploader_id": "100035730073475",
+            },
+            "",
+        ),
+    )
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: None)
+    monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "facebook")
+
+    result = probe_creator_fields("https://www.facebook.com/reel/849162654788919")
+
+    assert [field["field"] for field in result["fields"]] == ["uploader_id", "uploader"]
+    assert result["creator_fields"]["username"] == ["uploader_id", "uploader"]
+    assert result["creator_fields"]["nickname"] == ["uploader"]
+    assert result["url_creator_fields"] == {}
+
+
+def test_probe_creator_fields_keeps_facebook_share_post_uploader(monkeypatch):
+    monkeypatch.setattr(
+        probe_module,
+        "_ytdlp_dump",
+        lambda url: (
+            {
+                "id": "194bUYA419",
+                "uploader": "Tomet Fonn",
+                "uploader_id": "100035730073475",
+            },
+            "",
+        ),
+    )
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: None)
+    monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "facebook")
+
+    result = probe_creator_fields("https://www.facebook.com/share/p/194bUYA419/")
+
+    assert [field["field"] for field in result["fields"]] == ["uploader_id", "uploader"]
+    assert result["creator_fields"]["username"] == ["uploader_id", "uploader"]
+    assert result["creator_fields"]["nickname"] == ["uploader"]
+    assert result["url_creator_fields"] == {}
+
+
+def test_probe_creator_fields_keeps_live_fields_without_url_owner_filter(monkeypatch):
+    monkeypatch.setattr(
+        probe_module,
+        "_ytdlp_dump",
+        lambda url: (
+            {
+                "id": "7487436336081734913",
+                "uploader": "wrong-owner",
+                "uploader_id": "100035730073475",
+            },
+            "",
+        ),
+    )
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: None)
+    monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "tiktok")
+
+    result = probe_creator_fields("https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913")
+
+    assert [field["field"] for field in result["fields"]] == ["uploader_id", "uploader"]
+    assert result["creator_fields"]["username"] == ["uploader_id", "uploader"]
+    assert result["creator_fields"]["nickname"] == ["uploader"]
+    assert result["url_creator_fields"] == {}
+
+
+def test_probe_creator_fields_uses_engine_order_not_url_creator_promotion(monkeypatch):
     monkeypatch.setattr(
         probe_module,
         "_ytdlp_dump",
@@ -201,9 +321,9 @@ def test_probe_creator_fields_promotes_field_matching_url_creator(monkeypatch):
 
     result = probe_creator_fields("https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913")
 
-    assert [field["field"] for field in result["fields"]][:2] == ["uploader", "uploader_id"]
-    assert result["url_creator_fields"] == {"username": ["uploader"]}
-    assert result["creator_fields"]["username"][:2] == ["uploader", "uploader_id"]
+    assert [field["field"] for field in result["fields"]][:2] == ["uploader_id", "uploader"]
+    assert result["url_creator_fields"] == {}
+    assert result["creator_fields"]["username"][:2] == ["uploader_id", "uploader"]
 
 
 def test_probe_creator_fields_skips_engine_that_returns_nothing(monkeypatch):

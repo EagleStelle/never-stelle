@@ -5,7 +5,6 @@ from typing import Any
 from . import gallerydl, ytdlp
 from .constants import PROGRESS_RE
 from .files import extract_downloaded_path
-from .formats import creator_from_url
 
 
 class Engine:
@@ -186,7 +185,7 @@ class GallerydlEngine(Engine):
         return gallerydl.extract_gallerydl_path(line)
 
     def read_creator(self, sidecar_path: str, source_url: str) -> str:
-        return creator_from_url(source_url)
+        return ""
 
 
 # yt-dlp is the default; gallery-dl is the runtime fallback.

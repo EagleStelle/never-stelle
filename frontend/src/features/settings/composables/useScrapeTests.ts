@@ -3,6 +3,7 @@ import { toast } from "vue-sonner";
 
 import { testScrapeRules } from "../../../api";
 import type {
+  LearnedFormats,
   PlatformScrapeRules,
   RuntimeSettings,
   SavedSettings,
@@ -30,6 +31,7 @@ interface ScrapeTestState {
 export function useScrapeTests(
   settingsDraft: SavedSettings,
   settings: RuntimeSettings,
+  learnedFormatsDraft: LearnedFormats,
   editableSourceProfiles: ComputedRef<SourceProfile[]>,
 ) {
   const scrapeTests = reactive<Record<string, ScrapeTestState>>({});
@@ -49,7 +51,11 @@ export function useScrapeTests(
   );
 
   function formatsFor(key: string): string[] {
-    return settings.learned_formats?.[key]?.templates || [];
+    return (
+      learnedFormatsDraft?.[key]?.templates ||
+      settings.learned_formats?.[key]?.templates ||
+      []
+    );
   }
 
   function platformRules(key: string): PlatformScrapeRules {

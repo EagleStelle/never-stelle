@@ -435,6 +435,13 @@ export function tokenLabel(token: string): string {
   return `{{${token}}}`;
 }
 
+export function displayUrlTemplate(value: unknown): string {
+  return String(value || "").replace(
+    /(^|[^{])\{([a-zA-Z_][a-zA-Z0-9_]*)\}(?!\})/g,
+    (_match, prefix: string, token: string) => `${prefix}${tokenLabel(token)}`,
+  );
+}
+
 export function createSourceTokenRoles(
   source: Record<string, Record<string, string>> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,

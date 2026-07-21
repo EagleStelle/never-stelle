@@ -142,23 +142,29 @@ def test_convert_template_unknown_placeholder_falls_back():
     assert convert_template_to_ytdlp("{{weird}}") == "%(weird|Unknown)s"
 
 
-def test_convert_template_prefers_creator_from_url():
+def test_convert_template_username_uses_metadata_field_even_when_url_has_handle():
     result = convert_template_to_ytdlp(
         "{{username}} - {{title}} [{{id}}]",
         "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
     )
 
-    assert result.startswith("fzyahoo.com - ")
-    assert "%(creator" not in result
+    assert result.startswith(f"{YTDLP_USERNAME_FIELD} - ")
+    assert "fzyahoo.com" not in result
 
 
-def test_convert_template_can_keep_url_handle_at_sign():
+def test_convert_template_can_keep_explicit_creator_at_sign():
     url = "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489"
 
-    ytdlp_result = convert_template_to_ytdlp("{{username}}", url, cleaning={"strip_handle_at": False})
+    ytdlp_result = convert_template_to_ytdlp(
+        "{{username}}",
+        url,
+        extra_tokens={"username": "@fzyahoo.com"},
+        cleaning={"strip_handle_at": False},
+    )
     gallerydl_result = gallerydl_module.convert_template_to_gallerydl(
         "{{username}}",
         url,
+        extra_tokens={"username": "@fzyahoo.com"},
         cleaning={"strip_handle_at": False},
     )
 
@@ -268,6 +274,7 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
         "https://example.test/watch?v=1",
         quality={"mode": "audio", "audio_format": "opus", "audio_bitrate": "320"},
     )
+    assert captured["task"]["engine_policy"] == "auto"
     assert captured["task"]["quality"] == {
         "mode": "audio",
         "video_quality": "best",
@@ -286,6 +293,83 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     )
     assert captured["task"]["quality"]["video_container"] == "webm"
     assert captured["task"]["quality"]["video_codec"] == "h264"
+
+
+def test_retry_task_opts_into_auto_engine_policy(monkeypatch: pytest.MonkeyPatch):
+    store = {"tasks": {"ytdlp:failed": {"status": "failed", "engine": "ytdlp"}}}
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(operations_module, "load_task_store", lambda: store)
+    monkeypatch.setattr(operations_module, "ensure_worker", lambda: None)
+    monkeypatch.setattr(
+        operations_module,
+        "update_task",
+        lambda task_id, **kwargs: captured.update(kwargs) or {**store["tasks"][task_id], **kwargs},
+    )
+
+    operations_module.retry_task("ytdlp:failed")
+
+    assert captured["status"] == "pending"
+    assert captured["engine_policy"] == "auto"
+
+
+def test_queue_task_bypasses_stale_ytdlp_video_history_when_gallerydl_reports_images(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from backend.app.services.tasks.planning import ResolvedTaskSettings
+
+    source_url = "https://example.test/post/abc123"
+    resolved = ResolvedTaskSettings(
+        source_key="example",
+        source_profile={"key": "example", "label": "Example"},
+        source_profiles=[{"key": "example", "label": "Example", "hosts": []}],
+        site_locations={"example": str(tmp_path)},
+        output_dir=str(tmp_path),
+        template_settings={"folder_template": "", "filename_template": "{{title}} [{{id}}]"},
+    )
+    captured: dict[str, dict] = {}
+
+    monkeypatch.setattr(operations_module, "ensure_worker", lambda: None)
+    monkeypatch.setattr(operations_module, "resolve_redirect_url", lambda url: url)
+    monkeypatch.setattr(operations_module, "find_active_by_source", lambda url: (None, None))
+    monkeypatch.setattr(
+        operations_module,
+        "find_history_by_source",
+        lambda url: (
+            "ytdlp:old",
+            {
+                "task_type": "ytdlp",
+                "source_url": source_url,
+                "resolved_filename": "Wrong preview [abc123].mp4",
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        gallerydl_module,
+        "probe_gallerydl_media",
+        lambda *args, **kwargs: {"count": 1, "kinds": ["image"]},
+    )
+    monkeypatch.setattr(operations_module, "load_app_config", lambda: {})
+    monkeypatch.setattr(operations_module, "resolve_task_settings", lambda *a, **k: resolved)
+    monkeypatch.setattr(operations_module, "is_allowed_location", lambda location: True)
+    monkeypatch.setattr(
+        operations_module,
+        "get_effective_saved_settings",
+        lambda cfg: {"default_quality": {"mode": "video"}},
+    )
+    monkeypatch.setattr(operations_module, "task_to_api", lambda task_id, task: task)
+    monkeypatch.setattr(
+        operations_module,
+        "update_task",
+        lambda task_id, **kwargs: captured.update({"task": kwargs}) or kwargs,
+    )
+
+    tasks, reused = operations_module.queue_task(source_url)
+
+    assert reused is False
+    assert tasks == [captured["task"]]
+    assert captured["task"]["engine_policy"] == "auto"
 
 
 def test_parse_filename_media_id_accepts_numbered_gallerydl_suffix():
@@ -1077,6 +1161,81 @@ def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(
     assert saved[task_id]["engine"] == "gallerydl"
 
 
+def test_worker_auto_policy_uses_gallerydl_when_preflight_finds_images(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    image = tmp_path / "Creator - Image [abc123]_1.jpg"
+    image.write_bytes(b"image")
+    source_url = "https://www.example.test/post/abc123"
+    task_id = "ytdlp:auto-gallery"
+    store = {
+        "tasks": {
+            task_id: {
+                "engine": "ytdlp",
+                "engine_policy": "auto",
+                "source_url": source_url,
+                "source_key": "example",
+                "status": "pending",
+                "output_dir": str(tmp_path),
+                "output_template": str(tmp_path / "queued-ytdlp.%(ext)s"),
+                "resolved_folder": str(tmp_path),
+                "template_settings": {
+                    "folder_template": "",
+                    "filename_template": "{{username}} - {{title}} [{{id}}]",
+                },
+            }
+        }
+    }
+    saved: dict[str, dict] = {}
+    commands: list[list[str]] = []
+
+    class FakeProcess:
+        def __init__(self, lines: list[str], rc: int):
+            self.stdout = iter(lines)
+            self._rc = rc
+
+        def wait(self):
+            return self._rc
+
+        def poll(self):
+            return self._rc
+
+        def kill(self):
+            return None
+
+    def fake_popen(cmd, *args, **kwargs):
+        commands.append(cmd)
+        return FakeProcess([f"{image}\n"], 0)
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    monkeypatch.setattr(worker_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
+    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(
+        gallerydl_module,
+        "probe_gallerydl_media",
+        lambda *args, **kwargs: {"count": 1, "kinds": ["image"]},
+    )
+    monkeypatch.setattr(gallerydl_module, "count_gallerydl_items", lambda *args, **kwargs: 1)
+    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+
+    worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+
+    completed = store["tasks"][task_id]
+    assert [cmd[0] for cmd in commands] == ["gallery-dl"]
+    assert commands[0][commands[0].index("--filename") + 1].endswith(".{extension}")
+    assert "queued-ytdlp.%(ext)s" not in commands[0]
+    assert completed["status"] == "completed"
+    assert completed["engine"] == "gallerydl"
+    assert saved[task_id]["engine"] == "gallerydl"
+
+
 def test_worker_merges_fallback_assets_without_duplicate_videos(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1382,7 +1541,7 @@ def test_task_to_api_cleans_existing_raw_gallerydl_display_filename(tmp_path: Pa
     assert api_task["resolved_filename"] == "fzyahoo.com - [7420705673542978833].jpg"
 
 
-def test_task_to_api_prefers_tiktok_url_creator_over_stored_display_name(tmp_path: Path):
+def test_task_to_api_keeps_stored_creator_over_url_creator(tmp_path: Path):
     media_file = tmp_path / "fzyahoo.com - Clip [7420705673542978833].mp4"
     media_file.write_bytes(b"video")
 
@@ -1398,10 +1557,10 @@ def test_task_to_api_prefers_tiktok_url_creator_over_stored_display_name(tmp_pat
         },
     )
 
-    assert api_task["creator"] == "fzyahoo.com"
+    assert api_task["creator"] == "Some Display Name"
 
 
-def test_worker_prefers_tiktok_url_creator_over_ytdlp_sidecar(tmp_path: Path):
+def test_worker_resolved_task_creator_uses_engine_sidecar_not_url_creator(tmp_path: Path):
     sidecar = tmp_path / "creator.txt"
     sidecar.write_text("Some Display Name\n", encoding="utf-8")
 
@@ -1416,7 +1575,7 @@ def test_worker_prefers_tiktok_url_creator_over_ytdlp_sidecar(tmp_path: Path):
         "fzyahoo.com - Clip [7420705673542978833].mp4",
     )
 
-    assert creator == "fzyahoo.com"
+    assert creator == "Some Display Name"
 
 
 @pytest.fixture(autouse=True)
@@ -1537,21 +1696,53 @@ def test_learn_download_derives_url_template():
     assert _learned_youtube_twitter()["youtube"]["templates"][0] == "https://www.youtube.com/watch?v={id}"
 
 
-def test_learn_download_marks_creator_segment():
+def test_learn_download_generalizes_repeated_format_handle_to_var():
     learned = learn_download({}, "https://twitter.com/DohaVT/status/2073635724684054528", "2073635724684054528")
     learned = learn_download(learned, "https://twitter.com/Other/status/1111111111111111111", "1111111111111111111")
+    assert learned["twitter"]["templates"][0] == "https://twitter.com/{var}/status/{id}"
+
+
+def test_learn_download_marks_metadata_proven_creator_segment():
+    learned = learn_download(
+        {},
+        "https://twitter.com/DohaVT/status/2073635724684054528",
+        "2073635724684054528",
+        {"uploader": "DohaVT"},
+    )
+
     assert learned["twitter"]["templates"][0] == "https://twitter.com/{creator}/status/{id}"
 
 
-def test_learn_download_trims_seo_query_and_keeps_creator_token():
+def test_learn_download_marks_exact_username_or_nickname_segment():
+    username = learn_download(
+        {},
+        "https://www.facebook.com/IvanaAlawi/posts/pfbid02QfbMYiPzVyCsQNawcfTYAc3C5vjA54whJwt4kfBSRxNuVZX7QV6e5rS2m7qokJy1l",
+        "pfbid02QfbMYiPzVyCsQNawcfTYAc3C5vjA54whJwt4kfBSRxNuVZX7QV6e5rS2m7qokJy1l",
+        {"uploader_id": "IvanaAlawi"},
+    )
+    nickname = learn_download(
+        {},
+        "https://www.facebook.com/IvanaAlawi/posts/pfbid02QfbMYiPzVyCsQNawcfTYAc3C5vjA54whJwt4kfBSRxNuVZX7QV6e5rS2m7qokJy1l",
+        "pfbid02QfbMYiPzVyCsQNawcfTYAc3C5vjA54whJwt4kfBSRxNuVZX7QV6e5rS2m7qokJy1l",
+        {"display_name": "IvanaAlawi"},
+    )
+
+    assert username["facebook"]["templates"][0] == "https://www.facebook.com/{username}/posts/{id}"
+    assert nickname["facebook"]["templates"][0] == "https://www.facebook.com/{nickname}/posts/{id}"
+
+
+def test_learn_download_trims_seo_query_and_keeps_handle_literal_without_metadata():
     learned = learn_download(
         {},
         "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489?lang=en&q=fzyahoo&t=1781279478413",
         "7493558766131039489",
     )
 
-    assert learned["tiktok"]["templates"][0] == "https://www.tiktok.com/@{creator}/video/{id}"
-    assert reconstruct_url(learned, "tiktok", "7493558766131039489") == ""
+    assert learned["tiktok"]["templates"][0] == "https://www.tiktok.com/@fzyahoo.com/video/{id}"
+    assert (
+        reconstruct_url(learned, "tiktok", "7493558766131039489")
+        == "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489"
+    )
 
 
 def test_learn_download_keeps_multiple_templates_per_source():
@@ -1566,14 +1757,14 @@ def test_learn_download_keeps_multiple_templates_per_source():
         "7420705673542978833",
     )
 
-    assert learned["tiktok"]["templates"][0] == "https://www.tiktok.com/@{creator}/video/{id}"
+    assert learned["tiktok"]["templates"][0] == "https://www.tiktok.com/@fzyahoo.com/video/{id}"
     assert set(learned["tiktok"]["templates"]) == {
-        "https://www.tiktok.com/@{creator}/video/{id}",
-        "https://www.tiktok.com/@{creator}/photo/{id}",
+        "https://www.tiktok.com/@fzyahoo.com/video/{id}",
+        "https://www.tiktok.com/@fzyahoo.com/photo/{id}",
     }
 
 
-def test_learn_download_stores_url_creator_username_field():
+def test_learn_download_does_not_store_url_creator_field_priority():
     learned = learn_download(
         {},
         "https://www.tiktok.com/@moli0n/video/7645876413593128210",
@@ -1581,10 +1772,10 @@ def test_learn_download_stores_url_creator_username_field():
         {"uploader": "moli0n", "channel": "Moli Display"},
     )
 
-    assert learned["tiktok"]["url_creator_fields"]["username"][0] == "uploader"
+    assert learned["tiktok"].get("url_creator_fields", {}) == {}
 
 
-def test_describe_learned_segments_displays_url_creator_role():
+def test_describe_learned_segments_keeps_shared_url_creator_generic():
     learned = learn_download(
         {},
         "https://www.tiktok.com/@moli0n/video/7645876413593128210",
@@ -1595,11 +1786,23 @@ def test_describe_learned_segments_displays_url_creator_role():
     described = describe_learned_segments(learned["tiktok"])
 
     assert learned["tiktok"]["templates"][0] == "https://www.tiktok.com/@{creator}/video/{id}"
-    assert described["templates"][0] == "https://www.tiktok.com/@{username}/video/{id}"
-    assert described["segments"][0]["label"] == "{username}"
+    assert described["templates"][0] == "https://www.tiktok.com/@{creator}/video/{id}"
+    assert described["segments"][0]["label"] == "{creator}"
 
 
-def test_learn_download_url_creator_role_tie_prefers_username():
+def test_describe_learned_segments_keeps_legacy_url_creator_fields_generic():
+    described = describe_learned_segments(
+        {
+            "templates": ["https://www.tiktok.com/@{creator}/photo/{id}"],
+            "url_creator_fields": {"username": ["author[uniqueId]"]},
+        }
+    )
+
+    assert described["templates"][0] == "https://www.tiktok.com/@{creator}/photo/{id}"
+    assert described["segments"][0]["label"] == "{creator}"
+
+
+def test_learn_download_url_creator_role_does_not_create_field_priority():
     learned = learn_download(
         {},
         "https://www.tiktok.com/@moli0n/video/7645876413593128210",
@@ -1607,7 +1810,7 @@ def test_learn_download_url_creator_role_tie_prefers_username():
         {"uploader": "moli0n"},
     )
 
-    assert learned["tiktok"]["url_creator_fields"] == {"username": ["uploader"]}
+    assert learned["tiktok"].get("url_creator_fields", {}) == {}
 
 
 def test_reconstruct_url_candidates_returns_every_learned_route():
@@ -1628,6 +1831,25 @@ def test_reconstruct_url_candidates_returns_every_learned_route():
         "https://www.tiktok.com/@fzyahoo.com/video/7420705673542978833",
         "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833",
     }
+
+
+def test_worker_reprobes_creator_fields_only_when_format_is_new(monkeypatch):
+    calls: list[tuple[str, str]] = []
+    url = "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833"
+
+    monkeypatch.setattr(worker_module, "persist_source_format", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        worker_module,
+        "learn_missing_creator_fields_for_format",
+        lambda source_url, source_key: calls.append((source_url, source_key)),
+    )
+
+    worker_module._learn_source_format(url, "fzyahoo.com - [7420705673542978833].jpg", source_key="tiktok")
+
+    monkeypatch.setattr(worker_module, "persist_source_format", lambda *args, **kwargs: False)
+    worker_module._learn_source_format(url, "fzyahoo.com - [7420705673542978833].jpg", source_key="tiktok")
+
+    assert calls == [(url, "tiktok")]
 
 
 def test_learn_download_keeps_descriptive_segment_literal_for_single_sample():
@@ -1663,14 +1885,17 @@ def test_reconstruct_url_replaces_literal_segment_with_configured_slug_value():
     )
 
 
-def test_reconstruct_url_candidates_needs_creator_and_id():
-    learned = learn_download(
-        {},
-        "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
-        "7493558766131039489",
-    )
+def test_reconstruct_url_candidates_needs_slug_value_for_generalized_var():
+    learned = learn_download({}, "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489", "7493558766131039489")
+    learned = learn_download(learned, "https://www.tiktok.com/@other/video/7420705673542978833", "7420705673542978833")
     assert reconstruct_url_candidates(learned, "tiktok", "123") == []
     assert reconstruct_url_candidates(learned, "tiktok", "") == []
+    assert reconstruct_url_candidates(
+        learned,
+        "tiktok",
+        "123",
+        slug_values={"path:0": "fzyahoo.com"},
+    ) == ["https://www.tiktok.com/@fzyahoo.com/video/123"]
 
 
 def test_creator_from_url_uses_handle_segment_without_at_sign():
@@ -1680,6 +1905,7 @@ def test_creator_from_url_uses_handle_segment_without_at_sign():
         == "@fzyahoo.com"
     )
     assert creator_from_url("https://x.com/ININIinNINI/status/2073390288501166083") == "ININIinNINI"
+    assert creator_from_url("https://www.facebook.com/share/p/1cvLxqzgHA/") == ""
 
 
 def test_extract_url_part_reads_configured_path_segment():
@@ -1761,8 +1987,18 @@ def test_reconstruct_after_merge_needs_slug_value():
 def test_learn_download_keeps_distinct_route_words_unmerged():
     # Differing route words (video vs photo) are different routes, not a slug, so both
     # templates survive for reconstruction instead of collapsing to {var}.
-    learned = learn_download({}, "https://www.tiktok.com/@a/video/7493558766131039489", "7493558766131039489")
-    learned = learn_download(learned, "https://www.tiktok.com/@a/photo/7420705673542978833", "7420705673542978833")
+    learned = learn_download(
+        {},
+        "https://www.tiktok.com/@a/video/7493558766131039489",
+        "7493558766131039489",
+        {"uploader": "a"},
+    )
+    learned = learn_download(
+        learned,
+        "https://www.tiktok.com/@a/photo/7420705673542978833",
+        "7420705673542978833",
+        {"uploader": "a"},
+    )
     assert set(learned["tiktok"]["templates"]) == {
         "https://www.tiktok.com/@{creator}/video/{id}",
         "https://www.tiktok.com/@{creator}/photo/{id}",

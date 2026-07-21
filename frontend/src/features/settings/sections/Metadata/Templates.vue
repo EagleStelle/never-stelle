@@ -18,12 +18,16 @@ import { Button } from "../../../../components/ui/button";
 import SettingsLabel from "../../SettingsLabel.vue";
 import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
 import { useSettingsContext } from "../../context";
-import { createTemplateSettings, normalizeTokenName } from "../../../../utils/dashboard";
+import { createTemplateSettings, displayUrlTemplate, normalizeTokenName } from "../../../../utils/dashboard";
 
-const { settings, settingsDraft, editableSourceProfiles } = useSettingsContext();
+const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles } = useSettingsContext();
 
 function formatsFor(key: string): string[] {
-  return settings.learned_formats?.[key]?.templates || [];
+  return (
+    learnedFormatsDraft?.[key]?.templates ||
+    settings.learned_formats?.[key]?.templates ||
+    []
+  );
 }
 
 // Track the last focused input element ID so token clicks insert into it
@@ -152,7 +156,7 @@ function insert(siteKey: string, format: string, token: string): void {
           >
             <CardHeader>
               <CardTitle class="font-mono text-sm leading-snug wrap-anywhere">
-                {{ template }}
+                {{ displayUrlTemplate(template) }}
               </CardTitle>
             </CardHeader>
             <CardContent class="flex flex-col gap-3">

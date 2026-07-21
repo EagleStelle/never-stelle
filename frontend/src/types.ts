@@ -78,7 +78,7 @@ export type SourceSlugTokens = Record<string, SlugToken[]>;
 // Read-only learned URL shape surfaced for the Slug pane. Segments with reserved:true
 // are auto tokens (id/creator) shown but not user-nameable.
 export type LearnedSegmentKind =
-  "id" | "creator" | "var" | "literal" | "query";
+  "id" | "creator" | "username" | "nickname" | "var" | "literal" | "query";
 export interface LearnedSegment {
   part: string;
   label: string;
@@ -129,6 +129,7 @@ export interface LearnFormatResult {
   created: boolean;
   learned: boolean;
   media_id: string;
+  format_template?: string;
 }
 
 export interface ScrapeTestResult {

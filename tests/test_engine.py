@@ -389,7 +389,8 @@ def test_convert_template_to_gallerydl_maps_fields_and_resolves_creator():
         "{{username}} - {{title}} [{{id}}]",
         "https://twitter.com/DohaVT/status/2073635724684054528",
     )
-    assert result.startswith("DohaVT - ")
+    gallery_username = '{username|author[uniqueId]|user[name]|user[username]|user[uniqueId]|account|author|"unknown"}'
+    assert result.startswith(f"{gallery_username} - ")
     assert '{title|content|"untitled"}' in result
     assert '{id|num|"NA"}' in result
 
@@ -397,7 +398,7 @@ def test_convert_template_to_gallerydl_maps_fields_and_resolves_creator():
 def test_convert_template_to_gallerydl_falls_back_to_metadata_creator():
     # No creator segment in the URL -> emit a gallery-dl field with fallbacks.
     result = gallerydl.convert_template_to_gallerydl("{{username}}", "https://imgur.com/abc")
-    assert result == '{username|user[name]|user[username]|account|author|"unknown"}'
+    assert result == '{username|author[uniqueId]|user[name]|user[username]|user[uniqueId]|account|author|"unknown"}'
 
 
 def test_engine_progress_style_flags():
@@ -435,11 +436,12 @@ def test_engines_build_output_templates_from_same_settings_snapshot():
     ytdlp_template = engine_by_name("ytdlp").build_output_template(url, "/media/twitter", settings)
     gallery_template = engine_by_name("gallerydl").build_output_template(url, "/media/twitter", settings)
     gallery_folder, _, gallery_filename = gallery_template.partition(gallerydl._TEMPLATE_SEP)
+    gallery_username = '{username|author[uniqueId]|user[name]|user[username]|user[uniqueId]|account|author|"unknown"}'
 
-    assert "DohaVT" in ytdlp_template
+    assert "%(uploader_id,playlist_uploader_id,uploader,channel,creator,channel_id|Unknown)s" in ytdlp_template
     assert "%(id|NA)s" in ytdlp_template
-    assert gallery_folder == 'DohaVT/{id|num|"NA"}'
-    assert gallery_filename.startswith('DohaVT - {title|content|"untitled"} [{id|num|"NA"}]')
+    assert gallery_folder == f'{gallery_username}/{{id|num|"NA"}}'
+    assert gallery_filename.startswith(f'{gallery_username} - {{title|content|"untitled"}} [{{id|num|"NA"}}]')
 
 
 def test_build_gallerydl_command_layout():
@@ -664,6 +666,25 @@ def test_count_gallerydl_items_disables_tiktok_audio(monkeypatch):
 
     assert gallerydl.count_gallerydl_items("https://www.tiktok.com/@x/photo/1") == 2
     assert _has_cli_pair(captured["cmd"], "-o", "extractor.tiktok.audio=false")
+
+
+def test_probe_gallerydl_media_classifies_download_urls(monkeypatch):
+    class Result:
+        returncode = 0
+        stdout = "\n".join(
+            [
+                "https://cdn.example.test/1.jpg?token=x",
+                "https://cdn.example.test/2.mp4",
+                "https://cdn.example.test/readme.txt",
+            ]
+        )
+
+    monkeypatch.setattr(gallerydl.subprocess, "run", lambda *args, **kwargs: Result())
+
+    assert gallerydl.probe_gallerydl_media("https://example.test/post/1") == {
+        "count": 3,
+        "kinds": ["image", "video"],
+    }
 
 
 def test_ytdlp_command_enables_youtube_js_solver():

@@ -2,6 +2,7 @@ import { type ComputedRef } from "vue";
 
 import type {
   LearnedFormat,
+  LearnedFormats,
   LearnedSegment,
   RuntimeSettings,
   SavedSettings,
@@ -17,12 +18,13 @@ import { useTokenRoles } from "./useTokenRoles";
 export function useSlugTokens(
   settingsDraft: SavedSettings,
   settings: RuntimeSettings,
+  learnedFormatsDraft: LearnedFormats,
   _editableSourceProfiles: ComputedRef<SourceProfile[]>,
 ) {
   const { tokenRole, isTitleRoleDisabled, setTokenRole } = useTokenRoles(settingsDraft);
 
   function learnedFormat(key: string): LearnedFormat | undefined {
-    return settings.learned_formats?.[key];
+    return learnedFormatsDraft?.[key] || settings.learned_formats?.[key];
   }
 
   function slugList(key: string): SlugToken[] {
@@ -86,7 +88,12 @@ export function useSlugTokens(
       const idx = varOrdinal(key, segment.part);
       return idx >= 0 ? `var${idx}` : "slug";
     }
-    if (segment.kind === "id" || segment.kind === "creator") {
+    if (
+      segment.kind === "id" ||
+      segment.kind === "creator" ||
+      segment.kind === "username" ||
+      segment.kind === "nickname"
+    ) {
       return segment.label.replace(/[{}]/g, "");
     }
     return "";
@@ -99,12 +106,47 @@ export function useSlugTokens(
     return name ? tokenLabel(name) : segment.label;
   }
 
+  function singleBraceToken(value: string): string {
+    const match = /^\{([a-zA-Z_][a-zA-Z0-9_]*)\}$/.exec(value.trim());
+    return match?.[1] || "";
+  }
+
+  function decodeSegment(value: string): string {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  }
+
+  function displayTokenForPart(
+    key: string,
+    rawValue: string,
+    segment?: LearnedSegment,
+  ): string {
+    const decoded = decodeSegment(rawValue);
+    const prefixed = decoded.startsWith("@");
+    const token = singleBraceToken(prefixed ? decoded.slice(1) : decoded);
+    if (token) {
+      const name =
+        token === "var" && segment
+          ? tokenNameFor(key, segment)
+          : token;
+      const label = tokenLabel(name);
+      return prefixed ? `@${label}` : label;
+    }
+    if (!segment || segment.reserved || segment.label !== decoded) {
+      return rawValue;
+    }
+    const name = tokenNameFor(key, segment);
+    return name ? tokenLabel(name) : rawValue;
+  }
+
   // Rewrite a learned template so every token position shows its live {{token}}; a
-  // constant route word stays verbatim, and a creator's @ handle marker is preserved.
+  // constant route word stays verbatim, and an @ handle marker is preserved.
   function displayTemplate(key: string, template: string): string {
-    const byPart = new Map(
-      (learnedFormat(key)?.segments || []).map((segment) => [segment.part, segment]),
-    );
+    const segments = learnedFormat(key)?.segments || [];
+    const byPart = new Map(segments.map((segment) => [segment.part, segment]));
     const match = template.match(/^([a-z][\w+.-]*:\/\/[^/?#]+)([^?#]*)(.*)$/i);
     if (!match) return template;
     const [, origin, path, rest] = match;
@@ -115,14 +157,26 @@ export function useSlugTokens(
         if (!raw) return raw;
         index += 1;
         const segment = byPart.get(`path:${index}`);
-        if (!segment) return raw;
-        const name = tokenNameFor(key, segment);
-        if (!name) return raw;
-        const label = tokenLabel(name);
-        return raw.startsWith("@") ? `@${label}` : label;
+        return displayTokenForPart(key, raw, segment);
       })
       .join("/");
-    return `${origin}${rebuilt}${rest}`;
+    const [rawQuery, hash = ""] = rest.split("#", 2);
+    if (!rawQuery.startsWith("?")) {
+      return `${origin}${rebuilt}${rest}`;
+    }
+    const query = new URLSearchParams(rawQuery.slice(1));
+    const pairs: string[] = [];
+    for (const [queryKey, value] of query.entries()) {
+      const segment = byPart.get(`query:${queryKey}`);
+      pairs.push(
+        `${encodeURIComponent(queryKey)}=${displayTokenForPart(
+          key,
+          value,
+          segment,
+        )}`,
+      );
+    }
+    return `${origin}${rebuilt}${pairs.length ? `?${pairs.join("&")}` : ""}${hash ? `#${hash}` : ""}`;
   }
 
   function setSelected(key: string, segment: LearnedSegment, selected: boolean): void {

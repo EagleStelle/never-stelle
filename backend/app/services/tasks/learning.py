@@ -7,11 +7,10 @@ from backend.app.services.settings import (
     get_source_profile_for_url,
     load_saved_settings_file,
     normalize_source_creator_fields,
-    promote_creator_field_roles,
     save_saved_settings_file,
 )
 
-from .formats import learn_download, learn_media_id, learn_url_creator_fields
+from .formats import learn_download, learn_media_id
 from .store import load_learned_formats, save_learned_formats
 
 
@@ -64,14 +63,19 @@ def _merge_creator_fields(
     return merged
 
 
-def _learned_url_creator_fields_for_key(source_key: str) -> dict[str, list[str]]:
-    key = normalize_source_key(source_key)
-    if not key:
-        return {}
-    entry = (load_learned_formats() or {}).get(key)
-    if not isinstance(entry, dict):
-        return {}
-    return _normalized_creator_fields_for_key(key, entry.get("url_creator_fields"))
+def _append_missing_creator_fields(
+    existing: dict[str, list[str]],
+    learned: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    merged: dict[str, list[str]] = {}
+    for role in ("username", "nickname"):
+        fields = list(existing.get(role) or [])
+        for field in learned.get(role, []):
+            if field and field not in fields:
+                fields.append(field)
+        if fields:
+            merged[role] = fields
+    return merged
 
 
 def save_learned_url_creator_fields(
@@ -79,18 +83,41 @@ def save_learned_url_creator_fields(
     source_key: str = "",
     url_creator_fields: Any = None,
 ) -> dict[str, list[str]]:
+    # URL creator segments are URL-format data, not filename creator-field priority.
+    return {}
+
+
+def save_missing_learned_creator_fields(
+    source_url: str = "",
+    source_key: str = "",
+    creator_fields: Any = None,
+    *,
+    url_creator_fields: Any = None,
+) -> dict[str, list[str]]:
+    """Persist only probed creator fields missing from a source's saved order.
+
+    Automatic format learning uses this path so a new URL shape can add extractor
+    fields it needs without reordering fields the user already has configured.
+    """
     payload = load_saved_settings_file()
     key = _resolved_creator_source_key(source_url, source_key, payload)
     if not key:
         return {}
-    fields = _normalized_creator_fields_for_key(key, url_creator_fields)
-    if not fields:
+
+    learned = _normalized_creator_fields_for_key(key, creator_fields)
+    if not learned:
         return {}
-    learned = load_learned_formats()
-    updated = learn_url_creator_fields(learned, key, fields)
-    if updated != learned:
-        save_learned_formats(updated)
-    return fields
+
+    mapping = normalize_source_creator_fields(payload.get("source_creator_fields"))
+    existing = mapping.get(key, {})
+    updated = _append_missing_creator_fields(existing, learned) if existing else learned
+    if existing == updated:
+        return existing
+
+    mapping[key] = updated
+    payload["source_creator_fields"] = mapping
+    save_saved_settings_file(payload)
+    return updated
 
 
 def save_learned_creator_fields(
@@ -116,18 +143,12 @@ def save_learned_creator_fields(
     learned = _normalized_creator_fields_for_key(key, creator_fields)
     if not learned:
         return {}
-    url_priority = (
-        _normalized_creator_fields_for_key(key, url_creator_fields)
-        or _learned_url_creator_fields_for_key(key)
-    )
-
     mapping = normalize_source_creator_fields(payload.get("source_creator_fields"))
     existing = mapping.get(key, {})
     if existing and only_when_missing:
-        return promote_creator_field_roles(existing, url_priority)
+        return existing
 
     updated = _merge_creator_fields(existing, learned) if merge else learned
-    updated = promote_creator_field_roles(updated, url_priority)
     if existing == updated:
         return existing
 
@@ -135,6 +156,26 @@ def save_learned_creator_fields(
     payload["source_creator_fields"] = mapping
     save_saved_settings_file(payload)
     return updated
+
+
+def learn_missing_creator_fields_for_format(source_url: str, source_key: str = "") -> dict[str, list[str]]:
+    """Probe a newly learned URL format and append any missing creator fields."""
+    if not str(source_url or "").strip():
+        return {}
+    try:
+        from .probe import probe_creator_fields
+
+        result = probe_creator_fields(source_url, source_key)
+    except Exception:
+        return {}
+
+    key = str(result.get("source_key") or source_key)
+    return save_missing_learned_creator_fields(
+        source_url,
+        key,
+        result.get("creator_fields"),
+        url_creator_fields=result.get("url_creator_fields"),
+    )
 
 
 def ensure_creator_fields_learned(source_url: str, source_key: str = "") -> dict[str, list[str]]:

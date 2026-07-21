@@ -146,10 +146,36 @@ interface PendingFormatLearn {
 
 const ID_TOKEN = "{id}";
 const CREATOR_TOKEN = "{creator}";
+const USERNAME_TOKEN = "{username}";
+const NICKNAME_TOKEN = "{nickname}";
 const VAR_TOKEN = "{var}";
 const COMMON_SECOND_LEVEL_TLDS = new Set(["ac", "co", "com", "edu", "gov", "net", "org"]);
-const ROUTE_SEGMENT_RE = /^[a-z][a-z-]{0,24}s?$/;
-const IDENTIFIER_KEY_RE = /(^|[_-])(id|key|video|media|post|clip|item|view|watch|v)([_-]|$)/;
+const STATIC_ROUTE_SEGMENTS = new Set([
+  "album",
+  "albums",
+  "clip",
+  "clips",
+  "media",
+  "p",
+  "photo",
+  "photos",
+  "post",
+  "posts",
+  "reel",
+  "reels",
+  "share",
+  "short",
+  "shorts",
+  "status",
+  "story",
+  "stories",
+  "v",
+  "video",
+  "videos",
+  "view",
+  "watch",
+]);
+const ROLE_TOKENS = new Set([CREATOR_TOKEN, USERNAME_TOKEN, NICKNAME_TOKEN]);
 
 function safeDecode(value: string): string {
   try {
@@ -208,109 +234,20 @@ function sourceProfileFromUrlDraft(url: string, profiles: SourceProfile[]): Sour
   });
 }
 
-function pathSegments(path: string): string[] {
-  return String(path || "")
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => safeDecode(segment).trim())
-    .filter(Boolean);
+function isStaticRouteSegment(value: string): boolean {
+  return STATIC_ROUTE_SEGMENTS.has(safeDecode(String(value || "")).trim().toLowerCase());
 }
 
-function idClasses(value: string): Set<string> {
-  const classes = new Set<string>();
-  for (const ch of value) {
-    if (/\d/.test(ch)) classes.add("d");
-    else if (/[a-z]/.test(ch)) classes.add("l");
-    else if (/[A-Z]/.test(ch)) classes.add("u");
-    else if (ch === "-" || ch === "_") classes.add(ch);
-    else classes.add("o");
-  }
-  return classes;
+function withoutAt(value: string): string {
+  return String(value || "").replace(/^@/, "");
 }
 
-function looksLikeSlug(value: string): boolean {
-  const text = safeDecode(String(value || "")).trim();
-  return text.length >= 3 && /[a-z]/i.test(text) && /[-_ ]/.test(text);
+function isRoleToken(value: string): boolean {
+  return ROLE_TOKENS.has(withoutAt(value));
 }
 
-function isRouteSegment(value: string): boolean {
-  return ROUTE_SEGMENT_RE.test(safeDecode(String(value || "")).trim());
-}
-
-function isIdentifierKey(key: string): boolean {
-  const value = String(key || "").trim().toLowerCase();
-  return value === "v" || IDENTIFIER_KEY_RE.test(value);
-}
-
-function identifierScore(value: string, key = "", pathContext = false): number {
-  const token = safeDecode(String(value || "")).trim();
-  if (!token || token.length > 256 || /\s/.test(token)) return 0;
-  const classes = idClasses(token);
-  let score = 0;
-  if (isIdentifierKey(key)) score += 3;
-  if (/\d/.test(token)) score += 1;
-  if (token.length >= 5) score += 1;
-  if (token.length >= 10) score += 1;
-  if (token.length >= 16) score += 1;
-  if ((classes.has("l") || classes.has("u")) && /\d/.test(token)) score += 1;
-  if (classes.has("-") || classes.has("_")) score += 1;
-  if (/^\d+$/.test(token) && !isIdentifierKey(key)) score += token.length >= 6 ? 1 : -1;
-  const parts = token.split(/[-_]/).filter(Boolean);
-  const wordRuns = token.toLowerCase().match(/[a-z]{2,}/g) || [];
-  if (parts.length >= 2 && wordRuns.length >= 2 && !isIdentifierKey(key)) score -= 4;
-  if (isRouteSegment(token) && !isIdentifierKey(key)) score -= 2;
-  if (pathContext && token.startsWith("@")) score -= 2;
-  return Math.max(0, score);
-}
-
-function inferPathIdIndex(segments: string[]): number | null {
-  const anchors: Array<[number, number, number]> = [];
-  for (let index = 0; index < segments.length; index += 1) {
-    const token = segments[index];
-    if (!/^\d+$/.test(token) || token.length < 3) continue;
-    const before = segments[index - 1] || "";
-    const after = segments[index + 1] || "";
-    if (!looksLikeSlug(before) && !looksLikeSlug(after)) continue;
-    const routeContext = Number(isRouteSegment(before) || isRouteSegment(after));
-    if (routeContext || token.length >= 6) anchors.push([routeContext, token.length, -index]);
-  }
-  if (anchors.length) {
-    anchors.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
-    return -anchors[anchors.length - 1][2];
-  }
-
-  const scored = segments
-    .map((segment, index) => [identifierScore(segment, "", true), index] as const)
-    .filter(([score]) => score >= 3)
-    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  if (scored.length) return scored[scored.length - 1][1];
-  if (segments.length >= 2 && isRouteSegment(segments[segments.length - 2])) {
-    return segments.length - 1;
-  }
-  return null;
-}
-
-function inferQueryIdKey(params: URLSearchParams): string {
-  let best: [number, string] = [0, ""];
-  for (const [key, value] of params.entries()) {
-    const score = identifierScore(value, key);
-    if (score > best[0]) best = [score, key];
-  }
-  return best[0] >= 3 ? best[1] : "";
-}
-
-function queryPairs(params: URLSearchParams, onlyImportant: boolean): Array<[string, string]> {
-  const scored = [...params.entries()].map(([key, value]) => ({
-    key,
-    value,
-    score: identifierScore(value, key),
-  }));
-  const important = scored.filter((item) => item.score >= 3);
-  return (onlyImportant && important.length ? important : scored).map((item) => [item.key, item.value]);
-}
-
-function encodeQueryValue(value: string): string {
-  return encodeURIComponent(value).replace(/%7B/g, "{").replace(/%7D/g, "}");
+function isVarToken(value: string): boolean {
+  return withoutAt(value) === VAR_TOKEN;
 }
 
 function canonicalDraftUrl(sourceUrl: string): URL | null {
@@ -327,41 +264,6 @@ function canonicalDraftUrl(sourceUrl: string): URL | null {
   }
 }
 
-function creatorIndexForPathId(segments: string[], idIndex: number | null): number | null {
-  if (idIndex === null) return null;
-  let candidate = idIndex - 1;
-  if (candidate < 0) return null;
-  if (isRouteSegment(segments[candidate])) candidate -= 1;
-  return candidate >= 0 && segments[candidate] ? candidate : null;
-}
-
-function draftTemplateFromUrl(sourceUrl: string): string {
-  const parsed = canonicalDraftUrl(sourceUrl);
-  if (!parsed) return "";
-  const decodedSegments = pathSegments(parsed.pathname);
-  const pathIdIndex = inferPathIdIndex(decodedSegments);
-  const queryIdKey = pathIdIndex === null ? inferQueryIdKey(parsed.searchParams) : "";
-  if (pathIdIndex === null && !queryIdKey) return "";
-
-  const rawSegments = parsed.pathname.split("/").filter(Boolean);
-  const creatorIndex = creatorIndexForPathId(decodedSegments, pathIdIndex);
-  if (pathIdIndex !== null && rawSegments[pathIdIndex]) rawSegments[pathIdIndex] = ID_TOKEN;
-  if (creatorIndex !== null && rawSegments[creatorIndex] && decodedSegments[creatorIndex]) {
-    rawSegments[creatorIndex] = decodedSegments[creatorIndex].startsWith("@")
-      ? `@${CREATOR_TOKEN}`
-      : CREATOR_TOKEN;
-  }
-
-  const path = rawSegments.length ? `/${rawSegments.join("/")}` : "";
-  const pairs = pathIdIndex === null ? queryPairs(parsed.searchParams, true) : [];
-  const query = pairs
-    .map(([key, value]) =>
-      `${encodeURIComponent(key)}=${queryIdKey === key ? ID_TOKEN : encodeQueryValue(value)}`,
-    )
-    .join("&");
-  return `${parsed.protocol}//${parsed.host}${path}${query ? `?${query}` : ""}`;
-}
-
 function describeDraftTemplates(templates: string[]): LearnedFormats[string] {
   const seen = new Map<string, LearnedFormats[string]["segments"][number]>();
   const segments: LearnedFormats[string]["segments"] = [];
@@ -375,16 +277,17 @@ function describeDraftTemplates(templates: string[]): LearnedFormats[string] {
       const part = `path:${index}`;
       let item: LearnedFormats[string]["segments"][number];
       if (decoded === ID_TOKEN) item = { part, label: ID_TOKEN, kind: "id", reserved: true };
-      else if (decoded === CREATOR_TOKEN || decoded === `@${CREATOR_TOKEN}`) {
-        item = { part, label: CREATOR_TOKEN, kind: "creator", reserved: true };
-      } else if (decoded === VAR_TOKEN) {
+      else if (isRoleToken(decoded)) {
+        const kind = withoutAt(decoded).replace(/[{}]/g, "") as "creator" | "username" | "nickname";
+        item = { part, label: `{${kind}}`, kind, reserved: true };
+      } else if (isVarToken(decoded)) {
         item = { part, label: VAR_TOKEN, kind: "var", reserved: false };
       } else {
         item = {
           part,
           label: decoded,
           kind: "literal",
-          reserved: !looksLikeSlug(segment),
+          reserved: isStaticRouteSegment(segment),
         };
       }
       if (!seen.has(part)) {
@@ -399,6 +302,15 @@ function describeDraftTemplates(templates: string[]): LearnedFormats[string] {
       const item: LearnedFormats[string]["segments"][number] =
         value === ID_TOKEN
           ? { part, label: `${key}=${ID_TOKEN}`, kind: "id", reserved: true }
+          : isRoleToken(value)
+            ? {
+                part,
+                label: `${key}=${withoutAt(value)}`,
+                kind: withoutAt(value).replace(/[{}]/g, "") as "creator" | "username" | "nickname",
+                reserved: true,
+              }
+            : isVarToken(value)
+              ? { part, label: `${key}=${VAR_TOKEN}`, kind: "var", reserved: false }
           : { part, label: `${key}=${value}`, kind: "query", reserved: false };
       if (!seen.has(part)) {
         seen.set(part, item);
@@ -407,6 +319,18 @@ function describeDraftTemplates(templates: string[]): LearnedFormats[string] {
     }
   }
   return { templates, segments };
+}
+
+function pendingTemplatesForKey(
+  pendingLearns: Record<string, PendingFormatLearn>,
+  sourceKey: string,
+): Set<string> {
+  const key = normalizeSourceKey(sourceKey);
+  return new Set(
+    Object.values(pendingLearns)
+      .filter((item) => normalizeSourceKey(item.sourceKey) === key)
+      .map((item) => item.template),
+  );
 }
 
 export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
@@ -1094,6 +1018,18 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     }
   }
 
+  function describeEditableTemplates(
+    sourceKey: string,
+    templates: string[],
+  ): LearnedFormats[string] {
+    const pending = pendingTemplatesForKey(pendingFormatLearns, sourceKey);
+    const learnedTemplates = templates.filter((template) => !pending.has(template));
+    return {
+      templates,
+      segments: describeDraftTemplates(learnedTemplates).segments,
+    };
+  }
+
   function removeDraftOnlySourceIfEmpty(sourceKey: string): void {
     const key = normalizeSourceKey(sourceKey);
     if (!key || learnedFormatsDraft[key]?.templates?.length) return;
@@ -1370,7 +1306,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     let latest: UiConfigResponse | null = null;
     let learnedLatest: UiConfigResponse | null = null;
     const desired = cloneJson(learnedFormatsDraft);
-    const creatorProbeTargets: Array<{ url: string; sourceKey: string }> = [];
 
     for (const pending of Object.values(pendingFormatLearns)) {
       const previousFormats = cloneJson(
@@ -1381,15 +1316,23 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       const serverEntry = learnedLatest.learned_formats?.[key];
       const previousTemplates = previousFormats[key]?.templates || [];
       const serverTemplates = serverEntry?.templates || [];
+      const matchedTemplate = String(
+        learnedLatest.learn_result?.format_template || "",
+      ).trim();
       const addedTemplates = serverTemplates.filter(
         (template) => !previousTemplates.includes(template),
       );
       const actualTemplates =
-        addedTemplates.length > 0
-          ? addedTemplates
-          : serverTemplates.includes(pending.template)
-            ? [pending.template]
-            : [];
+        matchedTemplate
+          ? [matchedTemplate]
+          : addedTemplates.length > 0
+            ? addedTemplates
+            : serverTemplates.includes(pending.template)
+              ? [pending.template]
+              : [];
+      if (!actualTemplates.length) {
+        throw new Error("Could not identify a format from that link.");
+      }
       if (key && actualTemplates.length) {
         if (key !== pending.sourceKey) {
           removeDesiredTemplate(desired, pending.sourceKey, pending.template);
@@ -1398,27 +1341,12 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
           replaceDesiredTemplate(desired, pending.sourceKey, pending.template, actualTemplates);
         }
       }
-      if (key) creatorProbeTargets.push({ url: pending.url, sourceKey: key });
     }
 
     if (learnedLatest) {
       replaceLearnedFormats(learnedFormatsDraft, desired);
       clearPendingFormatLearns();
       syncSavedServerConfig(learnedLatest);
-      for (const target of creatorProbeTargets) {
-        try {
-          const response = await probeCreatorFieldsMutation.mutateAsync({
-            url: target.url,
-            sourceKey: target.sourceKey,
-          });
-          if (response.saved && response.creator_fields) {
-            syncSavedCreatorFields(
-              response.source_key || target.sourceKey,
-              response.creator_fields,
-            );
-          }
-        } catch {}
-      }
     }
 
     for (const key of changedFormatKeys()) {
@@ -1571,9 +1499,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       settingsDraft.source_profiles,
     );
     const profile = sourceProfileFromUrlDraft(value, profiles);
-    const template = draftTemplateFromUrl(value);
-    if (!profile || !template) {
-      toast("Could not identify a format from that link.", "error");
+    const template = value;
+    if (!profile || !canonicalDraftUrl(value)) {
+      toast("Paste a valid link first.", "error");
       return "";
     }
 
@@ -1585,11 +1513,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       return key;
     }
     templates.push(template);
+    pendingFormatLearns[value] = { url: value, sourceKey: key, template };
     learnedFormatsDraft[key] = {
       ...cloneJson(entry),
-      ...describeDraftTemplates(templates),
+      ...describeEditableTemplates(key, templates),
     };
-    pendingFormatLearns[value] = { url: value, sourceKey: key, template };
     return key;
   }
 
@@ -1607,7 +1535,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     );
     learnedFormatsDraft[key] = {
       ...cloneJson(entry),
-      ...describeDraftTemplates(nextTemplates),
+      ...describeEditableTemplates(key, nextTemplates),
     };
     syncPendingLearnsForKey(key, nextTemplates);
     removeDraftOnlySourceIfEmpty(key);

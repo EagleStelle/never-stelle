@@ -21,7 +21,9 @@ from backend.app.services.settings import (
 from backend.app.services.tasks.learning import (
     ensure_creator_fields_learned,
     get_learned_creator_fields,
+    learn_missing_creator_fields_for_format,
     save_learned_creator_fields,
+    save_missing_learned_creator_fields,
 )
 
 
@@ -265,27 +267,17 @@ def test_get_effective_creator_fields_drops_unassigned_scraper_field(monkeypatch
     assert get_effective_creator_fields("https://rule34video.com/video/1/post") == {"username": ["uploader"]}
 
 
-def test_get_effective_creator_fields_uses_learned_url_creator_defaults(monkeypatch):
+def test_get_effective_creator_fields_ignores_learned_url_creator_defaults(monkeypatch):
     import backend.app.services.settings as settings_mod
-    import backend.app.services.tasks.store as store_mod
 
     monkeypatch.setattr(settings_mod, "load_saved_settings_file", lambda: {})
     monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
-    monkeypatch.setattr(
-        store_mod,
-        "load_learned_formats",
-        lambda: {"tiktok": {"url_creator_fields": {"username": ["uploader"]}}},
-    )
 
-    fields = get_effective_creator_fields("https://www.tiktok.com/@moli0n/video/1")
-
-    assert fields["username"][0] == "uploader"
-    assert "uploader_id" in fields["username"]
+    assert get_effective_creator_fields("https://www.tiktok.com/@moli0n/video/1") == {}
 
 
-def test_learned_url_creator_defaults_promote_saved_creator_fields(monkeypatch):
+def test_learned_url_creator_defaults_do_not_promote_saved_creator_fields(monkeypatch):
     import backend.app.services.settings as settings_mod
-    import backend.app.services.tasks.store as store_mod
 
     monkeypatch.setattr(
         settings_mod,
@@ -293,30 +285,40 @@ def test_learned_url_creator_defaults_promote_saved_creator_fields(monkeypatch):
         lambda: {"source_creator_fields": {"tiktok": {"username": ["uploader_id", "channel", "uploader"]}}},
     )
     monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
-    monkeypatch.setattr(
-        store_mod,
-        "load_learned_formats",
-        lambda: {"tiktok": {"url_creator_fields": {"username": ["uploader"]}}},
-    )
 
     assert get_effective_creator_fields("https://www.tiktok.com/@moli0n/video/1") == {
-        "username": ["uploader", "uploader_id", "channel"]
+        "username": ["uploader_id", "channel", "uploader"]
     }
 
 
-def test_source_creator_field_defaults_include_learned_first(monkeypatch):
-    import backend.app.services.tasks.store as store_mod
+def test_source_creator_field_defaults_ignore_learned_url_fields(monkeypatch):
+    assert get_source_creator_field_defaults([{"key": "tiktok"}]) == {}
 
+
+def test_add_source_and_learn_format_returns_matched_template(tmp_path, monkeypatch):
+    import backend.app.db.database as database_module
+    import backend.app.services.tasks.learning as learning_mod
+
+    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
     monkeypatch.setattr(
-        store_mod,
-        "load_learned_formats",
-        lambda: {"tiktok": {"url_creator_fields": {"username": ["uploader"]}}},
+        settings_module,
+        "load_app_config",
+        lambda: {
+            "sourceProfiles": [
+                {"key": "facebook", "label": "Facebook", "hosts": ["facebook.com"]}
+            ]
+        },
+    )
+    monkeypatch.setattr(learning_mod, "learn_missing_creator_fields_for_format", lambda *args, **kwargs: {})
+
+    result = settings_module.add_source_and_learn_format(
+        "https://www.facebook.com/reel/898199989283474"
     )
 
-    defaults = get_source_creator_field_defaults([{"key": "tiktok"}])
-
-    assert defaults["tiktok"]["username"][0] == "uploader"
-    assert "uploader_id" in defaults["tiktok"]["username"]
+    assert result["source_key"] == "facebook"
+    assert result["media_id"] == "898199989283474"
+    assert result["format_template"] == "https://www.facebook.com/reel/{id}"
 
 
 def test_clearing_last_format_clears_source_creator_fields(tmp_path, monkeypatch):
@@ -373,7 +375,7 @@ def test_save_learned_creator_fields_persists_only_real_probe_fields(monkeypatch
     assert saved[-1]["source_creator_fields"] == {"youtube": result}
 
 
-def test_save_learned_creator_fields_promotes_url_creator_hint(monkeypatch):
+def test_save_learned_creator_fields_ignores_url_creator_hint(monkeypatch):
     import backend.app.services.tasks.learning as learning_mod
 
     payload: dict = {}
@@ -389,7 +391,7 @@ def test_save_learned_creator_fields_promotes_url_creator_hint(monkeypatch):
         url_creator_fields={"username": ["uploader"]},
     )
 
-    assert result == {"username": ["uploader", "uploader_id", "channel"]}
+    assert result == {"username": ["uploader_id", "uploader", "channel"]}
     assert saved[-1]["source_creator_fields"] == {"tiktok": result}
 
 
@@ -410,6 +412,74 @@ def test_learned_creator_fields_merges_without_clobbering_existing(monkeypatch):
 
     assert result == {"username": ["channel", "uploader_id"], "nickname": ["uploader"]}
     assert saved[-1]["source_creator_fields"]["youtube"] == result
+
+
+def test_missing_creator_fields_append_without_reordering_existing(monkeypatch):
+    import backend.app.services.tasks.learning as learning_mod
+
+    payload = {
+        "source_creator_fields": {
+            "tiktok": {
+                "username": ["uploader", "uploader_id"],
+                "nickname": ["uploader"],
+            }
+        }
+    }
+    saved: list[dict] = []
+    monkeypatch.setattr(learning_mod, "load_saved_settings_file", lambda: payload)
+    monkeypatch.setattr(learning_mod, "save_saved_settings_file", lambda data: saved.append(dict(data)))
+
+    result = save_missing_learned_creator_fields(
+        "",
+        "tiktok",
+        {
+            "username": ["author[uniqueId]", "uploader"],
+            "nickname": ["author[nickname]"],
+        },
+        url_creator_fields={"username": ["author[uniqueId]"]},
+    )
+
+    assert result == {
+        "username": ["uploader", "uploader_id", "author[uniqueId]"],
+        "nickname": ["uploader", "author[nickname]"],
+    }
+    assert saved[-1]["source_creator_fields"]["tiktok"] == result
+
+
+def test_format_creator_probe_does_not_touch_existing_fields_when_all_present(monkeypatch):
+    import backend.app.services.tasks.learning as learning_mod
+    import backend.app.services.tasks.probe as probe_mod
+
+    existing = {
+        "username": ["uploader", "author[uniqueId]"],
+        "nickname": ["author[nickname]"],
+    }
+    payload = {"source_creator_fields": {"tiktok": existing}}
+    monkeypatch.setattr(learning_mod, "load_saved_settings_file", lambda: payload)
+    monkeypatch.setattr(
+        learning_mod,
+        "save_saved_settings_file",
+        lambda data: (_ for _ in ()).throw(AssertionError("unchanged fields should not save")),
+    )
+    monkeypatch.setattr(
+        learning_mod,
+        "save_learned_url_creator_fields",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("existing fields should not save url hints")),
+    )
+    monkeypatch.setattr(
+        probe_mod,
+        "probe_creator_fields",
+        lambda url, key: {
+            "source_key": "tiktok",
+            "creator_fields": {
+                "username": ["author[uniqueId]"],
+                "nickname": ["author[nickname]"],
+            },
+            "url_creator_fields": {"username": ["author[uniqueId]"]},
+        },
+    )
+
+    assert learn_missing_creator_fields_for_format("https://www.tiktok.com/@fzyahoo.com/photo/1", "tiktok") == existing
 
 
 def test_ensure_creator_fields_learned_skips_existing_records(monkeypatch):

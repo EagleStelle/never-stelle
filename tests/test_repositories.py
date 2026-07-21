@@ -34,11 +34,11 @@ def test_learned_formats_persist_to_formats_table(tmp_path, monkeypatch):
     assert len(rows) == 1
     assert rows[0]["source_key"] == "tiktok"
     assert json.loads(rows[0]["templates"]) == ["https://www.tiktok.com/@{creator}/video/{id}"]
-    assert json.loads(rows[0]["url_creator_fields"]) == {"username": ["uploader"]}
+    assert json.loads(rows[0]["url_creator_fields"]) == {}
 
     loaded = repositories.load_learned_formats_payload()
     assert loaded["tiktok"]["templates"] == ["https://www.tiktok.com/@{creator}/video/{id}"]
-    assert loaded["tiktok"]["url_creator_fields"] == {"username": ["uploader"]}
+    assert loaded["tiktok"].get("url_creator_fields", {}) == {}
     assert "template" not in loaded["tiktok"]
 
 
@@ -53,8 +53,8 @@ def test_learned_formats_persist_multiple_templates(tmp_path, monkeypatch):
 
     loaded = repositories.load_learned_formats_payload()
     assert set(loaded["tiktok"]["templates"]) == {
-        "https://www.tiktok.com/@{creator}/video/{id}",
-        "https://www.tiktok.com/@{creator}/photo/{id}",
+        "https://www.tiktok.com/@a/video/{id}",
+        "https://www.tiktok.com/@a/photo/{id}",
     }
 
 

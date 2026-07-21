@@ -6,14 +6,42 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunpa
 
 from backend.app.core.sources import normalize_source_key, source_key_from_url
 
-from .constants import CREATOR_ROLE_CHAINS, normalize_title_cleaning, quality_label
+from .constants import normalize_title_cleaning, quality_label
 
 _ID_TOKEN = "{id}"
 _CREATOR_TOKEN = "{creator}"
+_USERNAME_TOKEN = "{username}"
+_NICKNAME_TOKEN = "{nickname}"
 _VAR_TOKEN = "{var}"
 _SPLIT_RE = re.compile(r"([/?&=#])")
 _ROUTE_SEGMENT_RE = re.compile(r"^[a-z][a-z-]{0,24}s?$")
 _IDENTIFIER_KEY_RE = re.compile(r"(^|[_-])(id|key|video|media|post|clip|item|view|watch|v)([_-]|$)")
+_STATIC_ROUTE_SEGMENTS = {
+    "album",
+    "albums",
+    "clip",
+    "clips",
+    "media",
+    "p",
+    "photo",
+    "photos",
+    "post",
+    "posts",
+    "reel",
+    "reels",
+    "share",
+    "short",
+    "shorts",
+    "status",
+    "story",
+    "stories",
+    "v",
+    "video",
+    "videos",
+    "view",
+    "watch",
+}
+_ROLE_TOKENS = {_CREATOR_TOKEN, _USERNAME_TOKEN, _NICKNAME_TOKEN}
 
 
 def _id_classes(value: str) -> set[str]:
@@ -46,6 +74,26 @@ def _path_segments(path: str) -> list[str]:
 def _is_route_segment(value: str) -> bool:
     value = unquote(str(value or "")).strip()
     return bool(_ROUTE_SEGMENT_RE.fullmatch(value))
+
+
+def _is_static_route_segment(value: str) -> bool:
+    return unquote(str(value or "")).strip().lower() in _STATIC_ROUTE_SEGMENTS
+
+
+def _without_at(value: str) -> str:
+    return str(value or "").removeprefix("@")
+
+
+def _is_role_cell(value: str) -> bool:
+    return _without_at(value) in _ROLE_TOKENS
+
+
+def _is_var_cell(value: str) -> bool:
+    return _without_at(value) == _VAR_TOKEN
+
+
+def _merged_prefixed_token(a: str, b: str, token: str) -> str:
+    return f"@{token}" if str(a or "").startswith("@") and str(b or "").startswith("@") else token
 
 
 def _is_identifier_key(key: str) -> bool:
@@ -175,11 +223,7 @@ def _creator_index_for_path_id(segments: list[str], id_index: int | None) -> int
     if id_index is None:
         return None
     candidate = id_index - 1
-    if candidate < 0:
-        return None
-    if _is_route_segment(segments[candidate]):
-        if candidate == 0:
-            return None
+    while candidate >= 0 and _is_route_segment(segments[candidate]):
         candidate -= 1
     return candidate if candidate >= 0 and segments[candidate] else None
 
@@ -197,6 +241,43 @@ def _clean_creator(value: str, *, strip_at: bool = True) -> str:
 
 def _creator_match_value(value: Any) -> str:
     return unquote(str(value or "")).strip().strip("/").lstrip("@").strip().casefold()
+
+
+def _creator_exact_value(value: Any) -> str:
+    return unquote(str(value or "")).strip().strip("/").lstrip("@").strip()
+
+
+def _creator_token_for_segment(value: str, metadata: dict[str, Any] | None) -> str:
+    """Return a role token only when metadata proves the URL cell exactly."""
+    if not isinstance(metadata, dict):
+        return ""
+    candidate = _creator_exact_value(value)
+    if not candidate:
+        return ""
+
+    try:
+        from .constants import CREATOR_ROLE_CHAINS
+    except Exception:
+        return ""
+
+    matched_roles: set[str] = set()
+    for role in ("username", "nickname"):
+        role_fields: list[str] = []
+        for chains in CREATOR_ROLE_CHAINS.values():
+            for field in chains.get(role, ()):
+                if field not in role_fields:
+                    role_fields.append(field)
+        for field in role_fields:
+            if _creator_exact_value(metadata.get(field)) == candidate:
+                matched_roles.add(role)
+                break
+    if matched_roles == {"username", "nickname"}:
+        return _CREATOR_TOKEN
+    if matched_roles == {"username"}:
+        return _USERNAME_TOKEN
+    if matched_roles == {"nickname"}:
+        return _NICKNAME_TOKEN
+    return ""
 
 
 def _looks_like_slug(value: str) -> bool:
@@ -292,9 +373,6 @@ def derived_token_value(
             if field == "username":
                 return _clean_creator(str(override), strip_at=_strip_handle_at(cleaning))
             return str(override)
-    if field == "username":
-        # URL handle when present; None lets each engine use its own handle field.
-        return creator_from_url(source_url, strip_at=_strip_handle_at(cleaning)) or None
     if field == "quality":
         # Selected combo label when threaded; None falls back to delivered format.
         return quality_label(quality) if quality is not None else None
@@ -340,7 +418,7 @@ def url_dedup_key(source_url: str) -> str:
     return f"{scope}#{media_id}"
 
 
-def _url_shape(source_url: str, media_id: str) -> str:
+def _url_shape(source_url: str, media_id: str, metadata: dict[str, Any] | None = None) -> str:
     analysis = analyze_url(source_url, media_id)
     url = str(analysis.get("canonical") or "").strip()
     if not url:
@@ -368,7 +446,9 @@ def _url_shape(source_url: str, media_id: str) -> str:
         except ValueError:
             index = -1
         if 0 <= index < len(raw_segments) and 0 <= index < len(decoded_segments):
-            raw_segments[index] = f"@{_CREATOR_TOKEN}" if decoded_segments[index].startswith("@") else _CREATOR_TOKEN
+            role_token = _creator_token_for_segment(decoded_segments[index], metadata)
+            if role_token:
+                raw_segments[index] = f"@{role_token}" if decoded_segments[index].startswith("@") else role_token
 
     path = "/" + "/".join(raw_segments) if parsed.path.startswith("/") else "/".join(raw_segments)
     query_pairs = []
@@ -383,14 +463,14 @@ def _url_shape(source_url: str, media_id: str) -> str:
 
 def _is_slugish(cell: str) -> bool:
     # A position that already generalized to {var}, or a descriptive title slug.
-    return cell == _VAR_TOKEN or _looks_like_slug(cell)
+    return _is_var_cell(cell) or _looks_like_slug(cell)
 
 
 def _merge_shape(template: str, shape: str) -> str | None:
     """Merge two same-source URL shapes into one template, or None if they are
-    genuinely different routes. Positions differing only in a descriptive slug
-    collapse to {var}; a differing route word (video vs photo) marks a distinct
-    route and blocks the merge so both templates survive for reconstruction."""
+    genuinely different routes. Positions differing only in a configurable URL
+    cell collapse to {var}; a differing route word (video vs photo) marks a
+    distinct route and blocks the merge so both templates survive for reconstruction."""
     if template == shape:
         return template
     left = _SPLIT_RE.split(template)
@@ -403,10 +483,14 @@ def _merge_shape(template: str, shape: str) -> str | None:
             out.append(a)
         elif _ID_TOKEN in (a, b):
             out.append(_ID_TOKEN)
-        elif _CREATOR_TOKEN in (a, b):
-            out.append(_CREATOR_TOKEN)
+        elif _is_role_cell(a) or _is_role_cell(b):
+            out.append(_merged_prefixed_token(a, b, _CREATOR_TOKEN))
+        elif a.startswith("@") and b.startswith("@") and a != b:
+            out.append(_merged_prefixed_token(a, b, _VAR_TOKEN))
+        elif not _is_static_route_segment(a) and not _is_static_route_segment(b):
+            out.append(_merged_prefixed_token(a, b, _VAR_TOKEN))
         elif _is_slugish(a) and _is_slugish(b):
-            out.append(_VAR_TOKEN)
+            out.append(_merged_prefixed_token(a, b, _VAR_TOKEN))
         else:
             return None
     return "".join(out)
@@ -449,70 +533,17 @@ def _entry_templates(entry: dict[str, Any]) -> list[str]:
     return templates
 
 
-def _creator_role_fields(role: str) -> list[str]:
-    fields: list[str] = []
-    for engine_chains in CREATOR_ROLE_CHAINS.values():
-        for field in engine_chains.get(role, ()):
-            if field not in fields:
-                fields.append(field)
-    return fields
-
-
-def _normalize_url_creator_fields(value: Any) -> dict[str, list[str]]:
-    if not isinstance(value, dict):
-        return {}
-    out: dict[str, list[str]] = {}
-    for role in ("username", "nickname"):
-        fields: list[str] = []
-        raw_fields = value.get(role)
-        if not isinstance(raw_fields, list):
-            continue
-        for raw_field in raw_fields:
-            field = str(raw_field or "").strip()
-            if field and field not in fields:
-                fields.append(field)
-        if fields:
-            out[role] = fields
-    return out
-
-
-def _infer_url_creator_fields(url_creator: str, metadata: dict[str, Any] | None) -> dict[str, list[str]]:
-    target = _creator_match_value(url_creator)
-    if not target or not isinstance(metadata, dict):
-        return {}
-    for role in ("username", "nickname"):
-        matches: list[str] = []
-        for field in _creator_role_fields(role):
-            if _creator_match_value(metadata.get(field)) == target and field not in matches:
-                matches.append(field)
-        if matches:
-            return {role: matches}
-    return {}
-
-
 def infer_url_creator_fields(
     source_url: str,
     metadata: dict[str, Any] | None,
     media_id: str = "",
 ) -> dict[str, list[str]]:
-    """Creator-role fields whose metadata value matches the URL creator segment."""
-    if not isinstance(metadata, dict):
-        return {}
-    inferred_media_id = str(media_id or metadata.get("id") or "").strip()
-    analysis = analyze_url(source_url, inferred_media_id)
-    return _infer_url_creator_fields(str(analysis.get("creator") or ""), metadata)
+    """Legacy hook kept for persisted payload compatibility.
 
-
-def _merge_url_creator_fields(existing: Any, learned: dict[str, list[str]]) -> dict[str, list[str]]:
-    out = _normalize_url_creator_fields(existing)
-    for role, fields in learned.items():
-        current = [field for field in out.get(role, []) if field not in fields]
-        out[role] = []
-        for field in fields:
-            if field not in out[role]:
-                out[role].append(field)
-        out[role].extend(current)
-    return {role: fields for role, fields in out.items() if fields}
+    URL creator segments describe URL shape only. They must not promote or select
+    filename creator fields; the source creator-field list owns that decision.
+    """
+    return {}
 
 
 def learn_url_creator_fields(
@@ -520,32 +551,24 @@ def learn_url_creator_fields(
     source_key: str,
     url_creator_fields: Any,
 ) -> dict[str, Any]:
-    key = normalize_source_key(source_key)
-    fields = _normalize_url_creator_fields(url_creator_fields)
-    entry = learned.get(key) if isinstance(learned, dict) else None
-    if not key or not fields or not isinstance(entry, dict):
-        return learned
-    updated_entry = dict(entry)
-    updated_entry["url_creator_fields"] = _merge_url_creator_fields(entry.get("url_creator_fields"), fields)
-    updated = dict(learned)
-    updated[key] = updated_entry
-    return updated
+    return learned
 
 
 def _url_creator_role(entry: dict[str, Any]) -> str:
-    fields = _normalize_url_creator_fields(entry.get("url_creator_fields"))
-    if fields.get("username"):
-        return "username"
-    if fields.get("nickname"):
-        return "nickname"
     return "creator"
 
 
 def _display_templates(entry: dict[str, Any], templates: list[str]) -> list[str]:
-    role = _url_creator_role(entry)
-    if role == "creator":
-        return templates
-    return [template.replace(_CREATOR_TOKEN, f"{{{role}}}") for template in templates]
+    return templates
+
+
+def _segment_kind_for_role_token(segment: str) -> str:
+    value = _without_at(segment)
+    if value == _USERNAME_TOKEN:
+        return "username"
+    if value == _NICKNAME_TOKEN:
+        return "nickname"
+    return "creator"
 
 
 def _template_segments(template: str, creator_label: str) -> list[dict[str, Any]]:
@@ -562,21 +585,27 @@ def _template_segments(template: str, creator_label: str) -> list[dict[str, Any]
         part = f"path:{index}"
         if segment == _ID_TOKEN:
             out.append({"part": part, "label": _ID_TOKEN, "kind": "id", "reserved": True})
-        elif segment in (_CREATOR_TOKEN, f"@{_CREATOR_TOKEN}"):
-            out.append({"part": part, "label": creator_label, "kind": "creator", "reserved": True})
-        elif segment == _VAR_TOKEN:
-            out.append({"part": part, "label": _VAR_TOKEN, "kind": "var", "reserved": False})
+        elif _is_role_cell(segment):
+            kind = _segment_kind_for_role_token(segment)
+            out.append({"part": part, "label": f"{{{kind}}}", "kind": kind, "reserved": True})
+        elif _is_var_cell(segment):
+            out.append({"part": part, "label": _without_at(segment), "kind": "var", "reserved": False})
         else:
             out.append({
                 "part": part,
                 "label": unquote(segment),
                 "kind": "literal",
-                "reserved": not _looks_like_slug(segment),
+                "reserved": _is_static_route_segment(segment),
             })
     for key, value in parse_qsl(parsed.query, keep_blank_values=False):
         part = f"query:{key}"
         if value == _ID_TOKEN:
             out.append({"part": part, "label": f"{key}={_ID_TOKEN}", "kind": "id", "reserved": True})
+        elif _is_role_cell(value):
+            kind = _segment_kind_for_role_token(value)
+            out.append({"part": part, "label": f"{key}={{{kind}}}", "kind": kind, "reserved": True})
+        elif _is_var_cell(value):
+            out.append({"part": part, "label": f"{key}={_VAR_TOKEN}", "kind": "var", "reserved": False})
         else:
             out.append({"part": part, "label": f"{key}={unquote(value)}", "kind": "query", "reserved": False})
     return out
@@ -624,7 +653,7 @@ def learn_download(
     media_id = str(media_id or "").strip()
     if not canonical or not key:
         return learned
-    shape = _url_shape(canonical, media_id)
+    shape = _url_shape(canonical, media_id, metadata)
     entry = dict(learned.get(key) or {})
     templates = _entry_templates(entry)
     if shape:
@@ -633,10 +662,6 @@ def learn_download(
         entry["templates"] = templates
     entry["host"] = str(entry.get("host") or analysis.get("host") or "")
     entry["id_part"] = str(entry.get("id_part") or analysis.get("id_part") or "")
-    if analysis.get("creator_part"):
-        url_creator_fields = _infer_url_creator_fields(str(analysis.get("creator") or ""), metadata)
-        if url_creator_fields:
-            entry["url_creator_fields"] = _merge_url_creator_fields(entry.get("url_creator_fields"), url_creator_fields)
     entry["samples"] = int(entry.get("samples") or 0) + 1
     if media_id:
         _record_id_signature(entry, media_id)
@@ -681,7 +706,10 @@ def _fill_template_slug_parts(template: str, slug_values: dict[str, str]) -> str
             except ValueError:
                 continue
             if 0 <= index < len(raw_segments):
-                raw_segments[index] = encoded
+                if raw_segments[index].startswith("@") and not str(value or "").strip().startswith("@"):
+                    raw_segments[index] = f"@{encoded}"
+                else:
+                    raw_segments[index] = encoded
         elif part.startswith("query:"):
             query_overrides[part.split(":", 1)[1]] = encoded
     path = "/" + "/".join(raw_segments) if str(parsed.path or "").startswith("/") else "/".join(raw_segments)
@@ -720,9 +748,14 @@ def reconstruct_url_candidates(
         # An unfilled variable segment means the template can't be reconstructed.
         if _VAR_TOKEN in filled:
             continue
-        if _CREATOR_TOKEN in filled and not creator_value:
+        if any(token in filled for token in _ROLE_TOKENS) and not creator_value:
             continue
-        url = filled.replace(_ID_TOKEN, media_id).replace(_CREATOR_TOKEN, creator_value)
+        url = (
+            filled.replace(_ID_TOKEN, media_id)
+            .replace(_CREATOR_TOKEN, creator_value)
+            .replace(_USERNAME_TOKEN, creator_value)
+            .replace(_NICKNAME_TOKEN, creator_value)
+        )
         if url not in urls:
             urls.append(url)
     return urls
@@ -782,6 +815,14 @@ def _shape_matches_template(template: str, shape: str) -> bool:
         return False
     for a, b in zip(left, right, strict=False):
         if a == b:
+            continue
+        if _is_role_cell(a) and b:
+            continue
+        if _is_role_cell(b) and a:
+            continue
+        if _is_var_cell(a) and b:
+            continue
+        if _is_var_cell(b) and a:
             continue
         # A {var} position (or an un-generalized slug literal) accepts any descriptive slug.
         if _is_slugish(a) and _is_slugish(b):

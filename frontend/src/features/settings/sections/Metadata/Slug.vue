@@ -29,7 +29,7 @@ const ROLE_ITEMS: { key: TokenRole; label: string }[] = [
   { key: "title", label: "Title" },
 ];
 
-const { settings, settingsDraft, editableSourceProfiles } = useSettingsContext();
+const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles } = useSettingsContext();
 const {
   learnedFormat,
   tokenForPart,
@@ -39,7 +39,7 @@ const {
   tokenRole,
   isTitleRoleDisabled,
   setSegmentRole,
-} = useSlugTokens(settingsDraft, settings, editableSourceProfiles);
+} = useSlugTokens(settingsDraft, settings, learnedFormatsDraft, editableSourceProfiles);
 
 function selectableSegments(key: string): LearnedSegment[] {
   return (learnedFormat(key)?.segments || []).filter((segment) => !segment.reserved);

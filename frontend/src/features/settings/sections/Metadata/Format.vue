@@ -14,6 +14,7 @@ import {
   AccordionTrigger,
 } from "../../../../components/ui/accordion";
 import type { LearnedFormat } from "../../../../types";
+import { displayUrlTemplate } from "../../../../utils/dashboard";
 import { useSettingsContext } from "../../context";
 import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
 
@@ -179,8 +180,8 @@ function isDropTarget(key: string, index: number): boolean {
             @dragend="resetDrag"
           >
             <IconDrag class="w-4 h-4 shrink-0 opacity-50" aria-hidden="true" />
-            <span class="font-mono text-[0.8125rem] flex-1 min-w-0 truncate">
-              {{ template }}
+            <span class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere">
+              {{ displayUrlTemplate(template) }}
             </span>
             <Button
               variant="danger"

@@ -248,12 +248,15 @@ CREATOR_ROLE_CHAINS: dict[str, dict[str, tuple[str, ...]]] = {
     "gallerydl": {
         "username": (
             "username",
+            "author[uniqueId]",
             "user[name]",
             "user[username]",
+            "user[uniqueId]",
             "account",
             "author",
         ),
         "nickname": (
+            "author[nickname]",
             "author[nick]",
             "user[nick]",
             "user[nickname]",
@@ -335,7 +338,7 @@ def promote_creator_role_fields(
     fields: list[str] | tuple[str, ...],
     promoted: list[str] | tuple[str, ...],
 ) -> list[str]:
-    """Move learned URL-creator fields ahead of the normal role order."""
+    """Move explicitly promoted fields ahead of the normal role order."""
     seen: set[str] = set()
     out: list[str] = []
     for source in (promoted, fields):
@@ -351,7 +354,7 @@ def promote_creator_field_roles(
     fields_by_role: dict[str, list[str] | tuple[str, ...]] | None,
     promoted_by_role: dict[str, list[str] | tuple[str, ...]] | None,
 ) -> dict[str, list[str]]:
-    """Promote URL-derived creator fields role-by-role while preserving all others."""
+    """Promote caller-specified creator fields role-by-role while preserving all others."""
     fields_by_role = fields_by_role if isinstance(fields_by_role, dict) else {}
     promoted_by_role = promoted_by_role if isinstance(promoted_by_role, dict) else {}
     out: dict[str, list[str]] = {}

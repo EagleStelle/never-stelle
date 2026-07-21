@@ -451,8 +451,9 @@ def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
     cookies, then the same ``learn_download`` the worker runs. A new host creates a
     platform; an existing one only gains the freshly learned format.
     """
-    from backend.app.services.tasks.formats import media_id_from_url
-    from backend.app.services.tasks.learning import learn_source_format
+    from backend.app.services.tasks.formats import match_template, media_id_from_url
+    from backend.app.services.tasks.learning import learn_missing_creator_fields_for_format, learn_source_format
+    from backend.app.services.tasks.store import load_learned_formats
 
     url = str(url_or_link or "").strip()
     if not url:
@@ -467,7 +468,16 @@ def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
     ensure_source_profile_for_url(url)
     media_id = media_id_from_url(url)
     learned = learn_source_format(url, media_id) if media_id else False
-    return {"source_key": key, "created": not existed, "learned": bool(learned), "media_id": media_id}
+    creator_fields = learn_missing_creator_fields_for_format(url, key) if learned else {}
+    format_template = match_template(load_learned_formats(), key, url, media_id) if media_id else ""
+    return {
+        "source_key": key,
+        "created": not existed,
+        "learned": bool(learned),
+        "media_id": media_id,
+        "format_template": format_template,
+        "creator_fields": creator_fields,
+    }
 
 
 def set_learned_format_templates(source_key: str, templates: Any) -> dict[str, Any]:
@@ -571,89 +581,22 @@ def _has_creator_field_roles(value: Any) -> bool:
     return any(bool(roles.get(role)) for role in ("username", "nickname"))
 
 
-def _creator_field_defaults_with_learned(learned: dict[str, list[str]]) -> dict[str, list[str]]:
-    from backend.app.services.tasks.constants import creator_field_defaults
-
-    defaults = creator_field_defaults()
-    return promote_creator_field_roles(defaults, learned)
-
-
-def promote_creator_field_roles(base: Any, promoted: Any) -> dict[str, list[str]]:
-    from backend.app.services.tasks.constants import promote_creator_field_roles as promote_roles
-
-    base_roles = normalize_source_creator_fields({"source": base}).get("source", {})
-    promoted_roles = normalize_source_creator_fields({"source": promoted}).get("source", {})
-    return promote_roles(base_roles, promoted_roles)
-
-
-def _learned_url_creator_fields_by_source() -> dict[str, dict[str, list[str]]]:
-    from backend.app.services.tasks.store import load_learned_formats
-
-    return normalize_source_creator_fields(
-        {
-            raw_key: (entry or {}).get("url_creator_fields")
-            for raw_key, entry in (load_learned_formats() or {}).items()
-            if isinstance(entry, dict)
-        }
-    )
-
-
-def _creator_fields_with_url_priority(
-    base: dict[str, list[str]],
-    learned: dict[str, list[str]],
-) -> dict[str, list[str]]:
-    return promote_creator_field_roles(base, learned)
-
-
-def _saved_creator_fields_with_url_priority(
+def _saved_creator_fields(
     payload: dict[str, Any],
-    learned_by_source: dict[str, dict[str, list[str]]] | None = None,
 ) -> dict[str, dict[str, list[str]]]:
-    learned_by_source = (
-        learned_by_source if isinstance(learned_by_source, dict) else _learned_url_creator_fields_by_source()
-    )
-    saved = normalize_source_creator_fields((payload if isinstance(payload, dict) else {}).get("source_creator_fields"))
-    out: dict[str, dict[str, list[str]]] = {}
-    for key, roles in saved.items():
-        if _has_creator_field_roles(roles):
-            out[key] = _creator_fields_with_url_priority(roles, learned_by_source.get(key) or {})
-    return out
+    return normalize_source_creator_fields((payload if isinstance(payload, dict) else {}).get("source_creator_fields"))
 
 
 def get_source_creator_field_defaults(
     source_profiles: list[dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, list[str]]]:
-    learned_by_source = _learned_url_creator_fields_by_source()
-    keys = (
-        {
-            normalize_source_key(profile.get("key"))
-            for profile in source_profiles
-            if normalize_source_key(profile.get("key"))
-        }
-        if source_profiles is not None
-        else set(learned_by_source)
-    )
-    out: dict[str, dict[str, list[str]]] = {}
-    for key in sorted(keys | set(learned_by_source)):
-        learned = learned_by_source.get(key) or {}
-        if _has_creator_field_roles(learned):
-            out[key] = _creator_field_defaults_with_learned(learned)
-    return out
+    return {}
 
 
 def get_effective_source_creator_fields_map(
     source_profiles: list[dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, list[str]]]:
-    learned_by_source = _learned_url_creator_fields_by_source()
-    saved = _saved_creator_fields_with_url_priority(load_saved_settings_file(), learned_by_source)
-    defaults = get_source_creator_field_defaults(source_profiles)
-    keys = set(defaults) | set(saved) | set(learned_by_source)
-    out: dict[str, dict[str, list[str]]] = {}
-    for key in sorted(keys):
-        roles = saved.get(key) or defaults.get(key) or {}
-        if _has_creator_field_roles(roles):
-            out[key] = _creator_fields_with_url_priority(roles, learned_by_source.get(key) or {})
-    return out
+    return _saved_creator_fields(load_saved_settings_file())
 
 
 def normalize_source_title_cleaning(raw: Any) -> dict[str, dict[str, Any]]:
@@ -727,14 +670,9 @@ def get_effective_creator_fields(source_url: str = "") -> dict[str, list[str]]:
         return {}
     profile = get_source_profile_for_url(source_url, payload=payload)
     key = normalize_source_key(profile.get("key"))
-    learned_by_source = _learned_url_creator_fields_by_source()
-    mapping = _saved_creator_fields_with_url_priority(payload, learned_by_source)
+    mapping = _saved_creator_fields(payload)
     saved = mapping.get(key) or {}
-    base = (
-        saved
-        if _has_creator_field_roles(saved)
-        else get_source_creator_field_defaults([profile]).get(key, {})
-    )
+    base = saved if _has_creator_field_roles(saved) else {}
     return _with_assigned_scraper_creator_fields(key, base, payload)
 
 
@@ -910,7 +848,7 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
         "source_scrape_rules": get_effective_scrape_rules(payload),
         "source_token_roles": token_roles,
         "source_slug_tokens": get_effective_slug_tokens(payload),
-        "source_creator_fields": _saved_creator_fields_with_url_priority(payload),
+        "source_creator_fields": _saved_creator_fields(payload),
         "source_title_cleaning": normalize_source_title_cleaning(payload.get("source_title_cleaning")),
     }
 

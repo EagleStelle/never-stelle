@@ -29,7 +29,7 @@ import {
   TableRow,
 } from "../../../../components/ui/table";
 import type { ScrapeRule, TokenRole } from "../../../../types";
-import { tokenLabel } from "../../../../utils/dashboard";
+import { displayUrlTemplate, tokenLabel } from "../../../../utils/dashboard";
 import { useScrapeTests } from "../../composables/useScrapeTests";
 import { useSettingsContext } from "../../context";
 import SettingsLabel from "../../SettingsLabel.vue";
@@ -60,7 +60,7 @@ function updateRole(siteKey: string, rule: ScrapeRule, index: number, value: unk
   setTokenRole(siteKey, rule.token || `var${index}`, role);
 }
 
-const { settings, settingsDraft, editableSourceProfiles } = useSettingsContext();
+const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles } = useSettingsContext();
 const {
   scrapeTests,
   formatsFor,
@@ -72,7 +72,7 @@ const {
   removeScrapeRule,
   runScrapeTest,
   setRuleToken,
-} = useScrapeTests(settingsDraft, settings, editableSourceProfiles);
+} = useScrapeTests(settingsDraft, settings, learnedFormatsDraft, editableSourceProfiles);
 </script>
 
 <template>
@@ -179,7 +179,7 @@ const {
             class="flex flex-col gap-2"
           >
             <SettingsLabel class="wrap-anywhere">
-              {{ template }}
+              {{ displayUrlTemplate(template) }}
             </SettingsLabel>
 
             <Card

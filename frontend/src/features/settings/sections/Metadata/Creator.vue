@@ -20,6 +20,7 @@ import {
   type CreatorRole,
 } from "../../composables/useCreatorSettings";
 import { useSettingsContext } from "../../context";
+import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
 import SettingsLabel from "../../SettingsLabel.vue";
 import SettingsRow from "../../SettingsRow.vue";
 import {
@@ -166,12 +167,11 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
             </div>
           </div>
 
-          <p
+          <SettingsEmptyCard
             v-if="probes[site.key].message"
-            class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55"
           >
             {{ probes[site.key].message }}
-          </p>
+          </SettingsEmptyCard>
 
           <Table v-if="probes[site.key].fields.length" class="text-[0.8125rem]">
             <TableHeader>
@@ -250,7 +250,7 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
                     aria-hidden="true"
                   />
                   <span
-                    class="font-mono text-[0.8125rem] flex-1 min-w-0 truncate"
+                    class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere"
                   >
                     {{ field.label }}
                   </span>

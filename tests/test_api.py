@@ -132,7 +132,7 @@ def test_add_task_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
     assert captured["source_templates"] == source_templates
 
 
-def test_probe_fields_saves_url_creator_hint_to_learned_format(tmp_path, monkeypatch):
+def test_probe_fields_saves_creator_fields_without_url_priority_hint(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
     import backend.app.services.tasks.probe as probe_module
     from backend.app.db import repositories
@@ -163,9 +163,7 @@ def test_probe_fields_saves_url_creator_hint_to_learned_format(tmp_path, monkeyp
 
     assert response.status_code == 200
     assert response.json()["creator_fields"] == {"username": ["uploader", "uploader_id"]}
-    assert repositories.load_learned_formats_payload()["tiktok"]["url_creator_fields"] == {
-        "username": ["uploader"]
-    }
+    assert repositories.load_learned_formats_payload()["tiktok"].get("url_creator_fields", {}) == {}
 
 
 def test_auth_login_session_and_logout(tmp_path, monkeypatch):
