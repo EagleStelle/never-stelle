@@ -4,9 +4,9 @@ import IconTrash from "~icons/material-symbols/delete";
 import IconUpload from "~icons/material-symbols/upload";
 
 import { Button } from "../../../../components/ui/button";
-import { Card } from "../../../../components/ui/card";
 import { Input } from "../../../../components/ui/input";
 import { useSettingsContext } from "../../context";
+import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
 import SettingsRow from "../../SettingsRow.vue";
 
 const {
@@ -17,15 +17,21 @@ const {
   removeCookies,
 } = useSettingsContext();
 
-const cookieFiles = reactive<Record<string, File | null>>({});
 const newCookie = reactive<{ source: string; file: File | null }>({
   source: "",
   file: null,
 });
 
+function hasCookies(siteKey: string): boolean {
+  return Boolean(cookieStatuses.value[siteKey]?.configured);
+}
+
+function cookieLabel(siteKey: string): string {
+  return cookieStatuses.value[siteKey]?.filename || "cookies.txt";
+}
+
 function onCookieFile(site: string, event: Event): void {
   const file = (event.target as HTMLInputElement).files?.[0] || null;
-  cookieFiles[site] = file;
   if (file) connectCookies(site, file);
 }
 
@@ -55,6 +61,7 @@ function connectNew(): void {
     <div class="flex w-full items-center gap-2">
       <Input
         v-model="newCookie.source"
+        data-settings-system
         type="text"
         inputmode="url"
         placeholder="Paste a link"
@@ -62,6 +69,7 @@ function connectNew(): void {
       />
       <input
         id="newSourceCookiesInput"
+        data-settings-system
         type="file"
         accept=".txt,.cookies,text/plain"
         class="hidden"
@@ -82,14 +90,12 @@ function connectNew(): void {
     </div>
   </div>
 
-  <Card
+  <SettingsEmptyCard
     v-if="editableSourceProfiles.length === 0"
-    class="mt-3 px-6"
+    class="mt-3"
   >
-    <p class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55">
-      No sources yet.
-    </p>
-  </Card>
+    No sources yet.
+  </SettingsEmptyCard>
 
   <SettingsRow
     v-for="site in editableSourceProfiles"
@@ -99,19 +105,18 @@ function connectNew(): void {
     <div class="flex items-center gap-2">
       <input
         :id="`${site.key}CookiesInput`"
+        data-settings-system
         type="file"
         accept=".txt,.cookies,text/plain"
         class="hidden"
         @change="onCookieFile(site.key, $event)"
       />
-      <template v-if="!cookieStatuses[site.key]?.configured">
-        <div
-          class="flex flex-1 items-center min-w-0 h-10 rounded-lg glass-soft px-3 text-sm"
-        >
-          <span class="truncate text-white/60 in-[.light-mode]:text-black/60">{{
-            cookieFiles[site.key]?.name || "No cookies file"
-          }}</span>
-        </div>
+      <template v-if="!hasCookies(site.key)">
+        <Input
+          model-value="No cookies file"
+          disabled
+          class="flex-1"
+        />
         <Button
           variant="primary"
           type="button"
@@ -126,15 +131,14 @@ function connectNew(): void {
         </Button>
       </template>
       <template v-else>
-        <div
-          class="flex flex-1 items-center min-w-0 h-10 rounded-lg glass-soft px-3 text-sm"
-        >
-          <span class="truncate text-white in-[.light-mode]:text-black">{{
-            cookieStatuses[site.key].filename || "cookies.txt"
-          }}</span>
-        </div>
+        <Input
+          :model-value="cookieLabel(site.key)"
+          disabled
+          class="flex-1"
+          input-class="font-mono"
+        />
         <Button
-          variant="primary"
+          variant="danger"
           type="button"
           class="shrink-0"
           :title="`Delete ${site.label} cookies`"

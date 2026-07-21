@@ -386,7 +386,7 @@ def _scan_template_map() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
         base = normalize_template_settings(effective.get("template_settings"))
         token_roles = effective.get("source_token_roles")
         per_source = normalize_source_template_selection(
-            effective.get("source_templates") or effective.get("source_template_settings"),
+            effective.get("source_templates"),
             cfg,
             get_effective_source_profiles(cfg),
             base,

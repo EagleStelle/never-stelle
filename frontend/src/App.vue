@@ -45,6 +45,7 @@ const {
   connectCookiesForSource,
   cookieStatuses,
   learnFormat,
+  probeCreatorFields,
   reorderFormatTemplates,
   countCards,
   historyRefreshing,
@@ -78,6 +79,7 @@ const {
   setViewMode,
   settings,
   settingsDraft,
+  learnedFormatsDraft,
   settingsOpen,
   settingsSection,
   sourceProfiles,
@@ -89,6 +91,10 @@ const {
   toggleThemeMode,
   url,
   viewMode,
+  hasUnsavedChanges,
+  markSettingsDraftDirty,
+  saveSettingsDraft,
+  copySettingsToDraft,
 } = useDownloadDashboard();
 
 // Live status-bar height so toasts dock above it instead of covering it.
@@ -352,9 +358,15 @@ const { height: statusBarHeight } = useElementSize(
       :cookie-statuses="cookieStatuses"
       :settings="settings"
       :settings-draft="settingsDraft"
+      :learned-formats-draft="learnedFormatsDraft"
       :source-profiles="sourceProfiles"
       :learn-format="learnFormat"
+      :probe-creator-fields="probeCreatorFields"
       :reorder-format-templates="reorderFormatTemplates"
+      :has-unsaved-changes="hasUnsavedChanges"
+      :mark-settings-draft-dirty="markSettingsDraftDirty"
+      :save-settings-draft="saveSettingsDraft"
+      :copy-settings-to-draft="copySettingsToDraft"
       @connect-cookies="connectCookies"
       @connect-cookies-source="connectCookiesForSource"
       @remove-cookies="removeCookies"

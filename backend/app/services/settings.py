@@ -89,7 +89,7 @@ def _settings_managed_profiles(source_profiles: Iterable[dict[str, Any]]) -> lis
 def _configured_source_profiles(raw: Any) -> Any:
     if not isinstance(raw, dict):
         return {}
-    return raw.get("source_profiles") or raw.get("site_profiles") or {}
+    return raw.get("source_profiles") or {}
 
 
 def _config_fingerprint(config_profiles: list[dict[str, Any]]) -> tuple[Any, ...]:
@@ -265,26 +265,14 @@ def normalize_source_template_selection(
     profiles = _settings_managed_profiles(
         source_profiles if source_profiles is not None else get_effective_source_profiles(cfg)
     )
-    
-    from backend.app.services.tasks.formats import _entry_templates
-    from backend.app.services.tasks.store import load_learned_formats
-    learned = load_learned_formats()
-    
+
     out: dict[str, dict[str, dict[str, str]]] = {}
     for profile in profiles:
         key = normalize_source_key(profile.get("key"))
         raw_val = source.get(key) or source.get(str(profile.get("label") or ""))
-        
+
         out[key] = {}
-        if isinstance(raw_val, dict) and ("folder_template" in raw_val or "filename_template" in raw_val):
-            # Legacy flat platform-wide setting: migrate to the first learned format if possible
-            entry_templates = _entry_templates(learned.get(key) or {})
-            if entry_templates:
-                target_format = entry_templates[0]
-                normalized = normalize_template_settings(raw_val)
-                out[key][target_format] = migrate_template_settings_tokens(normalized, (token_roles or {}).get(key))
-        elif isinstance(raw_val, dict):
-            # Format-keyed templates
+        if isinstance(raw_val, dict):
             for format_template, val in raw_val.items():
                 if isinstance(val, dict):
                     normalized = normalize_template_settings(val)
@@ -304,7 +292,7 @@ def get_effective_template_settings(source_url: str = "") -> dict[str, str]:
         return base
     profile = get_source_profile_for_url(source_url, cfg, payload)
     source_templates = normalize_source_template_selection(
-        payload.get("source_templates") or payload.get("source_template_settings"),
+        payload.get("source_templates"),
         cfg,
         get_effective_source_profiles(cfg, payload, [profile["key"]]),
         base,
@@ -334,7 +322,6 @@ def get_effective_template_settings(source_url: str = "") -> dict[str, str]:
 
 # --- Scrape rules ---
 TOKEN_ROLES = {"creator", "title", "ignore"}
-LEGACY_TOKEN_ROLE_ALIASES = {"username": "creator", "nickname": "creator"}
 _TOKEN_NAME_RE = re.compile(r"[^a-zA-Z0-9_]+")
 
 
@@ -356,7 +343,6 @@ def normalize_source_token_roles(raw: Any) -> dict[str, dict[str, str]]:
             for raw_token, raw_role in raw_roles.items():
                 token = normalize_token_name(raw_token)
                 role = str(raw_role or "").strip().lower()
-                role = LEGACY_TOKEN_ROLE_ALIASES.get(role, role)
                 if not token or role not in TOKEN_ROLES:
                     continue
                 if role == "title":
@@ -371,7 +357,7 @@ def normalize_source_token_roles(raw: Any) -> dict[str, dict[str, str]]:
 
 def get_effective_token_roles(payload: dict[str, Any] | None = None) -> dict[str, dict[str, str]]:
     payload = payload if isinstance(payload, dict) else load_saved_settings_file()
-    return normalize_source_token_roles(payload.get("source_token_roles") or payload.get("token_roles"))
+    return normalize_source_token_roles(payload.get("source_token_roles"))
 
 
 def load_token_roles() -> dict[str, dict[str, str]]:
@@ -384,7 +370,7 @@ def get_effective_scrape_rules(payload: dict[str, Any] | None = None) -> dict[st
     from backend.app.services.tasks.enrich import normalize_scrape_rules
 
     payload = payload if isinstance(payload, dict) else load_saved_settings_file()
-    return normalize_scrape_rules(payload.get("source_scrape_rules") or payload.get("scrape_rules"))
+    return normalize_scrape_rules(payload.get("source_scrape_rules"))
 
 
 def load_scrape_rules() -> dict[str, Any]:
@@ -401,26 +387,15 @@ def normalize_slug_part(value: Any) -> str:
 
 
 def normalize_source_slug_tokens(raw: Any) -> dict[str, list[dict[str, str]]]:
-    # Per source, an ordered list of {part, token}. A part or token may appear once;
-    # empties and malformed entries are dropped so the resolver never sees junk.
+    # Per source, an ordered list of {part, token}. Blank tokens are preserved as
+    # an explicit "no slug token for this part" choice.
     source = raw if isinstance(raw, dict) else {}
     out: dict[str, list[dict[str, str]]] = {}
-    
-    from backend.app.services.tasks.formats import describe_learned_segments
-    from backend.app.services.tasks.store import load_learned_formats
-    learned_formats = load_learned_formats() or {}
 
     for raw_key, raw_list in source.items():
         key = normalize_source_key(raw_key)
         if not key or not isinstance(raw_list, list):
             continue
-            
-        learned = learned_formats.get(key)
-        selectable_parts = []
-        if learned:
-            desc = describe_learned_segments(learned)
-            segments = desc.get("segments") or []
-            selectable_parts = [s.get("part") for s in segments if s and not s.get("reserved")]
 
         tokens: list[dict[str, str]] = []
         seen_tokens: set[str] = set()
@@ -433,22 +408,10 @@ def normalize_source_slug_tokens(raw: Any) -> dict[str, list[dict[str, str]]]:
                 continue
             raw_token = item.get("token")
             token = normalize_token_name(raw_token)
-            if not token:
-                # Token is empty! We must assign it the default var#
-                if part in selectable_parts:
-                    idx = selectable_parts.index(part)
-                    token = f"var{idx}"
-                else:
-                    token = f"var{len(seen_parts)}"
-                if token in seen_tokens:
-                    suffix = 0
-                    while f"{token}_{suffix}" in seen_tokens:
-                        suffix += 1
-                    token = f"{token}_{suffix}"
-            else:
+            if token:
                 if token in seen_tokens:
                     continue
-            seen_tokens.add(token)
+                seen_tokens.add(token)
             seen_parts.add(part)
             tokens.append({"part": part, "token": token})
         if tokens:
@@ -533,8 +496,21 @@ def set_learned_format_templates(source_key: str, templates: Any) -> dict[str, A
     new_entry = dict(entry)
     new_entry["templates"] = ordered
     updated = dict(learned)
-    updated[key] = new_entry
+    if ordered:
+        updated[key] = new_entry
+    else:
+        updated.pop(key, None)
     save_learned_formats(updated)
+    if not ordered:
+        payload = load_saved_settings_file()
+        creator_fields = normalize_source_creator_fields(payload.get("source_creator_fields"))
+        if key in creator_fields:
+            creator_fields.pop(key, None)
+            if creator_fields:
+                payload["source_creator_fields"] = creator_fields
+            else:
+                payload.pop("source_creator_fields", None)
+            save_saved_settings_file(payload)
     return {"source_key": key, "templates": ordered}
 
 
@@ -884,13 +860,13 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
     return {
         "source_profiles": source_profiles,
         "site_locations": normalize_source_location_selection(
-            payload.get("source_locations") or payload.get("site_locations"),
+            payload.get("site_locations"),
             cfg,
             source_profiles,
         ),
         "template_settings": template_settings,
         "source_templates": normalize_source_template_selection(
-            payload.get("source_templates") or payload.get("source_template_settings"),
+            payload.get("source_templates"),
             cfg,
             source_profiles,
             template_settings,
@@ -930,13 +906,11 @@ def persist_settings(
             "source_profiles": (
                 raw_source_profiles
                 or existing.get("source_profiles")
-                or existing.get("site_profiles")
                 or {}
             ),
             "site_locations": raw_site_locations,
             "source_templates": raw_source_templates
             or existing.get("source_templates")
-            or existing.get("source_template_settings")
             or {},
         },
     )
@@ -944,12 +918,12 @@ def persist_settings(
     normalized_scrape_rules = normalize_scrape_rules(
         raw_scrape_rules
         if raw_scrape_rules is not None
-        else existing.get("source_scrape_rules") or existing.get("scrape_rules")
+        else existing.get("source_scrape_rules")
     )
     normalized_token_roles = normalize_source_token_roles(
         raw_token_roles
         if raw_token_roles is not None
-        else existing.get("source_token_roles") or existing.get("token_roles")
+        else existing.get("source_token_roles")
     )
     normalized_slug_tokens = normalize_source_slug_tokens(
         raw_slug_tokens if raw_slug_tokens is not None else existing.get("source_slug_tokens")

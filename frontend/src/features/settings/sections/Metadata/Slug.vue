@@ -20,6 +20,7 @@ import {
 import type { LearnedSegment, TokenRole } from "../../../../types";
 import { useSlugTokens } from "../../composables/useSlugTokens";
 import { useSettingsContext } from "../../context";
+import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
 import SettingsLabel from "../../SettingsLabel.vue";
 
 const ROLE_ITEMS: { key: TokenRole; label: string }[] = [
@@ -31,26 +32,38 @@ const ROLE_ITEMS: { key: TokenRole; label: string }[] = [
 const { settings, settingsDraft, editableSourceProfiles } = useSettingsContext();
 const {
   learnedFormat,
-  isSelected,
   tokenForPart,
-  setSelected,
   setTokenName,
-  suggestedToken,
   segmentLabel,
   displayTemplate,
   tokenRole,
   isTitleRoleDisabled,
-  setTokenRole,
+  setSegmentRole,
 } = useSlugTokens(settingsDraft, settings, editableSourceProfiles);
 
 function selectableSegments(key: string): LearnedSegment[] {
   return (learnedFormat(key)?.segments || []).filter((segment) => !segment.reserved);
 }
 
-function updateRole(key: string, token: string, value: unknown): void {
+function updateRole(key: string, segment: LearnedSegment, value: unknown): void {
   const next = String(value || "ignore") as TokenRole;
   const role = ROLE_ITEMS.some((item) => item.key === next) ? next : "ignore";
-  setTokenRole(key, token, role);
+  setSegmentRole(key, segment, role);
+}
+
+function segmentToken(key: string, segment: LearnedSegment): string {
+  return tokenForPart(key, segment.part, segment);
+}
+
+function roleValue(key: string, segment: LearnedSegment): TokenRole {
+  const token = segmentToken(key, segment);
+  return token ? tokenRole(key, token) : "ignore";
+}
+
+function roleDisabled(key: string, segment: LearnedSegment, role: TokenRole): boolean {
+  const token = segmentToken(key, segment);
+  if (!token) return role !== "ignore";
+  return role === "title" && isTitleRoleDisabled(key, token);
 }
 </script>
 
@@ -66,13 +79,12 @@ function updateRole(key: string, token: string, value: unknown): void {
       </AccordionTrigger>
 
       <AccordionContent>
-        <div
+        <SettingsEmptyCard
           v-if="!learnedFormat(site.key)"
-          class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55"
         >
           Download once from this source to learn its URL format, then choose which
           parts become tokens.
-        </div>
+        </SettingsEmptyCard>
 
         <div v-else class="flex flex-col gap-[0.85rem]">
           <SettingsLabel
@@ -83,14 +95,11 @@ function updateRole(key: string, token: string, value: unknown): void {
             {{ displayTemplate(site.key, template) }}
           </SettingsLabel>
 
-          <Card
+          <SettingsEmptyCard
             v-if="!selectableSegments(site.key).length"
-            class="px-6"
           >
-            <p class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55">
-              This platform has no configurable parts yet.
-            </p>
-          </Card>
+            This platform has no configurable parts yet.
+          </SettingsEmptyCard>
 
           <Card
             v-for="segment in selectableSegments(site.key)"
@@ -119,18 +128,15 @@ function updateRole(key: string, token: string, value: unknown): void {
               <div class="flex flex-col gap-1.5">
                 <SettingsLabel>Role</SettingsLabel>
                 <SegmentedControl
-                  :model-value="tokenRole(site.key, tokenForPart(site.key, segment.part, segment) || suggestedToken(site.key, segment))"
+                  :model-value="roleValue(site.key, segment)"
                   class="flex-wrap h-auto min-h-9"
-                  @update:model-value="(value) => updateRole(site.key, tokenForPart(site.key, segment.part, segment) || suggestedToken(site.key, segment), value)"
+                  @update:model-value="(value) => updateRole(site.key, segment, value)"
                 >
                   <SegmentedControlItem
                     v-for="role in ROLE_ITEMS"
                     :key="role.key"
                     :value="role.key"
-                    :disabled="
-                      role.key === 'title' &&
-                      isTitleRoleDisabled(site.key, tokenForPart(site.key, segment.part, segment) || suggestedToken(site.key, segment))
-                    "
+                    :disabled="roleDisabled(site.key, segment, role.key)"
                   >
                     {{ role.label }}
                   </SegmentedControlItem>

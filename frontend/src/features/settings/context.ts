@@ -1,22 +1,36 @@
 import { inject, provide, type ComputedRef, type InjectionKey } from "vue";
 
-import type { CookiesMap, RuntimeSettings, SavedSettings, SourceProfile } from "../../types";
+import type {
+  CookiesMap,
+  LearnedFormats,
+  ProbeFieldsResponse,
+  RuntimeSettings,
+  SettingsDraft,
+  SettingsSection,
+  SourceProfile,
+} from "../../types";
 
 // Shared state every settings section reads, provided once by the shell so panes
 // stay prop-free: adding a section never means threading more props through View.
 export interface SettingsContext {
   open: ComputedRef<boolean>;
   settings: RuntimeSettings;
-  settingsDraft: SavedSettings;
-  cookieStatuses: CookiesMap;
+  settingsDraft: SettingsDraft;
+  learnedFormatsDraft: LearnedFormats;
+  cookieStatuses: ComputedRef<CookiesMap>;
   editableSourceProfiles: ComputedRef<SourceProfile[]>;
   connectCookies: (platform: string, file?: File) => void;
   connectCookiesSource: (source: string, file?: File) => void;
   removeCookies: (platform: string) => void;
-  // Add a platform from a link and learn its format; resolves to the source key it hit.
+  // Stage a link's format in the accordion; Save performs the backend learn.
   learnFormat: (url: string) => Promise<string>;
-  // Persist a source's learned URL templates in a new order (reorder or delete). Live.
+  // Probe creator metadata. Successful learned fields are saved server-side.
+  probeCreatorFields: (url: string, sourceKey?: string) => Promise<ProbeFieldsResponse>;
+  // Stage a source's learned URL templates in a new order (reorder or delete).
   reorderFormatTemplates: (sourceKey: string, templates: string[]) => Promise<void>;
+  markSettingsDraftDirty: (section?: SettingsSection) => void;
+  saveSettingsDraft: () => Promise<void>;
+  copySettingsToDraft: () => void;
   close: () => void;
 }
 

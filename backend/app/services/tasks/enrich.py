@@ -14,7 +14,7 @@ from backend.app.services.settings import (
 )
 
 from .constants import TEMPLATE_RE
-from .formats import _canonical_shape, _entry_templates, _prepare_url, extract_url_part, match_template
+from .formats import _canonical_shape, _prepare_url, extract_url_part, match_template
 from .naming import sanitize_path_literal
 
 # Per-platform user rules turn a page's own markup into filename/folder tokens,
@@ -359,14 +359,10 @@ def resolve_scraped_tokens(
     learned = learned_formats if isinstance(learned_formats, dict) else {}
     matched = match_template(learned, source_key, source_url)
     canonical_matched = _canonical_shape(matched)
-    # A rule with no format is a pre-scoping (legacy) rule; treat it as the source's first
-    # learned template — the same target the UI migrates it to — so it keeps firing.
-    entry_templates = _entry_templates(learned.get(normalize_source_key(source_key)) or {})
-    default_format = entry_templates[0] if entry_templates else ""
     rules = [
         rule
         for rule in rules
-        if _canonical_shape(str(rule.get("format") or "") or default_format) == canonical_matched
+        if _canonical_shape(str(rule.get("format") or "")) == canonical_matched
     ]
     if not rules:
         return {}
@@ -387,39 +383,37 @@ def active_slug_rules_for_key(slug_map: Any, source_key: str) -> list[dict[str, 
             if isinstance(item, dict):
                 token = _normalize_token(item.get("token"))
                 part = str(item.get("part") or "").strip()
-                if token and part:
+                if part:
                     configured_by_part[part] = token
 
     from backend.app.services.tasks.formats import describe_learned_segments
     from backend.app.services.tasks.store import load_learned_formats
-    
+
     out: list[dict[str, str]] = []
     learned = load_learned_formats().get(normalize_source_key(source_key))
     if learned:
         desc = describe_learned_segments(learned)
         segments = desc.get("segments") or []
-        # Filter for selectable (not reserved) segments
         selectable = [s for s in segments if not s.get("reserved")]
-        
-        # Build the final list: use configured token if exists, else suggest/default one
+
         for idx, segment in enumerate(selectable):
             part = segment.get("part") or ""
             if not part:
                 continue
-            
-            # Check if configured by user
+
             if part in configured_by_part:
                 token = configured_by_part[part]
+                if not token:
+                    continue
             else:
-                # Fallback to suggested token
                 token = f"var{idx}"
-            
+
             out.append({"token": token, "part": part})
     else:
-        # Fallback if no learned formats exist yet (should match configured ones)
         for part, token in configured_by_part.items():
-            out.append({"token": token, "part": part})
-            
+            if token:
+                out.append({"token": token, "part": part})
+
     return out
 
 

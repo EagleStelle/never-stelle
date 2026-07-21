@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from backend.app.core.config import DATABASE_PATH
+from backend.app.core.sources import normalize_source_key
+
+_TOKEN_NAME_RE = re.compile(r"[^a-zA-Z0-9_]+")
 
 _DB_LOCK = threading.RLock()
 _INITIALIZED = False
@@ -61,7 +66,6 @@ CREATE TABLE IF NOT EXISTS formats (
     id_min INTEGER NOT NULL DEFAULT 0,
     id_max INTEGER NOT NULL DEFAULT 0,
     id_classes TEXT NOT NULL DEFAULT '',
-    id_part TEXT NOT NULL DEFAULT '',
     samples INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -151,22 +155,402 @@ def initialize_database() -> None:
         _INITIALIZED = True
 
 
+def _migrate_legacy_settings_json(connection: sqlite3.Connection) -> None:
+    row = connection.execute("SELECT value FROM settings WHERE key = ?", ("app",)).fetchone()
+    if not row or not row["value"]:
+        return
+    try:
+        payload = json.loads(row["value"])
+    except Exception:
+        return
+    if not isinstance(payload, dict):
+        return
+    
+    modified = False
+
+    # Migrate legacy JSON root keys and remove backwards compatibility definitions.
+    for old_key, new_key in [
+        ("site_profiles", "source_profiles"),
+        ("source_locations", "site_locations"),
+        ("source_template_settings", "source_templates"),
+        ("scrape_rules", "source_scrape_rules"),
+        ("token_roles", "source_token_roles"),
+    ]:
+        if old_key in payload:
+            if new_key not in payload:
+                payload[new_key] = payload[old_key]
+            del payload[old_key]
+            modified = True
+
+    first_templates = _first_format_templates(connection)
+
+    normalized_token_roles = _normalize_settings_token_roles(payload.get("source_token_roles"))
+    if payload.get("source_token_roles") != normalized_token_roles:
+        payload["source_token_roles"] = normalized_token_roles
+        modified = True
+
+    if "source_templates" in payload:
+        source_templates = _migrate_settings_source_templates(
+            payload.get("source_templates"),
+            first_templates,
+            normalized_token_roles,
+        )
+        if payload.get("source_templates") != source_templates:
+            payload["source_templates"] = source_templates
+            modified = True
+
+    if "source_scrape_rules" in payload:
+        source_scrape_rules = _migrate_settings_scrape_rules(
+            payload.get("source_scrape_rules"),
+            first_templates,
+        )
+        if payload.get("source_scrape_rules") != source_scrape_rules:
+            payload["source_scrape_rules"] = source_scrape_rules
+            modified = True
+
+    if modified:
+        now = datetime.now(UTC).isoformat()
+        connection.execute(
+            "UPDATE settings SET value = ?, updated_at = ? WHERE key = ?",
+            (json.dumps(payload, ensure_ascii=False), now, "app"),
+        )
+
+
+def _normalize_token_name(value: Any) -> str:
+    token = _TOKEN_NAME_RE.sub("_", str(value or "").strip()).strip("_")
+    if not token or not re.match(r"[a-zA-Z_]", token):
+        return ""
+    return token.lower()
+
+
+def _normalize_settings_token_roles(raw: Any) -> dict[str, dict[str, str]]:
+    source = raw if isinstance(raw, dict) else {}
+    out: dict[str, dict[str, str]] = {}
+    for raw_key, raw_roles in source.items():
+        key = normalize_source_key(raw_key)
+        if not key or not isinstance(raw_roles, dict):
+            continue
+        roles: dict[str, str] = {}
+        title_claimed = False
+        for raw_token, raw_role in raw_roles.items():
+            token = _normalize_token_name(raw_token)
+            role = str(raw_role or "").strip().lower()
+            if role in {"username", "nickname"}:
+                role = "creator"
+            if not token or role not in {"creator", "title", "ignore"}:
+                continue
+            if role == "title":
+                if title_claimed:
+                    continue
+                title_claimed = True
+            if role != "ignore":
+                roles[token] = role
+        if roles:
+            out[key] = roles
+    return out
+
+
+def _normalize_template_settings(raw: Any) -> dict[str, str]:
+    source = raw if isinstance(raw, dict) else {}
+    folder = str(source.get("folder_template") or "").strip() or "{{username}}"
+    filename = str(source.get("filename_template") or "").strip() or "{{username}} - {{title}} [{{id}}]"
+    return {"folder_template": folder, "filename_template": filename}
+
+
+def _migrate_template_tokens(template: str, token_roles: dict[str, str] | None = None) -> str:
+    roles = token_roles if isinstance(token_roles, dict) else {}
+    replacements = {
+        token: role
+        for token, role in roles.items()
+        if token and role == "title" and token != role
+    }
+    if not replacements:
+        return str(template or "").strip()
+
+    def replace(match: re.Match[str]) -> str:
+        token = _normalize_token_name(match.group(1))
+        return f"{{{{{replacements[token]}}}}}" if token in replacements else match.group(0)
+
+    return re.sub(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}", replace, str(template or "").strip())
+
+
+def _migrate_template_settings_tokens(
+    template_settings: Any,
+    token_roles: dict[str, str] | None = None,
+) -> dict[str, str]:
+    normalized = _normalize_template_settings(template_settings)
+    return {
+        "folder_template": _migrate_template_tokens(normalized["folder_template"], token_roles),
+        "filename_template": _migrate_template_tokens(normalized["filename_template"], token_roles),
+    }
+
+
+def _first_format_templates(connection: sqlite3.Connection) -> dict[str, str]:
+    out: dict[str, str] = {}
+    rows = connection.execute("SELECT source_key, templates FROM formats ORDER BY source_key").fetchall()
+    for row in rows:
+        key = normalize_source_key(row["source_key"])
+        templates = _decode_templates(row["templates"])
+        if key and templates:
+            out[key] = templates[0]
+    return out
+
+
+def _migrate_settings_source_templates(
+    raw: Any,
+    first_templates: dict[str, str],
+    token_roles: dict[str, dict[str, str]],
+) -> dict[str, dict[str, dict[str, str]]]:
+    source = raw if isinstance(raw, dict) else {}
+    out: dict[str, dict[str, dict[str, str]]] = {}
+    for raw_key, raw_value in source.items():
+        key = normalize_source_key(raw_key)
+        if not key or not isinstance(raw_value, dict):
+            continue
+        roles = token_roles.get(key)
+        if "folder_template" in raw_value or "filename_template" in raw_value:
+            target_format = first_templates.get(key, "")
+            if target_format:
+                out[key] = {
+                    target_format: _migrate_template_settings_tokens(raw_value, roles),
+                }
+            continue
+        formats: dict[str, dict[str, str]] = {}
+        for raw_format, raw_settings in raw_value.items():
+            if isinstance(raw_settings, dict):
+                fmt = str(raw_format or "").strip()
+                if fmt:
+                    formats[fmt] = _migrate_template_settings_tokens(raw_settings, roles)
+        if formats:
+            out[key] = formats
+    return out
+
+
+def _migrate_settings_scrape_rules(
+    raw: Any,
+    first_templates: dict[str, str],
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    source = raw if isinstance(raw, dict) else {}
+    out: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for raw_key, raw_platform in source.items():
+        key = normalize_source_key(raw_key)
+        if not key or not isinstance(raw_platform, dict):
+            continue
+        rules: list[dict[str, Any]] = []
+        seen_tokens: set[str] = set()
+        valid_count = 0
+        for raw_rule in raw_platform.get("rules") or []:
+            if not isinstance(raw_rule, dict):
+                continue
+            xpath = str(raw_rule.get("xpath") or "").strip()
+            selector = str(raw_rule.get("selector") or "").strip()
+            match_label = str(raw_rule.get("match_label") or "").strip()
+            if not xpath and not selector and not match_label:
+                continue
+            token = _normalize_token_name(raw_rule.get("token")) or f"var{valid_count}"
+            if token in seen_tokens:
+                suffix = 0
+                while f"{token}_{suffix}" in seen_tokens:
+                    suffix += 1
+                token = f"{token}_{suffix}"
+            seen_tokens.add(token)
+            rules.append(
+                {
+                    "token": token,
+                    "match_label": match_label,
+                    "selector": selector,
+                    "attr": str(raw_rule.get("attr") or "").strip() or "text",
+                    "multi": bool(raw_rule.get("multi")),
+                    "xpath": xpath,
+                    "format": str(raw_rule.get("format") or "").strip() or first_templates.get(key, ""),
+                }
+            )
+            valid_count += 1
+        if rules:
+            out[key] = {"rules": rules}
+    return out
+
+
 def _migrate_schema(connection: sqlite3.Connection) -> None:
     # Add columns to older databases that predate them; CREATE IF NOT EXISTS won't.
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(formats)")}
+    if "host" not in columns:
+        connection.execute("ALTER TABLE formats ADD COLUMN host TEXT NOT NULL DEFAULT ''")
+        columns.add("host")
     if "templates" not in columns:
         connection.execute("ALTER TABLE formats ADD COLUMN templates TEXT NOT NULL DEFAULT ''")
         columns.add("templates")
     if "url_creator_fields" not in columns:
         connection.execute("ALTER TABLE formats ADD COLUMN url_creator_fields TEXT NOT NULL DEFAULT ''")
         columns.add("url_creator_fields")
+    if "id_min" not in columns:
+        connection.execute("ALTER TABLE formats ADD COLUMN id_min INTEGER NOT NULL DEFAULT 0")
+        columns.add("id_min")
+    if "id_max" not in columns:
+        connection.execute("ALTER TABLE formats ADD COLUMN id_max INTEGER NOT NULL DEFAULT 0")
+        columns.add("id_max")
+    if "id_classes" not in columns:
+        connection.execute("ALTER TABLE formats ADD COLUMN id_classes TEXT NOT NULL DEFAULT ''")
+        columns.add("id_classes")
+    if "samples" not in columns:
+        connection.execute("ALTER TABLE formats ADD COLUMN samples INTEGER NOT NULL DEFAULT 0")
+        columns.add("samples")
+    if "created_at" not in columns:
+        connection.execute("ALTER TABLE formats ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
+        columns.add("created_at")
+    if "updated_at" not in columns:
+        connection.execute("ALTER TABLE formats ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
+        columns.add("updated_at")
     if "template" in columns:
         _migrate_format_templates(connection)
-    if "template" in columns or "creator_part" in columns:
+    if {"template", "creator_part", "id_part"} & columns:
         _drop_format_legacy_columns(connection)
     connection.execute("UPDATE queue SET source_key = '' WHERE source_key = 'others'")
     connection.execute("UPDATE history SET source_key = '' WHERE source_key = 'others'")
     connection.execute("DELETE FROM cookies WHERE key = 'ytdlp_cookies::others'")
+    _migrate_legacy_learned_formats_row(connection)
+    _migrate_legacy_settings_json(connection)
+
+
+def _decode_json(value: str | None, fallback: Any) -> Any:
+    if not value:
+        return fallback
+    try:
+        return json.loads(value)
+    except Exception:
+        return fallback
+
+
+def _dedupe_text_list(values: Any) -> list[str]:
+    if isinstance(values, str):
+        raw = values.strip()
+        if not raw:
+            values = []
+        elif raw.startswith("["):
+            decoded = _decode_json(raw, [])
+            values = decoded if isinstance(decoded, list) else [raw]
+        else:
+            values = [raw]
+    if not isinstance(values, list):
+        return []
+    out: list[str] = []
+    for item in values:
+        value = str(item or "").strip()
+        if value and value not in out:
+            out.append(value)
+    return out
+
+
+def _normalize_legacy_creator_fields(value: Any) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    for role in ("username", "nickname"):
+        fields = _dedupe_text_list(value.get(role))
+        if fields:
+            out[role] = fields
+    return out
+
+
+def _merge_creator_fields(
+    first: dict[str, list[str]],
+    second: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    merged: dict[str, list[str]] = {}
+    for role in ("username", "nickname"):
+        values: list[str] = []
+        for source in (first, second):
+            for field in source.get(role, []):
+                if field not in values:
+                    values.append(field)
+        if values:
+            merged[role] = values
+    return merged
+
+
+def _int_or_zero(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except Exception:
+        return 0
+
+
+def _id_classes(value: Any) -> str:
+    if isinstance(value, list):
+        return ",".join(sorted(str(item).strip() for item in value if str(item).strip()))
+    return ",".join(item for item in str(value or "").split(",") if item)
+
+
+def _normalize_legacy_format_payload(payload: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for raw_key, raw_entry in payload.items():
+        key = normalize_source_key(raw_key)
+        if not key:
+            continue
+        entry = raw_entry if isinstance(raw_entry, dict) else {"template": raw_entry}
+        templates = _dedupe_text_list(entry.get("templates"))
+        template = str(entry.get("template") or "").strip()
+        if template and template not in templates:
+            templates = [template, *templates]
+        if not templates:
+            continue
+        normalized[key] = {
+            "templates": templates,
+            "url_creator_fields": _normalize_legacy_creator_fields(entry.get("url_creator_fields")),
+            "host": str(entry.get("host") or ""),
+            "id_min": _int_or_zero(entry.get("id_min")),
+            "id_max": _int_or_zero(entry.get("id_max")),
+            "id_classes": _id_classes(entry.get("id_classes")),
+            "samples": _int_or_zero(entry.get("samples")),
+        }
+    return normalized
+
+
+def _migrate_legacy_learned_formats_row(connection: sqlite3.Connection) -> None:
+    row = connection.execute("SELECT value FROM settings WHERE key = ?", ("learned_formats",)).fetchone()
+    if not row:
+        return
+
+    payload = _decode_json(row["value"], {})
+    normalized = _normalize_legacy_format_payload(payload)
+    now = datetime.now(UTC).isoformat()
+
+    for key, entry in normalized.items():
+        existing = connection.execute("SELECT * FROM formats WHERE source_key = ?", (key,)).fetchone()
+        existing_templates = _decode_templates(existing["templates"] if existing else "")
+        templates = [*existing_templates]
+        for template in entry["templates"]:
+            if template not in templates:
+                templates.append(template)
+        existing_creator_fields = _normalize_legacy_creator_fields(
+            _decode_json(existing["url_creator_fields"] if existing else "", {})
+        )
+        creator_fields = _merge_creator_fields(existing_creator_fields, entry["url_creator_fields"])
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO formats (
+                source_key, host, templates, url_creator_fields, id_min, id_max, id_classes,
+                samples, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                key,
+                str((existing["host"] if existing else "") or entry["host"] or ""),
+                json.dumps(templates, ensure_ascii=False),
+                json.dumps(creator_fields, ensure_ascii=False),
+                _int_or_zero((existing["id_min"] if existing else 0) or entry["id_min"]),
+                _int_or_zero((existing["id_max"] if existing else 0) or entry["id_max"]),
+                str((existing["id_classes"] if existing else "") or entry["id_classes"] or ""),
+                _int_or_zero((existing["samples"] if existing else 0) or entry["samples"]),
+                str((existing["created_at"] if existing else "") or now),
+                now,
+            ),
+        )
+
+    connection.execute("DELETE FROM settings WHERE key = ?", ("learned_formats",))
 
 
 def _decode_templates(value: str | None) -> list[str]:
@@ -212,7 +596,6 @@ def _drop_format_legacy_columns(connection: sqlite3.Connection) -> None:
             id_min INTEGER NOT NULL DEFAULT 0,
             id_max INTEGER NOT NULL DEFAULT 0,
             id_classes TEXT NOT NULL DEFAULT '',
-            id_part TEXT NOT NULL DEFAULT '',
             samples INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -223,12 +606,12 @@ def _drop_format_legacy_columns(connection: sqlite3.Connection) -> None:
         """
         INSERT INTO formats_next (
             source_key, host, templates, url_creator_fields, id_min, id_max, id_classes,
-            id_part, samples, created_at, updated_at
+            samples, created_at, updated_at
         )
         SELECT source_key, COALESCE(host, ''), COALESCE(templates, ''),
                COALESCE(url_creator_fields, ''),
                COALESCE(id_min, 0), COALESCE(id_max, 0), COALESCE(id_classes, ''),
-               COALESCE(id_part, ''), COALESCE(samples, 0),
+               COALESCE(samples, 0),
                created_at, updated_at
         FROM formats
         """

@@ -90,7 +90,6 @@ def _format_entry_from_row(row: Any) -> dict[str, Any]:
         "templates": templates,
         "url_creator_fields": url_creator_fields,
         "host": str(row["host"] or ""),
-        "id_part": str(row["id_part"] or ""),
         "samples": int(row["samples"] or 0),
     }
     id_min = int(row["id_min"] or 0)
@@ -115,10 +114,6 @@ def _normalize_format_payload(payload: dict[str, Any]) -> dict[str, dict[str, An
             continue
         entry = dict(raw_entry)
         templates = _dedupe_templates(entry.get("templates"))
-        legacy_template = str(entry.pop("template", "") or "").strip()
-        entry.pop("creator_part", None)
-        if legacy_template and legacy_template not in templates:
-            templates = [legacy_template, *templates]
         if not templates:
             continue
         entry["templates"] = templates
@@ -151,9 +146,9 @@ def _save_format_rows(connection: Any, payload: dict[str, Any]) -> None:
             """
             INSERT OR REPLACE INTO formats (
                 source_key, host, templates, url_creator_fields, id_min, id_max, id_classes,
-                id_part, samples, created_at, updated_at
+                samples, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 key,
@@ -163,7 +158,6 @@ def _save_format_rows(connection: Any, payload: dict[str, Any]) -> None:
                 int(entry.get("id_min") or 0),
                 int(entry.get("id_max") or 0),
                 id_classes,
-                str(entry.get("id_part") or ""),
                 int(entry.get("samples") or 0),
                 existing.get(key, now),
                 now,
@@ -176,7 +170,7 @@ def load_learned_formats_payload() -> dict[str, Any]:
         rows = connection.execute(
             """
             SELECT source_key, host, templates, url_creator_fields, id_min, id_max, id_classes,
-                   id_part, samples
+                   samples
             FROM formats
             ORDER BY source_key
             """
@@ -189,14 +183,7 @@ def load_learned_formats_payload() -> dict[str, Any]:
                 if key and entry.get("templates"):
                     loaded[key] = entry
             return loaded
-
-        row = connection.execute("SELECT value FROM settings WHERE key = ?", ("learned_formats",)).fetchone()
-        payload = _decode(row["value"] if row else None, {})
-        payload = _normalize_format_payload(payload if isinstance(payload, dict) else {})
-        if payload:
-            _save_format_rows(connection, payload)
-            connection.execute("DELETE FROM settings WHERE key = ?", ("learned_formats",))
-        return payload
+        return {}
 
 
 def save_learned_formats_payload(payload: dict[str, Any]) -> None:

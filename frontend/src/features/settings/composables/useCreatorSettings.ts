@@ -1,9 +1,9 @@
 import { computed, reactive, watch, type ComputedRef } from "vue";
-import { toast } from "vue-sonner";
 
-import { probeCreatorFields } from "../../../api";
 import type {
   CreatorFieldRoles,
+  LearnedFormats,
+  ProbeFieldsResponse,
   ProbeField,
   RuntimeSettings,
   SavedSettings,
@@ -35,6 +35,13 @@ interface ProbeState {
   message: string;
 }
 
+interface CreatorSettingsActions {
+  probeCreatorFields: (
+    url: string,
+    sourceKey?: string,
+  ) => Promise<ProbeFieldsResponse>;
+}
+
 const DEFAULT_MAX_CHARS = 100;
 const FALLBACK_TITLE_LENGTH_RULE: TitleCleaningRule = {
   key: "shorten",
@@ -48,7 +55,9 @@ const probes = reactive<Record<string, ProbeState>>({});
 export function useCreatorSettings(
   settingsDraft: SavedSettings,
   settings: RuntimeSettings,
+  learnedFormatsDraft: LearnedFormats,
   editableSourceProfiles: ComputedRef<SourceProfile[]>,
+  actions: CreatorSettingsActions,
 ) {
 
   watch(
@@ -96,7 +105,27 @@ export function useCreatorSettings(
   }
 
   function sourceHasSavedCreatorFields(key: string): boolean {
-    return Boolean(settings.source_creator_fields[key]);
+    const roles = settings.source_creator_fields[key];
+    return Boolean(roles?.username?.length || roles?.nickname?.length);
+  }
+
+  function sourceHasSavedFormats(key: string): boolean {
+    return Boolean(settings.learned_formats?.[key]?.templates?.length);
+  }
+
+  function sourceHasDraftFormats(key: string): boolean {
+    if (Object.prototype.hasOwnProperty.call(learnedFormatsDraft, key)) {
+      return Boolean(learnedFormatsDraft[key]?.templates?.length);
+    }
+    return sourceHasSavedFormats(key);
+  }
+
+  function sourceFormatsClearedInDraft(key: string): boolean {
+    return (
+      sourceHasSavedFormats(key) &&
+      Object.prototype.hasOwnProperty.call(learnedFormatsDraft, key) &&
+      !learnedFormatsDraft[key]?.templates?.length
+    );
   }
 
   function sourceHasDraftCreatorFields(key: string): boolean {
@@ -105,12 +134,13 @@ export function useCreatorSettings(
   }
 
   function roleDefaultList(key: string, role: CreatorRole): string[] {
+    if (sourceFormatsClearedInDraft(key)) return [];
     if (sourceHasSavedCreatorFields(key)) {
       return settings.source_creator_fields[key]?.[role] || [];
     }
     const learned = settings.source_creator_field_defaults[key]?.[role] || [];
     if (learned.length) return learned;
-    return defaults.value[role];
+    return sourceHasDraftFormats(key) ? defaults.value[role] : [];
   }
 
   function scraperRoleTokens(key: string, role: CreatorRole): string[] {
@@ -318,7 +348,7 @@ export function useCreatorSettings(
     if (state?.loading) return;
     const url = (overrideUrl || state?.url || "").trim();
     if (!url) {
-      toast.error("Paste a link to test.");
+      if (state) state.message = "Paste a link to test.";
       return;
     }
     if (!state) {
@@ -330,17 +360,23 @@ export function useCreatorSettings(
     }
     const currentState = probes[key];
     try {
-      const response = await probeCreatorFields(url, key);
+      const response = await actions.probeCreatorFields(url, key);
       currentState.fields = response.fields;
       const learned = createCreatorFieldRoles(response.creator_fields || {});
       const targetKey = response.source_key || key;
-      const draftRoles = creatorRoles(targetKey);
-      draftRoles.username = mergeLearnedFields(targetKey, "username", learned.username);
-      draftRoles.nickname = mergeLearnedFields(targetKey, "nickname", learned.nickname);
-      settings.source_creator_fields[targetKey] = {
-        username: [...draftRoles.username],
-        nickname: [...draftRoles.nickname],
-      };
+      if (!response.saved) {
+        const draftRoles = creatorRoles(targetKey);
+        draftRoles.username = mergeLearnedFields(
+          targetKey,
+          "username",
+          learned.username,
+        );
+        draftRoles.nickname = mergeLearnedFields(
+          targetKey,
+          "nickname",
+          learned.nickname,
+        );
+      }
       currentState.message = response.fields.length ? "" : "No creator fields found.";
     } catch (error) {
       currentState.fields = [];

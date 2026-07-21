@@ -6,7 +6,6 @@ import IconSpinner from "~icons/material-symbols/sync";
 import IconTrash from "~icons/material-symbols/delete";
 
 import { Button } from "../../../../components/ui/button";
-import { Card } from "../../../../components/ui/card";
 import { Input } from "../../../../components/ui/input";
 import {
   Accordion,
@@ -16,21 +15,14 @@ import {
 } from "../../../../components/ui/accordion";
 import type { LearnedFormat } from "../../../../types";
 import { useSettingsContext } from "../../context";
-import { useCreatorSettings } from "../../composables/useCreatorSettings";
+import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
 
 const {
-  settings,
-  settingsDraft,
+  learnedFormatsDraft,
   editableSourceProfiles,
   learnFormat,
   reorderFormatTemplates,
 } = useSettingsContext();
-
-const { runProbe } = useCreatorSettings(
-  settingsDraft,
-  settings,
-  editableSourceProfiles,
-);
 
 const link = ref("");
 const learning = ref(false);
@@ -38,7 +30,7 @@ const learning = ref(false);
 const open = ref<string[]>([]);
 
 function learnedFormat(key: string): LearnedFormat | undefined {
-  return settings.learned_formats?.[key];
+  return learnedFormatsDraft?.[key];
 }
 
 function templatesFor(key: string): string[] {
@@ -54,7 +46,6 @@ async function submit(): Promise<void> {
     if (key) {
       link.value = "";
       if (!open.value.includes(key)) open.value.push(key);
-      await runProbe(key, url);
     }
   } finally {
     learning.value = false;
@@ -119,6 +110,7 @@ function isDropTarget(key: string, index: number): boolean {
       <Input
         id="formatLearnInput"
         v-model="link"
+        data-settings-system
         type="text"
         inputmode="url"
         placeholder="Paste a link"
@@ -147,14 +139,12 @@ function isDropTarget(key: string, index: number): boolean {
     </div>
   </div>
 
-  <Card
+  <SettingsEmptyCard
     v-if="editableSourceProfiles.length === 0"
-    class="mt-3 px-6"
+    class="mt-3"
   >
-    <p class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55">
-      No sources yet.
-    </p>
-  </Card>
+    No sources yet.
+  </SettingsEmptyCard>
 
   <Accordion v-else v-model="open" type="multiple" class="w-full">
     <AccordionItem
@@ -167,13 +157,11 @@ function isDropTarget(key: string, index: number): boolean {
       </AccordionTrigger>
 
       <AccordionContent>
-        <div
-          v-if="!learnedFormat(site.key)"
-          class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55"
+        <SettingsEmptyCard
+          v-if="!templatesFor(site.key).length"
         >
-          No format learned yet. Download once from this source, or paste a link
-          above.
-        </div>
+          No format learned yet.
+        </SettingsEmptyCard>
 
         <ul v-else class="flex flex-col gap-1">
           <li

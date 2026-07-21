@@ -16,6 +16,7 @@ import {
 import { Input } from "../../../../components/ui/input";
 import { Button } from "../../../../components/ui/button";
 import SettingsLabel from "../../SettingsLabel.vue";
+import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
 import { useSettingsContext } from "../../context";
 import { createTemplateSettings, normalizeTokenName } from "../../../../utils/dashboard";
 
@@ -138,12 +139,11 @@ function insert(siteKey: string, format: string, token: string): void {
       </AccordionTrigger>
 
       <AccordionContent>
-        <div
+        <SettingsEmptyCard
           v-if="!formatsFor(site.key).length"
-          class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55"
         >
           Download once from this source to learn its URL format, then customize its templates.
-        </div>
+        </SettingsEmptyCard>
 
         <div v-else class="flex flex-col gap-[0.85rem]">
           <Card

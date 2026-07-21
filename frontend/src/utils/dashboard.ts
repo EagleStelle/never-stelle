@@ -394,10 +394,12 @@ export function createSourceSlugTokens(
     const seenTokens = new Set<string>();
     for (const item of Array.isArray(list) ? list : []) {
       const entry = createSlugToken(item);
-      if (!entry.part || !entry.token) continue;
-      if (seenParts.has(entry.part) || seenTokens.has(entry.token)) continue;
+      if (!entry.part || seenParts.has(entry.part)) continue;
+      if (entry.token) {
+        if (seenTokens.has(entry.token)) continue;
+        seenTokens.add(entry.token);
+      }
       seenParts.add(entry.part);
-      seenTokens.add(entry.token);
       out.push(entry);
     }
     return out;
@@ -585,9 +587,11 @@ export function isSettingsSection(
     value === "downloads" ||
     value === "cookies" ||
     value === "quality" ||
+    value === "format" ||
     value === "templates" ||
     value === "creator" ||
-    value === "scraper"
+    value === "scraper" ||
+    value === "slug"
   );
 }
 

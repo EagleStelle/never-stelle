@@ -85,6 +85,7 @@ def test_normalize_source_slug_tokens_validates_parts_and_dedupes():
                 {"part": "path:2", "token": "Chapter"},
                 {"part": "path:2", "token": "dupe-part"},
                 {"part": "path:3", "token": "chapter"},
+                {"part": "path:4", "token": ""},
                 {"part": "bogus", "token": "nope"},
                 {"part": "query:v", "token": "video"},
                 "junk",
@@ -95,9 +96,31 @@ def test_normalize_source_slug_tokens_validates_parts_and_dedupes():
     # Token name is normalized; a repeated part or token is dropped; malformed parts drop.
     assert result["rule34video"] == [
         {"part": "path:2", "token": "chapter"},
+        {"part": "path:4", "token": ""},
         {"part": "query:v", "token": "video"},
     ]
     assert "" not in result
+
+
+def test_blank_source_slug_token_disables_default_slug_mapping(monkeypatch):
+    import backend.app.services.tasks.store as store_mod
+    from backend.app.services.tasks.enrich import active_slug_rules_for_key
+    from backend.app.services.tasks.formats import learn_download
+
+    learned = learn_download(
+        {},
+        "https://rule34video.com/video/3238394/wsds-minus8/",
+        "3238394",
+    )
+    monkeypatch.setattr(store_mod, "load_learned_formats", lambda: learned)
+
+    assert (
+        active_slug_rules_for_key(
+            {"rule34video": [{"part": "path:2", "token": ""}]},
+            "rule34video",
+        )
+        == []
+    )
 
 
 def test_resolve_slug_tokens_maps_url_part_to_role_and_custom_token(monkeypatch):
@@ -139,24 +162,25 @@ def test_normalize_source_token_roles_keeps_known_roles():
     assert result == {"rule34video": {"artist_name": "creator", "title": "title"}}
 
 
-def test_normalize_source_templates_migrates_role_backed_scrape_tokens(monkeypatch):
-    import backend.app.services.tasks.store as store_mod
-    monkeypatch.setattr(
-        store_mod,
-        "load_learned_formats",
-        lambda: {"rule34video": {"templates": ["https://rule34video.com/video/{id}/{creator}"], "segments": []}}
-    )
-
+def test_normalize_source_templates_migrates_role_backed_scrape_tokens():
+    format_template = "https://rule34video.com/video/{id}/{creator}"
     profiles = [{"key": "rule34video", "label": "Rule34Video"}]
     result = normalize_source_template_selection(
-        {"rule34video": {"folder_template": "{{artist}}", "filename_template": "{{caption}} [{{id}}]"}},
+        {
+            "rule34video": {
+                format_template: {
+                    "folder_template": "{{artist}}",
+                    "filename_template": "{{caption}} [{{id}}]",
+                }
+            }
+        },
         {},
         profiles,
         normalize_template_settings({}),
-        {"rule34video": {"artist": "username", "caption": "title"}},
+        {"rule34video": {"caption": "title"}},
     )
 
-    assert result["rule34video"]["https://rule34video.com/video/{id}/{creator}"] == {
+    assert result["rule34video"][format_template] == {
         "folder_template": "{{artist}}",
         "filename_template": "{{title}} [{{id}}]",
     }
@@ -293,6 +317,39 @@ def test_source_creator_field_defaults_include_learned_first(monkeypatch):
     assert "uploader_id" in defaults["tiktok"]["username"]
 
 
+def test_clearing_last_format_clears_source_creator_fields(tmp_path, monkeypatch):
+    import backend.app.db.database as database_module
+    from backend.app.db import repositories
+
+    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    format_template = "https://www.tiktok.com/@{creator}/video/{id}"
+    repositories.save_learned_formats_payload(
+        {
+            "tiktok": {
+                "templates": [format_template],
+                "url_creator_fields": {"username": ["uploader"]},
+            }
+        }
+    )
+    settings_module.save_saved_settings_file(
+        {
+            "source_creator_fields": {
+                "tiktok": {
+                    "username": ["channel"],
+                    "nickname": ["uploader"],
+                }
+            }
+        }
+    )
+
+    result = settings_module.set_learned_format_templates("tiktok", [])
+
+    assert result == {"source_key": "tiktok", "templates": []}
+    assert repositories.load_learned_formats_payload() == {}
+    assert settings_module.load_saved_settings_file().get("source_creator_fields", {}) == {}
+
+
 def test_save_learned_creator_fields_persists_only_real_probe_fields(monkeypatch):
     import backend.app.services.tasks.learning as learning_mod
 
@@ -392,31 +449,22 @@ def test_normalize_template_blank_falls_back():
     assert result["filename_template"] == BUILTIN_FILENAME_TEMPLATE
 
 
-def test_normalize_source_templates_keeps_per_source_values(monkeypatch):
-    import backend.app.services.tasks.store as store_mod
-    monkeypatch.setattr(
-        store_mod,
-        "load_learned_formats",
-        lambda: {
-            "rule34video": {"templates": ["https://rule34video.com/video/{id}/{creator}"], "segments": []},
-            "youtube": {"templates": ["https://www.youtube.com/watch?v={id}"], "segments": []}
-        }
-    )
-
+def test_normalize_source_templates_keeps_per_source_values():
+    format_template = "https://rule34video.com/video/{id}/{creator}"
     profiles = [
         {"key": "youtube", "label": "YouTube"},
         {"key": "rule34video", "label": "Rule34Video"},
     ]
     result = normalize_source_template_selection(
-        {"rule34video": {"folder_template": "{{id}}", "filename_template": "{{title}}"}},
+        {"rule34video": {format_template: {"folder_template": "{{id}}", "filename_template": "{{title}}"}}},
         {},
         profiles,
         normalize_template_settings({}),
     )
 
     assert result["youtube"] == {}
-    assert result["rule34video"]["https://rule34video.com/video/{id}/{creator}"]["folder_template"] == "{{id}}"
-    assert result["rule34video"]["https://rule34video.com/video/{id}/{creator}"]["filename_template"] == "{{title}}"
+    assert result["rule34video"][format_template]["folder_template"] == "{{id}}"
+    assert result["rule34video"][format_template]["filename_template"] == "{{title}}"
 
 
 def test_get_effective_template_settings_uses_format_keyed_source_template(monkeypatch):

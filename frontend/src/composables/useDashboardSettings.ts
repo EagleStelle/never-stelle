@@ -1,11 +1,11 @@
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
-import { watchDebounced } from "@vueuse/core";
+import { computed, nextTick, reactive, ref, watch } from "vue";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 
 import {
   deletePlatformCookies,
   getUiConfig,
   learnPlatformFormat,
+  probeCreatorFields as probeCreatorFieldsRequest,
   saveSettings,
   setFormatTemplates,
   uploadPlatformCookies,
@@ -15,9 +15,12 @@ import { DEFAULT_SOURCE_PROFILES, UI_CONFIG_QUERY_KEY } from "../ui";
 import type {
   CookiesMap,
   CookiesStatus,
+  CreatorFieldRoles,
   LearnedFormats,
+  ProbeFieldsResponse,
   RuntimeSettings,
   SavedSettings,
+  SettingsDraft,
   SettingsSection,
   SourceCreatorFields,
   SourceLocations,
@@ -43,10 +46,14 @@ import {
   createSourceTitleCleaning,
   createSourceTokenRoles,
   createTemplateSettings,
+  displayHost,
   errorMessage,
+  faviconUrlForHost,
+  hostFromUrl,
   mergeSourceProfiles,
   normalizeSourceKey,
   settingsManagedSourceProfiles,
+  sourceLabelFromKey,
 } from "../utils/dashboard";
 
 function replaceRecord<T>(
@@ -68,13 +75,41 @@ function replaceProfiles(
   );
 }
 
+function cloneJson<T>(source: T): T {
+  return JSON.parse(JSON.stringify(source)) as T;
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function stableValue(source: unknown): unknown {
+  if (Array.isArray(source)) return source.map((item) => stableValue(item));
+  if (!source || typeof source !== "object") return source;
+  return Object.fromEntries(
+    Object.keys(source as Record<string, unknown>)
+      .sort()
+      .map((key) => [key, stableValue((source as Record<string, unknown>)[key])]),
+  );
+}
+
+function replaceLearnedFormats(
+  target: LearnedFormats,
+  source: LearnedFormats = {},
+): void {
+  for (const key of Object.keys(target)) delete target[key];
+  Object.assign(target, cloneJson(source));
+}
+
 function recordForProfiles<T>(
   source: Record<string, T> = {},
   profiles: SourceProfile[],
 ): Record<string, T> {
   const keys = new Set(profiles.map((profile) => profile.key));
   return Object.fromEntries(
-    Object.entries(source).filter(([key]) => keys.has(normalizeSourceKey(key))),
+    Object.entries(source)
+      .map(([key, value]) => [normalizeSourceKey(key), value] as const)
+      .filter(([key]) => key && keys.has(key)),
   ) as Record<string, T>;
 }
 
@@ -82,17 +117,296 @@ function createCookiesMap(
   source: Record<string, Partial<CookiesStatus>> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
 ): CookiesMap {
+  const normalizedSource = Object.fromEntries(
+    Object.entries(source)
+      .map(([key, value]) => [normalizeSourceKey(key), value] as const)
+      .filter(([key]) => key),
+  ) as Record<string, Partial<CookiesStatus>>;
   const keys = new Set([
     ...profiles.map((profile) => profile.key),
-    ...Object.keys(source).map(normalizeSourceKey),
+    ...Object.keys(normalizedSource),
   ]);
   return Object.fromEntries(
-    [...keys].map((key) => [key, createCookiesStatus(source[key] || {})]),
+    [...keys].map((key) => [
+      key,
+      createCookiesStatus(normalizedSource[key] || {}),
+    ]),
   ) as CookiesMap;
 }
 
 interface UseDashboardSettingsOptions {
   toast: (message: string, type?: ToastType) => void;
+}
+
+interface PendingFormatLearn {
+  url: string;
+  sourceKey: string;
+  template: string;
+}
+
+const ID_TOKEN = "{id}";
+const CREATOR_TOKEN = "{creator}";
+const VAR_TOKEN = "{var}";
+const COMMON_SECOND_LEVEL_TLDS = new Set(["ac", "co", "com", "edu", "gov", "net", "org"]);
+const ROUTE_SEGMENT_RE = /^[a-z][a-z-]{0,24}s?$/;
+const IDENTIFIER_KEY_RE = /(^|[_-])(id|key|video|media|post|clip|item|view|watch|v)([_-]|$)/;
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function preparedUrl(value: string): string {
+  const url = String(value || "").trim();
+  return url && !url.includes("://") ? `https://${url}` : url;
+}
+
+function domainStem(host: string): string {
+  const parts = displayHost(host).split(".").filter(Boolean);
+  if (!parts.length) return "";
+  if (parts.length >= 3 && parts.at(-1)?.length === 2 && COMMON_SECOND_LEVEL_TLDS.has(parts.at(-2) || "")) {
+    return parts.at(-3) || "";
+  }
+  return parts.length >= 2 ? parts.at(-2) || "" : parts[0];
+}
+
+function sourceKeyFromUrlDraft(url: string, profiles: SourceProfile[]): string {
+  const host = hostFromUrl(url);
+  if (!host) return "";
+  for (const profile of profiles) {
+    for (const pattern of profile.hosts || []) {
+      const normalized = hostFromUrl(String(pattern).replace(/^\*\./, ""));
+      if (normalized && (host === normalized || host.endsWith(`.${normalized}`))) {
+        return normalizeSourceKey(profile.key);
+      }
+    }
+  }
+  return normalizeSourceKey(domainStem(host));
+}
+
+function sourceProfileFromUrlDraft(url: string, profiles: SourceProfile[]): SourceProfile | null {
+  const host = hostFromUrl(url);
+  const key = sourceKeyFromUrlDraft(url, profiles);
+  if (!host || !key) return null;
+  const existing = profiles.find((profile) => normalizeSourceKey(profile.key) === key);
+  if (existing) {
+    return createSourceProfile({
+      ...existing,
+      hosts: [...new Set([...(existing.hosts || []), host])],
+      icon_url: existing.icon_url || faviconUrlForHost(host),
+    });
+  }
+  return createSourceProfile({
+    key,
+    label: sourceLabelFromKey(key),
+    hosts: [host],
+    icon_url: faviconUrlForHost(host),
+    settings_managed: true,
+  });
+}
+
+function pathSegments(path: string): string[] {
+  return String(path || "")
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => safeDecode(segment).trim())
+    .filter(Boolean);
+}
+
+function idClasses(value: string): Set<string> {
+  const classes = new Set<string>();
+  for (const ch of value) {
+    if (/\d/.test(ch)) classes.add("d");
+    else if (/[a-z]/.test(ch)) classes.add("l");
+    else if (/[A-Z]/.test(ch)) classes.add("u");
+    else if (ch === "-" || ch === "_") classes.add(ch);
+    else classes.add("o");
+  }
+  return classes;
+}
+
+function looksLikeSlug(value: string): boolean {
+  const text = safeDecode(String(value || "")).trim();
+  return text.length >= 3 && /[a-z]/i.test(text) && /[-_ ]/.test(text);
+}
+
+function isRouteSegment(value: string): boolean {
+  return ROUTE_SEGMENT_RE.test(safeDecode(String(value || "")).trim());
+}
+
+function isIdentifierKey(key: string): boolean {
+  const value = String(key || "").trim().toLowerCase();
+  return value === "v" || IDENTIFIER_KEY_RE.test(value);
+}
+
+function identifierScore(value: string, key = "", pathContext = false): number {
+  const token = safeDecode(String(value || "")).trim();
+  if (!token || token.length > 256 || /\s/.test(token)) return 0;
+  const classes = idClasses(token);
+  let score = 0;
+  if (isIdentifierKey(key)) score += 3;
+  if (/\d/.test(token)) score += 1;
+  if (token.length >= 5) score += 1;
+  if (token.length >= 10) score += 1;
+  if (token.length >= 16) score += 1;
+  if ((classes.has("l") || classes.has("u")) && /\d/.test(token)) score += 1;
+  if (classes.has("-") || classes.has("_")) score += 1;
+  if (/^\d+$/.test(token) && !isIdentifierKey(key)) score += token.length >= 6 ? 1 : -1;
+  const parts = token.split(/[-_]/).filter(Boolean);
+  const wordRuns = token.toLowerCase().match(/[a-z]{2,}/g) || [];
+  if (parts.length >= 2 && wordRuns.length >= 2 && !isIdentifierKey(key)) score -= 4;
+  if (isRouteSegment(token) && !isIdentifierKey(key)) score -= 2;
+  if (pathContext && token.startsWith("@")) score -= 2;
+  return Math.max(0, score);
+}
+
+function inferPathIdIndex(segments: string[]): number | null {
+  const anchors: Array<[number, number, number]> = [];
+  for (let index = 0; index < segments.length; index += 1) {
+    const token = segments[index];
+    if (!/^\d+$/.test(token) || token.length < 3) continue;
+    const before = segments[index - 1] || "";
+    const after = segments[index + 1] || "";
+    if (!looksLikeSlug(before) && !looksLikeSlug(after)) continue;
+    const routeContext = Number(isRouteSegment(before) || isRouteSegment(after));
+    if (routeContext || token.length >= 6) anchors.push([routeContext, token.length, -index]);
+  }
+  if (anchors.length) {
+    anchors.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+    return -anchors[anchors.length - 1][2];
+  }
+
+  const scored = segments
+    .map((segment, index) => [identifierScore(segment, "", true), index] as const)
+    .filter(([score]) => score >= 3)
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (scored.length) return scored[scored.length - 1][1];
+  if (segments.length >= 2 && isRouteSegment(segments[segments.length - 2])) {
+    return segments.length - 1;
+  }
+  return null;
+}
+
+function inferQueryIdKey(params: URLSearchParams): string {
+  let best: [number, string] = [0, ""];
+  for (const [key, value] of params.entries()) {
+    const score = identifierScore(value, key);
+    if (score > best[0]) best = [score, key];
+  }
+  return best[0] >= 3 ? best[1] : "";
+}
+
+function queryPairs(params: URLSearchParams, onlyImportant: boolean): Array<[string, string]> {
+  const scored = [...params.entries()].map(([key, value]) => ({
+    key,
+    value,
+    score: identifierScore(value, key),
+  }));
+  const important = scored.filter((item) => item.score >= 3);
+  return (onlyImportant && important.length ? important : scored).map((item) => [item.key, item.value]);
+}
+
+function encodeQueryValue(value: string): string {
+  return encodeURIComponent(value).replace(/%7B/g, "{").replace(/%7D/g, "}");
+}
+
+function canonicalDraftUrl(sourceUrl: string): URL | null {
+  try {
+    const parsed = new URL(preparedUrl(sourceUrl));
+    parsed.protocol = parsed.protocol.toLowerCase();
+    parsed.hostname = parsed.hostname.toLowerCase();
+    parsed.hash = "";
+    parsed.pathname = parsed.pathname.replace(/\/+/g, "/");
+    if (parsed.pathname !== "/") parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function creatorIndexForPathId(segments: string[], idIndex: number | null): number | null {
+  if (idIndex === null) return null;
+  let candidate = idIndex - 1;
+  if (candidate < 0) return null;
+  if (isRouteSegment(segments[candidate])) candidate -= 1;
+  return candidate >= 0 && segments[candidate] ? candidate : null;
+}
+
+function draftTemplateFromUrl(sourceUrl: string): string {
+  const parsed = canonicalDraftUrl(sourceUrl);
+  if (!parsed) return "";
+  const decodedSegments = pathSegments(parsed.pathname);
+  const pathIdIndex = inferPathIdIndex(decodedSegments);
+  const queryIdKey = pathIdIndex === null ? inferQueryIdKey(parsed.searchParams) : "";
+  if (pathIdIndex === null && !queryIdKey) return "";
+
+  const rawSegments = parsed.pathname.split("/").filter(Boolean);
+  const creatorIndex = creatorIndexForPathId(decodedSegments, pathIdIndex);
+  if (pathIdIndex !== null && rawSegments[pathIdIndex]) rawSegments[pathIdIndex] = ID_TOKEN;
+  if (creatorIndex !== null && rawSegments[creatorIndex] && decodedSegments[creatorIndex]) {
+    rawSegments[creatorIndex] = decodedSegments[creatorIndex].startsWith("@")
+      ? `@${CREATOR_TOKEN}`
+      : CREATOR_TOKEN;
+  }
+
+  const path = rawSegments.length ? `/${rawSegments.join("/")}` : "";
+  const pairs = pathIdIndex === null ? queryPairs(parsed.searchParams, true) : [];
+  const query = pairs
+    .map(([key, value]) =>
+      `${encodeURIComponent(key)}=${queryIdKey === key ? ID_TOKEN : encodeQueryValue(value)}`,
+    )
+    .join("&");
+  return `${parsed.protocol}//${parsed.host}${path}${query ? `?${query}` : ""}`;
+}
+
+function describeDraftTemplates(templates: string[]): LearnedFormats[string] {
+  const seen = new Map<string, LearnedFormats[string]["segments"][number]>();
+  const segments: LearnedFormats[string]["segments"] = [];
+  for (const template of templates) {
+    const parsed = canonicalDraftUrl(template);
+    if (!parsed) continue;
+    const rawSegments = parsed.pathname.split("/").filter(Boolean);
+    for (let index = 0; index < rawSegments.length; index += 1) {
+      const segment = rawSegments[index];
+      const decoded = safeDecode(segment);
+      const part = `path:${index}`;
+      let item: LearnedFormats[string]["segments"][number];
+      if (decoded === ID_TOKEN) item = { part, label: ID_TOKEN, kind: "id", reserved: true };
+      else if (decoded === CREATOR_TOKEN || decoded === `@${CREATOR_TOKEN}`) {
+        item = { part, label: CREATOR_TOKEN, kind: "creator", reserved: true };
+      } else if (decoded === VAR_TOKEN) {
+        item = { part, label: VAR_TOKEN, kind: "var", reserved: false };
+      } else {
+        item = {
+          part,
+          label: decoded,
+          kind: "literal",
+          reserved: !looksLikeSlug(segment),
+        };
+      }
+      if (!seen.has(part)) {
+        seen.set(part, item);
+        segments.push(item);
+      } else if (item.reserved && !seen.get(part)?.reserved) {
+        Object.assign(seen.get(part)!, item);
+      }
+    }
+    for (const [key, value] of parsed.searchParams.entries()) {
+      const part = `query:${key}`;
+      const item: LearnedFormats[string]["segments"][number] =
+        value === ID_TOKEN
+          ? { part, label: `${key}=${ID_TOKEN}`, kind: "id", reserved: true }
+          : { part, label: `${key}=${value}`, kind: "query", reserved: false };
+      if (!seen.has(part)) {
+        seen.set(part, item);
+        segments.push(item);
+      }
+    }
+  }
+  return { templates, segments };
 }
 
 export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
@@ -131,7 +445,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     title_cleaning_rules: [],
     learned_formats: {},
   });
-  const settingsDraft = reactive<SavedSettings>({
+  const settingsDraft = reactive<SettingsDraft>({
+    account: {
+      username: "",
+      current_password: "",
+      new_password: "",
+      confirm_password: "",
+    },
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
     site_locations: createSourceLocations(),
     template_settings: createTemplateSettings(),
@@ -143,11 +463,24 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_creator_fields: createSourceCreatorFields(),
     source_title_cleaning: createSourceTitleCleaning(),
   });
+  const learnedFormatsDraft = reactive<LearnedFormats>({});
+  const pendingCookieUploads = reactive<
+    Record<string, { platform: string; file: File }>
+  >({});
+  const pendingCookieSourceUploads = reactive<
+    Record<string, { source: string; file: File }>
+  >({});
+  const pendingCookieDeletes = reactive<Record<string, boolean>>({});
+  const pendingFormatLearns = reactive<Record<string, PendingFormatLearn>>({});
 
   const settingsOpen = ref(false);
   const settingsSection = ref<SettingsSection>("downloads");
   const lastFocusedTrigger = ref<HTMLElement | null>(null);
+  const settingsDraftTouched = ref(false);
+  const accountDraftTouched = ref(false);
   let lastSavedSnapshot = "";
+  let lastDraftSnapshot = "";
+  let lastFormatDraftSnapshot = "";
 
   const uiConfigQuery = useQuery<UiConfigResponse>({
     queryKey: UI_CONFIG_QUERY_KEY,
@@ -173,6 +506,10 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   const learnFormatMutation = useMutation({
     mutationFn: (url: string) => learnPlatformFormat(url),
   });
+  const probeCreatorFieldsMutation = useMutation({
+    mutationFn: ({ url, sourceKey }: { url: string; sourceKey: string }) =>
+      probeCreatorFieldsRequest(url, sourceKey),
+  });
   const formatTemplatesMutation = useMutation({
     mutationFn: ({ sourceKey, templates }: { sourceKey: string; templates: string[] }) =>
       setFormatTemplates(sourceKey, templates),
@@ -182,7 +519,27 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     mergeSourceProfiles(settings.source_profiles),
   );
   const savedSettings = computed<SavedSettings>(() => getSavedSettings());
-  const cookieStatuses = computed<CookiesMap>(() => settings.ytdlp_cookies);
+  const cookieStatuses = computed<CookiesMap>(() => {
+    const statuses = createCookiesMap(settings.ytdlp_cookies, sourceProfiles.value);
+    for (const key of Object.keys(pendingCookieDeletes)) {
+      statuses[key] = createCookiesStatus();
+    }
+    for (const [key, item] of Object.entries(pendingCookieUploads)) {
+      statuses[key] = createCookiesStatus({
+        configured: true,
+        source: "pending",
+        filename: item.file.name || "cookies.txt",
+      });
+    }
+    for (const [key, item] of Object.entries(pendingCookieSourceUploads)) {
+      statuses[key] = createCookiesStatus({
+        configured: true,
+        source: "pending",
+        filename: item.file.name || "cookies.txt",
+      });
+    }
+    return statuses;
+  });
 
   function normalizeSavedPayload(source: SavedSettings): SavedSettings {
     const profiles = settingsManagedSourceProfiles(
@@ -324,6 +681,143 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     };
   }
 
+  function savedPayloadFromSnapshot(): SavedSettings {
+    if (lastSavedSnapshot) {
+      try {
+        return JSON.parse(lastSavedSnapshot) as SavedSettings;
+      } catch {}
+    }
+    return normalizeSavedPayload(getSavedSettings());
+  }
+
+  function snapshotFor(payload: SavedSettings): string {
+    return JSON.stringify(stableValue(normalizeSavedPayload(payload)));
+  }
+
+  function draftSnapshot(): string {
+    return JSON.stringify(
+      stableValue({
+        source_profiles: settingsDraft.source_profiles,
+        site_locations: settingsDraft.site_locations,
+        template_settings: settingsDraft.template_settings,
+        source_templates: settingsDraft.source_templates,
+        default_quality: settingsDraft.default_quality,
+        source_scrape_rules: settingsDraft.source_scrape_rules,
+        source_token_roles: settingsDraft.source_token_roles,
+        source_slug_tokens: settingsDraft.source_slug_tokens,
+        source_creator_fields: settingsDraft.source_creator_fields,
+        source_title_cleaning: settingsDraft.source_title_cleaning,
+      }),
+    );
+  }
+
+  function formatDraftSnapshot(): string {
+    return JSON.stringify(stableValue(learnedFormatsDraft));
+  }
+
+  function savedLearnedFormatsFromSnapshot(): LearnedFormats {
+    if (lastFormatDraftSnapshot) {
+      try {
+        return JSON.parse(lastFormatDraftSnapshot) as LearnedFormats;
+      } catch {}
+    }
+    return cloneJson(settings.learned_formats || {});
+  }
+
+  function hasPendingCookieChanges(): boolean {
+    return Boolean(
+      Object.keys(pendingCookieUploads).length ||
+        Object.keys(pendingCookieSourceUploads).length ||
+        Object.keys(pendingCookieDeletes).length,
+    );
+  }
+
+  function clearCookieDraft(): void {
+    for (const key of Object.keys(pendingCookieUploads)) {
+      delete pendingCookieUploads[key];
+    }
+    for (const key of Object.keys(pendingCookieSourceUploads)) {
+      delete pendingCookieSourceUploads[key];
+    }
+    for (const key of Object.keys(pendingCookieDeletes)) {
+      delete pendingCookieDeletes[key];
+    }
+  }
+
+  function copySavedFormatsToDraft(): void {
+    replaceLearnedFormats(learnedFormatsDraft, settings.learned_formats || {});
+  }
+
+  function clearFormatDraftDirty(): void {
+    lastFormatDraftSnapshot = formatDraftSnapshot();
+  }
+
+  function clearPendingFormatLearns(): void {
+    for (const url of Object.keys(pendingFormatLearns)) {
+      delete pendingFormatLearns[url];
+    }
+  }
+
+  function markSettingsDraftDirty(section: SettingsSection = settingsSection.value): void {
+    if (!draftSeeded.value) return;
+    if (section === "account") {
+      accountDraftTouched.value = true;
+    } else {
+      settingsDraftTouched.value = true;
+    }
+  }
+
+  function clearSettingsDraftDirty(): void {
+    settingsDraftTouched.value = false;
+    lastDraftSnapshot = draftSnapshot();
+  }
+
+  function accountUsername(): string {
+    return auth.username.value || settings.auth.username || "";
+  }
+
+  function resetAccountDraft(): void {
+    settingsDraft.account.username = accountUsername();
+    settingsDraft.account.current_password = "";
+    settingsDraft.account.new_password = "";
+    settingsDraft.account.confirm_password = "";
+    accountDraftTouched.value = false;
+  }
+
+  function accountDraftDirty(): boolean {
+    return (
+      settingsDraft.account.username !== accountUsername() ||
+      settingsDraft.account.current_password.length > 0 ||
+      settingsDraft.account.new_password.length > 0 ||
+      settingsDraft.account.confirm_password.length > 0
+    );
+  }
+
+  async function persistAccountDraft(): Promise<void> {
+    if (!settingsDraft.account.current_password) {
+      const message = "Enter your current password.";
+      toast(message, "error");
+      throw new Error(message);
+    }
+    if (settingsDraft.account.new_password !== settingsDraft.account.confirm_password) {
+      const message = "New passwords do not match.";
+      toast(message, "error");
+      throw new Error(message);
+    }
+    try {
+      await auth.updateCredentials({
+        username: settingsDraft.account.username,
+        current_password: settingsDraft.account.current_password,
+        new_password: settingsDraft.account.new_password || "",
+      });
+      settings.auth.username = auth.username.value || settingsDraft.account.username;
+      resetAccountDraft();
+    } catch (error) {
+      toast(errorMessage(error, "Could not save account."), "error");
+      throw error;
+    }
+  }
+
   function applyServerSettings(data: UiConfigResponse): void {
     settings.auth = {
       username: String(data.auth?.username || ""),
@@ -445,20 +939,306 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     );
   }
 
-  function cacheUiConfig(data: UiConfigResponse): void {
+  function mergeCleanRecordEntries<T>(
+    target: Record<string, T>,
+    previous: Record<string, T> = {},
+    server: Record<string, T> = {},
+  ): void {
+    const current = target;
+    const next = { ...current };
+    const keys = new Set([
+      ...Object.keys(previous),
+      ...Object.keys(server),
+      ...Object.keys(current),
+    ]);
+    for (const key of keys) {
+      if (!sameJson(current[key], previous[key])) continue;
+      if (key in server) next[key] = cloneJson(server[key]);
+      else delete next[key];
+    }
+    replaceRecord(target, next);
+  }
+
+  function mergeCleanObjectProps<T extends Record<string, unknown>>(
+    target: T,
+    previous: Partial<T> = {},
+    server: Partial<T> = {},
+  ): void {
+    const keys = new Set([
+      ...Object.keys(previous),
+      ...Object.keys(server),
+      ...Object.keys(target),
+    ] as Array<keyof T & string>);
+    for (const key of keys) {
+      if (!sameJson(target[key], previous[key])) continue;
+      if (key in server) target[key] = cloneJson(server[key]) as T[typeof key];
+      else delete target[key];
+    }
+  }
+
+  function mergeCleanProfilesFromServer(
+    previous: SourceProfile[],
+    server: SourceProfile[],
+  ): void {
+    const previousByKey = new Map(
+      previous.map((profile) => [normalizeSourceKey(profile.key), createSourceProfile(profile)]),
+    );
+    const next = mergeSourceProfiles(server);
+    for (const profile of settingsDraft.source_profiles) {
+      const key = normalizeSourceKey(profile.key);
+      if (!key) continue;
+      const previousProfile = previousByKey.get(key);
+      if (!previousProfile || !sameJson(createSourceProfile(profile), previousProfile)) {
+        const index = next.findIndex((item) => normalizeSourceKey(item.key) === key);
+        if (index >= 0) next[index] = createSourceProfile(profile);
+        else next.push(createSourceProfile(profile));
+      }
+    }
+    replaceProfiles(settingsDraft.source_profiles, next);
+  }
+
+  function mergeCleanDraftFromServer(
+    previous: SavedSettings,
+    server: SavedSettings,
+  ): void {
+    mergeCleanProfilesFromServer(previous.source_profiles, server.source_profiles);
+    mergeCleanRecordEntries(
+      settingsDraft.site_locations,
+      previous.site_locations,
+      server.site_locations,
+    );
+    mergeCleanObjectProps(
+      settingsDraft.template_settings,
+      previous.template_settings,
+      server.template_settings,
+    );
+    mergeCleanRecordEntries(
+      settingsDraft.source_templates,
+      previous.source_templates,
+      server.source_templates,
+    );
+    mergeCleanObjectProps(
+      settingsDraft.default_quality,
+      previous.default_quality,
+      server.default_quality,
+    );
+    mergeCleanRecordEntries(
+      settingsDraft.source_scrape_rules,
+      previous.source_scrape_rules,
+      server.source_scrape_rules,
+    );
+    mergeCleanRecordEntries(
+      settingsDraft.source_token_roles,
+      previous.source_token_roles,
+      server.source_token_roles,
+    );
+    mergeCleanRecordEntries(
+      settingsDraft.source_slug_tokens,
+      previous.source_slug_tokens,
+      server.source_slug_tokens,
+    );
+    mergeCleanRecordEntries(
+      settingsDraft.source_creator_fields,
+      previous.source_creator_fields,
+      server.source_creator_fields,
+    );
+    mergeCleanRecordEntries(
+      settingsDraft.source_title_cleaning,
+      previous.source_title_cleaning,
+      server.source_title_cleaning,
+    );
+  }
+
+  function mergeCleanFormatsFromServer(
+    previous: LearnedFormats,
+    server: LearnedFormats,
+  ): void {
+    const current = learnedFormatsDraft;
+    const next = cloneJson(current);
+    const keys = new Set([
+      ...Object.keys(previous),
+      ...Object.keys(server),
+      ...Object.keys(current),
+    ]);
+    for (const key of keys) {
+      if (!sameJson(current[key], previous[key])) continue;
+      if (key in server) next[key] = cloneJson(server[key]);
+      else delete next[key];
+    }
+    replaceLearnedFormats(learnedFormatsDraft, next);
+  }
+
+  function ensureDraftSourceProfile(profile: SourceProfile): void {
+    const key = normalizeSourceKey(profile.key);
+    if (!key) return;
+    const existing = settingsDraft.source_profiles.find(
+      (item) => normalizeSourceKey(item.key) === key,
+    );
+    if (!existing) {
+      settingsDraft.source_profiles.push(profile);
+      return;
+    }
+    for (const host of profile.hosts || []) {
+      if (host && !existing.hosts.includes(host)) existing.hosts.push(host);
+    }
+    if (!existing.icon_url && profile.icon_url) existing.icon_url = profile.icon_url;
+  }
+
+  function syncPendingLearnsForKey(sourceKey: string, templates: string[]): void {
+    const key = normalizeSourceKey(sourceKey);
+    const remaining = new Set(templates);
+    for (const [url, item] of Object.entries(pendingFormatLearns)) {
+      if (item.sourceKey === key && !remaining.has(item.template)) {
+        delete pendingFormatLearns[url];
+      }
+    }
+  }
+
+  function removeDraftOnlySourceIfEmpty(sourceKey: string): void {
+    const key = normalizeSourceKey(sourceKey);
+    if (!key || learnedFormatsDraft[key]?.templates?.length) return;
+    if (Object.values(pendingFormatLearns).some((item) => item.sourceKey === key)) return;
+    if (pendingCookieUploads[key] || pendingCookieSourceUploads[key]) return;
+    const saved = mergeSourceProfiles(DEFAULT_SOURCE_PROFILES, settings.source_profiles).some(
+      (profile) => normalizeSourceKey(profile.key) === key,
+    );
+    if (saved) return;
+    const index = settingsDraft.source_profiles.findIndex(
+      (profile) => normalizeSourceKey(profile.key) === key,
+    );
+    if (index >= 0) settingsDraft.source_profiles.splice(index, 1);
+    delete learnedFormatsDraft[key];
+  }
+
+  function replaceDesiredTemplate(
+    desired: LearnedFormats,
+    sourceKey: string,
+    fromTemplate: string,
+    actualTemplates: string[],
+  ): void {
+    const key = normalizeSourceKey(sourceKey);
+    if (!key || !actualTemplates.length) return;
+    const fallback = learnedFormatsDraft[key] || settings.learned_formats?.[key] || { templates: [], segments: [] };
+    const current = desired[key] || fallback;
+    const next: string[] = [];
+    let replaced = false;
+    for (const template of current.templates || []) {
+      if (template === fromTemplate) {
+        for (const actual of actualTemplates) {
+          if (actual && !next.includes(actual)) next.push(actual);
+        }
+        replaced = true;
+      } else if (template && !next.includes(template)) {
+        next.push(template);
+      }
+    }
+    if (!replaced) {
+      for (const actual of actualTemplates) {
+        if (actual && !next.includes(actual)) next.push(actual);
+      }
+    }
+    desired[key] = {
+      ...cloneJson(current),
+      ...describeDraftTemplates(next),
+    };
+  }
+
+  function removeDesiredTemplate(
+    desired: LearnedFormats,
+    sourceKey: string,
+    template: string,
+  ): void {
+    const key = normalizeSourceKey(sourceKey);
+    const current = desired[key];
+    if (!key || !current) return;
+    const next = (current.templates || []).filter((item) => item !== template);
+    if (!next.length && !settings.learned_formats?.[key]) {
+      delete desired[key];
+      return;
+    }
+    desired[key] = {
+      ...cloneJson(current),
+      ...describeDraftTemplates(next),
+    };
+  }
+
+  function syncSavedServerConfig(
+    data: UiConfigResponse,
+    options: { updateCache?: boolean; cleanSettings?: boolean; cleanFormats?: boolean } = {},
+  ): void {
+    const previous = savedPayloadFromSnapshot();
+    const previousFormats = savedLearnedFormatsFromSnapshot();
+    const draftWasDirty = hasSettingsUnsavedChanges.value;
+    const formatWasDirty = hasFormatUnsavedChanges.value;
     applyServerSettings(data);
-    queryClient.setQueryData(UI_CONFIG_QUERY_KEY, data);
+    if (options.updateCache !== false) {
+      queryClient.setQueryData(UI_CONFIG_QUERY_KEY, data);
+    }
+    if (options.cleanSettings || !draftWasDirty) {
+      copySavedSettingsToDraft();
+      lastSavedSnapshot = snapshotFor(settingsDraft);
+      clearSettingsDraftDirty();
+    } else {
+      const server = normalizeSavedPayload(getSavedSettings());
+      mergeCleanDraftFromServer(previous, server);
+      lastSavedSnapshot = snapshotFor(server);
+      lastDraftSnapshot = snapshotFor(server);
+    }
+
+    const serverFormats = cloneJson(settings.learned_formats || {});
+    if (options.cleanFormats || !formatWasDirty) {
+      copySavedFormatsToDraft();
+    } else {
+      mergeCleanFormatsFromServer(previousFormats, serverFormats);
+    }
+    lastFormatDraftSnapshot = JSON.stringify(stableValue(serverFormats));
+  }
+
+  function creatorFieldsHaveValues(fields: CreatorFieldRoles): boolean {
+    return fields.username.length > 0 || fields.nickname.length > 0;
+  }
+
+  function syncSavedCreatorFields(
+    sourceKey: string,
+    fields: Partial<CreatorFieldRoles>,
+  ): void {
+    const key = normalizeSourceKey(sourceKey);
+    if (!key) return;
+
+    const normalized = createCreatorFieldRoles(fields);
+    if (!creatorFieldsHaveValues(normalized)) return;
+
+    const previous = savedPayloadFromSnapshot();
+    const draftWasDirty = hasSettingsUnsavedChanges.value;
+    const previousFields = createCreatorFieldRoles(
+      previous.source_creator_fields[key] || {},
+    );
+    const draftFields = createCreatorFieldRoles(
+      settingsDraft.source_creator_fields[key] || {},
+    );
+    const draftWasClean = sameJson(draftFields, previousFields);
+    const savedFields = cloneJson(normalized);
+
+    settings.source_creator_fields[key] = cloneJson(savedFields);
+    defaults.source_creator_fields[key] = cloneJson(savedFields);
+    if (draftWasClean) settingsDraft.source_creator_fields[key] = cloneJson(savedFields);
+
+    previous.source_creator_fields[key] = cloneJson(savedFields);
+    lastSavedSnapshot = snapshotFor(previous);
+    if (!draftWasDirty) clearSettingsDraftDirty();
   }
 
   async function persistSettings(
     payload: SavedSettings,
     successMessage = "",
-  ): Promise<void> {
-    cacheUiConfig(await saveSettingsMutation.mutateAsync(payload));
+  ): Promise<UiConfigResponse> {
+    const data = await saveSettingsMutation.mutateAsync(payload);
+    syncSavedServerConfig(data, { cleanSettings: true });
     if (successMessage) toast(successMessage);
+    return data;
   }
 
-  function copySettingsToDraft(): void {
+  function copySavedSettingsToDraft(): void {
     const current = getSavedSettings();
     const normalized = normalizeSavedPayload(current);
     replaceProfiles(settingsDraft.source_profiles, normalized.source_profiles);
@@ -478,6 +1258,10 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       normalized.source_token_roles,
     );
     replaceRecord(
+      settingsDraft.source_slug_tokens,
+      normalized.source_slug_tokens,
+    );
+    replaceRecord(
       settingsDraft.source_creator_fields,
       normalized.source_creator_fields,
     );
@@ -485,7 +1269,17 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       settingsDraft.source_title_cleaning,
       normalized.source_title_cleaning,
     );
-    lastSavedSnapshot = JSON.stringify(normalizeSavedPayload(settingsDraft));
+  }
+
+  function copySettingsToDraft(): void {
+    copySavedSettingsToDraft();
+    copySavedFormatsToDraft();
+    clearPendingFormatLearns();
+    clearCookieDraft();
+    resetAccountDraft();
+    lastSavedSnapshot = snapshotFor(settingsDraft);
+    clearSettingsDraftDirty();
+    clearFormatDraftDirty();
   }
 
   function setSettingsSection(
@@ -531,29 +1325,190 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     settingsOpen.value = false;
   }
 
-  // Settings auto-persist: debounce draft edits, then save. No manual Save/Clear.
-  let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  const hasSettingsUnsavedChanges = computed(() => {
+    if (!draftSeeded.value) return false;
+    return settingsDraftTouched.value || draftSnapshot() !== lastDraftSnapshot;
+  });
 
-  async function saveSettingsDraft(): Promise<void> {
-    const payload = normalizeSavedPayload(settingsDraft);
-    const snapshot = JSON.stringify(payload);
-    if (snapshot === lastSavedSnapshot) return;
-    lastSavedSnapshot = snapshot;
-    try {
-      await persistSettings(payload);
-    } catch (error) {
-      // Let the next edit (or close-flush) retry instead of marking it saved.
-      lastSavedSnapshot = "";
-      toast(errorMessage(error, "Could not save settings."), "error");
+  const hasAccountUnsavedChanges = computed(() => {
+    return draftSeeded.value && (accountDraftTouched.value || accountDraftDirty());
+  });
+
+  const hasFormatUnsavedChanges = computed(() => {
+    return (
+      draftSeeded.value &&
+      formatDraftSnapshot() !== lastFormatDraftSnapshot
+    );
+  });
+
+  const hasCookieUnsavedChanges = computed(() => {
+    return draftSeeded.value && hasPendingCookieChanges();
+  });
+
+  const hasUnsavedChanges = computed(() => {
+    return (
+      hasSettingsUnsavedChanges.value ||
+      hasAccountUnsavedChanges.value ||
+      hasFormatUnsavedChanges.value ||
+      hasCookieUnsavedChanges.value
+    );
+  });
+
+  function changedFormatKeys(): string[] {
+    const keys = new Set([
+      ...Object.keys(settings.learned_formats || {}),
+      ...Object.keys(learnedFormatsDraft),
+    ]);
+    return [...keys].filter((key) => {
+      const savedTemplates = settings.learned_formats?.[key]?.templates || [];
+      const draftTemplates = learnedFormatsDraft[key]?.templates || [];
+      return !sameJson(draftTemplates, savedTemplates);
+    });
+  }
+
+  async function persistFormatDraft(): Promise<void> {
+    let latest: UiConfigResponse | null = null;
+    let learnedLatest: UiConfigResponse | null = null;
+    const desired = cloneJson(learnedFormatsDraft);
+    const creatorProbeTargets: Array<{ url: string; sourceKey: string }> = [];
+
+    for (const pending of Object.values(pendingFormatLearns)) {
+      const previousFormats = cloneJson(
+        (learnedLatest?.learned_formats || settings.learned_formats || {}) as LearnedFormats,
+      );
+      learnedLatest = await learnFormatMutation.mutateAsync(pending.url);
+      const key = normalizeSourceKey(learnedLatest.learn_result?.source_key || pending.sourceKey);
+      const serverEntry = learnedLatest.learned_formats?.[key];
+      const previousTemplates = previousFormats[key]?.templates || [];
+      const serverTemplates = serverEntry?.templates || [];
+      const addedTemplates = serverTemplates.filter(
+        (template) => !previousTemplates.includes(template),
+      );
+      const actualTemplates =
+        addedTemplates.length > 0
+          ? addedTemplates
+          : serverTemplates.includes(pending.template)
+            ? [pending.template]
+            : [];
+      if (key && actualTemplates.length) {
+        if (key !== pending.sourceKey) {
+          removeDesiredTemplate(desired, pending.sourceKey, pending.template);
+          replaceDesiredTemplate(desired, key, pending.template, actualTemplates);
+        } else {
+          replaceDesiredTemplate(desired, pending.sourceKey, pending.template, actualTemplates);
+        }
+      }
+      if (key) creatorProbeTargets.push({ url: pending.url, sourceKey: key });
+    }
+
+    if (learnedLatest) {
+      replaceLearnedFormats(learnedFormatsDraft, desired);
+      clearPendingFormatLearns();
+      syncSavedServerConfig(learnedLatest);
+      for (const target of creatorProbeTargets) {
+        try {
+          const response = await probeCreatorFieldsMutation.mutateAsync({
+            url: target.url,
+            sourceKey: target.sourceKey,
+          });
+          if (response.saved && response.creator_fields) {
+            syncSavedCreatorFields(
+              response.source_key || target.sourceKey,
+              response.creator_fields,
+            );
+          }
+        } catch {}
+      }
+    }
+
+    for (const key of changedFormatKeys()) {
+      latest = await formatTemplatesMutation.mutateAsync({
+        sourceKey: key,
+        templates: learnedFormatsDraft[key]?.templates || [],
+      });
+    }
+    if (latest) {
+      syncSavedServerConfig(latest, { cleanFormats: true });
+    } else if (!learnedLatest) {
+      copySavedFormatsToDraft();
+      clearFormatDraftDirty();
     }
   }
 
-  async function flushSettings(): Promise<void> {
-    if (autoSaveTimer !== null) {
-      clearTimeout(autoSaveTimer);
-      autoSaveTimer = null;
+  async function persistCookieDraft(): Promise<void> {
+    let latest: UiConfigResponse | null = null;
+    for (const key of Object.keys(pendingCookieDeletes)) {
+      latest = await deleteCookiesMutation.mutateAsync(key);
     }
-    await saveSettingsDraft();
+    for (const item of Object.values(pendingCookieUploads)) {
+      latest = await uploadCookiesMutation.mutateAsync({
+        platform: item.platform,
+        file: item.file,
+      });
+    }
+    for (const item of Object.values(pendingCookieSourceUploads)) {
+      latest = await uploadCookiesMutation.mutateAsync({
+        platform: "source",
+        file: item.file,
+        source: item.source,
+      });
+    }
+    clearCookieDraft();
+    if (latest) {
+      syncSavedServerConfig(latest);
+    }
+  }
+
+  async function saveSettingsDraft(): Promise<void> {
+    const shouldSaveAccount = hasAccountUnsavedChanges.value;
+    const shouldSaveSettings = hasSettingsUnsavedChanges.value;
+    const shouldSaveFormats = hasFormatUnsavedChanges.value;
+    const shouldSaveCookies = hasCookieUnsavedChanges.value;
+    if (
+      !shouldSaveAccount &&
+      !shouldSaveSettings &&
+      !shouldSaveFormats &&
+      !shouldSaveCookies
+    ) {
+      return;
+    }
+
+    if (shouldSaveAccount) {
+      await persistAccountDraft();
+    }
+
+    if (shouldSaveSettings) {
+      const payload = normalizeSavedPayload(settingsDraft);
+      try {
+        await persistSettings(payload);
+        copySavedSettingsToDraft();
+        lastSavedSnapshot = snapshotFor(settingsDraft);
+        clearSettingsDraftDirty();
+      } catch (error) {
+        toast(errorMessage(error, "Could not save settings."), "error");
+        throw error;
+      }
+    }
+
+    if (shouldSaveFormats) {
+      try {
+        await persistFormatDraft();
+      } catch (error) {
+        toast(errorMessage(error, "Could not update formats."), "error");
+        throw error;
+      }
+    }
+
+    if (shouldSaveCookies) {
+      try {
+        await persistCookieDraft();
+      } catch (error) {
+        toast(errorMessage(error, "Could not update cookies."), "error");
+        throw error;
+      }
+    }
+
+    toast("Settings saved.");
   }
 
   async function connectCookies(platform: string, file?: File): Promise<void> {
@@ -561,17 +1516,14 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       toast("Choose a cookies file first.", "error");
       return;
     }
-    try {
-      cacheUiConfig(
-        await uploadCookiesMutation.mutateAsync({
-          platform: normalizeSourceKey(platform),
-          file,
-        }),
-      );
-      toast("Cookies connected.");
-    } catch (error) {
-      toast(errorMessage(error, "Could not connect cookies."), "error");
+    const key = normalizeSourceKey(platform);
+    if (!key) {
+      toast("Choose a source first.", "error");
+      return;
     }
+    pendingCookieUploads[key] = { platform: key, file };
+    delete pendingCookieSourceUploads[key];
+    delete pendingCookieDeletes[key];
   }
 
   async function connectCookiesForSource(
@@ -586,81 +1538,127 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       toast("Choose a cookies file first.", "error");
       return;
     }
-    try {
-      cacheUiConfig(
-        await uploadCookiesMutation.mutateAsync({
-          platform: "source",
-          file,
-          source: source.trim(),
-        }),
-      );
-      toast("Cookies connected.");
-    } catch (error) {
-      toast(errorMessage(error, "Could not connect cookies."), "error");
+    const normalizedSource = source.trim();
+    const profiles = mergeSourceProfiles(
+      DEFAULT_SOURCE_PROFILES,
+      settings.source_profiles,
+      settingsDraft.source_profiles,
+    );
+    const profile = sourceProfileFromUrlDraft(normalizedSource, profiles);
+    if (!profile) {
+      toast("Paste a valid link or domain first.", "error");
+      return;
     }
+    ensureDraftSourceProfile(profile);
+    const key = profile.key;
+    pendingCookieSourceUploads[key] = {
+      source: normalizedSource,
+      file,
+    };
+    delete pendingCookieUploads[key];
+    delete pendingCookieDeletes[key];
   }
 
   async function learnFormat(url: string): Promise<string> {
-    if (!url.trim()) {
+    const value = url.trim();
+    if (!value) {
       toast("Paste a link first.", "error");
       return "";
     }
-    try {
-      const data = await learnFormatMutation.mutateAsync(url.trim());
-      cacheUiConfig(data);
-      const result = data.learn_result;
-      const key = result?.source_key || "";
-      const label =
-        settings.source_profiles.find((profile) => profile.key === key)?.label ||
-        key ||
-        "source";
-      if (result?.created) {
-        toast(`Added ${label}.`);
-      } else if (result?.learned) {
-        toast(`Learned a new format for ${label}.`);
-      } else {
-        toast(`${label} already knew that format.`);
-      }
-      return key;
-    } catch (error) {
-      toast(errorMessage(error, "Could not learn that link."), "error");
+    const profiles = mergeSourceProfiles(
+      DEFAULT_SOURCE_PROFILES,
+      settings.source_profiles,
+      settingsDraft.source_profiles,
+    );
+    const profile = sourceProfileFromUrlDraft(value, profiles);
+    const template = draftTemplateFromUrl(value);
+    if (!profile || !template) {
+      toast("Could not identify a format from that link.", "error");
       return "";
     }
+
+    ensureDraftSourceProfile(profile);
+    const key = profile.key;
+    const entry = learnedFormatsDraft[key] || settings.learned_formats?.[key] || { templates: [], segments: [] };
+    const templates = [...(entry.templates || [])];
+    if (templates.includes(template)) {
+      return key;
+    }
+    templates.push(template);
+    learnedFormatsDraft[key] = {
+      ...cloneJson(entry),
+      ...describeDraftTemplates(templates),
+    };
+    pendingFormatLearns[value] = { url: value, sourceKey: key, template };
+    return key;
   }
 
   async function reorderFormatTemplates(
     sourceKey: string,
     templates: string[],
   ): Promise<void> {
-    try {
-      cacheUiConfig(
-        await formatTemplatesMutation.mutateAsync({ sourceKey, templates }),
+    const key = normalizeSourceKey(sourceKey);
+    const entry = learnedFormatsDraft[key] || settings.learned_formats?.[key];
+    if (!key || !entry) return;
+    const existing = new Set((entry.templates || []).map(String));
+    const nextTemplates = templates.filter(
+      (template, index, list) =>
+        existing.has(template) && list.indexOf(template) === index,
+    );
+    learnedFormatsDraft[key] = {
+      ...cloneJson(entry),
+      ...describeDraftTemplates(nextTemplates),
+    };
+    syncPendingLearnsForKey(key, nextTemplates);
+    removeDraftOnlySourceIfEmpty(key);
+  }
+
+  async function probeCreatorFields(
+    url: string,
+    sourceKey = "",
+  ): Promise<ProbeFieldsResponse> {
+    const response = await probeCreatorFieldsMutation.mutateAsync({
+      url: url.trim(),
+      sourceKey: normalizeSourceKey(sourceKey),
+    });
+    if (response.saved && response.creator_fields) {
+      syncSavedCreatorFields(
+        response.source_key || sourceKey,
+        response.creator_fields,
       );
-    } catch (error) {
-      toast(errorMessage(error, "Could not update formats."), "error");
+      toast("Creator fields saved.");
     }
+    return response;
   }
 
   async function removeCookies(platform: string): Promise<void> {
     const key = normalizeSourceKey(platform);
-    if (!settings.ytdlp_cookies[key]?.configured) return;
-    try {
-      cacheUiConfig(await deleteCookiesMutation.mutateAsync(key));
-      toast("Cookies removed.");
-    } catch (error) {
-      toast(errorMessage(error, "Could not remove cookies."), "error");
+    if (!key) return;
+    if (pendingCookieUploads[key]) {
+      delete pendingCookieUploads[key];
+      removeDraftOnlySourceIfEmpty(key);
+      return;
     }
+    if (pendingCookieSourceUploads[key]) {
+      delete pendingCookieSourceUploads[key];
+      removeDraftOnlySourceIfEmpty(key);
+      return;
+    }
+    if (!cookieStatuses.value[key]?.configured) return;
+    pendingCookieDeletes[key] = true;
   }
 
-  let draftSeeded = false;
+  const draftSeeded = ref(false);
   watch(
     () => uiConfigQuery.data.value,
     (data) => {
       if (!data) return;
-      applyServerSettings(data);
-      if (!draftSeeded) {
+      if (!draftSeeded.value) {
+        applyServerSettings(data);
         copySettingsToDraft();
-        draftSeeded = true;
+        draftSeeded.value = true;
+      } else {
+        syncSavedServerConfig(data, { updateCache: false });
       }
     },
     { immediate: true },
@@ -671,23 +1669,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       // Downloads learn creator fields server-side; refetch so the list is current on open.
       queryClient.invalidateQueries({ queryKey: UI_CONFIG_QUERY_KEY });
     } else {
-      void flushSettings();
       lastFocusedTrigger.value?.focus();
     }
   });
-
-  // Persist edits automatically once the draft diverges from what's saved.
-  watch(
-    () => JSON.stringify(normalizeSavedPayload(settingsDraft)),
-    (snapshot) => {
-      if (!draftSeeded || snapshot === lastSavedSnapshot) return;
-      if (autoSaveTimer !== null) clearTimeout(autoSaveTimer);
-      autoSaveTimer = setTimeout(() => {
-        autoSaveTimer = null;
-        void saveSettingsDraft();
-      }, 500);
-    },
-  );
 
   return {
     closeSettings,
@@ -695,6 +1679,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     connectCookiesForSource,
     cookieStatuses,
     learnFormat,
+    probeCreatorFields,
     reorderFormatTemplates,
     getSavedSettings,
     openSettings,
@@ -703,8 +1688,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     setSettingsSection,
     settings,
     settingsDraft,
+    learnedFormatsDraft,
     settingsOpen,
     settingsSection,
     sourceProfiles,
+    hasUnsavedChanges,
+    markSettingsDraftDirty,
+    saveSettingsDraft,
+    copySettingsToDraft,
   };
 }

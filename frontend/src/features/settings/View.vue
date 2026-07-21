@@ -1,20 +1,23 @@
 <script setup lang="ts">
-import { computed, nextTick } from "vue";
+import { computed, nextTick, ref } from "vue";
 import IconClose from "~icons/material-symbols/close";
 import { TabsContent, TabsRoot } from "reka-ui";
 
-import { Card } from "../../components/ui/card";
 import { DialogShell as Dialog } from "../../components/ui/dialog";
+import { Button } from "../../components/ui/button";
 import type {
   CookiesMap,
+  LearnedFormats,
   RuntimeSettings,
-  SavedSettings,
+  SettingsDraft,
   SettingsSection,
   SourceProfile,
+  ProbeFieldsResponse,
 } from "../../types";
 import { useSettingsDraft } from "./composables/useSettingsDraft";
 import { provideSettingsContext } from "./context";
 import { SETTINGS_SECTION_DEFS } from "./sections";
+import SettingsEmptyCard from "./SettingsEmptyCard.vue";
 import SettingsSidebar from "./Sidebar.vue";
 
 const props = defineProps<{
@@ -22,10 +25,16 @@ const props = defineProps<{
   open: boolean;
   section: SettingsSection;
   settings: RuntimeSettings;
-  settingsDraft: SavedSettings;
+  settingsDraft: SettingsDraft;
+  learnedFormatsDraft: LearnedFormats;
   sourceProfiles: SourceProfile[];
   learnFormat: (url: string) => Promise<string>;
+  probeCreatorFields: (url: string, sourceKey?: string) => Promise<ProbeFieldsResponse>;
   reorderFormatTemplates: (sourceKey: string, templates: string[]) => Promise<void>;
+  hasUnsavedChanges: boolean;
+  markSettingsDraftDirty: (section?: SettingsSection) => void;
+  saveSettingsDraft: () => Promise<void>;
+  copySettingsToDraft: () => void;
 }>();
 
 const emit = defineEmits<{
@@ -36,10 +45,22 @@ const emit = defineEmits<{
   "update:section": [section: SettingsSection];
 }>();
 
-// Edits auto-save, so every close path (X / Esc / click-outside) just closes.
+const confirmCloseOpen = ref(false);
+const saving = ref(false);
+
 const openModel = computed({
   get: () => props.open,
-  set: (value) => emit("update:open", value),
+  set: (value) => {
+    if (!value) {
+      if (props.hasUnsavedChanges) {
+        confirmCloseOpen.value = true;
+      } else {
+        emit("update:open", false);
+      }
+    } else {
+      emit("update:open", true);
+    }
+  },
 });
 
 const sectionModel = computed({
@@ -53,15 +74,28 @@ provideSettingsContext({
   open: computed(() => props.open),
   settings: props.settings,
   settingsDraft: props.settingsDraft,
-  cookieStatuses: props.cookieStatuses,
+  learnedFormatsDraft: props.learnedFormatsDraft,
+  cookieStatuses: computed(() => props.cookieStatuses),
   editableSourceProfiles,
   connectCookies: (platform, file) => emit("connectCookies", platform, file),
   connectCookiesSource: (source, file) => emit("connectCookiesSource", source, file),
   removeCookies: (platform) => emit("removeCookies", platform),
   learnFormat: (url) => props.learnFormat(url),
+  probeCreatorFields: (url, sourceKey) =>
+    props.probeCreatorFields(url, sourceKey),
   reorderFormatTemplates: (sourceKey, templates) =>
     props.reorderFormatTemplates(sourceKey, templates),
-  close: () => emit("update:open", false),
+  markSettingsDraftDirty: (section) =>
+    props.markSettingsDraftDirty(section || props.section),
+  saveSettingsDraft: () => props.saveSettingsDraft(),
+  copySettingsToDraft: () => props.copySettingsToDraft(),
+  close: () => {
+    if (props.hasUnsavedChanges) {
+      confirmCloseOpen.value = true;
+    } else {
+      emit("update:open", false);
+    }
+  },
 });
 
 // Switch pane, then focus its primary control on the next tick.
@@ -70,6 +104,54 @@ function selectSection(section: SettingsSection): void {
   const firstSource = editableSourceProfiles.value[0]?.key || "settings";
   const id = SETTINGS_SECTION_DEFS.find((def) => def.key === section)?.focusId?.(firstSource);
   if (id) void nextTick(() => document.getElementById(id)?.focus());
+}
+
+function cancelClose() {
+  confirmCloseOpen.value = false;
+}
+
+function discardAndClose() {
+  confirmCloseOpen.value = false;
+  props.copySettingsToDraft();
+  emit("update:open", false);
+}
+
+async function saveAndClose() {
+  if (saving.value) return;
+  saving.value = true;
+  try {
+    await props.saveSettingsDraft();
+    confirmCloseOpen.value = false;
+    emit("update:open", false);
+  } catch (err) {
+    // Keep dialog open if save fails
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function saveChanges() {
+  if (saving.value) return;
+  saving.value = true;
+  try {
+    await props.saveSettingsDraft();
+  } catch (err) {
+  } finally {
+    saving.value = false;
+  }
+}
+
+function discardChanges() {
+  props.copySettingsToDraft();
+}
+
+function markActivePaneDirty(event: Event): void {
+  if (!event.isTrusted) return;
+  const target = event.target;
+  if (target instanceof Element && target.closest("[data-settings-system]")) {
+    return;
+  }
+  props.markSettingsDraftDirty(props.section);
 }
 </script>
 
@@ -119,25 +201,89 @@ function selectSection(section: SettingsSection): void {
         </div>
 
         <!-- Scrollable Settings -->
-        <div class="flex-1 overflow-y-auto px-5 pb-6 pt-4 sm:pt-0 sm:px-8">
+        <div
+          class="flex-1 overflow-y-auto px-5 pb-6 pt-4 sm:pt-0 sm:px-8"
+          @input.capture="markActivePaneDirty"
+          @change.capture="markActivePaneDirty"
+        >
           <TabsContent
             v-for="def in SETTINGS_SECTION_DEFS"
             :key="def.key"
             :value="def.key"
             class="focus:outline-none"
           >
-            <Card
+            <SettingsEmptyCard
               v-if="def.requiresSources && editableSourceProfiles.length === 0"
-              class="px-6"
             >
-              <p class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55">
-                No sources yet.
-              </p>
-            </Card>
+              No sources yet.
+            </SettingsEmptyCard>
             <component :is="def.component" />
           </TabsContent>
         </div>
+
+        <!-- Save / Discard Footer -->
+        <div
+          class="shrink-0 flex justify-end px-5 py-4 border-0 border-t border-(--glass-border) bg-primary/45 backdrop-blur-md sm:px-6"
+        >
+          <div class="flex items-center justify-end gap-3">
+            <Button
+              variant="ghost"
+              :disabled="saving || !hasUnsavedChanges"
+              @click="discardChanges"
+            >
+              Discard
+            </Button>
+            <Button
+              variant="primary"
+              :disabled="saving || !hasUnsavedChanges"
+              @click="saveChanges"
+            >
+              {{ saving ? "Saving..." : "Save" }}
+            </Button>
+          </div>
+        </div>
       </div>
     </TabsRoot>
+
+    <!-- Confirmation Dialog Overlay -->
+    <div
+      v-if="confirmCloseOpen"
+      class="absolute inset-0 z-80 flex items-center justify-center bg-black/60 backdrop-blur-md transition-all duration-300 rounded-2xl"
+    >
+      <div class="glass-chrome flex w-[min(400px,90vw)] flex-col gap-4 rounded-xl border border-(--glass-border) bg-primary p-6 shadow-2xl">
+        <h3 class="text-base font-semibold text-white in-[.light-mode]:text-black">
+          Unsaved Changes
+        </h3>
+        <p class="text-sm text-white/70 in-[.light-mode]:text-black/70">
+          You have unsaved changes. Do you want to save them before closing?
+        </p>
+        <div class="flex flex-col gap-2 sm:flex-row sm:justify-end sm:gap-3 mt-2">
+          <Button
+            variant="ghost"
+            class="sm:order-1"
+            :disabled="saving"
+            @click="cancelClose"
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="ghost"
+            class="sm:order-2"
+            :disabled="saving"
+            @click="discardAndClose"
+          >
+            Discard
+          </Button>
+          <Button
+            variant="primary"
+            class="sm:order-3"
+            :disabled="saving"
+            @click="saveAndClose"
+          >
+            {{ saving ? "Saving..." : "Save" }}
+          </Button>
+        </div>
+      </div>
+    </div>
   </Dialog>
 </template>

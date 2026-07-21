@@ -178,6 +178,13 @@ export interface AuthSettings {
   password_configured: boolean;
 }
 
+export interface AccountSettingsDraft {
+  username: string;
+  current_password: string;
+  new_password: string;
+  confirm_password: string;
+}
+
 export interface SavedSettings {
   source_profiles: SourceProfile[];
   site_locations: SourceLocations;
@@ -189,6 +196,10 @@ export interface SavedSettings {
   source_slug_tokens: SourceSlugTokens;
   source_creator_fields: SourceCreatorFields;
   source_title_cleaning: SourceTitleCleaning;
+}
+
+export interface SettingsDraft extends SavedSettings {
+  account: AccountSettingsDraft;
 }
 
 export interface TemplateToken {

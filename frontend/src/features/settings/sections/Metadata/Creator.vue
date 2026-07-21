@@ -34,8 +34,13 @@ const ROLES: { key: CreatorRole; label: string }[] = [
   { key: "nickname", label: "Nickname" },
 ];
 
-const { settings, settingsDraft, editableSourceProfiles } =
-  useSettingsContext();
+const {
+  settings,
+  settingsDraft,
+  learnedFormatsDraft,
+  editableSourceProfiles,
+  probeCreatorFields,
+} = useSettingsContext();
 const {
   probes,
   cleanupRules,
@@ -49,7 +54,9 @@ const {
   maxChars,
   setMaxChars,
   runProbe,
-} = useCreatorSettings(settingsDraft, settings, editableSourceProfiles);
+} = useCreatorSettings(settingsDraft, settings, learnedFormatsDraft, editableSourceProfiles, {
+  probeCreatorFields,
+});
 
 // Native drag-and-drop reordering, scoped to one (source, role) list at a time.
 const drag = reactive<{
@@ -129,6 +136,7 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
               <Input
                 :id="`${site.key}CreatorProbeInput`"
                 v-model="probes[site.key].url"
+                data-settings-system
                 type="text"
                 inputmode="url"
                 aria-label="Probe URL"

@@ -94,6 +94,7 @@ const {
               <Input
                 :id="`${site.key}ScraperProbeInput`"
                 v-model="scrapeTests[site.key].url"
+                data-settings-system
                 type="text"
                 inputmode="url"
                 aria-label="Probe URL"

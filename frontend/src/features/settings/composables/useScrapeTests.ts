@@ -65,9 +65,6 @@ export function useScrapeTests(
     platformRules(key).rules.forEach((rule, index) => {
       const belongs = rule.format ? rule.format === template : template === first;
       if (belongs) {
-        if (!rule.token) {
-          rule.token = `var${index}`;
-        }
         out.push({ rule, index });
       }
     });

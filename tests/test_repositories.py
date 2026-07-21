@@ -29,6 +29,7 @@ def test_learned_formats_persist_to_formats_table(tmp_path, monkeypatch):
     assert "template" not in columns
     assert "templates" in columns
     assert "url_creator_fields" in columns
+    assert "id_part" not in columns
     assert "creator_part" not in columns
     assert len(rows) == 1
     assert rows[0]["source_key"] == "tiktok"
@@ -84,6 +85,7 @@ def test_learned_formats_migrate_template_column_to_templates(tmp_path, monkeypa
     assert "template" not in columns
     assert "templates" in columns
     assert "url_creator_fields" in columns
+    assert "id_part" not in columns
     assert "creator_part" not in columns
 
 
@@ -97,6 +99,7 @@ def test_learned_formats_migrate_legacy_settings_row(tmp_path, monkeypatch):
             "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
             ("learned_formats", json.dumps(legacy), "2026-07-05T00:00:00+00:00"),
         )
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
 
     loaded = repositories.load_learned_formats_payload()
 
@@ -107,6 +110,146 @@ def test_learned_formats_migrate_legacy_settings_row(tmp_path, monkeypatch):
     assert loaded["youtube"]["templates"] == ["https://www.youtube.com/watch?v={id}"]
     assert json.loads(format_row["templates"]) == ["https://www.youtube.com/watch?v={id}"]
     assert legacy_row is None
+
+
+def test_learned_formats_migration_merges_legacy_settings_row_into_existing_table(tmp_path, monkeypatch):
+    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+
+    repositories.save_learned_formats_payload(
+        {
+            "youtube": {
+                "templates": ["https://www.youtube.com/watch?v={id}"],
+                "url_creator_fields": {"username": ["channel"]},
+            }
+        }
+    )
+    legacy = {
+        "youtube": {
+            "template": "https://youtu.be/{id}",
+            "url_creator_fields": {"username": ["uploader_id"], "nickname": ["uploader"]},
+        }
+    }
+    with database_module.transaction() as connection:
+        connection.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+            ("learned_formats", json.dumps(legacy), "2026-07-05T00:00:00+00:00"),
+        )
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+
+    loaded = repositories.load_learned_formats_payload()
+
+    with database_module.transaction() as connection:
+        legacy_row = connection.execute("SELECT value FROM settings WHERE key = ?", ("learned_formats",)).fetchone()
+
+    assert loaded["youtube"]["templates"] == ["https://www.youtube.com/watch?v={id}", "https://youtu.be/{id}"]
+    assert loaded["youtube"]["url_creator_fields"] == {
+        "username": ["channel", "uploader_id"],
+        "nickname": ["uploader"],
+    }
+    assert legacy_row is None
+
+
+def test_learned_formats_loader_does_not_support_legacy_settings_row_after_startup(tmp_path, monkeypatch):
+    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    database_module.initialize_database()
+    with database_module.transaction() as connection:
+        connection.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+            (
+                "learned_formats",
+                json.dumps({"youtube": {"template": "https://www.youtube.com/watch?v={id}"}}),
+                "2026-07-05T00:00:00+00:00",
+            ),
+        )
+
+    assert repositories.load_learned_formats_payload() == {}
+
+
+def test_settings_app_json_migrates_legacy_shapes_on_startup(tmp_path, monkeypatch):
+    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+
+    format_template = "https://rule34video.com/video/{id}/{creator}"
+    repositories.save_learned_formats_payload(
+        {
+            "rule34video": {
+                "templates": [format_template],
+            }
+        }
+    )
+    legacy_app = {
+        "source_template_settings": {
+            "rule34video": {
+                "folder_template": "{{artist}}",
+                "filename_template": "{{caption}} [{{id}}]",
+            }
+        },
+        "token_roles": {
+            "rule34video": {
+                "artist": "username",
+                "caption": "title",
+                "ignored": "ignore",
+            }
+        },
+        "scrape_rules": {
+            "rule34video": {
+                "enabled": True,
+                "rules": [
+                    {
+                        "token": "artist",
+                        "selector": ".artist",
+                    }
+                ],
+            }
+        },
+    }
+    with database_module.transaction() as connection:
+        connection.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+            ("app", json.dumps(legacy_app), "2026-07-05T00:00:00+00:00"),
+        )
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        row = connection.execute("SELECT value FROM settings WHERE key = ?", ("app",)).fetchone()
+    migrated = json.loads(row["value"])
+
+    assert "source_template_settings" not in migrated
+    assert "token_roles" not in migrated
+    assert "scrape_rules" not in migrated
+    assert migrated["source_token_roles"] == {
+        "rule34video": {
+            "artist": "creator",
+            "caption": "title",
+        }
+    }
+    assert migrated["source_templates"] == {
+        "rule34video": {
+            format_template: {
+                "folder_template": "{{artist}}",
+                "filename_template": "{{title}} [{{id}}]",
+            }
+        }
+    }
+    assert migrated["source_scrape_rules"] == {
+        "rule34video": {
+            "rules": [
+                {
+                    "token": "artist",
+                    "match_label": "",
+                    "selector": ".artist",
+                    "attr": "text",
+                    "multi": False,
+                    "xpath": "",
+                    "format": format_template,
+                }
+            ]
+        }
+    }
 
 
 def _seed_history(monkeypatch, tmp_path):
