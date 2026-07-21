@@ -65,7 +65,26 @@ def resolve_task_settings(
         base_template,
         effective.get("source_token_roles"),
     )
-    selected_template = normalize_template_settings(selected_templates.get(source_key) or base_template)
+    
+    platform_templates = selected_templates.get(source_key) or {}
+    
+    from backend.app.services.tasks.store import load_learned_formats
+    from backend.app.services.tasks.formats import _canonical_shape, match_template
+    
+    learned = load_learned_formats()
+    matched = match_template(learned, source_key, source_url)
+    canonical_matched = _canonical_shape(matched)
+    
+    matched_template = None
+    for fmt, settings_dict in platform_templates.items():
+        if _canonical_shape(fmt) == canonical_matched:
+            matched_template = settings_dict
+            break
+            
+    if matched_template is None:
+        matched_template = base_template
+        
+    selected_template = normalize_template_settings(matched_template)
 
     return ResolvedTaskSettings(
         source_key=source_key,

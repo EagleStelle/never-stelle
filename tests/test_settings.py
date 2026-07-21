@@ -7,6 +7,7 @@ from backend.app.services.settings import (
     BUILTIN_FILENAME_TEMPLATE,
     BUILTIN_FOLDER_TEMPLATE,
     get_effective_creator_fields,
+    get_effective_template_settings,
     get_effective_title_cleaning,
     get_source_creator_field_defaults,
     normalize_source_creator_fields,
@@ -99,7 +100,10 @@ def test_normalize_source_slug_tokens_validates_parts_and_dedupes():
     assert "" not in result
 
 
-def test_resolve_slug_tokens_maps_url_part_to_role_and_custom_token():
+def test_resolve_slug_tokens_maps_url_part_to_role_and_custom_token(monkeypatch):
+    import backend.app.services.tasks.store as store_mod
+    monkeypatch.setattr(store_mod, "load_learned_formats", lambda: {})
+
     from backend.app.services.tasks.enrich import resolve_slug_tokens
 
     slug_map = {
@@ -135,7 +139,14 @@ def test_normalize_source_token_roles_keeps_known_roles():
     assert result == {"rule34video": {"artist_name": "creator", "title": "title"}}
 
 
-def test_normalize_source_templates_migrates_role_backed_scrape_tokens():
+def test_normalize_source_templates_migrates_role_backed_scrape_tokens(monkeypatch):
+    import backend.app.services.tasks.store as store_mod
+    monkeypatch.setattr(
+        store_mod,
+        "load_learned_formats",
+        lambda: {"rule34video": {"templates": ["https://rule34video.com/video/{id}/{creator}"], "segments": []}}
+    )
+
     profiles = [{"key": "rule34video", "label": "Rule34Video"}]
     result = normalize_source_template_selection(
         {"rule34video": {"folder_template": "{{artist}}", "filename_template": "{{caption}} [{{id}}]"}},
@@ -145,7 +156,7 @@ def test_normalize_source_templates_migrates_role_backed_scrape_tokens():
         {"rule34video": {"artist": "username", "caption": "title"}},
     )
 
-    assert result["rule34video"] == {
+    assert result["rule34video"]["https://rule34video.com/video/{id}/{creator}"] == {
         "folder_template": "{{artist}}",
         "filename_template": "{{title}} [{{id}}]",
     }
@@ -381,7 +392,17 @@ def test_normalize_template_blank_falls_back():
     assert result["filename_template"] == BUILTIN_FILENAME_TEMPLATE
 
 
-def test_normalize_source_templates_keeps_per_source_values():
+def test_normalize_source_templates_keeps_per_source_values(monkeypatch):
+    import backend.app.services.tasks.store as store_mod
+    monkeypatch.setattr(
+        store_mod,
+        "load_learned_formats",
+        lambda: {
+            "rule34video": {"templates": ["https://rule34video.com/video/{id}/{creator}"], "segments": []},
+            "youtube": {"templates": ["https://www.youtube.com/watch?v={id}"], "segments": []}
+        }
+    )
+
     profiles = [
         {"key": "youtube", "label": "YouTube"},
         {"key": "rule34video", "label": "Rule34Video"},
@@ -393,9 +414,53 @@ def test_normalize_source_templates_keeps_per_source_values():
         normalize_template_settings({}),
     )
 
-    assert result["youtube"]["folder_template"] == BUILTIN_FOLDER_TEMPLATE
-    assert result["rule34video"]["folder_template"] == "{{id}}"
-    assert result["rule34video"]["filename_template"] == "{{title}}"
+    assert result["youtube"] == {}
+    assert result["rule34video"]["https://rule34video.com/video/{id}/{creator}"]["folder_template"] == "{{id}}"
+    assert result["rule34video"]["https://rule34video.com/video/{id}/{creator}"]["filename_template"] == "{{title}}"
+
+
+def test_get_effective_template_settings_uses_format_keyed_source_template(monkeypatch):
+    import backend.app.services.tasks.store as store_mod
+
+    format_template = "https://twitter.com/{creator}/status/{id}"
+    monkeypatch.setattr(
+        settings_module,
+        "load_saved_settings_file",
+        lambda: {
+            "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
+            "template_settings": {"folder_template": "{{username}}", "filename_template": "{{title}}"},
+            "source_templates": {
+                "twitter": {
+                    format_template: {
+                        "folder_template": "{{username}}/clips",
+                        "filename_template": "{{title}} -- {{id}}",
+                    }
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(
+        settings_module,
+        "get_source_profile_for_url",
+        lambda *args, **kwargs: {"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]},
+    )
+    monkeypatch.setattr(
+        settings_module,
+        "get_effective_source_profiles",
+        lambda *args, **kwargs: [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
+    )
+    monkeypatch.setattr(
+        store_mod,
+        "load_learned_formats",
+        lambda: {"twitter": {"templates": [format_template], "segments": []}},
+    )
+
+    result = get_effective_template_settings("https://twitter.com/DohaVT/status/2073635724684054528")
+
+    assert result == {
+        "folder_template": "{{username}}/clips",
+        "filename_template": "{{title}} -- {{id}}",
+    }
 
 
 def test_normalize_source_locations_does_not_seed_unresolved_location():
@@ -420,6 +485,18 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
         },
     )
 
+    from backend.app.services.tasks import store
+    monkeypatch.setattr(
+        store,
+        "load_learned_formats_payload",
+        lambda: {
+            "twitter": {
+                "templates": ["https://twitter.com/{creator}/status/{id}"],
+                "segments": []
+            }
+        }
+    )
+
     resolved = planning_module.resolve_task_settings(
         "https://twitter.com/DohaVT/status/2073635724684054528",
         site_locations={"twitter": "/library/twitter"},
@@ -427,8 +504,10 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
         source_profiles=[{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
         source_templates={
             "twitter": {
-                "folder_template": "{{username}}/{{id}}",
-                "filename_template": "{{username}} - {{id}}",
+                "https://twitter.com/{creator}/status/{id}": {
+                    "folder_template": "{{username}}/{{id}}",
+                    "filename_template": "{{username}} - {{id}}",
+                }
             }
         },
         cfg={"downloadLocations": ["/library"]},
@@ -439,4 +518,55 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
     assert resolved.template_settings == {
         "folder_template": "{{username}}/{{id}}",
         "filename_template": "{{username}} - {{id}}",
+    }
+
+
+def test_resolve_task_settings_matches_format(monkeypatch):
+    monkeypatch.setattr(settings_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
+    monkeypatch.setattr(
+        planning_module,
+        "get_effective_saved_settings",
+        lambda cfg: {
+            "source_profiles": [],
+            "site_locations": {},
+            "template_settings": {
+                "folder_template": "{{username}}",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
+            },
+            "source_templates": {},
+        },
+    )
+    
+    from backend.app.services.tasks import store
+    monkeypatch.setattr(
+        store,
+        "load_learned_formats_payload",
+        lambda: {
+            "twitter": {
+                "templates": ["https://twitter.com/{creator}/status/{id}"],
+                "segments": []
+            }
+        }
+    )
+
+    resolved = planning_module.resolve_task_settings(
+        "https://twitter.com/DohaVT/status/2073635724684054528",
+        site_locations={"twitter": "/library/twitter"},
+        template_settings={"folder_template": "{{username}}", "filename_template": "{{title}}"},
+        source_profiles=[{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
+        source_templates={
+            "twitter": {
+                "https://twitter.com/{creator}/status/{id}": {
+                    "folder_template": "FormatSpecificFolder",
+                    "filename_template": "FormatSpecificFilename",
+                }
+            }
+        },
+        cfg={"downloadLocations": ["/library"]},
+    )
+
+    assert resolved.source_key == "twitter"
+    assert resolved.template_settings == {
+        "folder_template": "FormatSpecificFolder",
+        "filename_template": "FormatSpecificFilename",
     }

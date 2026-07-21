@@ -38,7 +38,7 @@ export function useSettingsDraft(props: DraftSources): {
           draft.source_profiles.push(profile);
         }
         if (!draft.source_templates[profile.key]) {
-          draft.source_templates[profile.key] = createTemplateSettings(draft.template_settings);
+          draft.source_templates[profile.key] = {};
         }
         if (!draft.source_scrape_rules[profile.key]) {
           draft.source_scrape_rules[profile.key] = createPlatformScrapeRules();

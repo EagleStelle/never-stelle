@@ -181,8 +181,8 @@ export function createTemplateSettings(
   source: Partial<SavedSettings["template_settings"]> = {},
 ) {
   return {
-    folder_template: source.folder_template || "",
-    filename_template: source.filename_template || "",
+    folder_template: source.folder_template || "{{username}}",
+    filename_template: source.filename_template || "{{username}} - {{title}} [{{id}}]",
   };
 }
 
@@ -352,17 +352,34 @@ export function createQualitySelection(
 }
 
 export function createSourceTemplates(
-  source: Record<string, Partial<SavedSettings["template_settings"]>> = {},
+  source: Record<string, any> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
   fallback = createTemplateSettings(),
 ): SourceTemplates {
   const out: SourceTemplates = {};
   for (const profile of profiles) {
-    out[profile.key] = createTemplateSettings(source[profile.key] || fallback);
+    out[profile.key] = {};
+    const rawVal = source[profile.key];
+    if (rawVal && typeof rawVal === "object" && !("folder_template" in rawVal || "filename_template" in rawVal)) {
+      for (const [fmt, settings_dict] of Object.entries(rawVal)) {
+        if (settings_dict && typeof settings_dict === "object") {
+          out[profile.key][fmt] = createTemplateSettings(settings_dict);
+        }
+      }
+    }
   }
-  for (const [key, value] of Object.entries(source)) {
+  for (const [key, rawVal] of Object.entries(source)) {
     const normalizedKey = normalizeSourceKey(key);
-    if (normalizedKey) out[normalizedKey] = createTemplateSettings(value);
+    if (normalizedKey && !out[normalizedKey]) {
+      out[normalizedKey] = {};
+      if (rawVal && typeof rawVal === "object" && !("folder_template" in rawVal || "filename_template" in rawVal)) {
+        for (const [fmt, settings_dict] of Object.entries(rawVal)) {
+          if (settings_dict && typeof settings_dict === "object") {
+            out[normalizedKey][fmt] = createTemplateSettings(settings_dict);
+          }
+        }
+      }
+    }
   }
   return out;
 }
@@ -618,8 +635,7 @@ export function isSettingsSection(
     value === "downloads" ||
     value === "cookies" ||
     value === "quality" ||
-    value === "folder-template" ||
-    value === "filename-template" ||
+    value === "templates" ||
     value === "creator" ||
     value === "scraper"
   );

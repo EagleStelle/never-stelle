@@ -19,7 +19,8 @@ export const buttonVariants = cva(
       variant: {
         default: PRIMARY,
         primary: PRIMARY,
-        secondary: PRIMARY,
+        secondary:
+          "border border-(--glass-border) bg-secondary text-secondary-foreground hover:bg-secondary/80",
         soft: PRIMARY,
         outline: PRIMARY,
         ghost:

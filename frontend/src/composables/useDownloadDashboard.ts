@@ -52,8 +52,7 @@ const SETTINGS_SLUG_BY_SECTION: Record<SettingsSection, string> = {
   creator: "creator",
   scraper: "scraper",
   slug: "slug",
-  "folder-template": "folder",
-  "filename-template": "filename",
+  templates: "templates",
 };
 
 const SETTINGS_SECTION_BY_SLUG = Object.fromEntries(

@@ -630,7 +630,7 @@ class _TemplateResolver:
     def __init__(
         self,
         base: dict[str, str],
-        per_source: dict[str, dict[str, str]],
+        per_source: dict[str, dict[str, dict[str, str]]],
         token_roles: dict[str, dict[str, str]] | None = None,
         slug_tokens: dict[str, list[dict[str, str]]] | None = None,
     ) -> None:
@@ -638,27 +638,43 @@ class _TemplateResolver:
         self._per_source = per_source
         self._token_roles = token_roles or {}
         self._slug_tokens = slug_tokens or {}
-        self._cache: dict[str, tuple[re.Pattern[str] | None, re.Pattern[str] | None]] = {}
+        self._cache: dict[str, dict[str, tuple[re.Pattern[str] | None, re.Pattern[str] | None]]] = {}
         self.base_filename = compile_template(base.get("filename_template") or "")
 
     def slug_rules_for(self, source_key: str) -> list[dict[str, str]]:
         return self._slug_tokens.get(normalize_source_key(source_key)) or []
 
-    def for_source(self, source_key: str) -> tuple[re.Pattern[str] | None, re.Pattern[str] | None]:
+    def all_formats_for(self, source_key: str) -> list[str]:
+        templates_dict = self._per_source.get(source_key) or {}
+        if not templates_dict:
+            return [""]
+        return list(templates_dict.keys())
+
+    def for_source_format(self, source_key: str, format_template: str = "") -> tuple[re.Pattern[str] | None, re.Pattern[str] | None]:
         if source_key not in self._cache:
-            settings = self._per_source.get(source_key) or self._base
+            self._cache[source_key] = {}
+        if format_template not in self._cache[source_key]:
+            templates_dict = self._per_source.get(source_key) or {}
+            settings = templates_dict.get(format_template) or self._base
             roles = self._token_roles.get(normalize_source_key(source_key)) or {}
             slug_names = {rule["token"] for rule in self.slug_rules_for(source_key) if rule.get("token")}
-            self._cache[source_key] = (
+            self._cache[source_key][format_template] = (
                 compile_template(settings.get("folder_template") or "", roles, slug_names),
                 compile_template(settings.get("filename_template") or "", roles, slug_names),
             )
-        return self._cache[source_key]
+        return self._cache[source_key][format_template]
+
+    def templates_for_format(self, source_key: str, format_template: str = "") -> tuple[str, str]:
+        templates_dict = self._per_source.get(source_key) or {}
+        settings = templates_dict.get(format_template) or self._base
+        return str(settings.get("folder_template") or ""), str(settings.get("filename_template") or "")
+
+    # For backward compatibility
+    def for_source(self, source_key: str) -> tuple[re.Pattern[str] | None, re.Pattern[str] | None]:
+        return self.for_source_format(source_key, "")
 
     def templates_for(self, source_key: str) -> tuple[str, str]:
-        # Raw folder/filename template strings, so the caller can read their tokens.
-        settings = self._per_source.get(source_key) or self._base
-        return str(settings.get("folder_template") or ""), str(settings.get("filename_template") or "")
+        return self.templates_for_format(source_key, "")
 
 
 def _source_location_index(locations: dict[str, str]) -> list[tuple[str, str]]:
@@ -785,8 +801,28 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         source_key, source_pending, source_candidates = infer_disk_source(
             path, media_id, location_index, learned, source_hint
         )
-        folder_pattern, filename_pattern = templates.for_source(source_key)
-        filename_fields = _match_template(filename_pattern, path.stem)
+        # Try to find a matching template for the disk file among all formats configured
+        best_match = None
+        best_fields = None
+        matched_fmt = ""
+        
+        for fmt in templates.all_formats_for(source_key):
+            folder_pat, filename_pat = templates.for_source_format(source_key, fmt)
+            fields = _match_template(filename_pat, path.stem)
+            if fields:
+                best_match = (folder_pat, filename_pat)
+                best_fields = fields
+                matched_fmt = fmt
+                break
+                
+        if best_match:
+            folder_pattern, filename_pattern = best_match
+            filename_fields = best_fields
+        else:
+            folder_pattern, filename_pattern = templates.for_source_format(source_key, "")
+            filename_fields = _match_template(filename_pattern, path.stem)
+            matched_fmt = ""
+
         title = filename_fields.get("title", title)
         source_roles = token_role_map.get(source_key) or {}
         slug_rules = templates.slug_rules_for(source_key)
@@ -807,7 +843,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
             )
         else:
             # Manually-placed file with no resolved creator yet: probe in the configured order.
-            folder_template, filename_template = templates.templates_for(source_key)
+            folder_template, filename_template = templates.templates_for_format(source_key, matched_fmt)
             role = _creator_role_for_templates(folder_template, filename_template, source_roles)
             order = (creator_fields_map.get(source_key) or {}).get(role) or CREATOR_FIELD_DEFAULTS.get(role, [])
             scraper_backed_role = _template_role_has_scraper_rule(

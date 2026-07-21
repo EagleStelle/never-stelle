@@ -505,8 +505,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       creator: `${firstSource}CreatorProbeInput`,
       scraper: `${firstSource}ScraperProbeInput`,
       slug: `${firstSource}SlugSection`,
-      "folder-template": `${firstSource}FolderTemplateInput`,
-      "filename-template": `${firstSource}FilenameTemplateInput`,
+      templates: "",
     };
     void nextTick(() =>
       document.getElementById(focusTargets[settingsSection.value])?.focus(),

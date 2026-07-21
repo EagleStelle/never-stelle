@@ -18,8 +18,7 @@ export type SettingsSection =
   | "creator"
   | "scraper"
   | "slug"
-  | "folder-template"
-  | "filename-template";
+  | "templates";
 export type ToastType = "success" | "error";
 
 export type SourceLocations = Record<string, string>;
@@ -28,6 +27,11 @@ export interface TemplateSettings {
   folder_template: string;
   filename_template: string;
 }
+
+export type SourceTemplatesPayload = Record<
+  string,
+  Partial<TemplateSettings> | Record<string, Partial<TemplateSettings>>
+>;
 
 export interface SourceProfile {
   key: string;
@@ -40,7 +44,7 @@ export interface SourceProfile {
   settings_managed?: boolean;
 }
 
-export type SourceTemplates = Record<string, TemplateSettings>;
+export type SourceTemplates = Record<string, Record<string, TemplateSettings>>;
 
 export interface ScrapeRule {
   token: string;
@@ -212,7 +216,7 @@ export interface UiConfigResponse {
   source_default_locations?: SourceLocations;
   site_default_locations?: SourceLocations;
   template_settings?: Partial<TemplateSettings>;
-  source_templates?: Record<string, Partial<TemplateSettings>>;
+  source_templates?: SourceTemplatesPayload;
   source_scrape_rules?: Record<string, Partial<PlatformScrapeRules>>;
   source_token_roles?: Record<string, Record<string, string>>;
   source_slug_tokens?: Record<string, SlugToken[]>;

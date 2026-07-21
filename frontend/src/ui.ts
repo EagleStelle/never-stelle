@@ -49,8 +49,7 @@ export const SETTINGS_SECTIONS: Array<{
   { key: "quality", label: "Quality", route: "/settings/quality" },
   { key: "creator", label: "Creator", route: "/settings/creator" },
   { key: "scraper", label: "Scraper", route: "/settings/scraper" },
-  { key: "folder-template", label: "Folder", route: "/settings/folder" },
-  { key: "filename-template", label: "Filename", route: "/settings/filename" },
+  { key: "templates", label: "Templates", route: "/settings/templates" },
 ];
 
 export const COUNT_ICONS: Record<

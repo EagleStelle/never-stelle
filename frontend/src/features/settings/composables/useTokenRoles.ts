@@ -36,14 +36,17 @@ export function useTokenRoles(settingsDraft: SavedSettings) {
   function migrateTemplateToken(key: string, token: string, role: TokenRole): void {
     const normalized = normalizeTokenName(token);
     if (!normalized || role === "ignore" || role === "creator" || normalized === role) return;
-    const templates = settingsDraft.source_templates[key];
-    if (!templates) return;
-    for (const field of ["folder_template", "filename_template"] as const) {
-      templates[field] = String(templates[field] || "").replace(
-        TEMPLATE_TOKEN_RE,
-        (match, rawToken) =>
-          normalizeTokenName(rawToken) === normalized ? `{{${role}}}` : match,
-      );
+    const formats = settingsDraft.source_templates[key];
+    if (!formats) return;
+    for (const format of Object.keys(formats)) {
+      const templateSettings = formats[format];
+      for (const field of ["folder_template", "filename_template"] as const) {
+        templateSettings[field] = String(templateSettings[field] || "").replace(
+          TEMPLATE_TOKEN_RE,
+          (match, rawToken) =>
+            normalizeTokenName(rawToken) === normalized ? `{{${role}}}` : match,
+        );
+      }
     }
   }
 

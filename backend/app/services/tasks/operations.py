@@ -39,7 +39,7 @@ def queue_task(
     site_locations: dict[str, str] | None = None,
     template_settings: dict[str, str] | None = None,
     source_profiles: list[dict[str, Any]] | dict[str, Any] | None = None,
-    source_templates: dict[str, dict[str, str]] | None = None,
+    source_templates: dict[str, Any] | None = None,
     quality: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     source_url = canonicalize_source_url(source_url)

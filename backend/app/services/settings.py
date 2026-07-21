@@ -260,23 +260,36 @@ def normalize_source_template_selection(
     source_profiles: list[dict[str, Any]] | None = None,
     default_template: dict[str, str] | None = None,
     token_roles: dict[str, dict[str, str]] | None = None,
-) -> dict[str, dict[str, str]]:
+) -> dict[str, dict[str, dict[str, str]]]:
     source = raw if isinstance(raw, dict) else {}
-    default_template = normalize_template_settings(default_template or {})
     profiles = _settings_managed_profiles(
         source_profiles if source_profiles is not None else get_effective_source_profiles(cfg)
     )
-    out: dict[str, dict[str, str]] = {}
+    
+    from backend.app.services.tasks.store import load_learned_formats
+    from backend.app.services.tasks.formats import _entry_templates
+    learned = load_learned_formats()
+    
+    out: dict[str, dict[str, dict[str, str]]] = {}
     for profile in profiles:
         key = normalize_source_key(profile.get("key"))
-        profile_template = {
-            "folder_template": str(profile.get("folder_template") or default_template["folder_template"]),
-            "filename_template": str(profile.get("filename_template") or default_template["filename_template"]),
-        }
-        normalized = normalize_template_settings(
-            source.get(key) or source.get(str(profile.get("label") or "")) or profile_template
-        )
-        out[key] = migrate_template_settings_tokens(normalized, (token_roles or {}).get(key))
+        raw_val = source.get(key) or source.get(str(profile.get("label") or ""))
+        
+        out[key] = {}
+        if isinstance(raw_val, dict) and ("folder_template" in raw_val or "filename_template" in raw_val):
+            # Legacy flat platform-wide setting: migrate to the first learned format if possible
+            entry_templates = _entry_templates(learned.get(key) or {})
+            if entry_templates:
+                target_format = entry_templates[0]
+                normalized = normalize_template_settings(raw_val)
+                out[key][target_format] = migrate_template_settings_tokens(normalized, (token_roles or {}).get(key))
+        elif isinstance(raw_val, dict):
+            # Format-keyed templates
+            for format_template, val in raw_val.items():
+                if isinstance(val, dict):
+                    normalized = normalize_template_settings(val)
+                    out[key][format_template] = migrate_template_settings_tokens(normalized, (token_roles or {}).get(key))
+                    
     return out
 
 
@@ -295,7 +308,26 @@ def get_effective_template_settings(source_url: str = "") -> dict[str, str]:
         base,
         token_roles,
     )
-    return source_templates.get(profile["key"], base)
+    
+    platform_templates = source_templates.get(profile["key"]) or {}
+    
+    from backend.app.services.tasks.store import load_learned_formats
+    from backend.app.services.tasks.formats import _canonical_shape, match_template
+    
+    learned = load_learned_formats()
+    matched = match_template(learned, profile["key"], source_url)
+    canonical_matched = _canonical_shape(matched)
+    
+    matched_template = None
+    for fmt, settings_dict in platform_templates.items():
+        if _canonical_shape(fmt) == canonical_matched:
+            matched_template = settings_dict
+            break
+            
+    if matched_template is None:
+        matched_template = base
+        
+    return normalize_template_settings(matched_template)
 
 
 # --- Scrape rules ---

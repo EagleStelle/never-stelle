@@ -55,6 +55,83 @@ def test_probe_empty_url_is_client_error(tmp_path, monkeypatch):
     assert response.json()["error"] == "Paste a URL first."
 
 
+def test_settings_post_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    import backend.app.services.tasks.store as store_module
+
+    format_template = "https://twitter.com/{creator}/status/{id}"
+    monkeypatch.setattr(
+        store_module,
+        "load_learned_formats",
+        lambda: {"twitter": {"templates": [format_template], "segments": []}},
+    )
+
+    response = client.post(
+        "/api/settings",
+        json={
+            "site_locations": {},
+            "template_settings": {"folder_template": "{{username}}", "filename_template": "{{title}}"},
+            "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
+            "source_templates": {
+                "twitter": {
+                    format_template: {
+                        "folder_template": "{{username}}/clips",
+                        "filename_template": "{{title}} -- {{id}}",
+                    }
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["source_templates"]["twitter"][format_template] == {
+        "folder_template": "{{username}}/clips",
+        "filename_template": "{{title}} -- {{id}}",
+    }
+
+
+def test_add_task_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    format_template = "https://twitter.com/{creator}/status/{id}"
+    source_templates = {
+        "twitter": {
+            format_template: {
+                "folder_template": "{{username}}/clips",
+                "filename_template": "{{title}} -- {{id}}",
+            }
+        }
+    }
+    captured: dict[str, object] = {}
+
+    def fake_queue_task(
+        source_url,
+        site_locations=None,
+        template_settings=None,
+        source_profiles=None,
+        source_templates=None,
+        quality=None,
+    ):
+        captured["source_templates"] = source_templates
+        return ([{"vid": "ytdlp:test", "status": "pending"}], False)
+
+    monkeypatch.setattr(operations_module, "queue_task", fake_queue_task)
+
+    response = client.post(
+        "/api/tasks",
+        json={
+            "url": "https://twitter.com/DohaVT/status/2073635724684054528",
+            "site_locations": {},
+            "template_settings": {"folder_template": "{{username}}", "filename_template": "{{title}}"},
+            "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
+            "source_templates": source_templates,
+            "quality": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["source_templates"] == source_templates
+
+
 def test_auth_login_session_and_logout(tmp_path, monkeypatch):
     use_temp_auth_db(tmp_path, monkeypatch)
 

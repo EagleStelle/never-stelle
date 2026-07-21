@@ -15,8 +15,7 @@ import Account from "./sections/Settings/Account.vue";
 import Cookies from "./sections/Settings/Cookies.vue";
 import Locations from "./sections/Settings/Locations.vue";
 import Quality from "./sections/Settings/Quality.vue";
-import Filename from "./sections/Templates/Filename.vue";
-import Folder from "./sections/Templates/Folder.vue";
+import Templates from "./sections/Metadata/Templates.vue";
 import Creator from "./sections/Metadata/Creator.vue";
 import Format from "./sections/Metadata/Format.vue";
 import Scraper from "./sections/Metadata/Scraper.vue";
@@ -109,21 +108,11 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     requiresSources: true,
   },
   {
-    key: "folder-template",
-    label: "Folder",
-    group: "Templates",
+    key: "templates",
+    label: "Templates",
+    group: "Metadata",
     icon: IconRuleFolder,
-    component: Folder,
-    focusId: (source) => `${source}FolderTemplateInput`,
-    requiresSources: true,
-  },
-  {
-    key: "filename-template",
-    label: "Filename",
-    group: "Templates",
-    icon: IconDescription,
-    component: Filename,
-    focusId: (source) => `${source}FilenameTemplateInput`,
+    component: Templates,
     requiresSources: true,
   },
 ];

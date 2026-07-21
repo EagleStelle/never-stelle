@@ -52,7 +52,7 @@ class SettingsPayload(BaseModel):
     site_locations: dict[str, str] = Field(default_factory=dict)
     template_settings: dict[str, str] = Field(default_factory=dict)
     source_profiles: list[dict[str, Any]] | dict[str, Any] = Field(default_factory=list)
-    source_templates: dict[str, dict[str, str]] = Field(default_factory=dict)
+    source_templates: dict[str, Any] = Field(default_factory=dict)
     default_quality: dict[str, str] = Field(default_factory=dict)
     source_scrape_rules: dict[str, Any] = Field(default_factory=dict)
     source_token_roles: dict[str, Any] = Field(default_factory=dict)
@@ -73,7 +73,7 @@ class AddTaskPayload(BaseModel):
     site_locations: dict[str, str] | None = None
     template_settings: dict[str, str] | None = None
     source_profiles: list[dict[str, Any]] | dict[str, Any] | None = None
-    source_templates: dict[str, dict[str, str]] | None = None
+    source_templates: dict[str, Any] | None = None
     quality: dict[str, str] | None = None
 
 
