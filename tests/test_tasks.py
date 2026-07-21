@@ -517,6 +517,18 @@ def test_render_template_folder_renders_nickname_distinct_from_username():
     assert folder == Path("/media/instagram/NASA")
 
 
+def test_render_template_folder_renders_selected_quality():
+    folder = worker_module._render_template_folder(
+        Path("/media/rule34video"),
+        {"folder_template": "{{quality}}/{{username}}"},
+        creator="artist",
+        media_id="4483553",
+        quality={"mode": "video", "video_quality": "1080p"},
+    )
+
+    assert folder == Path("/media/rule34video/1080p/artist")
+
+
 def test_render_template_folder_handle_at_cleanup_can_be_disabled():
     root = Path("/media/tiktok")
     template = {"folder_template": "{{username}}"}
@@ -797,6 +809,17 @@ def test_clean_template_filename_preserves_slug_quality_tokens_without_title():
     assert result == "daiwa-scarlet-suokanawer_source - [4483553].mp4"
 
 
+def test_clean_template_filename_renders_selected_quality_when_rebuilding():
+    result = clean_template_filename(
+        "Clip [4483553].mp4",
+        "{{quality}} - {{title}} [{{id}}]",
+        media_id="4483553",
+        quality={"mode": "video", "video_quality": "1080p"},
+    )
+
+    assert result == "1080p - [4483553].mp4"
+
+
 def test_clean_resolved_filename_renames_real_file_using_settings_template(tmp_path: Path):
     source_url = "https://twitter.com/DohaVT/status/2073635724684054528"
     media_file = tmp_path / "DohaVT - 2073635724684054528 - Video by DohaVT.mp4"
@@ -810,6 +833,28 @@ def test_clean_resolved_filename_renames_real_file_using_settings_template(tmp_p
     )
 
     expected = tmp_path / "DohaVT - 2073635724684054528.mp4"
+    assert final_path == expected
+    assert display_filename == expected.name
+    assert expected.is_file()
+    assert not media_file.exists()
+
+
+def test_clean_resolved_filename_rerenders_selected_quality(tmp_path: Path):
+    source_url = "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/"
+    media_file = tmp_path / "source - Video by Artist [4483553].mp4"
+    media_file.write_bytes(b"video")
+
+    final_path, display_filename = worker_module._clean_resolved_filename(
+        source_url,
+        media_file,
+        {"folder_template": "", "filename_template": "{{quality}} - {{title}} [{{id}}]"},
+        "rule34video",
+        creator_hint="Artist",
+        media_id_hint="4483553",
+        quality={"mode": "video", "video_quality": "1080p"},
+    )
+
+    expected = tmp_path / "1080p - [4483553].mp4"
     assert final_path == expected
     assert display_filename == expected.name
     assert expected.is_file()

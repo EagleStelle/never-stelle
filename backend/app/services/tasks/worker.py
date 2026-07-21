@@ -36,6 +36,7 @@ from .constants import (
     creator_roles_from_probe_fields,
     normalize_quality_selection,
     normalize_title_cleaning,
+    quality_label,
 )
 from .engine import Engine, all_engines, engine_for_task
 from .files import find_newest_media_file, find_numbered_media_siblings, is_media_file, recover_task_path
@@ -1026,6 +1027,7 @@ def _rename_gallerydl_numbered_siblings(
     media_id: str = "",
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
+    quality: dict[str, str] | None = None,
 ) -> Path:
     selected = path
     siblings = find_numbered_media_siblings(path) or [path]
@@ -1041,6 +1043,7 @@ def _rename_gallerydl_numbered_siblings(
                 keep_numbered_suffix=True,
                 extra_tokens=extra_tokens,
                 cleaning=cleaning,
+                quality=quality,
             )
         if not target_name:
             target_name = clean_gallerydl_disk_filename(sibling.name, creator, source_key, cleaning)
@@ -1059,6 +1062,7 @@ def _rename_gallerydl_group_paths(
     media_id: str = "",
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
+    quality: dict[str, str] | None = None,
 ) -> Path:
     selected = selected_path
     selected_key = _path_key(selected_path)
@@ -1074,6 +1078,7 @@ def _rename_gallerydl_group_paths(
                 keep_numbered_suffix=True,
                 extra_tokens=extra_tokens,
                 cleaning=cleaning,
+                quality=quality,
             )
         if not target_name:
             target_name = clean_gallerydl_disk_filename(path.name, creator, source_key, cleaning)
@@ -1095,6 +1100,7 @@ def _clean_resolved_filename(
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
     creator_authoritative: bool = False,
+    quality: dict[str, str] | None = None,
 ) -> tuple[Path, str]:
     filename_template = _filename_template(template_settings)
     source_key = source_key or detect_source_key(source_url)
@@ -1118,6 +1124,7 @@ def _clean_resolved_filename(
             keep_numbered_suffix=False,
             extra_tokens=extra_tokens,
             cleaning=cleaning,
+            quality=quality,
         )
         disk_filename = clean_template_filename(
             path.name,
@@ -1129,6 +1136,7 @@ def _clean_resolved_filename(
             keep_numbered_suffix=True,
             extra_tokens=extra_tokens,
             cleaning=cleaning,
+            quality=quality,
         )
         if disk_filename:
             if group_paths and len(group_paths) > 1:
@@ -1141,6 +1149,7 @@ def _clean_resolved_filename(
                     media_id_hint,
                     extra_tokens,
                     cleaning,
+                    quality,
                 )
                 return renamed, display_filename or f"{strip_numbered_suffix(renamed.stem)}{renamed.suffix}"
             if strip_numbered_suffix(path.stem) != path.stem:
@@ -1154,6 +1163,7 @@ def _clean_resolved_filename(
                         media_id_hint,
                         extra_tokens,
                         cleaning,
+                        quality,
                     )
                 else:
                     renamed = _rename_gallerydl_numbered_siblings(
@@ -1164,6 +1174,7 @@ def _clean_resolved_filename(
                         media_id_hint,
                         extra_tokens,
                         cleaning,
+                        quality,
                     )
                 return renamed, display_filename or f"{strip_numbered_suffix(renamed.stem)}{renamed.suffix}"
             renamed = _rename_path(path, disk_filename)
@@ -1201,6 +1212,7 @@ def _render_template_folder(
     nickname: str = "",
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
+    quality: dict[str, str] | None = None,
 ) -> Path | None:
     folder_template = str((template_settings or {}).get("folder_template") or "").strip()
     if not folder_template:
@@ -1223,6 +1235,8 @@ def _render_template_folder(
             return creator
         if field == "id":
             return media_id
+        if field == "quality" and quality is not None:
+            return quality_label(quality)
         return ""
 
     rendered = TEMPLATE_RE.sub(replace, folder_template)
@@ -1247,9 +1261,10 @@ def _move_group_to_template_folder(
     nickname: str = "",
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
+    quality: dict[str, str] | None = None,
 ) -> Path:
     target_dir = _render_template_folder(
-        output_root, template_settings, creator, media_id, nickname, extra_tokens, cleaning
+        output_root, template_settings, creator, media_id, nickname, extra_tokens, cleaning, quality
     )
     if target_dir is None or _path_key(selected_path.parent) == _path_key(target_dir):
         return selected_path
@@ -1616,6 +1631,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     extra_tokens,
                     item_cleaning,
                     creator_authoritative=bool(configured_username),
+                    quality=quality,
                 )
                 media_id = (
                     media_id
@@ -1631,6 +1647,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     display_nickname_hint,
                     extra_tokens,
                     item_cleaning,
+                    quality,
                 )
                 keep_paths = find_numbered_media_siblings(final_path) or [final_path]
                 _cleanup_duplicate_library_media(output_root, media_id, keep_paths)

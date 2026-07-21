@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from .constants import CREATOR_FIELDS, TEMPLATE_RE, TITLE_MAX_CHARS_DEFAULT, normalize_title_cleaning
+from .constants import CREATOR_FIELDS, TEMPLATE_RE, TITLE_MAX_CHARS_DEFAULT, normalize_title_cleaning, quality_label
 
 _INVALID_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f\u29f8\u29f9]')
 _SPACING_RE = re.compile(r"\s+")
@@ -422,6 +422,7 @@ def _render_template_stem(
     fields: dict[str, str],
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
+    quality: dict[str, str] | None = None,
 ) -> str:
     template = _template_stem(filename_template)
     flags = normalize_title_cleaning(cleaning)
@@ -434,6 +435,8 @@ def _render_template_stem(
                 if field in CREATOR_FIELDS:
                     override = _clean_creator_token(str(override), flags)
                 return sanitize_path_literal(override)
+        if field == "quality" and quality is not None:
+            return sanitize_path_literal(quality_label(quality))
         value = fields.get(field, "")
         if field in CREATOR_FIELDS and not value:
             value = _field_value(fields, "username", "nickname")
@@ -454,10 +457,15 @@ def _extra_tokens_change_fields(
     filename_template: str,
     fields: dict[str, str],
     extra_tokens: dict[str, str] | None,
+    quality: dict[str, str] | None = None,
 ) -> bool:
+    referenced = {match.group(1).strip().lower() for match in TEMPLATE_RE.finditer(str(filename_template or ""))}
+    if quality is not None and "quality" in referenced:
+        value = sanitize_path_literal(quality_label(quality))
+        if value and fields.get("quality", "") != value:
+            return True
     if not extra_tokens:
         return False
-    referenced = {match.group(1).strip().lower() for match in TEMPLATE_RE.finditer(str(filename_template or ""))}
     for token, value in extra_tokens.items():
         token = str(token or "").strip().lower()
         value = sanitize_path_literal(value)
@@ -477,6 +485,7 @@ def clean_template_filename(
     keep_numbered_suffix: bool = True,
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
+    quality: dict[str, str] | None = None,
 ) -> str:
     value = str(filename or "").strip()
     if not value:
@@ -498,7 +507,7 @@ def clean_template_filename(
             rendered_fields["nickname"] = fallback_nickname or fallback_username
         if fallback_media_id:
             rendered_fields["id"] = fallback_media_id
-        stem = _render_template_stem(filename_template, rendered_fields, extra_tokens, cleaning)
+        stem = _render_template_stem(filename_template, rendered_fields, extra_tokens, cleaning, quality)
         numbered = re.search(r"_\d+$", path.stem)
         if keep_numbered_suffix and numbered:
             stem = f"{stem}{numbered.group(0)}"
@@ -548,7 +557,7 @@ def clean_template_filename(
     )
     # A scraped token whose value differs from what the filename already carries
     # must force a re-render, so recovery paths still pick up uploader/artist.
-    extra_changed = _extra_tokens_change_fields(filename_template, fields, extra_tokens)
+    extra_changed = _extra_tokens_change_fields(filename_template, fields, extra_tokens, quality)
     if (
         shortened_title == raw_title
         and not media_id_changed
@@ -566,7 +575,7 @@ def clean_template_filename(
         rendered_fields["username"] = resolved_username
     if resolved_nickname:
         rendered_fields["nickname"] = resolved_nickname
-    stem = _render_template_stem(filename_template, rendered_fields, extra_tokens, cleaning)
+    stem = _render_template_stem(filename_template, rendered_fields, extra_tokens, cleaning, quality)
     if not stem:
         stem = sanitize_path_literal(
             resolved_media_id or resolved_username or resolved_nickname or strip_numbered_suffix(path.stem)
