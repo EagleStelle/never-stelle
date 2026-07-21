@@ -15,9 +15,12 @@ import {
 } from "../../../../components/ui/accordion";
 import type { LearnedFormat } from "../../../../types";
 import { useSettingsContext } from "../../context";
+import { useCreatorSettings } from "../../composables/useCreatorSettings";
 
-const { settings, editableSourceProfiles, learnFormat, reorderFormatTemplates } =
+const { settings, settingsDraft, editableSourceProfiles, learnFormat, reorderFormatTemplates } =
   useSettingsContext();
+
+const { runProbe } = useCreatorSettings(settingsDraft, settings, editableSourceProfiles);
 
 const link = ref("");
 const learning = ref(false);
@@ -41,6 +44,7 @@ async function submit(): Promise<void> {
     if (key) {
       link.value = "";
       if (!open.value.includes(key)) open.value.push(key);
+      await runProbe(key, url);
     }
   } finally {
     learning.value = false;

@@ -42,13 +42,14 @@ const FALLBACK_TITLE_LENGTH_RULE: TitleCleaningRule = {
   default: false,
 };
 
+const probes = reactive<Record<string, ProbeState>>({});
+
 // Per-source username/nickname field lists, title-cleaning toggles, and the field probe.
 export function useCreatorSettings(
   settingsDraft: SavedSettings,
   settings: RuntimeSettings,
   editableSourceProfiles: ComputedRef<SourceProfile[]>,
 ) {
-  const probes = reactive<Record<string, ProbeState>>({});
 
   watch(
     editableSourceProfiles,
@@ -310,19 +311,25 @@ export function useCreatorSettings(
     return withAssignedScraperFields(key, role, next);
   }
 
-  async function runProbe(key: string): Promise<void> {
+  async function runProbe(key: string, overrideUrl?: string): Promise<void> {
     const state = probes[key];
-    if (state.loading) return;
-    const url = state.url.trim();
+    if (state?.loading) return;
+    const url = (overrideUrl || state?.url || "").trim();
     if (!url) {
       toast.error("Paste a link to test.");
       return;
     }
-    state.loading = true;
-    state.message = "";
+    if (!state) {
+      probes[key] = { url, loading: true, fields: [], message: "" };
+    } else {
+      state.url = url;
+      state.loading = true;
+      state.message = "";
+    }
+    const currentState = probes[key];
     try {
       const response = await probeCreatorFields(url, key);
-      state.fields = response.fields;
+      currentState.fields = response.fields;
       const learned = createCreatorFieldRoles(response.creator_fields || {});
       if (learned.username.length || learned.nickname.length) {
         const targetKey = response.source_key || key;
@@ -334,12 +341,12 @@ export function useCreatorSettings(
           nickname: [...draftRoles.nickname],
         };
       }
-      state.message = response.fields.length ? "" : "No creator fields found.";
+      currentState.message = response.fields.length ? "" : "No creator fields found.";
     } catch (error) {
-      state.fields = [];
-      state.message = errorMessage(error, "Could not read that link.");
+      currentState.fields = [];
+      currentState.message = errorMessage(error, "Could not read that link.");
     } finally {
-      state.loading = false;
+      currentState.loading = false;
     }
   }
 
