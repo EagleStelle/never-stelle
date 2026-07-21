@@ -299,7 +299,23 @@ def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
     url = resolve_redirect_url(payload.url.strip())
     if not url:
         raise HTTPException(status_code=400, detail="Paste a sample URL first.")
-    rules = [rule for rule in (normalize_scrape_rule(item) for item in payload.rules) if rule]
+    raw_rules = payload.rules
+    rules = []
+    valid_count = 0
+    for item in raw_rules:
+        if not isinstance(item, dict):
+            continue
+        xpath = str(item.get("xpath") or "").strip()
+        selector = str(item.get("selector") or "").strip()
+        match_label = str(item.get("match_label") or "").strip()
+        if not xpath and not selector and not match_label:
+            continue
+        default_tok = f"var{valid_count}"
+        rule = normalize_scrape_rule(item, default_token=default_tok)
+        if rule:
+            rules.append(rule)
+            valid_count += 1
+
     cookie_key = payload.source_key.strip() or detect_cookie_source(url)
     html = fetch_html(url, cookie_key)
     if not html:

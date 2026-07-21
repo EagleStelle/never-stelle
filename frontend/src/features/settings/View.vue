@@ -6,6 +6,7 @@ import IconUndo from "~icons/material-symbols/undo";
 import { TabsContent, TabsRoot } from "reka-ui";
 
 import { Button } from "../../components/ui/button";
+import { Card } from "../../components/ui/card";
 import { DialogShell as Dialog } from "../../components/ui/dialog";
 import type {
   CookiesMap,
@@ -162,12 +163,14 @@ function selectSection(section: SettingsSection): void {
             :value="def.key"
             class="focus:outline-none"
           >
-            <p
+            <Card
               v-if="def.requiresSources && editableSourceProfiles.length === 0"
-              class="rounded-lg glass p-4 text-white in-[.light-mode]:text-black"
+              class="px-6"
             >
-              No sources yet.
-            </p>
+              <p class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55">
+                No sources yet.
+              </p>
+            </Card>
             <component :is="def.component" />
           </TabsContent>
         </div>

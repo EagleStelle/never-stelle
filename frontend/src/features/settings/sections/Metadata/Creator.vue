@@ -20,6 +20,7 @@ import {
   type CreatorRole,
 } from "../../composables/useCreatorSettings";
 import { useSettingsContext } from "../../context";
+import SettingsLabel from "../../SettingsLabel.vue";
 import SettingsRow from "../../SettingsRow.vue";
 import {
   Accordion,
@@ -122,13 +123,15 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
       </AccordionTrigger>
       <AccordionContent>
         <div class="flex flex-col gap-[0.85rem]">
-          <SettingsRow label="Probe URL">
+          <div class="flex flex-col gap-1.5">
+            <SettingsLabel>Probe URL</SettingsLabel>
             <div class="flex items-center gap-2 w-full">
               <Input
                 :id="`${site.key}CreatorProbeInput`"
                 v-model="probes[site.key].url"
                 type="text"
                 inputmode="url"
+                aria-label="Probe URL"
                 placeholder="Paste a link"
                 class="flex-1"
                 @keydown.enter.prevent="runProbe(site.key)"
@@ -153,7 +156,7 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
                 </template>
               </Button>
             </div>
-          </SettingsRow>
+          </div>
 
           <p
             v-if="probes[site.key].message"
@@ -206,11 +209,7 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
               class="flex flex-col gap-2"
             >
               <div class="flex items-center justify-between gap-2 min-h-6">
-                <h3
-                  class="text-xs font-bold text-white/50 in-[.light-mode]:text-black/50 uppercase tracking-wider"
-                >
-                  {{ role.label }}
-                </h3>
+                <SettingsLabel>{{ role.label }}</SettingsLabel>
                 <button
                   v-if="isConfigured(site.key, role.key)"
                   type="button"
@@ -253,11 +252,7 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
           </div>
 
           <div class="flex flex-col gap-2">
-            <h3
-              class="text-xs font-bold text-white/50 in-[.light-mode]:text-black/50 uppercase tracking-wider"
-            >
-              Cleanup
-            </h3>
+            <SettingsLabel>Cleanup</SettingsLabel>
             <label
               v-for="rule in cleanupRules"
               :key="rule.key"

@@ -375,6 +375,7 @@ export function createScrapeRule(source: Partial<ScrapeRule> = {}): ScrapeRule {
     attr: String(source.attr || "").trim() || "text",
     multi: Boolean(source.multi),
     xpath: String(source.xpath || ""),
+    format: String(source.format || ""),
   };
 }
 

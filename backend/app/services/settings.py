@@ -371,20 +371,49 @@ def normalize_source_slug_tokens(raw: Any) -> dict[str, list[dict[str, str]]]:
     # empties and malformed entries are dropped so the resolver never sees junk.
     source = raw if isinstance(raw, dict) else {}
     out: dict[str, list[dict[str, str]]] = {}
+    
+    from backend.app.services.tasks.store import load_learned_formats
+    from backend.app.services.tasks.formats import describe_learned_segments
+    learned_formats = load_learned_formats() or {}
+
     for raw_key, raw_list in source.items():
         key = normalize_source_key(raw_key)
         if not key or not isinstance(raw_list, list):
             continue
+            
+        learned = learned_formats.get(key)
+        selectable_parts = []
+        if learned:
+            desc = describe_learned_segments(learned)
+            segments = desc.get("segments") or []
+            selectable_parts = [s.get("part") for s in segments if s and not s.get("reserved")]
+
         tokens: list[dict[str, str]] = []
         seen_tokens: set[str] = set()
         seen_parts: set[str] = set()
         for item in raw_list:
             if not isinstance(item, dict):
                 continue
-            token = normalize_token_name(item.get("token"))
             part = normalize_slug_part(item.get("part"))
-            if not token or not part or token in seen_tokens or part in seen_parts:
+            if not part or part in seen_parts:
                 continue
+            raw_token = item.get("token")
+            token = normalize_token_name(raw_token)
+            if not token:
+                # Token is empty! We must assign it the default var#
+                if part in selectable_parts:
+                    idx = selectable_parts.index(part)
+                    token = f"var{idx}"
+                else:
+                    token = f"var{len(seen_parts)}"
+                if token in seen_tokens:
+                    suffix = 0
+                    while f"{token}_{suffix}" in seen_tokens:
+                        suffix += 1
+                    token = f"{token}_{suffix}"
+            else:
+                if token in seen_tokens:
+                    continue
             seen_tokens.add(token)
             seen_parts.add(part)
             tokens.append({"part": part, "token": token})

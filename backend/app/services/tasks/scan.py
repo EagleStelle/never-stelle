@@ -436,9 +436,14 @@ def _scan_slug_tokens_map() -> dict[str, list[dict[str, str]]]:
     try:
         from backend.app.core.config import load_app_config
         from backend.app.services.settings import get_effective_saved_settings
+        from backend.app.services.tasks.enrich import active_slug_rules_for_key
+        from backend.app.services.tasks.store import load_learned_formats
 
         slug_map = get_effective_saved_settings(load_app_config()).get("source_slug_tokens")
-        return slug_map if isinstance(slug_map, dict) else {}
+        if not isinstance(slug_map, dict):
+            slug_map = {}
+        keys = set(slug_map.keys()) | set(load_learned_formats().keys())
+        return {key: active_slug_rules_for_key(slug_map, key) for key in keys}
     except Exception:
         return {}
 

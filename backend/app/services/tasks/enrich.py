@@ -14,7 +14,7 @@ from backend.app.services.settings import (
 )
 
 from .constants import TEMPLATE_RE
-from .formats import _prepare_url, extract_url_part
+from .formats import _canonical_shape, _entry_templates, _prepare_url, extract_url_part, match_template
 from .naming import sanitize_path_literal
 
 # Per-platform user rules turn a page's own markup into filename/folder tokens,
@@ -36,10 +36,10 @@ def _normalize_token(value: Any) -> str:
     return token.lower()
 
 
-def normalize_scrape_rule(raw: Any) -> dict[str, Any] | None:
+def normalize_scrape_rule(raw: Any, default_token: str = "") -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
-    token = _normalize_token(raw.get("token"))
+    token = _normalize_token(raw.get("token")) or default_token
     if not token:
         return None
     rule = {
@@ -49,6 +49,8 @@ def normalize_scrape_rule(raw: Any) -> dict[str, Any] | None:
         "attr": str(raw.get("attr") or "").strip() or ATTR_TEXT,
         "multi": bool(raw.get("multi")),
         "xpath": str(raw.get("xpath") or "").strip(),
+        # Learned template this rule is scoped to; only fires when the URL matches it.
+        "format": str(raw.get("format") or "").strip(),
     }
     # A rule with no way to locate a node is inert; keep only actionable ones.
     if not rule["xpath"] and not rule["selector"] and not rule["match_label"]:
@@ -58,7 +60,30 @@ def normalize_scrape_rule(raw: Any) -> dict[str, Any] | None:
 
 def normalize_platform_rules(raw: Any) -> dict[str, Any]:
     source = raw if isinstance(raw, dict) else {}
-    rules = [rule for rule in (normalize_scrape_rule(item) for item in source.get("rules") or []) if rule]
+    raw_rules = source.get("rules") or []
+    rules: list[dict[str, Any]] = []
+    valid_count = 0
+    seen_tokens: set[str] = set()
+    for item in raw_rules:
+        if not isinstance(item, dict):
+            continue
+        xpath = str(item.get("xpath") or "").strip()
+        selector = str(item.get("selector") or "").strip()
+        match_label = str(item.get("match_label") or "").strip()
+        if not xpath and not selector and not match_label:
+            continue
+        default_tok = f"var{valid_count}"
+        rule = normalize_scrape_rule(item, default_token=default_tok)
+        if rule:
+            tok = rule["token"]
+            if tok in seen_tokens:
+                suffix = 0
+                while f"{tok}_{suffix}" in seen_tokens:
+                    suffix += 1
+                rule["token"] = f"{tok}_{suffix}"
+            seen_tokens.add(rule["token"])
+            rules.append(rule)
+            valid_count += 1
     return {"rules": rules}
 
 
@@ -319,14 +344,30 @@ def resolve_scraped_tokens(
     token_roles_map: Any = None,
     cookie_source_key: str = "",
     creator_fields: Any = None,
+    learned_formats: Any = None,
 ) -> dict[str, str]:
     """Scrape the page once for scraper rules whose assigned roles are in use.
 
-    Rules assigned to username/nickname/title return role-keyed overrides.
-    Rules with no role keep the old custom-token behavior and return their raw
-    token only when that token appears in a template.
+    Each rule is scoped to one learned format; only the rules whose format matches this
+    URL's shape run. Rules assigned to username/nickname/title return role-keyed
+    overrides; roleless rules keep the custom-token behavior, returning their raw token
+    only when that token appears in a template.
     """
     rules = active_rules_for_key(rules_map, source_key)
+    if not rules:
+        return {}
+    learned = learned_formats if isinstance(learned_formats, dict) else {}
+    matched = match_template(learned, source_key, source_url)
+    canonical_matched = _canonical_shape(matched)
+    # A rule with no format is a pre-scoping (legacy) rule; treat it as the source's first
+    # learned template — the same target the UI migrates it to — so it keeps firing.
+    entry_templates = _entry_templates(learned.get(normalize_source_key(source_key)) or {})
+    default_format = entry_templates[0] if entry_templates else ""
+    rules = [
+        rule
+        for rule in rules
+        if _canonical_shape(str(rule.get("format") or "") or default_format) == canonical_matched
+    ]
     if not rules:
         return {}
     roles = (token_roles_map if isinstance(token_roles_map, dict) else {}).get(normalize_source_key(source_key)) or {}
@@ -340,14 +381,45 @@ def resolve_scraped_tokens(
 
 def active_slug_rules_for_key(slug_map: Any, source_key: str) -> list[dict[str, str]]:
     rules = (slug_map if isinstance(slug_map, dict) else {}).get(normalize_source_key(source_key))
+    configured_by_part = {}
+    if rules:
+        for item in rules:
+            if isinstance(item, dict):
+                token = _normalize_token(item.get("token"))
+                part = str(item.get("part") or "").strip()
+                if token and part:
+                    configured_by_part[part] = token
+
+    from backend.app.services.tasks.store import load_learned_formats
+    from backend.app.services.tasks.formats import describe_learned_segments
+    
     out: list[dict[str, str]] = []
-    for item in rules or []:
-        if not isinstance(item, dict):
-            continue
-        token = _normalize_token(item.get("token"))
-        part = str(item.get("part") or "").strip()
-        if token and part:
+    learned = load_learned_formats().get(normalize_source_key(source_key))
+    if learned:
+        desc = describe_learned_segments(learned)
+        segments = desc.get("segments") or []
+        # Filter for selectable (not reserved) segments
+        selectable = [s for s in segments if not s.get("reserved")]
+        
+        # Build the final list: use configured token if exists, else suggest/default one
+        for idx, segment in enumerate(selectable):
+            part = segment.get("part") or ""
+            if not part:
+                continue
+            
+            # Check if configured by user
+            if part in configured_by_part:
+                token = configured_by_part[part]
+            else:
+                # Fallback to suggested token
+                token = f"var{idx}"
+            
             out.append({"token": token, "part": part})
+    else:
+        # Fallback if no learned formats exist yet (should match configured ones)
+        for part, token in configured_by_part.items():
+            out.append({"token": token, "part": part})
+            
     return out
 
 

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Checkbox } from "../../../../components/ui/checkbox";
 import { Input } from "../../../../components/ui/input";
 import {
   SegmentedControl,
@@ -11,9 +10,17 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "../../../../components/ui/accordion";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "../../../../components/ui/card";
 import type { LearnedSegment, TokenRole } from "../../../../types";
 import { useSlugTokens } from "../../composables/useSlugTokens";
 import { useSettingsContext } from "../../context";
+import SettingsLabel from "../../SettingsLabel.vue";
 
 const ROLE_ITEMS: { key: TokenRole; label: string }[] = [
   { key: "ignore", label: "None" },
@@ -28,6 +35,7 @@ const {
   tokenForPart,
   setSelected,
   setTokenName,
+  suggestedToken,
   segmentLabel,
   displayTemplate,
   tokenRole,
@@ -67,68 +75,53 @@ function updateRole(key: string, token: string, value: unknown): void {
         </div>
 
         <div v-else class="flex flex-col gap-[0.85rem]">
-          <p
+          <SettingsLabel
             v-for="template in learnedFormat(site.key)?.templates || []"
             :key="template"
-            class="wrap-anywhere font-mono text-[0.75rem] text-white/50 in-[.light-mode]:text-black/50"
+            class="wrap-anywhere"
           >
             {{ displayTemplate(site.key, template) }}
-          </p>
+          </SettingsLabel>
 
-          <p
+          <Card
             v-if="!selectableSegments(site.key).length"
-            class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55"
+            class="px-6"
           >
-            This format has no configurable parts yet.
-          </p>
+            <p class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55">
+              This platform has no configurable parts yet.
+            </p>
+          </Card>
 
-          <div
+          <Card
             v-for="segment in selectableSegments(site.key)"
             :key="segment.part"
-            class="rounded-lg border border-(--glass-border) bg-black/10 in-[.light-mode]:bg-white/35"
           >
-            <label class="flex items-center gap-3 px-3 py-2">
-              <Checkbox
-                :checked="isSelected(site.key, segment.part)"
-                :aria-label="`Use ${segment.label}`"
-                @update:checked="(v: boolean) => setSelected(site.key, segment, v)"
-              />
-              <span class="min-w-0 flex-1">
-                <span class="block truncate font-mono text-[0.8125rem]">
-                  {{ segmentLabel(site.key, segment) }}
-                </span>
-                <span
-                  class="block truncate text-[0.75rem] text-white/50 in-[.light-mode]:text-black/50"
-                >
-                  {{ segment.part }}
-                </span>
-              </span>
-            </label>
+            <CardHeader>
+              <CardTitle class="font-mono text-sm leading-snug">
+                {{ segmentLabel(site.key, segment) }}
+              </CardTitle>
+              <CardDescription class="font-mono text-xs">
+                {{ segment.part }}
+              </CardDescription>
+            </CardHeader>
 
-            <div
-              v-if="isSelected(site.key, segment.part)"
-              class="grid grid-cols-1 gap-3 border-t border-(--glass-border) px-3 py-3 lg:grid-cols-2"
-            >
+            <CardContent class="grid grid-cols-1 gap-3 lg:grid-cols-2">
               <label class="flex flex-col gap-1.5">
-                <span class="text-xs uppercase tracking-wider opacity-55">
-                  Token
-                </span>
+                <SettingsLabel>Token</SettingsLabel>
                 <Input
-                  :model-value="tokenForPart(site.key, segment.part)"
+                  :model-value="tokenForPart(site.key, segment.part, segment)"
                   aria-label="Token name"
                   input-class="font-mono"
-                  @update:model-value="(v) => setTokenName(site.key, segment.part, String(v))"
+                  @update:model-value="(v) => setTokenName(site.key, segment.part, String(v), segment)"
                 />
               </label>
 
               <div class="flex flex-col gap-1.5">
-                <span class="text-xs uppercase tracking-wider opacity-55">
-                  Role
-                </span>
+                <SettingsLabel>Role</SettingsLabel>
                 <SegmentedControl
-                  :model-value="tokenRole(site.key, tokenForPart(site.key, segment.part))"
+                  :model-value="tokenRole(site.key, tokenForPart(site.key, segment.part, segment) || suggestedToken(site.key, segment))"
                   class="flex-wrap h-auto min-h-9"
-                  @update:model-value="(value) => updateRole(site.key, tokenForPart(site.key, segment.part), value)"
+                  @update:model-value="(value) => updateRole(site.key, tokenForPart(site.key, segment.part, segment) || suggestedToken(site.key, segment), value)"
                 >
                   <SegmentedControlItem
                     v-for="role in ROLE_ITEMS"
@@ -136,15 +129,15 @@ function updateRole(key: string, token: string, value: unknown): void {
                     :value="role.key"
                     :disabled="
                       role.key === 'title' &&
-                      isTitleRoleDisabled(site.key, tokenForPart(site.key, segment.part))
+                      isTitleRoleDisabled(site.key, tokenForPart(site.key, segment.part, segment) || suggestedToken(site.key, segment))
                     "
                   >
                     {{ role.label }}
                   </SegmentedControlItem>
                 </SegmentedControl>
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </div>
       </AccordionContent>
     </AccordionItem>

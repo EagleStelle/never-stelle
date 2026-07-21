@@ -728,3 +728,54 @@ def guess_sources(learned: dict[str, Any], media_id: str) -> list[str]:
 def conflicts_with_source(learned: dict[str, Any], source_key: str, media_id: str) -> bool:
     entry = learned.get(normalize_source_key(source_key))
     return bool(entry) and not _id_matches(entry, media_id)
+
+
+_ROLE_CREATOR_RE = re.compile(r"\{(?:creator|username|nickname)\}")
+
+
+def _canonical_shape(template: str) -> str:
+    # Collapse every creator-role marker to one token so a display template ({username})
+    # and a URL-derived shape ({creator}) compare equal regardless of the learned role.
+    return _ROLE_CREATOR_RE.sub(_CREATOR_TOKEN, str(template or ""))
+
+
+def _shape_matches_template(template: str, shape: str) -> bool:
+    # Strict, position-wise: a URL shape belongs to a template only when every route word
+    # matches exactly and each token position agrees. Unlike _merge_shape (which fuses
+    # same-source routes during learning), a route word must never absorb {id}/{creator}
+    # — that is what tells /video/{id}/{var} apart from /{creator}/posts/{id}.
+    left = _SPLIT_RE.split(template)
+    right = _SPLIT_RE.split(shape)
+    if len(left) != len(right):
+        return False
+    for a, b in zip(left, right, strict=False):
+        if a == b:
+            continue
+        # A {var} position (or an un-generalized slug literal) accepts any descriptive slug.
+        if _is_slugish(a) and _is_slugish(b):
+            continue
+        return False
+    return True
+
+
+def match_template(learned: dict[str, Any], source_key: str, source_url: str, media_id: str = "") -> str:
+    """The learned template a real URL belongs to, or "" when none matches.
+
+    Scraper rules are scoped to one format; this picks that format at download time by
+    shaping the URL (same ``_url_shape`` the learner uses) and finding the template whose
+    route words and token positions match. Role markers are canonicalized so a
+    ``{username}`` display template matches a ``{creator}``-shaped URL.
+    """
+    entry = learned.get(normalize_source_key(source_key)) or {}
+    templates = _entry_templates(entry)
+    if not templates:
+        return ""
+    mid = str(media_id or "").strip() or media_id_from_url(source_url)
+    shape = _url_shape(canonicalize_url(source_url, mid), mid)
+    if not shape:
+        return ""
+    canonical_shape = _canonical_shape(shape)
+    for template in templates:
+        if _shape_matches_template(_canonical_shape(template), canonical_shape):
+            return template
+    return ""

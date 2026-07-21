@@ -31,45 +31,47 @@ export function useSlugTokens(
     return settingsDraft.source_slug_tokens[key];
   }
 
-  function entryForPart(key: string, part: string): SlugToken | undefined {
-    return slugList(key).find((entry) => entry.part === part);
+  function entryForPart(key: string, part: string, segment?: LearnedSegment): SlugToken | undefined {
+    const list = slugList(key);
+    let entry = list.find((entry) => entry.part === part);
+    if (!entry && segment) {
+      entry = { part: part, token: suggestedToken(key, segment) };
+      list.push(entry);
+    }
+    return entry;
   }
 
   function isSelected(key: string, part: string): boolean {
-    return Boolean(entryForPart(key, part));
+    return true;
   }
 
-  function tokenForPart(key: string, part: string): string {
-    return entryForPart(key, part)?.token || "";
+  function tokenForPart(key: string, part: string, segment?: LearnedSegment): string {
+    return entryForPart(key, part, segment)?.token || "";
   }
 
-  // Position of a {var} segment among all {var} segments of a source, so its default
-  // token reads var0, var1, var2 in order — a stable, predictable name for the user.
+  function selectableSegments(key: string): LearnedSegment[] {
+    return (learnedFormat(key)?.segments || []).filter((segment) => !segment.reserved);
+  }
+
   function varOrdinal(key: string, part: string): number {
-    let n = 0;
-    for (const segment of learnedFormat(key)?.segments || []) {
-      if (segment.kind !== "var") continue;
-      if (segment.part === part) return n;
-      n += 1;
-    }
-    return 0;
+    return selectableSegments(key).findIndex((segment) => segment.part === part);
   }
 
   function suggestedToken(key: string, segment: LearnedSegment): string {
-    if (segment.kind === "var") return `var${varOrdinal(key, segment.part)}`;
-    if (segment.part.startsWith("query:")) {
-      return normalizeTokenName(segment.part.slice("query:".length)) || "slug";
-    }
-    return normalizeTokenName(segment.label) || "slug";
+    const idx = varOrdinal(key, segment.part);
+    return idx >= 0 ? `var${idx}` : "slug";
   }
 
   // Effective token name for a segment: the user's typed token wins; then the numbered
   // var default; then the reserved id/creator name (auto tokens). A constant route word
   // or an unnamed literal has no token name (returns "").
   function tokenNameFor(key: string, segment: LearnedSegment): string {
-    const configured = tokenForPart(key, segment.part);
+    const configured = tokenForPart(key, segment.part, segment);
     if (configured) return configured;
-    if (segment.kind === "var") return `var${varOrdinal(key, segment.part)}`;
+    if (!segment.reserved) {
+      const idx = varOrdinal(key, segment.part);
+      return idx >= 0 ? `var${idx}` : "slug";
+    }
     if (segment.kind === "id" || segment.kind === "creator") {
       return segment.label.replace(/[{}]/g, "");
     }
@@ -123,9 +125,24 @@ export function useSlugTokens(
     }
   }
 
-  function setTokenName(key: string, part: string, name: string): void {
-    const entry = entryForPart(key, part);
-    if (entry) entry.token = name;
+  function setTokenName(key: string, part: string, name: string, segment?: LearnedSegment): void {
+    const entry = entryForPart(key, part, segment);
+    if (entry) {
+      const prev = entry.token;
+      entry.token = name;
+      if (segment) {
+        const defaultName = suggestedToken(key, segment);
+        const oldToken = prev || defaultName;
+        const currentRole = tokenRole(key, oldToken);
+        if (currentRole !== "ignore") {
+          const newToken = name || defaultName;
+          if (oldToken !== newToken) {
+            setTokenRole(key, oldToken, "ignore");
+            setTokenRole(key, newToken, currentRole);
+          }
+        }
+      }
+    }
   }
 
   return {
@@ -134,6 +151,7 @@ export function useSlugTokens(
     tokenForPart,
     setSelected,
     setTokenName,
+    suggestedToken,
     segmentLabel,
     displayTemplate,
     tokenRole,

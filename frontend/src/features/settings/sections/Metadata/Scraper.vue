@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import { reactive } from "vue";
 import IconAdd from "~icons/material-symbols/add";
-import IconChevron from "~icons/material-symbols/keyboard-arrow-down";
 import IconSearch from "~icons/material-symbols/search";
 import IconSpinner from "~icons/material-symbols/sync";
 import IconTrash from "~icons/material-symbols/delete";
@@ -16,6 +14,13 @@ import {
   SegmentedControlItem,
 } from "../../../../components/ui/segmented-control";
 import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "../../../../components/ui/card";
+import {
   Table,
   TableBody,
   TableCell,
@@ -24,10 +29,10 @@ import {
   TableRow,
 } from "../../../../components/ui/table";
 import type { ScrapeRule, TokenRole } from "../../../../types";
-import { normalizeTokenName, tokenLabel } from "../../../../utils/dashboard";
+import { tokenLabel } from "../../../../utils/dashboard";
 import { useScrapeTests } from "../../composables/useScrapeTests";
 import { useSettingsContext } from "../../context";
-import SettingsRow from "../../SettingsRow.vue";
+import SettingsLabel from "../../SettingsLabel.vue";
 import {
   Accordion,
   AccordionContent,
@@ -49,42 +54,25 @@ const ROLE_ITEMS: { key: TokenRole; label: string }[] = [
   { key: "title", label: "Title" },
 ];
 
-function ruleTitle(rule: ScrapeRule, index: number): string {
-  const token = normalizeTokenName(rule.token);
-  return token ? tokenLabel(token) : `Rule ${index + 1}`;
-}
-
-function ruleSummary(rule: ScrapeRule): string {
-  return rule.xpath || rule.selector || rule.match_label || "No selector yet";
-}
-
-const expanded = reactive<Record<string, boolean>>({});
-
-function rowKey(siteKey: string, index: number): string {
-  return `${siteKey}:${index}`;
-}
-
-function toggleRow(siteKey: string, index: number): void {
-  const key = rowKey(siteKey, index);
-  expanded[key] = !expanded[key];
-}
-
-function updateRole(siteKey: string, rule: ScrapeRule, value: unknown): void {
+function updateRole(siteKey: string, rule: ScrapeRule, index: number, value: unknown): void {
   const next = String(value || "ignore") as TokenRole;
   const role = ROLE_ITEMS.some((item) => item.key === next) ? next : "ignore";
-  setTokenRole(siteKey, rule.token, role);
+  setTokenRole(siteKey, rule.token || `var${index}`, role);
 }
 
-const { settingsDraft, editableSourceProfiles } = useSettingsContext();
+const { settings, settingsDraft, editableSourceProfiles } = useSettingsContext();
 const {
   scrapeTests,
+  formatsFor,
+  rulesForFormat,
   tokenRole,
   isTitleRoleDisabled,
   setTokenRole,
   addScrapeRule,
   removeScrapeRule,
   runScrapeTest,
-} = useScrapeTests(settingsDraft, editableSourceProfiles);
+  setRuleToken,
+} = useScrapeTests(settingsDraft, settings, editableSourceProfiles);
 </script>
 
 <template>
@@ -100,13 +88,15 @@ const {
 
       <AccordionContent>
         <div class="flex flex-col gap-[0.85rem]">
-          <SettingsRow label="Probe URL">
+          <div class="flex flex-col gap-1.5">
+            <SettingsLabel>Probe URL</SettingsLabel>
             <div class="flex items-center gap-2 w-full">
               <Input
                 :id="`${site.key}ScraperProbeInput`"
                 v-model="scrapeTests[site.key].url"
                 type="text"
                 inputmode="url"
+                aria-label="Probe URL"
                 placeholder="Paste a link"
                 class="flex-1"
                 @keydown.enter.prevent="runScrapeTest(site.key)"
@@ -131,7 +121,7 @@ const {
                 </template>
               </Button>
             </div>
-          </SettingsRow>
+          </div>
 
           <p
             v-if="scrapeTests[site.key].message"
@@ -182,56 +172,41 @@ const {
             </TableBody>
           </Table>
 
-          <div class="flex flex-col gap-2">
-            <div
-              v-for="(rule, index) in settingsDraft.source_scrape_rules[
-                site.key
-              ].rules"
-              :key="index"
-              class="rounded-lg border border-(--glass-border) bg-black/10 in-[.light-mode]:bg-white/35"
-            >
-              <button
-                type="button"
-                class="flex w-full items-center gap-3 px-3 py-2 text-left"
-                :aria-expanded="Boolean(expanded[rowKey(site.key, index)])"
-                @click="toggleRow(site.key, index)"
-              >
-                <IconChevron
-                  class="h-5 w-5 shrink-0 opacity-60 transition-transform"
-                  :class="expanded[rowKey(site.key, index)] ? 'rotate-180' : ''"
-                  aria-hidden="true"
-                />
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate font-mono text-[0.8125rem]">
-                    {{ ruleTitle(rule, index) }}
-                  </span>
-                  <span
-                    class="block truncate text-[0.75rem] text-white/50 in-[.light-mode]:text-black/50"
-                  >
-                    {{ ruleSummary(rule) }}
-                  </span>
-                </span>
-              </button>
+          <div
+            v-for="template in formatsFor(site.key)"
+            :key="template"
+            class="flex flex-col gap-2"
+          >
+            <SettingsLabel class="wrap-anywhere">
+              {{ template }}
+            </SettingsLabel>
 
-              <div
-                v-if="expanded[rowKey(site.key, index)]"
-                class="grid grid-cols-1 gap-3 border-t border-(--glass-border) px-3 py-3 lg:grid-cols-2"
-              >
+            <Card
+              v-for="{ rule, index } in rulesForFormat(site.key, template)"
+              :key="index"
+            >
+              <CardHeader>
+                <CardTitle class="font-mono text-sm leading-snug">
+                  {{ rule.token ? tokenLabel(rule.token) : tokenLabel(`var${index}`) }}
+                </CardTitle>
+                <CardDescription class="font-mono text-xs">
+                  {{ rule.selector }}
+                </CardDescription>
+              </CardHeader>
+
+              <CardContent class="grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <label class="flex flex-col gap-1.5">
-                  <span class="text-xs uppercase tracking-wider opacity-55">
-                    Token
-                  </span>
+                  <SettingsLabel>Token</SettingsLabel>
                   <Input
-                    v-model="rule.token"
+                    :model-value="rule.token"
                     aria-label="Token name"
                     input-class="font-mono"
+                    @update:model-value="(v) => setRuleToken(site.key, rule, index, String(v))"
                   />
                 </label>
 
                 <label class="flex flex-col gap-1.5">
-                  <span class="text-xs uppercase tracking-wider opacity-55">
-                    Label
-                  </span>
+                  <SettingsLabel>Label</SettingsLabel>
                   <Input
                     v-model="rule.match_label"
                     aria-label="Label to anchor on"
@@ -239,9 +214,7 @@ const {
                 </label>
 
                 <label class="flex flex-col gap-1.5">
-                  <span class="text-xs uppercase tracking-wider opacity-55">
-                    Selector
-                  </span>
+                  <SettingsLabel>Selector</SettingsLabel>
                   <Input
                     v-model="rule.selector"
                     aria-label="CSS selector"
@@ -250,9 +223,7 @@ const {
                 </label>
 
                 <label class="flex flex-col gap-1.5">
-                  <span class="text-xs uppercase tracking-wider opacity-55">
-                    Attribute
-                  </span>
+                  <SettingsLabel>Attribute</SettingsLabel>
                   <Combobox
                     :model-value="rule.attr"
                     :items="SCRAPE_ATTR_ITEMS"
@@ -263,9 +234,7 @@ const {
                 </label>
 
                 <label class="flex flex-col gap-1.5 lg:col-span-2">
-                  <span class="text-xs uppercase tracking-wider opacity-55">
-                    XPath (Optional)
-                  </span>
+                  <SettingsLabel>XPath (Optional)</SettingsLabel>
                   <Textarea
                     v-model="rule.xpath"
                     aria-label="XPath"
@@ -274,13 +243,11 @@ const {
                 </label>
 
                 <div class="flex flex-col gap-1.5 lg:col-span-2">
-                  <span class="text-xs uppercase tracking-wider opacity-55">
-                    Role
-                  </span>
+                  <SettingsLabel>Role</SettingsLabel>
                   <SegmentedControl
-                    :model-value="tokenRole(site.key, rule.token)"
+                    :model-value="tokenRole(site.key, rule.token || `var${index}`)"
                     class="flex-wrap h-auto min-h-9"
-                    @update:model-value="(value) => updateRole(site.key, rule, value)"
+                    @update:model-value="(value) => updateRole(site.key, rule, index, value)"
                   >
                     <SegmentedControlItem
                       v-for="role in ROLE_ITEMS"
@@ -288,7 +255,7 @@ const {
                       :value="role.key"
                       :disabled="
                         role.key === 'title' &&
-                        isTitleRoleDisabled(site.key, rule.token)
+                        isTitleRoleDisabled(site.key, rule.token || `var${index}`)
                       "
                     >
                       {{ role.label }}
@@ -319,15 +286,15 @@ const {
                     Remove
                   </Button>
                 </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
 
             <div>
               <Button
                 variant="soft"
                 type="button"
                 title="Add rule"
-                @click="addScrapeRule(site.key)"
+                @click="addScrapeRule(site.key, template)"
               >
                 <template #icon>
                   <IconAdd class="w-4 h-4" aria-hidden="true" />

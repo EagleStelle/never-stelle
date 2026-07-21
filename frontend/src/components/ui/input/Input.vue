@@ -5,7 +5,7 @@ import { useVModel } from "@vueuse/core";
 import { cn } from "@/lib/utils";
 
 const CONTAINER =
-  "flex items-center min-w-0 h-9 p-1 gap-1 rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 backdrop-blur-md border border-(--glass-border) shadow-inner focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass";
+  "flex items-center min-w-0 h-9 p-1 gap-1 rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 border border-(--glass-border) shadow-inner focus-within:ring-2 focus-within:ring-accent transition-all duration-300 ease-glass";
 const ICON =
   "flex items-center justify-center shrink-0 w-7 h-7 ml-1 text-white in-[.light-mode]:text-black";
 const GAP = "w-3";

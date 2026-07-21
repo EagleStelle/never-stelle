@@ -49,6 +49,9 @@ export interface ScrapeRule {
   attr: string;
   multi: boolean;
   xpath: string;
+  // Learned template (display form) this rule is scoped to; it fires only when the
+  // download URL matches this format. "" is a legacy rule, migrated to the first format.
+  format: string;
 }
 
 export interface PlatformScrapeRules {

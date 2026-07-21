@@ -54,6 +54,7 @@ from .naming import (
 from .scan import parse_filename_media_id
 from .store import (
     claim_pending_task,
+    load_learned_formats,
     load_task_store,
     remove_task_record,
     update_task,
@@ -1413,6 +1414,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             token_roles,
             cookie_source_key,
             creator_fields,
+            load_learned_formats(),
         )
     )
 

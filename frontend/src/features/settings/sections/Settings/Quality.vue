@@ -5,6 +5,7 @@ import { ComboboxSelect as Combobox } from "../../../../components/ui/combobox";
 import type { QualitySelection } from "../../../../types";
 import { isCodecAllowed, isLosslessAudioFormat, resolveCodec } from "../../../../utils/dashboard";
 import { useSettingsContext } from "../../context";
+import SettingsLabel from "../../SettingsLabel.vue";
 import SettingsRow from "../../SettingsRow.vue";
 
 const { settings, settingsDraft } = useSettingsContext();
@@ -34,11 +35,7 @@ function setDefaultQuality(patch: Partial<QualitySelection>): void {
 </script>
 
 <template>
-  <h3
-    class="mb-2 text-xs font-bold text-white/50 in-[.light-mode]:text-black/50 uppercase tracking-wider"
-  >
-    Video
-  </h3>
+  <SettingsLabel class="mb-2">Video</SettingsLabel>
 
   <SettingsRow label="Quality">
     <Combobox
@@ -71,11 +68,7 @@ function setDefaultQuality(patch: Partial<QualitySelection>): void {
     />
   </SettingsRow>
 
-  <h3
-    class="mb-2 mt-6 text-xs font-bold text-white/50 in-[.light-mode]:text-black/50 uppercase tracking-wider"
-  >
-    Audio
-  </h3>
+  <SettingsLabel class="mb-2 mt-6">Audio</SettingsLabel>
 
   <SettingsRow label="Format">
     <Combobox

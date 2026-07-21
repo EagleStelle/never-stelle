@@ -4,6 +4,7 @@ import IconTrash from "~icons/material-symbols/delete";
 import IconUpload from "~icons/material-symbols/upload";
 
 import { Button } from "../../../../components/ui/button";
+import { Card } from "../../../../components/ui/card";
 import { Input } from "../../../../components/ui/input";
 import { useSettingsContext } from "../../context";
 import SettingsRow from "../../SettingsRow.vue";
@@ -81,12 +82,14 @@ function connectNew(): void {
     </div>
   </div>
 
-  <p
+  <Card
     v-if="editableSourceProfiles.length === 0"
-    class="mt-3 rounded-lg glass p-4 text-white in-[.light-mode]:text-black"
+    class="mt-3 px-6"
   >
-    No sources yet.
-  </p>
+    <p class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55">
+      No sources yet.
+    </p>
+  </Card>
 
   <SettingsRow
     v-for="site in editableSourceProfiles"

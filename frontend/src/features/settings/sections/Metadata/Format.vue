@@ -6,6 +6,7 @@ import IconSpinner from "~icons/material-symbols/sync";
 import IconTrash from "~icons/material-symbols/delete";
 
 import { Button } from "../../../../components/ui/button";
+import { Card } from "../../../../components/ui/card";
 import { Input } from "../../../../components/ui/input";
 import {
   Accordion,
@@ -17,10 +18,19 @@ import type { LearnedFormat } from "../../../../types";
 import { useSettingsContext } from "../../context";
 import { useCreatorSettings } from "../../composables/useCreatorSettings";
 
-const { settings, settingsDraft, editableSourceProfiles, learnFormat, reorderFormatTemplates } =
-  useSettingsContext();
+const {
+  settings,
+  settingsDraft,
+  editableSourceProfiles,
+  learnFormat,
+  reorderFormatTemplates,
+} = useSettingsContext();
 
-const { runProbe } = useCreatorSettings(settingsDraft, settings, editableSourceProfiles);
+const { runProbe } = useCreatorSettings(
+  settingsDraft,
+  settings,
+  editableSourceProfiles,
+);
 
 const link = ref("");
 const learning = ref(false);
@@ -137,14 +147,16 @@ function isDropTarget(key: string, index: number): boolean {
     </div>
   </div>
 
-  <p
+  <Card
     v-if="editableSourceProfiles.length === 0"
-    class="mt-3 rounded-lg glass p-4 text-white in-[.light-mode]:text-black"
+    class="mt-3 px-6"
   >
-    No sources yet.
-  </p>
+    <p class="text-[0.8125rem] text-white/55 in-[.light-mode]:text-black/55">
+      No sources yet.
+    </p>
+  </Card>
 
-  <Accordion v-else v-model="open" type="multiple" class="mt-3 w-full">
+  <Accordion v-else v-model="open" type="multiple" class="w-full">
     <AccordionItem
       v-for="site in editableSourceProfiles"
       :key="site.key"

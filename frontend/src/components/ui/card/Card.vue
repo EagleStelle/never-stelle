@@ -10,7 +10,7 @@ const props = defineProps<{ class?: HTMLAttributes["class"] }>();
     data-slot="card"
     :class="
       cn(
-        'glass text-card-foreground flex flex-col gap-6 rounded-lg py-6',
+        'glass text-card-foreground flex flex-col gap-4 rounded-lg relative overflow-hidden py-4',
         props.class,
       )
     "

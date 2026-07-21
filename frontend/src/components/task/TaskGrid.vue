@@ -64,17 +64,15 @@ function hasActions(task: TaskItem): boolean {
     <Card
       v-for="task in props.tasks"
       :key="task.vid"
-      class="glass-rise glass-hoverable relative gap-4 overflow-hidden py-4 hover:-translate-y-0.5"
+      class="glass-rise glass-hoverable hover:-translate-y-0.5"
     >
       <div
         class="absolute inset-0 z-0 pointer-events-none"
         :style="taskBackgroundStyle(task)"
       ></div>
 
-      <CardHeader class="relative z-10">
-        <CardTitle
-          class="wrap-break-word font-display text-base leading-snug tracking-tight"
-        >
+      <CardHeader>
+        <CardTitle>
           <img
             v-if="sourceIconUrl(task, props.sourceProfiles)"
             :src="sourceIconUrl(task, props.sourceProfiles)"
@@ -98,7 +96,7 @@ function hasActions(task: TaskItem): boolean {
             {{ taskDetail(task) }}
           </span>
         </CardDescription>
-        <CardAction v-if="hasActions(task)" class="flex gap-1.5">
+        <CardAction v-if="hasActions(task)">
           <Button
             v-if="canDownload(task)"
             as="a"
@@ -153,7 +151,6 @@ function hasActions(task: TaskItem): boolean {
 
       <CardContent
         v-if="(task.status === 'failed' && task.error) || task.source_pending"
-        class="relative z-10 flex flex-col gap-4"
       >
         <div
           v-if="task.status === 'failed' && task.error"

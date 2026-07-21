@@ -10,7 +10,6 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import {
   Sidebar,
-  SidebarContent,
   SidebarGroup,
   SidebarGroupLabel,
   SidebarHeader,
@@ -102,48 +101,45 @@ const groups = computed(() => {
       </Input>
     </SidebarHeader>
 
-    <SidebarContent>
-      <TabsList
-        class="flex gap-1 overflow-x-auto pb-1 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:pb-0"
-        aria-label="Settings sections"
+    <TabsList
+      class="flex gap-4 overflow-x-auto pb-1 w-full sm:flex-1 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:pb-0 sm:gap-6"
+      aria-label="Settings sections"
+    >
+      <SidebarGroup
+        v-for="group in groups"
+        :key="group.label"
+        class="flex-row sm:flex-col w-auto sm:w-full gap-1 sm:gap-2"
       >
-        <SidebarGroup
-          v-for="group in groups"
-          :key="group.label"
-          class="flex-row sm:flex-col w-auto sm:w-full gap-1"
-        >
-          <SidebarGroupLabel class="hidden sm:block sm:not-first:mt-3">
-            {{ group.label }}
-          </SidebarGroupLabel>
-          <SidebarMenu class="flex-row sm:flex-col gap-1 w-auto sm:w-full">
-            <SidebarMenuItem
-              v-for="item in group.items"
-              :key="item.key"
-              class="flex-none sm:w-full"
+        <SidebarGroupLabel class="hidden sm:block">
+          {{ group.label }}
+        </SidebarGroupLabel>
+        <SidebarMenu class="flex-row sm:flex-col gap-1 w-auto sm:w-full">
+          <SidebarMenuItem
+            v-for="item in group.items"
+            :key="item.key"
+            class="flex-none sm:w-full"
+          >
+            <TabsTrigger
+              as-child
+              :value="item.key"
+              @click="emit('select', item.key)"
             >
-              <TabsTrigger
-                as-child
-                :value="item.key"
-                @click="emit('select', item.key)"
+              <SidebarMenuButton
+                class="cursor-pointer w-auto sm:w-full justify-center sm:justify-start px-3.5 sm:px-3.5 h-8 sm:h-10"
               >
-                <SidebarMenuButton
-                  as="div"
-                  class="cursor-pointer w-auto sm:w-full justify-center sm:justify-start px-3.5 sm:px-3.5 h-8 sm:h-10"
-                >
-                  <component
-                    :is="item.icon"
-                    class="hidden sm:block h-5 w-5 shrink-0 opacity-80 group-data-[state=active]:opacity-100"
-                    aria-hidden="true"
-                  />
-                  <span class="whitespace-nowrap font-medium text-sm">{{
-                    item.label
-                  }}</span>
-                </SidebarMenuButton>
+                <component
+                  :is="item.icon"
+                  class="hidden sm:block h-5 w-5 shrink-0 opacity-80 group-data-[state=active]:opacity-100"
+                  aria-hidden="true"
+                />
+                <span class="whitespace-nowrap font-medium text-sm">{{
+                  item.label
+                }}</span>
+              </SidebarMenuButton>
               </TabsTrigger>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
       </TabsList>
-    </SidebarContent>
   </Sidebar>
 </template>
