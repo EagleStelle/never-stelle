@@ -5,7 +5,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import {
   deletePlatformCookies,
   getUiConfig,
+  learnPlatformFormat,
   saveSettings,
+  setFormatTemplates,
   uploadPlatformCookies,
 } from "../api";
 import { useAuth } from "./useAuth";
@@ -167,6 +169,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   });
   const deleteCookiesMutation = useMutation({
     mutationFn: (platform: string) => deletePlatformCookies(platform),
+  });
+  const learnFormatMutation = useMutation({
+    mutationFn: (url: string) => learnPlatformFormat(url),
+  });
+  const formatTemplatesMutation = useMutation({
+    mutationFn: ({ sourceKey, templates }: { sourceKey: string; templates: string[] }) =>
+      setFormatTemplates(sourceKey, templates),
   });
 
   const sourceProfiles = computed<SourceProfile[]>(() =>
@@ -492,6 +501,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       downloads: `${firstSource}LocationInput`,
       cookies: `${firstSource}CookiesInput`,
       quality: "defaultQualityMode",
+      format: "formatLearnInput",
       creator: `${firstSource}CreatorProbeInput`,
       scraper: `${firstSource}ScraperProbeInput`,
       slug: `${firstSource}SlugSection`,
@@ -583,6 +593,47 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     }
   }
 
+  async function learnFormat(url: string): Promise<string> {
+    if (!url.trim()) {
+      toast("Paste a link first.", "error");
+      return "";
+    }
+    try {
+      const data = await learnFormatMutation.mutateAsync(url.trim());
+      cacheUiConfig(data);
+      const result = data.learn_result;
+      const key = result?.source_key || "";
+      const label =
+        settings.source_profiles.find((profile) => profile.key === key)?.label ||
+        key ||
+        "source";
+      if (result?.created) {
+        toast(`Added ${label}.`);
+      } else if (result?.learned) {
+        toast(`Learned a new format for ${label}.`);
+      } else {
+        toast(`${label} already knew that format.`);
+      }
+      return key;
+    } catch (error) {
+      toast(errorMessage(error, "Could not learn that link."), "error");
+      return "";
+    }
+  }
+
+  async function reorderFormatTemplates(
+    sourceKey: string,
+    templates: string[],
+  ): Promise<void> {
+    try {
+      cacheUiConfig(
+        await formatTemplatesMutation.mutateAsync({ sourceKey, templates }),
+      );
+    } catch (error) {
+      toast(errorMessage(error, "Could not update formats."), "error");
+    }
+  }
+
   async function removeCookies(platform: string): Promise<void> {
     const key = normalizeSourceKey(platform);
     if (!settings.ytdlp_cookies[key]?.configured) return;
@@ -623,6 +674,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     connectCookies,
     connectCookiesForSource,
     cookieStatuses,
+    learnFormat,
+    reorderFormatTemplates,
     getSavedSettings,
     hasUnsavedChanges,
     openSettings,

@@ -14,11 +14,12 @@ export type SettingsSection =
   | "downloads"
   | "cookies"
   | "quality"
-  | "folder-template"
-  | "filename-template"
+  | "format"
   | "creator"
   | "scraper"
-  | "slug";
+  | "slug"
+  | "folder-template"
+  | "filename-template";
 export type ToastType = "success" | "error";
 
 export type SourceLocations = Record<string, string>;
@@ -113,6 +114,15 @@ export interface ProbeFieldsResponse {
   saved?: boolean;
 }
 
+// Outcome of adding a platform from a link: which source it resolved to, whether the
+// platform was newly created, and whether a URL format could be learned from the link.
+export interface LearnFormatResult {
+  source_key: string;
+  created: boolean;
+  learned: boolean;
+  media_id: string;
+}
+
 export interface ScrapeTestResult {
   token: string;
   value: string;
@@ -204,6 +214,7 @@ export interface UiConfigResponse {
   source_token_roles?: Record<string, Record<string, string>>;
   source_slug_tokens?: Record<string, SlugToken[]>;
   learned_formats?: LearnedFormats;
+  learn_result?: LearnFormatResult;
   source_creator_fields?: Record<string, Partial<CreatorFieldRoles>>;
   source_creator_field_defaults?: Record<string, Partial<CreatorFieldRoles>>;
   source_title_cleaning?: Record<string, Record<string, boolean | number>>;

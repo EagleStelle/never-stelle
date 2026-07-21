@@ -411,9 +411,68 @@ def get_learned_formats_for_ui() -> dict[str, dict[str, Any]]:
     for raw_key, entry in (load_learned_formats() or {}).items():
         key = normalize_source_key(raw_key)
         described = describe_learned_segments(entry if isinstance(entry, dict) else {})
-        if key and described.get("segments"):
+        # Any learned shape belongs in the map; the Format pane lists templates even
+        # when a source has no user-nameable segments (Slug tolerates empty segments).
+        if key and (described.get("templates") or described.get("segments")):
             out[key] = described
     return out
+
+
+def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
+    """Add a platform from a pasted link and learn its URL format in one step.
+
+    Mirrors what a real download teaches: the same profile-by-link path used for
+    cookies, then the same ``learn_download`` the worker runs. A new host creates a
+    platform; an existing one only gains the freshly learned format.
+    """
+    from backend.app.services.tasks.formats import media_id_from_url
+    from backend.app.services.tasks.learning import learn_source_format
+
+    url = str(url_or_link or "").strip()
+    if not url:
+        raise ValueError("Paste a link first.")
+    cfg = load_app_config()
+    payload = load_saved_settings_file()
+    profiles = get_effective_source_profiles(cfg, payload)
+    key = source_key_from_url(url, profiles)
+    if not key:
+        raise ValueError("Paste a valid link or domain first.")
+    existed = any(normalize_source_key(profile.get("key")) == key for profile in profiles)
+    ensure_source_profile_for_url(url)
+    media_id = media_id_from_url(url)
+    learned = learn_source_format(url, media_id) if media_id else False
+    return {"source_key": key, "created": not existed, "learned": bool(learned), "media_id": media_id}
+
+
+def set_learned_format_templates(source_key: str, templates: Any) -> dict[str, Any]:
+    """Reorder or delete a source's learned URL templates (user-driven, live).
+
+    Template order is significant: ``reconstruct_url`` and the scan/reconsolidation
+    probe try templates in list order, so this lets the user prioritise a shape or
+    drop a wrong one. Only templates the source already learned are kept, in the
+    requested order, so the UI can never inject an arbitrary shape.
+    """
+    from backend.app.services.tasks.store import load_learned_formats, save_learned_formats
+
+    key = normalize_source_key(source_key)
+    if not key:
+        raise ValueError("Choose a source first.")
+    learned = load_learned_formats() or {}
+    entry = learned.get(key)
+    if not isinstance(entry, dict):
+        raise ValueError("That source has no learned format.")
+    existing = [str(item or "").strip() for item in (entry.get("templates") or []) if str(item or "").strip()]
+    ordered: list[str] = []
+    for item in templates if isinstance(templates, list) else []:
+        value = str(item or "").strip()
+        if value in existing and value not in ordered:
+            ordered.append(value)
+    new_entry = dict(entry)
+    new_entry["templates"] = ordered
+    updated = dict(learned)
+    updated[key] = new_entry
+    save_learned_formats(updated)
+    return {"source_key": key, "templates": ordered}
 
 
 # --- Creator fields & title cleaning ---

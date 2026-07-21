@@ -27,6 +27,8 @@ const props = defineProps<{
   settingsDraft: SavedSettings;
   sourceProfiles: SourceProfile[];
   hasUnsavedChanges: boolean;
+  learnFormat: (url: string) => Promise<string>;
+  reorderFormatTemplates: (sourceKey: string, templates: string[]) => Promise<void>;
 }>();
 
 const emit = defineEmits<{
@@ -74,6 +76,9 @@ provideSettingsContext({
   connectCookies: (platform, file) => emit("connectCookies", platform, file),
   connectCookiesSource: (source, file) => emit("connectCookiesSource", source, file),
   removeCookies: (platform) => emit("removeCookies", platform),
+  learnFormat: (url) => props.learnFormat(url),
+  reorderFormatTemplates: (sourceKey, templates) =>
+    props.reorderFormatTemplates(sourceKey, templates),
   close: () => emit("update:open", false),
 });
 

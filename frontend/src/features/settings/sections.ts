@@ -5,6 +5,7 @@ import IconDescription from "~icons/material-symbols/description";
 import IconFolder from "~icons/material-symbols/folder";
 import IconQuality from "~icons/material-symbols/high-quality";
 import IconCreator from "~icons/material-symbols/badge";
+import IconFormat from "~icons/material-symbols/pattern";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconScraper from "~icons/material-symbols/travel-explore";
 import IconSlug from "~icons/material-symbols/link";
@@ -17,6 +18,7 @@ import Quality from "./sections/Settings/Quality.vue";
 import Filename from "./sections/Templates/Filename.vue";
 import Folder from "./sections/Templates/Folder.vue";
 import Creator from "./sections/Metadata/Creator.vue";
+import Format from "./sections/Metadata/Format.vue";
 import Scraper from "./sections/Metadata/Scraper.vue";
 import Slug from "./sections/Metadata/Slug.vue";
 
@@ -69,6 +71,15 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     group: "Settings",
     icon: IconQuality,
     component: Quality,
+    requiresSources: false,
+  },
+  {
+    key: "format",
+    label: "Format",
+    group: "Metadata",
+    icon: IconFormat,
+    component: Format,
+    focusId: () => "formatLearnInput",
     requiresSources: false,
   },
   {

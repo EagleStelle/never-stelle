@@ -114,6 +114,30 @@ export function probeCreatorFields(url: string, sourceKey = ""): Promise<ProbeFi
   );
 }
 
+export function learnPlatformFormat(url: string): Promise<UiConfigResponse> {
+  return jsonRequest<UiConfigResponse>(
+    "/api/settings/learn-format",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    },
+    "Could not learn that link.",
+  );
+}
+
+export function setFormatTemplates(sourceKey: string, templates: string[]): Promise<UiConfigResponse> {
+  return jsonRequest<UiConfigResponse>(
+    "/api/settings/format-templates",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source_key: sourceKey, templates }),
+    },
+    "Could not update formats.",
+  );
+}
+
 export function uploadPlatformCookies(platform: string, file: File, source = ""): Promise<UiConfigResponse> {
   const formData = new FormData();
   formData.append("file", file);

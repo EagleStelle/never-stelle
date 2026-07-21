@@ -23,11 +23,13 @@ from backend.app.services.auth import (
     update_auth_credentials,
 )
 from backend.app.services.settings import (
+    add_source_and_learn_format,
     build_settings_response,
     clear_ytdlp_cookies_upload,
     ensure_source_profile_for_url,
     get_effective_saved_settings,
     save_ytdlp_cookies_upload,
+    set_learned_format_templates,
 )
 
 router = APIRouter()
@@ -82,6 +84,15 @@ class ProbePayload(BaseModel):
 class ProbeFieldsPayload(BaseModel):
     url: str = ""
     source_key: str = ""
+
+
+class LearnFormatPayload(BaseModel):
+    url: str = ""
+
+
+class FormatTemplatesPayload(BaseModel):
+    source_key: str = ""
+    templates: list[str] = Field(default_factory=list)
 
 
 class SetSourcePayload(BaseModel):
@@ -323,6 +334,31 @@ def probe_fields(payload: ProbeFieldsPayload) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/settings/learn-format")
+def learn_format(payload: LearnFormatPayload) -> dict[str, Any]:
+    # Add a platform from a link and learn its URL format; returns the full settings
+    # response so learned_formats and source_profiles refresh like a save does.
+    try:
+        result = add_source_and_learn_format(payload.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    cfg = load_app_config()
+    response = build_settings_response(cfg, get_effective_saved_settings(cfg))
+    response["learn_result"] = result
+    return response
+
+
+@router.post("/settings/format-templates")
+def set_format_templates(payload: FormatTemplatesPayload) -> dict[str, Any]:
+    # Reorder/delete a source's learned URL templates (order drives reconstruction).
+    try:
+        set_learned_format_templates(payload.source_key, payload.templates)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    cfg = load_app_config()
+    return build_settings_response(cfg, get_effective_saved_settings(cfg))
 
 
 @router.post("/settings/ytdlp-cookies/{platform}")

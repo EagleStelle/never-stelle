@@ -13,6 +13,10 @@ export interface SettingsContext {
   connectCookies: (platform: string, file?: File) => void;
   connectCookiesSource: (source: string, file?: File) => void;
   removeCookies: (platform: string) => void;
+  // Add a platform from a link and learn its format; resolves to the source key it hit.
+  learnFormat: (url: string) => Promise<string>;
+  // Persist a source's learned URL templates in a new order (reorder or delete). Live.
+  reorderFormatTemplates: (sourceKey: string, templates: string[]) => Promise<void>;
   close: () => void;
 }
 

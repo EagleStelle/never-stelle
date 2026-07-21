@@ -48,6 +48,7 @@ const SETTINGS_SLUG_BY_SECTION: Record<SettingsSection, string> = {
   downloads: "locations",
   cookies: "cookies",
   quality: "quality",
+  format: "format",
   creator: "creator",
   scraper: "scraper",
   slug: "slug",

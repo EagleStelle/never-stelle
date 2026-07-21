@@ -8,11 +8,19 @@ import { Input } from "../../../../components/ui/input";
 import { useSettingsContext } from "../../context";
 import SettingsRow from "../../SettingsRow.vue";
 
-const { editableSourceProfiles, cookieStatuses, connectCookies, connectCookiesSource, removeCookies } =
-  useSettingsContext();
+const {
+  editableSourceProfiles,
+  cookieStatuses,
+  connectCookies,
+  connectCookiesSource,
+  removeCookies,
+} = useSettingsContext();
 
 const cookieFiles = reactive<Record<string, File | null>>({});
-const newCookie = reactive<{ source: string; file: File | null }>({ source: "", file: null });
+const newCookie = reactive<{ source: string; file: File | null }>({
+  source: "",
+  file: null,
+});
 
 function onCookieFile(site: string, event: Event): void {
   const file = (event.target as HTMLInputElement).files?.[0] || null;
@@ -48,7 +56,7 @@ function connectNew(): void {
         v-model="newCookie.source"
         type="text"
         inputmode="url"
-        placeholder="Paste a link or domain"
+        placeholder="Paste a link"
         class="flex-1"
       />
       <input

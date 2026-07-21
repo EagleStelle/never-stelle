@@ -44,6 +44,8 @@ const {
   connectCookies,
   connectCookiesForSource,
   cookieStatuses,
+  learnFormat,
+  reorderFormatTemplates,
   countCards,
   historyRefreshing,
   historyLoading,
@@ -354,6 +356,8 @@ const { height: statusBarHeight } = useElementSize(
       :settings="settings"
       :settings-draft="settingsDraft"
       :source-profiles="sourceProfiles"
+      :learn-format="learnFormat"
+      :reorder-format-templates="reorderFormatTemplates"
       @connect-cookies="connectCookies"
       @connect-cookies-source="connectCookiesForSource"
       @remove-cookies="removeCookies"
