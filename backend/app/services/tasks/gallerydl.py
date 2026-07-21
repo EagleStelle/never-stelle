@@ -5,6 +5,7 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from backend.app.services.settings import (
     find_cookies_file_for_source,
@@ -18,9 +19,11 @@ from backend.app.services.settings import (
 
 from .constants import (
     CREATOR_ROLE_CHAINS,
+    IMAGE_EXTENSIONS,
     MEDIA_EXTENSIONS,
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
+    VIDEO_EXTENSIONS,
     normalize_quality_selection,
     video_format_selector,
 )
@@ -114,14 +117,14 @@ def _directory_segments(folder: str) -> list[str]:
     ]
 
 
-def count_gallerydl_items(
+def _gallerydl_list_urls(
     source_url: str,
     *,
     with_cookies: bool = False,
     cookie_source_key: str = "",
     excluded_extensions: set[str] | None = None,
-) -> int:
-    # `-g` lists file URLs without downloading, giving a total; failure yields 0.
+) -> list[str]:
+    # `-g` lists file URLs without downloading, giving a cheap media preflight.
     cmd = ["gallery-dl", "-g", "-o", _TIKTOK_NO_AUDIO_OPTION]
     filter_expr = _excluded_extension_filter(excluded_extensions)
     if filter_expr:
@@ -145,11 +148,59 @@ def count_gallerydl_items(
             timeout=_COUNT_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.SubprocessError):
-        return 0
+        return []
     if result.returncode != 0:
-        return 0
-    count = sum(1 for line in (result.stdout or "").splitlines() if line.strip())
-    return min(count, _MAX_COUNT)
+        return []
+    return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
+
+
+def _download_url_kind(value: str) -> str:
+    try:
+        parsed = urlparse(str(value or "").strip())
+        path = unquote(parsed.path if parsed.scheme else str(value or ""))
+    except Exception:
+        path = str(value or "")
+    suffix = Path(path).suffix.lower()
+    if suffix in IMAGE_EXTENSIONS:
+        return "image"
+    if suffix in VIDEO_EXTENSIONS:
+        return "video"
+    if suffix in MEDIA_EXTENSIONS:
+        return "media"
+    return ""
+
+
+def probe_gallerydl_media(
+    source_url: str,
+    *,
+    with_cookies: bool = False,
+    cookie_source_key: str = "",
+    excluded_extensions: set[str] | None = None,
+) -> dict[str, Any]:
+    urls = _gallerydl_list_urls(
+        source_url,
+        with_cookies=with_cookies,
+        cookie_source_key=cookie_source_key,
+        excluded_extensions=excluded_extensions,
+    )
+    kinds = sorted({kind for url in urls if (kind := _download_url_kind(url))})
+    return {"count": min(len(urls), _MAX_COUNT), "kinds": kinds}
+
+
+def count_gallerydl_items(
+    source_url: str,
+    *,
+    with_cookies: bool = False,
+    cookie_source_key: str = "",
+    excluded_extensions: set[str] | None = None,
+) -> int:
+    urls = _gallerydl_list_urls(
+        source_url,
+        with_cookies=with_cookies,
+        cookie_source_key=cookie_source_key,
+        excluded_extensions=excluded_extensions,
+    )
+    return min(len(urls), _MAX_COUNT)
 
 
 def _escape_literal(value: str) -> str:

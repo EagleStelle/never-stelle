@@ -25,6 +25,7 @@ from backend.app.services.settings import (
     load_token_roles,
 )
 
+from . import gallerydl as gallerydl_module
 from .cache import drop_file_cache
 from .constants import (
     AUDIO_EXTENSIONS,
@@ -37,11 +38,16 @@ from .constants import (
     normalize_quality_selection,
     normalize_title_cleaning,
 )
-from .engine import Engine, all_engines, engine_for_task
+from .engine import Engine, all_engines, engine_by_name, engine_for_task
 from .files import find_newest_media_file, find_numbered_media_siblings, is_media_file, recover_task_path
 from .formats import creator_from_url, media_id_from_url, reconstruct_url
 from .history import save_history_entry
-from .learning import has_learned_creator_fields, save_learned_creator_fields, update_learned_formats_with_download
+from .learning import (
+    has_learned_creator_fields,
+    learn_missing_creator_fields_for_format,
+    save_learned_creator_fields,
+    update_learned_formats_with_download,
+)
 from .learning import learn_source_format as persist_source_format
 from .naming import (
     clean_gallerydl_disk_filename,
@@ -294,10 +300,13 @@ def _learn_source_format(
     filename: str,
     media_id: str = "",
     metadata: dict[str, str] | None = None,
+    source_key: str = "",
 ) -> None:
     # Teach the DB this source's URL shape + id signature from a real download.
     media_id = str(media_id or "").strip() or parse_filename_media_id(filename)[0]
-    persist_source_format(source_url, media_id, metadata)
+    learned = persist_source_format(source_url, media_id, metadata)
+    if learned:
+        learn_missing_creator_fields_for_format(source_url, source_key)
 
 
 def _learn_creator_fields_from_download(
@@ -694,7 +703,7 @@ def _resolved_profile_handle(metadata: dict[str, str]) -> str:
 
 def _metadata_creator(metadata: dict[str, str], media_id: str) -> str:
     candidates: list[tuple[str, str]] = []
-    for key in ("webpage_url", "original_url", "uploader_url", "channel_url", "author_url", "owner_url"):
+    for key in ("uploader_url", "channel_url", "author_url", "owner_url"):
         creator = creator_from_url(str(metadata.get(key) or ""), media_id)
         if creator:
             candidates.append((f"{key}_creator", creator))
@@ -757,9 +766,6 @@ def _filename_creator(
     source_url: str,
     media_id: str,
 ) -> str:
-    creator = _clean_handle_candidate(creator_from_url(source_url, media_id))
-    if creator:
-        return creator
     creator = _metadata_creator(metadata, media_id)
     if creator:
         return creator
@@ -768,8 +774,10 @@ def _filename_creator(
         creator = _clean_handle_candidate(_field_value(fields, "username"))
         if creator:
             return creator
-    for key in ("webpage_url", "original_url"):
-        creator = _clean_handle_candidate(creator_from_url(str(metadata.get(key) or ""), media_id))
+    _, parsed_title = parse_filename_media_id(path.name)
+    if parsed_title:
+        prefix = re.sub(r"\s*[-|:]\s*$", "", parsed_title).strip()
+        creator = _clean_handle_candidate(prefix)
         if creator:
             return creator
     return ""
@@ -1093,17 +1101,11 @@ def _clean_resolved_filename(
     source_key = source_key or detect_source_key(source_url)
     cleaning = cleaning if cleaning is not None else get_effective_title_cleaning(source_url)
     media_id_hint = str(media_id_hint or "").strip() or media_id_from_url(source_url)
-    creator_hint = str(creator_hint or "").strip() or _clean_handle_candidate(
-        creator_from_url(source_url, media_id_hint)
-    )
-    # A configured creator is authoritative; the URL-derived handle must not override it.
+    creator_hint = str(creator_hint or "").strip()
     display_creator_hint = (
         _display_creator_candidate(creator_hint, cleaning) or creator_hint
         if creator_authoritative and creator_hint
-        else _display_creator_candidate(
-            creator_from_url(source_url, media_id_hint, strip_at=False) or creator_hint,
-            cleaning,
-        )
+        else _display_creator_candidate(creator_hint, cleaning)
     )
     display_nickname_hint = _display_creator_candidate(nickname_hint, cleaning)
     if filename_template:
@@ -1172,11 +1174,7 @@ def _clean_resolved_filename(
     if not media_id or not title:
         display_stem = strip_numbered_suffix(path.stem)
         return path, f"{display_stem}{path.suffix}" if display_stem else path.name
-    creator = display_creator_hint or creator_hint or creator_from_url(
-        source_url,
-        media_id,
-        strip_at=_strip_handle_at_enabled(cleaning),
-    )
+    creator = display_creator_hint or creator_hint
     source_key = source_key or detect_source_key(source_url)
     display_filename = clean_gallerydl_display_filename(
         path.name,
@@ -1286,10 +1284,7 @@ def _move_group_to_template_folder(
 
 
 def _resolved_task_creator(engine: Engine, sidecar_path: str, source_url: str, filename: str) -> str:
-    media_id, _ = parse_filename_media_id(filename)
-    return _clean_handle_candidate(creator_from_url(source_url, media_id)) or engine.read_creator(
-        sidecar_path, source_url
-    )
+    return engine.read_creator(sidecar_path, source_url)
 
 
 # Log markers meaning the backend has no extractor or no downloadable media
@@ -1385,9 +1380,39 @@ def _run_engine_attempts(
     return rc, last_dest, emitted_paths
 
 
-def _engine_run_order(task: dict[str, Any]) -> list[Engine]:
+def _auto_engine_policy(task: dict[str, Any]) -> bool:
+    return str(task.get("engine_policy") or "").strip().lower() == "auto"
+
+
+def _gallerydl_probe_finds_images(source_url: str, cookie_source_key: str) -> bool:
+    if not source_url:
+        return False
+    try:
+        result = gallerydl_module.probe_gallerydl_media(
+            source_url,
+            with_cookies=has_cookies_for_source(cookie_source_key),
+            cookie_source_key=cookie_source_key,
+        )
+    except Exception:
+        return False
+    return "image" in set(result.get("kinds") or [])
+
+
+def _engine_run_order(
+    task: dict[str, Any],
+    source_url: str = "",
+    cookie_source_key: str = "",
+) -> list[Engine]:
     primary = engine_for_task(task)
-    return [primary, *[engine for engine in all_engines() if engine is not primary]]
+    default_order = [primary, *[engine for engine in all_engines() if engine is not primary]]
+    if not _auto_engine_policy(task):
+        return default_order
+    gallery_engine = engine_by_name("gallerydl")
+    if primary is gallery_engine:
+        return default_order
+    if _gallerydl_probe_finds_images(source_url or str(task.get("source_url") or ""), cookie_source_key):
+        return [gallery_engine]
+    return default_order
 
 
 def _task_template_settings(task: dict[str, Any]) -> dict[str, str] | None:
@@ -1404,12 +1429,12 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
         update_task(task_id, status="failed", error="Missing URL or output directory.")
         return
 
-    candidates = _engine_run_order(task)
     template_settings = _task_template_settings(task)
     quality = normalize_quality_selection(task.get("quality"))
     raw_source_key = normalize_source_key(task.get("source_key"))
     task_source_key = raw_source_key or detect_source_key(source_url)
     cookie_source_key = raw_source_key or detect_cookie_source(source_url)
+    candidates = _engine_run_order(task, source_url, cookie_source_key)
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
 
@@ -1470,7 +1495,12 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
 
             # Stored template is the primary engine's; a fallback builds its own.
             # Scraped tokens are resolved at run time, so rebuild when present.
-            if index == 0 and str(task.get("output_template") or "") and not extra_tokens:
+            if (
+                index == 0
+                and engine.name == str(task.get("engine") or "").strip().lower()
+                and str(task.get("output_template") or "")
+                and not extra_tokens
+            ):
                 output_template = str(task["output_template"])
             else:
                 output_template = engine.build_output_template(
@@ -1506,7 +1536,8 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             )
             if _cancel_pending(task_id):
                 break
-            for path in _attempt_output_paths(last_dest, emitted_paths):
+            attempt_paths = _attempt_output_paths(last_dest, emitted_paths)
+            for path in attempt_paths:
                 path_key = _path_key(path)
                 if path_key in output_record_keys:
                     continue
@@ -1600,11 +1631,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     _display_creator_candidate(configured_username, item_cleaning) if configured_username else ""
                 )
                 display_creator_hint = configured_display or (
-                    _display_creator_candidate(
-                        creator_from_url(item_source_url, media_id, strip_at=False),
-                        item_cleaning,
-                    )
-                    or _display_creator_candidate(creator_hint, item_cleaning)
+                    _display_creator_candidate(creator_hint, item_cleaning)
                     or creator_hint
                 )
                 display_nickname_hint = _display_creator_candidate(nickname_hint, item_cleaning) or nickname_hint
@@ -1642,7 +1669,6 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 creator = (
                     _role_creator(extra_tokens, token_roles, item_source_key)
                     or configured_display
-                    or _clean_handle_candidate(creator_from_url(item_source_url, media_id))
                     or creator_hint
                     or _resolved_task_creator(used_engine, creator_sidecar, item_source_url, display_filename)
                     or nickname_hint
@@ -1676,7 +1702,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     template_settings=template_settings or {},
                 )
                 completed_rows.append((row_task_id, completed_task))
-                _learn_source_format(item_source_url, display_filename, media_id, metadata)
+                _learn_source_format(item_source_url, display_filename, media_id, metadata, item_source_key)
             for row_task_id, completed_task in completed_rows:
                 save_history_entry(row_task_id, completed_task)
                 remove_task_record(row_task_id)
