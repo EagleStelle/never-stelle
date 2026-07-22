@@ -697,13 +697,12 @@ def _source_from_path(path: Path, location_index: list[tuple[str, str]]) -> str:
             return key
     return ""
 
-
 def _source_from_named_folder(root: Path, path: Path, source_keys: set[str]) -> str:
     try:
         relative_parts = path.parent.relative_to(root).parts
     except ValueError:
         relative_parts = path.parent.parts
-    candidates = source_keys | _COMMON_SOURCE_FOLDER_KEYS
+    candidates = source_keys | _scan_source_profile_keys() | _COMMON_SOURCE_FOLDER_KEYS
     for part in relative_parts:
         key = normalize_source_key(part)
         if key in candidates:

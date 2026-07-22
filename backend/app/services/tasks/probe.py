@@ -6,10 +6,11 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from backend.app.core.sources import normalize_source_key, source_key_from_url
-from backend.app.services.settings import find_cookies_file_for_url
+from backend.app.services.settings import find_cookies_file_for_url, has_cookies_for_url
 
 from .constants import CREATOR_FIELD_CANDIDATES, creator_roles_from_probe_fields
 from .formats import _prepare_url
+
 
 # YouTube mix/radio playlists carry an ``RD`` list id and are endless, so we
 # never expand them; we download only the video the link points at.
@@ -47,7 +48,16 @@ def _entry_url(entry: dict[str, Any]) -> str:
 
 
 def _flat_playlist(url: str) -> dict[str, Any]:
-    cmd = ["yt-dlp", "--flat-playlist", "--dump-single-json", "--no-warnings"]
+    cmd = [
+        "yt-dlp",
+        "--flat-playlist",
+        "--dump-single-json",
+        "--no-warnings",
+        "--js-runtimes",
+        "node",
+        "--remote-components",
+        "ejs:github",
+    ]
     cookies_file = find_cookies_file_for_url(url)
     if cookies_file:
         cmd.extend(["--cookies", cookies_file])
@@ -147,26 +157,48 @@ def _creator_probe_fields(flat: dict[str, str], engine: str) -> list[dict[str, s
 
 
 def _ytdlp_dump(url: str, *, with_cookies: bool = True) -> tuple[dict[str, Any] | None, str]:
-    cmd = ["yt-dlp", "--dump-json", "--no-warnings", "--no-download", "--playlist-items", "1"]
+    cmd = [
+        "yt-dlp",
+        "--dump-json",
+        "--no-warnings",
+        "--no-download",
+        "--playlist-items",
+        "1",
+        "--js-runtimes",
+        "node",
+        "--remote-components",
+        "ejs:github",
+    ]
     cookies_file = find_cookies_file_for_url(url) if with_cookies else ""
+
+    def _exec(extra_args: list[str]) -> tuple[dict[str, Any] | None, str]:
+        try:
+            result = subprocess.run(
+                cmd + extra_args + [url],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=_PROBE_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None, ""
+        if result.returncode != 0:
+            return None, (result.stderr or result.stdout or "")
+        line = next((row for row in (result.stdout or "").splitlines() if row.strip().startswith("{")), "")
+        if not line:
+            return None, ""
+        try:
+            return json.loads(line), ""
+        except json.JSONDecodeError:
+            return None, ""
+
     if cookies_file:
-        cmd.extend(["--cookies", cookies_file])
-    cmd.append(url)
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_PROBE_TIMEOUT_SECONDS
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None, ""
-    if result.returncode != 0:
-        return None, (result.stderr or result.stdout or "")
-    line = next((row for row in (result.stdout or "").splitlines() if row.strip().startswith("{")), "")
-    if not line:
-        return None, ""
-    try:
-        return json.loads(line), ""
-    except json.JSONDecodeError:
-        return None, ""
+        res, err = _exec([])
+        if res is not None:
+            return res, ""
+        return _exec(["--cookies", cookies_file])
+    return _exec([])
 
 
 def _gallerydl_richest_metadata(node: Any) -> dict[str, Any]:
@@ -186,26 +218,37 @@ def _gallerydl_richest_metadata(node: Any) -> dict[str, Any]:
 def _gallerydl_dump(url: str, *, with_cookies: bool = True) -> dict[str, Any] | None:
     cmd = ["gallery-dl", "-j", "-o", _GALLERYDL_TIKTOK_NO_AUDIO_OPTION]
     cookies_file = find_cookies_file_for_url(url) if with_cookies else ""
+
+    def _exec(extra_args: list[str]) -> dict[str, Any] | None:
+        try:
+            result = subprocess.run(
+                cmd + extra_args + [url],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=_PROBE_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+        try:
+            data = json.loads(result.stdout or "[]")
+        except json.JSONDecodeError:
+            return None
+        metadata = _gallerydl_richest_metadata(data)
+        return metadata or None
+
     if cookies_file:
-        cmd.extend(["--cookies", cookies_file])
-    cmd.append(url)
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_PROBE_TIMEOUT_SECONDS
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    try:
-        data = json.loads(result.stdout or "[]")
-    except json.JSONDecodeError:
-        return None
-    metadata = _gallerydl_richest_metadata(data)
-    return metadata or None
+        res = _exec([])
+        if res is not None:
+            return res
+        return _exec(["--cookies", cookies_file])
+    return _exec([])
 
 
-def probe_metadata(source_url: str, *, with_cookies: bool = False) -> dict[str, str]:
+def probe_metadata(source_url: str, *, with_cookies: bool = True) -> dict[str, str]:
     """Flat metadata for a URL from whichever engine answers first; ``{}`` on failure.
 
     The library scan uses this to resolve a manually-placed file's creator without a
@@ -242,6 +285,7 @@ def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any
         probed.append(("ytdlp", _flatten_metadata(info)))
     elif error:
         errors.append(error)
+
     metadata = _gallerydl_dump(url)
     if isinstance(metadata, dict) and metadata:
         probed.append(("gallerydl", _flatten_metadata(metadata)))

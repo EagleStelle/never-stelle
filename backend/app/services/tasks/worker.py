@@ -19,6 +19,7 @@ from backend.app.services.settings import (
     get_effective_creator_fields,
     get_effective_title_cleaning,
     has_cookies_for_source,
+    has_cookies_for_url,
     is_scraper_creator_field,
     load_scrape_rules,
     load_slug_tokens,
@@ -1365,16 +1366,15 @@ def _run_engine_attempts(
     excluded_extensions: set[str] | None = None,
     quality: dict[str, str] | None = None,
 ) -> tuple[int, str, list[str]]:
-    # Anonymous first; retry authenticated + paced only when a cookie jar exists.
-    attempts = [False]
-    if has_cookies_for_source(cookie_source_key):
-        attempts.append(True)
+    # Anonymous first; fallback to authenticated when a cookie jar exists.
+    has_cookies = has_cookies_for_source(cookie_source_key) or has_cookies_for_url(source_url)
+    attempts = [False, True] if has_cookies else [False]
     rc = 1
     last_dest = ""
     emitted_paths: list[str] = []
     for with_cookies in attempts:
         if with_cookies:
-            _append_task_log(task_id, "[never-stelle] Anonymous attempt failed; retrying with cookies...")
+            _append_task_log(task_id, "[never-stelle] Attempting download with cookies...")
             update_task(task_id, progress_pct=0)
         cmd = engine.build_command(
             source_url,
@@ -1496,7 +1496,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 if engine.emits_progress
                 else engine.count_items(
                     source_url,
-                    with_cookies=has_cookies_for_source(cookie_source_key),
+                    with_cookies=has_cookies_for_source(cookie_source_key) or has_cookies_for_url(source_url),
                     cookie_source_key=cookie_source_key,
                     excluded_extensions=excluded_extensions,
                 )

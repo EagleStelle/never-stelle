@@ -226,26 +226,46 @@ def fetch_html(url: str, cookie_source_key: str = "") -> str:
     url = _prepare_url(url)
     if not url.startswith(("http://", "https://")):
         return ""
-    cookies_file = (
-        find_cookies_file_for_source(cookie_source_key) if cookie_source_key else find_cookies_file_for_url(url)
-    )
-    jar = _load_cookie_jar(cookies_file)
+    headers = {"User-Agent": _FETCH_UA, "Accept-Language": "en-US,en;q=0.9"}
+
+    # Attempt 1: Anonymous request
     try:
         response = httpx.get(
             url,
             follow_redirects=True,
             timeout=_FETCH_TIMEOUT_SECONDS,
-            headers={"User-Agent": _FETCH_UA, "Accept-Language": "en-US,en;q=0.9"},
-            cookies=httpx.Cookies(jar) if jar else None,
+            headers=headers,
         )
+        if response.status_code < 400:
+            content_type = response.headers.get("content-type", "").lower()
+            if not content_type or "html" in content_type or "xml" in content_type:
+                if response.text and response.text.strip():
+                    return response.text
     except Exception:
-        return ""
-    if response.status_code >= 400:
-        return ""
-    content_type = response.headers.get("content-type", "").lower()
-    if content_type and "html" not in content_type and "xml" not in content_type:
-        return ""
-    return response.text
+        pass
+
+    # Attempt 2: Fallback with cookies if available
+    cookies_file = (
+        find_cookies_file_for_source(cookie_source_key) if cookie_source_key else find_cookies_file_for_url(url)
+    )
+    jar = _load_cookie_jar(cookies_file)
+    if jar:
+        try:
+            response = httpx.get(
+                url,
+                follow_redirects=True,
+                timeout=_FETCH_TIMEOUT_SECONDS,
+                headers=headers,
+                cookies=httpx.Cookies(jar),
+            )
+            if response.status_code < 400:
+                content_type = response.headers.get("content-type", "").lower()
+                if not content_type or "html" in content_type or "xml" in content_type:
+                    return response.text
+        except Exception:
+            pass
+
+    return ""
 
 
 def _template_token_names(template_settings: Any) -> set[str]:

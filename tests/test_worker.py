@@ -57,3 +57,39 @@ def test_build_ytdlp_command_creator_sidecar_uses_display_name_field_for_non_you
 def test_build_ytdlp_command_omits_print_without_sidecar():
     cmd = build_ytdlp_command("https://youtu.be/abc", "/usr/bin/ffmpeg", "/media/out.%(ext)s")
     assert "--print-to-file" not in cmd
+
+
+def test_run_engine_attempts_tries_anonymous_first_then_cookies(monkeypatch):
+    from backend.app.services.tasks.engine import YtdlpEngine
+    import backend.app.services.tasks.worker as worker_module
+    import backend.app.services.tasks.ytdlp as ytdlp_module
+
+    attempts_seen = []
+
+    def fake_run_engine(engine, task_id, cmd, total_items=0):
+        with_cookies = "--cookies" in cmd
+        attempts_seen.append(with_cookies)
+        if not with_cookies:
+            # Simulate anonymous attempt failure (e.g. age restricted)
+            return 1, "", []
+        return 0, "/tmp/out.mp4", ["/tmp/out.mp4"]
+
+    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: True)
+    monkeypatch.setattr(ytdlp_module, "find_cookies_file_for_source", lambda source_key: "/tmp/cookies.txt")
+    monkeypatch.setattr(worker_module, "_run_engine_to_task", fake_run_engine)
+
+    rc, _, _ = worker_module._run_engine_attempts(
+        YtdlpEngine(),
+        "task-123",
+        "https://www.youtube.com/watch?v=abc123age",
+        "/tmp",
+        "/usr/bin/ffmpeg",
+        "/tmp/%(title)s.%(ext)s",
+        "youtube",
+        "",
+        "",
+        0,
+    )
+
+    assert rc == 0
+    assert attempts_seen == [False, True]

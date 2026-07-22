@@ -52,6 +52,26 @@ def test_entry_url(entry, expected):
     assert _entry_url(entry) == expected
 
 
+def test_flat_playlist_includes_js_runtimes_flags(monkeypatch):
+    recorded_cmd = []
+
+    def fake_run(cmd, **kwargs):
+        recorded_cmd.extend(cmd)
+        class Dummy:
+            returncode = 0
+            stdout = '{"_type": "video"}'
+            stderr = ""
+        return Dummy()
+
+    monkeypatch.setattr(probe_module.subprocess, "run", fake_run)
+    probe_module._flat_playlist("https://www.youtube.com/watch?v=abc")
+
+    assert "--js-runtimes" in recorded_cmd
+    assert "node" in recorded_cmd
+    assert "--remote-components" in recorded_cmd
+    assert "ejs:github" in recorded_cmd
+
+
 def test_probe_url_rejects_empty():
     with pytest.raises(ValueError):
         probe_url("   ")

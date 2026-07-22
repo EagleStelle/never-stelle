@@ -699,15 +699,16 @@ def test_ytdlp_command_enables_youtube_js_solver():
     assert cmd[cmd.index("--remote-components") + 1] == "ejs:github"
 
 
-def test_ytdlp_command_keeps_youtube_solver_off_for_other_sites():
+def test_ytdlp_command_includes_js_runtimes_universally():
     cmd = ytdlp.build_ytdlp_command(
         "https://twitter.com/DohaVT/status/1",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
     )
 
-    assert "--js-runtimes" not in cmd
-    assert "--remote-components" not in cmd
+    assert "--js-runtimes" in cmd
+    assert "node" in cmd
+    assert "--remote-components" in cmd
 
 
 def test_downloader_commands_use_resolved_source_cookie(monkeypatch):

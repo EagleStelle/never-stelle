@@ -290,7 +290,21 @@ def build_gallerydl_command(
             else find_cookies_file_for_url(source_url)
         )
         if cookies_file:
-            cmd.extend(["--cookies", cookies_file, "--sleep-request", "2", "--retries", "5"])
+            normalized_cookies = cookies_file.replace("\\", "/")
+            cmd.extend(
+                [
+                    "--cookies",
+                    cookies_file,
+                    "--sleep-request",
+                    "2",
+                    "--retries",
+                    "5",
+                    "-o",
+                    f"downloader.ytdl.raw-options.cookies={normalized_cookies}",
+                    "-o",
+                    f"extractor.ytdl.raw-options.cookies={normalized_cookies}",
+                ]
+            )
     cmd.append(source_url)
     return cmd
 
