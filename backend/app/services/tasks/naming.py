@@ -44,7 +44,6 @@ _PLACEHOLDER_TITLE_RE = re.compile(
 )
 _NUMBERED_SUFFIX_RE = re.compile(r"_\d+$")
 _DISPLAY_FILENAME_ID_RE = re.compile(r"^(?P<title>.*) \[(?P<id>[A-Za-z0-9_-]+)\](?:_\d+)?$")
-_PLACEHOLDER_PREFIX_RE = re.compile(r"^\s*(?P<prefix>[^|:\n\[\]]{1,100}?)\s*[-|:]\s+(?P<body>.+)$")
 _EXT_TEMPLATE_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$", re.IGNORECASE)
 _ID_TEMPLATE_FIELDS = {"id"}
 _EMPTY_TITLE_VALUES = {"none", "null", "undefined", "unknown", "untitled", "n/a", "na"}
@@ -263,75 +262,6 @@ def sanitize_filename_component(value: str) -> str:
     return value or "Unknown"
 
 
-def _strip_placeholder_segment(
-    title: str,
-    creator: str = "",
-    media_id: str = "",
-    source_key: str = "",
-) -> tuple[str, bool]:
-    value = strip_placeholder_title(title, media_id, source_key)
-    if not value:
-        return sanitize_filename_component(creator) if creator else "", True
-    for candidate in _creator_prefix_candidates(creator):
-        match = re.match(rf"^\s*{re.escape(candidate)}\s*[-|:]\s+(?P<body>.+)$", value, re.IGNORECASE)
-        if match and not strip_placeholder_title(match.group("body"), media_id, source_key):
-            return candidate, True
-    match = _PLACEHOLDER_PREFIX_RE.match(value)
-    if match and not strip_placeholder_title(match.group("body"), media_id, source_key):
-        return match.group("prefix").strip(), True
-    return value, False
-
-
-def clean_gallerydl_display_filename(
-    filename: str, creator: str = "", source_key: str = "", cleaning: dict[str, Any] | None = None
-) -> str:
-    flags = normalize_title_cleaning(cleaning)
-    value = str(filename or "").strip()
-    if not value:
-        return ""
-    path = Path(value)
-    match = _DISPLAY_FILENAME_ID_RE.match(path.stem.strip())
-    if not match:
-        return value
-    media_id = match.group("id").strip()
-    raw_title = match.group("title").strip()
-    raw_display_title, stripped_placeholder = _strip_placeholder_segment(raw_title, creator, media_id, source_key)
-    if stripped_placeholder:
-        raw_display_title = (
-            clean_filename_title(raw_display_title, creator, media_id, source_key, cleaning=cleaning)
-            or raw_display_title
-        )
-    else:
-        cleaned_title = clean_filename_title(raw_title, creator, media_id, source_key, cleaning=cleaning)
-        raw_display_title, stripped_placeholder = _strip_placeholder_segment(
-            cleaned_title,
-            creator,
-            media_id,
-            source_key,
-        )
-    display_title = sanitize_filename_component(_apply_shorten(raw_display_title, flags)) if raw_display_title else ""
-    if display_title and (stripped_placeholder or raw_title.rstrip().endswith("-")):
-        display_stem = f"{display_title} - [{media_id}]"
-    else:
-        display_stem = f"{display_title} [{media_id}]" if display_title else f"[{media_id}]"
-    return f"{display_stem}{path.suffix}"
-
-
-def clean_gallerydl_disk_filename(
-    filename: str, creator: str = "", source_key: str = "", cleaning: dict[str, Any] | None = None
-) -> str:
-    value = str(filename or "").strip()
-    if not value:
-        return ""
-    path = Path(value)
-    numbered = re.search(r"_\d+$", path.stem)
-    display = clean_gallerydl_display_filename(value, creator, source_key, cleaning)
-    if not numbered or display == value:
-        return display
-    display_path = Path(display)
-    return f"{display_path.stem}{numbered.group(0)}{path.suffix}"
-
-
 def _template_stem(template: str) -> str:
     return _EXT_TEMPLATE_TAIL_RE.sub("", str(template or "").strip()).rstrip(". ")
 
@@ -478,6 +408,7 @@ def clean_template_filename(
     *,
     creator: str = "",
     nickname: str = "",
+    title: str = "",
     media_id: str = "",
     source_key: str = "",
     keep_numbered_suffix: bool = True,
@@ -496,8 +427,21 @@ def clean_template_filename(
     fallback_media_id = str(media_id or "").strip() or (fallback_match.group("id").strip() if fallback_match else "")
     fallback_username = _clean_creator_token(str(creator or ""), flags)
     fallback_nickname = _clean_creator_token(str(nickname or ""), flags)
-    if (not fields or not raw_title) and (fallback_username or fallback_nickname or fallback_media_id):
+    fallback_title = str(title or "").strip()
+    if (not fields or not raw_title) and (
+        fallback_username or fallback_nickname or fallback_media_id or fallback_title
+    ):
         rendered_fields = dict(fields)
+        if not raw_title and fallback_title:
+            raw_title = clean_filename_title(
+                fallback_title,
+                fallback_username or fallback_nickname,
+                fallback_media_id,
+                source_key,
+                creator_aliases=tuple(value for value in (fallback_username, fallback_nickname) if value),
+                cleaning=cleaning,
+            )
+            raw_title = _apply_shorten(raw_title, flags)
         rendered_fields["title"] = raw_title
         if fallback_username:
             rendered_fields["username"] = fallback_username
@@ -581,6 +525,42 @@ def clean_template_filename(
     if keep_numbered_suffix and numbered_suffix:
         stem = f"{stem}{numbered_suffix}"
     return f"{stem}{path.suffix}" if stem else value
+
+
+def clean_template_display_filename(
+    filename: str,
+    template_settings: dict[str, str] | None,
+    *,
+    creator: str = "",
+    nickname: str = "",
+    title: str = "",
+    media_id: str = "",
+    source_key: str = "",
+    extra_tokens: dict[str, str] | None = None,
+    cleaning: dict[str, Any] | None = None,
+    quality: dict[str, str] | None = None,
+) -> str:
+    value = str(filename or "").strip()
+    if not value:
+        return ""
+    filename_template = str((template_settings or {}).get("filename_template") or "").strip()
+    if filename_template:
+        rendered = clean_template_filename(
+            value,
+            filename_template,
+            creator=creator,
+            nickname=nickname,
+            title=title,
+            media_id=media_id,
+            source_key=source_key,
+            keep_numbered_suffix=False,
+            extra_tokens=extra_tokens,
+            cleaning=cleaning,
+            quality=quality,
+        )
+        if rendered:
+            return rendered
+    return value
 
 
 def detect_ffmpeg_location() -> str:

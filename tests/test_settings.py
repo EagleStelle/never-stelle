@@ -506,6 +506,52 @@ def test_format_creator_probe_does_not_touch_existing_fields_when_all_present(mo
     assert learn_missing_creator_fields_for_format("https://www.tiktok.com/@fzyahoo.com/photo/1", "tiktok") == existing
 
 
+def test_format_creator_probe_promotes_literal_url_creator_template(monkeypatch):
+    import backend.app.services.tasks.learning as learning_mod
+    import backend.app.services.tasks.probe as probe_mod
+
+    payload: dict = {}
+    learned = {
+        "tiktok": {
+            "templates": ["https://www.tiktok.com/@fzyahoo.com/video/{id}"],
+        }
+    }
+    saved_formats: list[dict] = []
+    saved_settings: list[dict] = []
+
+    monkeypatch.setattr(learning_mod, "load_saved_settings_file", lambda: payload)
+    monkeypatch.setattr(learning_mod, "save_saved_settings_file", lambda data: saved_settings.append(dict(data)))
+    monkeypatch.setattr(learning_mod, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(learning_mod, "save_learned_formats", lambda data: saved_formats.append(data))
+    monkeypatch.setattr(
+        probe_mod,
+        "probe_creator_fields",
+        lambda url, key: {
+            "source_key": "tiktok",
+            "fields": [
+                {"field": "uploader_id", "value": "6673617364291994625"},
+                {"field": "uploader", "value": "fzyahoo.com"},
+            ],
+            "creator_fields": {
+                "username": ["uploader", "uploader_id"],
+                "nickname": ["uploader"],
+            },
+            "url_creator_fields": {},
+        },
+    )
+
+    result = learn_missing_creator_fields_for_format(
+        "https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913",
+        "tiktok",
+    )
+
+    assert result["username"] == ["uploader", "uploader_id"]
+    assert saved_formats[-1]["tiktok"]["templates"] == [
+        "https://www.tiktok.com/@{creator}/video/{id}",
+    ]
+    assert saved_settings[-1]["source_creator_fields"]["tiktok"] == result
+
+
 def test_ensure_creator_fields_learned_skips_existing_records(monkeypatch):
     import backend.app.services.tasks.learning as learning_mod
     import backend.app.services.tasks.probe as probe_mod

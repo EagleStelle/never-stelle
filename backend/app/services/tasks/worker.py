@@ -51,8 +51,6 @@ from .learning import (
 )
 from .learning import learn_source_format as persist_source_format
 from .naming import (
-    clean_gallerydl_disk_filename,
-    clean_gallerydl_display_filename,
     clean_template_filename,
     detect_ffmpeg_location,
     filename_template_fields,
@@ -406,6 +404,82 @@ def _filename_template(template_settings: dict[str, str] | None) -> str:
     return str((template_settings or {}).get("filename_template") or "").strip()
 
 
+def _template_token_names(template_settings: dict[str, str] | None) -> set[str]:
+    settings = template_settings or {}
+    text = "\n".join(str(settings.get(key) or "") for key in ("folder_template", "filename_template"))
+    return {match.group(1).strip().lower() for match in TEMPLATE_RE.finditer(text)}
+
+
+def _template_needs_probe_metadata(template_settings: dict[str, str] | None) -> bool:
+    # id/quality can be recovered locally; other template tokens may require the
+    # normal metadata probe when gallery-dl leaves only a sparse [id] filename.
+    return bool(_template_token_names(template_settings) - {"id", "quality", "ext"})
+
+
+def _filename_satisfies_template_metadata(path: Path, template_settings: dict[str, str] | None) -> bool:
+    filename_template = _filename_template(template_settings)
+    tokens = _template_token_names(template_settings) - {"quality", "ext"}
+    if not tokens:
+        return True
+    fields = filename_template_fields(path.name, filename_template) if filename_template else {}
+    parsed_media_id, parsed_title = parse_filename_media_id(path.name)
+
+    def has_token(token: str) -> bool:
+        if token == "id":
+            return bool(_field_value(fields, "id") or parsed_media_id)
+        if token == "title":
+            return bool(_field_value(fields, "title") or parsed_title)
+        if token == "nickname":
+            return bool(_field_value(fields, "nickname", "username"))
+        return bool(_field_value(fields, token))
+
+    return all(has_token(token) for token in tokens)
+
+
+def _probe_output_metadata(source_url: str, source_key: str = "") -> dict[str, str]:
+    try:
+        from .probe import probe_metadata
+
+        with_cookies = has_cookies_for_url(source_url) or (
+            bool(source_key) and has_cookies_for_source(source_key)
+        )
+        metadata = probe_metadata(source_url, with_cookies=with_cookies)
+    except Exception:
+        return {}
+    if not isinstance(metadata, dict):
+        return {}
+    return {
+        str(key): str(value)
+        for key, value in metadata.items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+
+
+def _fill_single_output_metadata_fallback(
+    records: list[dict[str, Any]],
+    metadata_by_path: dict[str, dict[str, str]],
+    source_url: str,
+    source_key: str,
+    template_settings: dict[str, str] | None,
+) -> None:
+    if len(records) != 1 or not _template_needs_probe_metadata(template_settings):
+        return
+    record = records[0]
+    if record["engine"].name != "gallerydl":
+        return
+    path = Path(record["path"])
+    if _filename_satisfies_template_metadata(path, template_settings):
+        return
+    key = _path_key(path)
+    if metadata_by_path.get(key):
+        return
+    metadata = _probe_output_metadata(source_url, source_key)
+    if not metadata:
+        return
+    metadata.setdefault("filepath", str(path))
+    metadata_by_path[key] = metadata
+
+
 def _json_sidecar_value(value: str) -> str:
     try:
         decoded = json.loads(value)
@@ -445,6 +519,9 @@ def _read_metadata_sidecar(path: str) -> dict[str, dict[str, str]]:
         "nickname",
         "author",
         "username",
+        "title",
+        "fulltitle",
+        "description",
     ]
     for line in lines:
         parts = str(line or "").split("\t")
@@ -463,6 +540,14 @@ def _read_metadata_sidecar(path: str) -> dict[str, dict[str, str]]:
 def _field_value(fields: dict[str, str], *names: str) -> str:
     for name in names:
         value = str(fields.get(name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _metadata_title(metadata: dict[str, str]) -> str:
+    for key in ("title", "fulltitle", "content", "caption", "description"):
+        value = str(metadata.get(key) or "").strip()
         if value:
             return value
     return ""
@@ -1026,6 +1111,7 @@ def _rename_gallerydl_numbered_siblings(
     source_key: str,
     filename_template: str = "",
     media_id: str = "",
+    title_hint: str = "",
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
     quality: dict[str, str] | None = None,
@@ -1039,6 +1125,7 @@ def _rename_gallerydl_numbered_siblings(
                 sibling.name,
                 filename_template,
                 creator=creator,
+                title=title_hint,
                 media_id=media_id,
                 source_key=source_key,
                 keep_numbered_suffix=True,
@@ -1047,7 +1134,7 @@ def _rename_gallerydl_numbered_siblings(
                 quality=quality,
             )
         if not target_name:
-            target_name = clean_gallerydl_disk_filename(sibling.name, creator, source_key, cleaning)
+            continue
         target = _rename_path(sibling, target_name)
         if sibling == path:
             selected = target
@@ -1061,6 +1148,7 @@ def _rename_gallerydl_group_paths(
     source_key: str,
     filename_template: str = "",
     media_id: str = "",
+    title_hint: str = "",
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
     quality: dict[str, str] | None = None,
@@ -1074,6 +1162,7 @@ def _rename_gallerydl_group_paths(
                 path.name,
                 filename_template,
                 creator=creator,
+                title=title_hint,
                 media_id=media_id,
                 source_key=source_key,
                 keep_numbered_suffix=True,
@@ -1082,7 +1171,7 @@ def _rename_gallerydl_group_paths(
                 quality=quality,
             )
         if not target_name:
-            target_name = clean_gallerydl_disk_filename(path.name, creator, source_key, cleaning)
+            continue
         target = _rename_path(path, target_name)
         if _path_key(path) == selected_key:
             selected = target
@@ -1098,6 +1187,7 @@ def _clean_resolved_filename(
     creator_hint: str = "",
     media_id_hint: str = "",
     nickname_hint: str = "",
+    title_hint: str = "",
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
     creator_authoritative: bool = False,
@@ -1120,6 +1210,7 @@ def _clean_resolved_filename(
             filename_template,
             creator=display_creator_hint or creator_hint,
             nickname=display_nickname_hint or nickname_hint,
+            title=title_hint,
             media_id=media_id_hint,
             source_key=source_key,
             keep_numbered_suffix=False,
@@ -1132,6 +1223,7 @@ def _clean_resolved_filename(
             filename_template,
             creator=display_creator_hint or creator_hint,
             nickname=display_nickname_hint or nickname_hint,
+            title=title_hint,
             media_id=media_id_hint,
             source_key=source_key,
             keep_numbered_suffix=True,
@@ -1148,6 +1240,7 @@ def _clean_resolved_filename(
                     source_key,
                     filename_template,
                     media_id_hint,
+                    title_hint,
                     extra_tokens,
                     cleaning,
                     quality,
@@ -1162,6 +1255,7 @@ def _clean_resolved_filename(
                         source_key,
                         filename_template,
                         media_id_hint,
+                        title_hint,
                         extra_tokens,
                         cleaning,
                         quality,
@@ -1173,6 +1267,7 @@ def _clean_resolved_filename(
                         source_key,
                         filename_template,
                         media_id_hint,
+                        title_hint,
                         extra_tokens,
                         cleaning,
                         quality,
@@ -1181,28 +1276,7 @@ def _clean_resolved_filename(
             renamed = _rename_path(path, disk_filename)
             return renamed, renamed.name
 
-    media_id, title = parse_filename_media_id(path.name)
-    if not media_id or not title:
-        display_stem = strip_numbered_suffix(path.stem)
-        return path, f"{display_stem}{path.suffix}" if display_stem else path.name
-    creator = display_creator_hint or creator_hint
-    source_key = source_key or detect_source_key(source_url)
-    display_filename = clean_gallerydl_display_filename(
-        path.name,
-        creator,
-        source_key,
-        cleaning,
-    )
-    if strip_numbered_suffix(path.stem) != path.stem:
-        if group_paths:
-            return _rename_gallerydl_group_paths(
-                group_paths, path, creator, source_key, cleaning=cleaning
-            ), display_filename
-        return _rename_gallerydl_numbered_siblings(path, creator, source_key, cleaning=cleaning), display_filename
-    if display_filename == path.name:
-        return path, display_filename
-    target = _rename_path(path, display_filename)
-    return target, target.name if target != path else path.name
+    return path, path.name
 
 
 def _render_template_folder(
@@ -1549,6 +1623,13 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
         if rc == 0 or output_records:
             filename_template = _filename_template(template_settings)
             metadata_by_path = _read_metadata_sidecar(metadata_sidecar)
+            _fill_single_output_metadata_fallback(
+                output_records,
+                metadata_by_path,
+                source_url,
+                task_source_key,
+                template_settings,
+            )
             output_records = _dedupe_output_records(
                 output_records,
                 filename_template,
@@ -1619,6 +1700,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     or creator_hint
                 )
                 display_nickname_hint = _display_creator_candidate(nickname_hint, item_cleaning) or nickname_hint
+                title_hint = _metadata_title(metadata)
                 final_path, display_filename = _clean_resolved_filename(
                     item_source_url,
                     raw_path,
@@ -1628,6 +1710,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     creator_hint,
                     media_id,
                     nickname_hint,
+                    title_hint,
                     extra_tokens,
                     item_cleaning,
                     creator_authoritative=bool(configured_username),

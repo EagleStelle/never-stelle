@@ -12,7 +12,7 @@ from backend.app.services.settings import get_effective_source_profiles
 
 from .constants import STATUS_LABELS, STATUS_ORDER, normalize_quality_selection
 from .files import recover_task_path
-from .naming import clean_gallerydl_display_filename
+from .naming import clean_template_display_filename
 from .scan import parse_filename_media_id
 from .store import (
     active_counts_by_source,
@@ -64,10 +64,21 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
         and (not resolve_files or Path(resolved_path).is_file())
     )
     raw_filename = str(task.get("resolved_filename") or "").strip() or recovered_filename
-    media_id, _ = parse_filename_media_id(raw_filename)
+    parsed_media_id, _ = parse_filename_media_id(raw_filename)
+    media_id = str(task.get("media_id") or "").strip() or parsed_media_id
     creator = str(task.get("creator") or "")
+    template_settings = task.get("template_settings") if isinstance(task.get("template_settings"), dict) else None
+    quality = normalize_quality_selection(task.get("quality"))
     resolved_filename = (
-        clean_gallerydl_display_filename(raw_filename, creator, source_key)
+        clean_template_display_filename(
+            raw_filename,
+            template_settings,
+            creator=creator,
+            title=str(task.get("title") or ""),
+            media_id=media_id,
+            source_key=source_key,
+            quality=quality,
+        )
         if task_type in {"gallerydl", "disk"}
         else raw_filename
     )
@@ -93,7 +104,7 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
         "source_candidates": list(task.get("source_candidates") or []),
         "error": str(task.get("error") or ""),
         "can_download": can_download,
-        "quality": normalize_quality_selection(task.get("quality")),
+        "quality": quality,
         "external": bool(task.get("external")),
         "external_backend": str(task.get("external_backend") or ""),
         "created_at": str(task.get("created_at") or ""),
@@ -115,6 +126,9 @@ def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "resolved_folder": entry.get("resolved_folder", ""),
         "resolved_filename": entry.get("resolved_filename", ""),
         "resolved_full_path": entry.get("resolved_full_path", ""),
+        "media_id": entry.get("media_id", ""),
+        "title": entry.get("title", ""),
+        "template_settings": entry.get("template_settings", {}),
         "file_size": entry.get("file_size", 0),
         "quality": entry.get("quality", {}),
         "external": entry.get("external", False),

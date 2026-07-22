@@ -320,7 +320,7 @@ def test_probe_creator_fields_keeps_live_fields_without_url_owner_filter(monkeyp
     assert result["url_creator_fields"] == {}
 
 
-def test_probe_creator_fields_uses_engine_order_not_url_creator_promotion(monkeypatch):
+def test_probe_creator_fields_promotes_exact_url_creator_match(monkeypatch):
     monkeypatch.setattr(
         probe_module,
         "_ytdlp_dump",
@@ -343,7 +343,7 @@ def test_probe_creator_fields_uses_engine_order_not_url_creator_promotion(monkey
 
     assert [field["field"] for field in result["fields"]][:2] == ["uploader_id", "uploader"]
     assert result["url_creator_fields"] == {}
-    assert result["creator_fields"]["username"][:2] == ["uploader_id", "uploader"]
+    assert result["creator_fields"]["username"][:2] == ["uploader", "uploader_id"]
 
 
 def test_probe_creator_fields_skips_engine_that_returns_nothing(monkeypatch):

@@ -10,7 +10,7 @@ from backend.app.services.settings import (
     save_saved_settings_file,
 )
 
-from .formats import learn_download, learn_media_id
+from .formats import learn_download, learn_media_id, media_id_from_url
 from .store import load_learned_formats, save_learned_formats
 
 
@@ -158,6 +158,32 @@ def save_learned_creator_fields(
     return updated
 
 
+def _metadata_from_probe_fields(fields: Any) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    for item in fields if isinstance(fields, list) else []:
+        if not isinstance(item, dict):
+            continue
+        field = str(item.get("field") or "").strip()
+        value = str(item.get("value") or "").strip()
+        if field and value and field not in metadata:
+            metadata[field] = value
+    return metadata
+
+
+def promote_learned_format_from_probe(source_url: str, fields: Any) -> bool:
+    """Use probed creator values to upgrade literal URL creators to role tokens."""
+    media_id = media_id_from_url(source_url)
+    metadata = _metadata_from_probe_fields(fields)
+    if not media_id or not metadata:
+        return False
+    learned = load_learned_formats()
+    updated = learn_download(learned, source_url, media_id, metadata)
+    if updated == learned:
+        return False
+    save_learned_formats(updated)
+    return True
+
+
 def learn_missing_creator_fields_for_format(source_url: str, source_key: str = "") -> dict[str, list[str]]:
     """Probe a newly learned URL format and append any missing creator fields."""
     if not str(source_url or "").strip():
@@ -169,6 +195,7 @@ def learn_missing_creator_fields_for_format(source_url: str, source_key: str = "
     except Exception:
         return {}
 
+    promote_learned_format_from_probe(source_url, result.get("fields"))
     key = str(result.get("source_key") or source_key)
     return save_missing_learned_creator_fields(
         source_url,
@@ -191,6 +218,7 @@ def ensure_creator_fields_learned(source_url: str, source_key: str = "") -> dict
         result = probe_creator_fields(source_url, source_key)
     except Exception:
         return {}
+    promote_learned_format_from_probe(source_url, result.get("fields"))
     return save_learned_creator_fields(
         source_url,
         str(result.get("source_key") or source_key),

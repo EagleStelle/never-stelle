@@ -18,7 +18,7 @@ from .files import find_numbered_media_siblings, recover_task_path
 from .formats import reconstruct_url_candidates
 from .history import find_active_by_source, find_history_by_id, find_history_by_source
 from .learning import learn_source_id_signature
-from .naming import clean_gallerydl_display_filename
+from .naming import clean_template_display_filename
 from .planning import resolve_task_settings
 from .scan import parse_filename_media_id
 from .serializers import fetch_tasks, history_to_api, task_to_api
@@ -250,6 +250,10 @@ def resolve_task_file(task_id: str) -> tuple[Path, str, Path | None]:
             "resolved_full_path": history_entry.get("resolved_full_path", ""),
             "resolved_filename": history_entry.get("resolved_filename", ""),
             "resolved_folder": history_entry.get("resolved_folder", ""),
+            "media_id": history_entry.get("media_id", ""),
+            "title": history_entry.get("title", ""),
+            "template_settings": history_entry.get("template_settings", {}),
+            "quality": history_entry.get("quality", {}),
         }
     if not task:
         raise FileNotFoundError("Task was not found.")
@@ -267,7 +271,16 @@ def resolve_task_file(task_id: str) -> tuple[Path, str, Path | None]:
     filename = display_filename or recovered_filename or path.name
     if str(task.get("engine") or "") == "gallerydl":
         source_key = str(task.get("source_key") or "").strip() or detect_source_key(str(task.get("source_url") or ""))
-        filename = clean_gallerydl_display_filename(filename, str(task.get("creator") or ""), source_key)
+        parsed_media_id, _ = parse_filename_media_id(filename)
+        filename = clean_template_display_filename(
+            filename,
+            task.get("template_settings") if isinstance(task.get("template_settings"), dict) else None,
+            creator=str(task.get("creator") or ""),
+            title=str(task.get("title") or ""),
+            media_id=str(task.get("media_id") or "").strip() or parsed_media_id,
+            source_key=source_key,
+            quality=normalize_quality_selection(task.get("quality")),
+        )
     siblings = find_numbered_media_siblings(path)
     if len(siblings) > 1:
         archive_path = _build_slideshow_archive(siblings)

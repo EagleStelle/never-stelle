@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 import subprocess
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
 
 from backend.app.core.sources import normalize_source_key, source_key_from_url
-from backend.app.services.settings import find_cookies_file_for_url, has_cookies_for_url
+from backend.app.services.settings import find_cookies_file_for_url
 
-from .constants import CREATOR_FIELD_CANDIDATES, creator_roles_from_probe_fields
+from .constants import (
+    CREATOR_FIELD_CANDIDATES,
+    creator_roles_from_probe_fields,
+    promote_creator_field_roles,
+)
 from .formats import _prepare_url
-
 
 # YouTube mix/radio playlists carry an ``RD`` list id and are endless, so we
 # never expand them; we download only the video the link points at.
@@ -156,6 +159,43 @@ def _creator_probe_fields(flat: dict[str, str], engine: str) -> list[dict[str, s
     return fields
 
 
+def _url_exact_values(source_url: str) -> set[str]:
+    try:
+        parsed = urlparse(_prepare_url(source_url))
+    except Exception:
+        return set()
+    values: set[str] = set()
+    for raw in [part for part in str(parsed.path or "").split("/") if part.strip()]:
+        value = unquote(raw).strip().strip("/").lstrip("@").strip()
+        if value:
+            values.add(value)
+    for _, raw in parse_qsl(parsed.query, keep_blank_values=False):
+        value = unquote(str(raw or "")).strip().strip("/").lstrip("@").strip()
+        if value:
+            values.add(value)
+    return values
+
+
+def _exact_url_creator_fields(
+    source_url: str,
+    fields_by_role: dict[str, list[str]],
+    values_by_field: dict[str, str],
+) -> dict[str, list[str]]:
+    url_values = _url_exact_values(source_url)
+    if not url_values:
+        return {}
+    promoted: dict[str, list[str]] = {}
+    for role in ("username", "nickname"):
+        fields: list[str] = []
+        for field in fields_by_role.get(role) or []:
+            value = str(values_by_field.get(field) or "").strip().strip("/").lstrip("@").strip()
+            if value and value in url_values and field not in fields:
+                fields.append(field)
+        if fields:
+            promoted[role] = fields
+    return promoted
+
+
 def _ytdlp_dump(url: str, *, with_cookies: bool = True) -> tuple[dict[str, Any] | None, str]:
     cmd = [
         "yt-dlp",
@@ -296,16 +336,22 @@ def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any
 
     fields: list[dict[str, str]] = []
     fields_by_engine: dict[str, list[str]] = {}
+    values_by_field: dict[str, str] = {}
     seen: set[str] = set()
     for engine, flat in probed:
         engine_fields = _creator_probe_fields(flat, engine)
         fields_by_engine[engine] = [item["field"] for item in engine_fields]
         for item in engine_fields:
+            values_by_field.setdefault(item["field"], item["value"])
             if item["field"] in seen:
                 continue
             seen.add(item["field"])
             fields.append(item)
     creator_fields = creator_roles_from_probe_fields(fields_by_engine)
+    creator_fields = promote_creator_field_roles(
+        creator_fields,
+        _exact_url_creator_fields(url, creator_fields, values_by_field),
+    )
     return {
         "source_key": resolved_key,
         "fields": fields,

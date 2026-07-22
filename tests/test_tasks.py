@@ -38,8 +38,6 @@ from backend.app.services.tasks.formats import (
     url_dedup_key,
 )
 from backend.app.services.tasks.naming import (
-    clean_gallerydl_disk_filename,
-    clean_gallerydl_display_filename,
     clean_template_filename,
     sanitize_filename_component,
     sanitize_path_literal,
@@ -377,18 +375,6 @@ def test_strip_placeholder_title_drops_when_real_media_id_matches():
 
 def test_strip_numbered_suffix_removes_gallerydl_num():
     assert strip_numbered_suffix("Creator - Cap [id]_8") == "Creator - Cap [id]"
-
-
-def test_clean_gallerydl_display_filename_drops_tiktok_placeholder_and_num():
-    filename = "fzyahoo.com - TikTok photo #7420705673542978833 [7420705673542978833]_1.jpg"
-
-    assert clean_gallerydl_display_filename(filename) == "fzyahoo.com - [7420705673542978833].jpg"
-
-
-def test_clean_gallerydl_disk_filename_keeps_num_but_drops_tiktok_placeholder():
-    filename = "fzyahoo.com - TikTok photo #7420705673542978833 [7420705673542978833]_1.jpg"
-
-    assert clean_gallerydl_disk_filename(filename) == "fzyahoo.com - [7420705673542978833]_1.jpg"
 
 
 def test_parse_filename_media_id_rejects_unrecoverable_names():
@@ -772,7 +758,6 @@ def test_role_creator_uses_scraped_token_role():
 def test_clean_filename_title_drops_empty_title_sentinels():
     assert clean_filename_title("None") == ""
     assert clean_filename_title(" untitled ") == ""
-    assert clean_gallerydl_display_filename("Poster - None [abc123]_1.jpg", "Poster") == "Poster - [abc123].jpg"
 
 
 def test_clean_template_filename_drops_none_title_segment():
@@ -820,6 +805,18 @@ def test_clean_template_filename_renders_selected_quality_when_rebuilding():
     assert result == "1080p - [4483553].mp4"
 
 
+def test_clean_template_filename_rebuilds_sparse_gallerydl_name_from_title_hint():
+    result = clean_template_filename(
+        "[abc123]_1.jpg",
+        "{{username}} - {{title}} [{{id}}]",
+        creator="alice",
+        title="Nice clip",
+        media_id="abc123",
+    )
+
+    assert result == "alice - Nice clip [abc123]_1.jpg"
+
+
 def test_clean_resolved_filename_renames_real_file_using_settings_template(tmp_path: Path):
     source_url = "https://twitter.com/DohaVT/status/2073635724684054528"
     media_file = tmp_path / "DohaVT - 2073635724684054528 - Video by DohaVT.mp4"
@@ -857,6 +854,28 @@ def test_clean_resolved_filename_rerenders_selected_quality(tmp_path: Path):
     expected = tmp_path / "1080p - [4483553].mp4"
     assert final_path == expected
     assert display_filename == expected.name
+    assert expected.is_file()
+    assert not media_file.exists()
+
+
+def test_clean_resolved_filename_rebuilds_sparse_gallerydl_name_from_title_hint(tmp_path: Path):
+    source_url = "https://example.com/alice/post/abc123"
+    media_file = tmp_path / "[abc123]_1.jpg"
+    media_file.write_bytes(b"image")
+
+    final_path, display_filename = worker_module._clean_resolved_filename(
+        source_url,
+        media_file,
+        {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
+        "example",
+        creator_hint="alice",
+        media_id_hint="abc123",
+        title_hint="Nice clip",
+    )
+
+    expected = tmp_path / "alice - Nice clip [abc123]_1.jpg"
+    assert final_path == expected
+    assert display_filename == "alice - Nice clip [abc123].jpg"
     assert expected.is_file()
     assert not media_file.exists()
 
@@ -1016,6 +1035,80 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
     assert completed["title"] == "Creator - [1234567890]"
     assert saved[task_id]["resolved_full_path"] == str(first_clean)
     assert saved[task_id]["resolved_filename"] == "Creator - [1234567890].jpg"
+
+
+def test_gallerydl_sparse_single_output_uses_probe_metadata_for_template(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    raw_video = tmp_path / "[abc123].mp4"
+    raw_video.write_bytes(b"video")
+    source_url = "https://www.example.test/watch/abc123"
+    task_id = "gallerydl:sparse-template"
+    store = {
+        "tasks": {
+            task_id: {
+                "engine": "gallerydl",
+                "source_url": source_url,
+                "source_key": "example",
+                "status": "pending",
+                "output_dir": str(tmp_path),
+                "resolved_folder": str(tmp_path),
+                "template_settings": {
+                    "folder_template": "{{username}}",
+                    "filename_template": "{{username}} - {{title}} [{{id}}]",
+                },
+            }
+        }
+    }
+    saved: dict[str, dict] = {}
+
+    class FakeProcess:
+        stdout = iter([f"{raw_video}\n"])
+
+        def wait(self):
+            return 0
+
+        def poll(self):
+            return 0
+
+        def kill(self):
+            return None
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    monkeypatch.setattr(worker_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
+    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(worker_module, "get_effective_creator_fields", lambda url: {"username": ["channel"]})
+    monkeypatch.setattr(
+        worker_module,
+        "_probe_output_metadata",
+        lambda url, source_key="": {
+            "id": "abc123",
+            "webpage_url": source_url,
+            "channel": "ChannelHandle",
+            "uploader": "Channel Name",
+            "title": "Nice clip",
+        },
+    )
+    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "_learn_creator_fields_from_download", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+
+    worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+
+    completed = store["tasks"][task_id]
+    clean_video = tmp_path / "ChannelHandle" / "ChannelHandle - Nice clip [abc123].mp4"
+    assert completed["status"] == "completed"
+    assert clean_video.is_file()
+    assert not raw_video.exists()
+    assert completed["resolved_full_path"] == str(clean_video)
+    assert completed["resolved_folder"] == str(clean_video.parent)
+    assert completed["resolved_filename"] == clean_video.name
+    assert completed["creator"] == "ChannelHandle"
+    assert saved[task_id]["template_settings"] == store["tasks"][task_id]["template_settings"]
 
 
 def test_gallerydl_same_source_assets_share_one_row_and_source_id(
@@ -1546,7 +1639,7 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
     )
 
 
-def test_task_to_api_cleans_existing_raw_gallerydl_display_filename(tmp_path: Path):
+def test_task_to_api_leaves_raw_gallerydl_filename_without_template(tmp_path: Path):
     media_file = tmp_path / "fzyahoo.com - TikTok photo #7420705673542978833 [7420705673542978833]_1.jpg"
     media_file.write_bytes(b"image")
 
@@ -1561,7 +1654,70 @@ def test_task_to_api_cleans_existing_raw_gallerydl_display_filename(tmp_path: Pa
         },
     )
 
-    assert api_task["resolved_filename"] == "fzyahoo.com - [7420705673542978833].jpg"
+    assert api_task["resolved_filename"] == media_file.name
+
+
+def test_task_to_api_prefers_saved_template_over_gallerydl_id_display(tmp_path: Path):
+    media_file = tmp_path / "[abc123].mp4"
+    media_file.write_bytes(b"video")
+
+    api_task = task_to_api(
+        "gallerydl:test",
+        {
+            "engine": "gallerydl",
+            "status": "completed",
+            "source_key": "example",
+            "source_url": "https://www.example.test/watch/abc123",
+            "creator": "ChannelHandle",
+            "media_id": "abc123",
+            "title": "Nice clip",
+            "resolved_full_path": str(media_file),
+            "resolved_filename": media_file.name,
+            "template_settings": {
+                "folder_template": "{{username}}",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
+            },
+        },
+    )
+
+    assert api_task["resolved_filename"] == "ChannelHandle - Nice clip [abc123].mp4"
+
+
+def test_resolve_task_file_prefers_saved_template_for_gallerydl_download_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media_file = tmp_path / "[abc123].mp4"
+    media_file.write_bytes(b"video")
+    task = {
+        "engine": "gallerydl",
+        "status": "completed",
+        "source_key": "example",
+        "source_url": "https://www.example.test/watch/abc123",
+        "creator": "ChannelHandle",
+        "media_id": "abc123",
+        "title": "Nice clip",
+        "resolved_full_path": str(media_file),
+        "resolved_filename": media_file.name,
+        "template_settings": {
+            "folder_template": "{{username}}",
+            "filename_template": "{{username}} - {{title}} [{{id}}]",
+        },
+    }
+
+    monkeypatch.setattr(operations_module, "load_task_store", lambda: {"tasks": {"gallerydl:test": task}})
+    monkeypatch.setattr(operations_module, "find_history_by_id", lambda task_id: None)
+    monkeypatch.setattr(
+        operations_module,
+        "recover_task_path",
+        lambda task_id, task, persist=True: (str(media_file), str(tmp_path), media_file.name),
+    )
+    monkeypatch.setattr(operations_module, "find_numbered_media_siblings", lambda path: [path])
+
+    path, filename, archive = operations_module.resolve_task_file("gallerydl:test")
+
+    assert path == media_file
+    assert filename == "ChannelHandle - Nice clip [abc123].mp4"
+    assert archive is None
 
 
 def test_task_to_api_keeps_stored_creator_over_url_creator(tmp_path: Path):

@@ -23,7 +23,7 @@ from .formats import (
     reconstruct_url_candidates,
 )
 from .learning import update_learned_formats_with_download
-from .naming import clean_gallerydl_display_filename
+from .naming import clean_template_display_filename
 from .store import (
     load_history,
     load_learned_formats,
@@ -834,6 +834,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
             _creator_for_file(root, path, source_folders, folder_pattern, filename_pattern)
             or _creator_from_title(title)
         )
+        folder_template, filename_template = templates.templates_for_format(source_key, matched_fmt)
         prior = records.get(task_id) or {}
         prior_creator = str(prior.get("artist") or "").strip()
         if prior_creator:
@@ -844,7 +845,6 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
             )
         else:
             # Manually-placed file with no resolved creator yet: probe in the configured order.
-            folder_template, filename_template = templates.templates_for_format(source_key, matched_fmt)
             role = _creator_role_for_templates(folder_template, filename_template, source_roles)
             order = (creator_fields_map.get(source_key) or {}).get(role) or CREATOR_FIELD_DEFAULTS.get(role, [])
             scraper_backed_role = _template_role_has_scraper_rule(
@@ -870,7 +870,18 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
                 source_url = probed_url or reconstruct_url(
                     learned, source_key, media_id, creator="", slug_values=slug_values
                 )
-        display_filename = clean_gallerydl_display_filename(path.name, creator, source_key)
+        template_settings = {"folder_template": folder_template, "filename_template": filename_template}
+        creator_key = creator.strip().lstrip("@").casefold()
+        title_key = re.sub(r"\s*[-|:]+\s*$", "", title).strip().lstrip("@").casefold()
+        title_hint = "" if creator_key and creator_key == title_key else title
+        display_filename = clean_template_display_filename(
+            path.name,
+            template_settings,
+            creator=creator,
+            title=title_hint,
+            media_id=media_id,
+            source_key=source_key,
+        )
         save_history_entry_row(
             task_id,
             {
@@ -885,6 +896,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
                 "resolved_filename": display_filename,
                 "resolved_full_path": str(path),
                 "title": title,
+                "template_settings": template_settings,
                 "artist": creator,
                 "file_size": file_size,
                 "completed_at": _completed_at_from_file(path),

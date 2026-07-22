@@ -44,6 +44,10 @@ def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
             "resolved_folder": str(task.get("resolved_folder") or ""),
             "resolved_filename": str(task.get("resolved_filename") or ""),
             "resolved_full_path": str(task.get("resolved_full_path") or ""),
+            "title": str(task.get("title") or ""),
+            "template_settings": (
+                task.get("template_settings") if isinstance(task.get("template_settings"), dict) else {}
+            ),
             "file_size": _stored_file_size(task),
             "quality": normalize_quality_selection(task.get("quality")),
             "completed_at": datetime.now(UTC).isoformat(),

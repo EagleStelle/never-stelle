@@ -243,6 +243,9 @@ def build_ytdlp_command(
                 "%(nickname|)j",
                 "%(author|)j",
                 "%(username|)j",
+                "%(title|)j",
+                "%(fulltitle|)j",
+                "%(description|)j",
             ]
         )
         cmd.extend(["--print-to-file", f"after_move:{item_template}", metadata_sidecar])
