@@ -10,7 +10,6 @@ from .constants import CREATOR_FIELDS, TEMPLATE_RE, TITLE_MAX_CHARS_DEFAULT, nor
 
 _INVALID_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f\u29f8\u29f9]')
 _SPACING_RE = re.compile(r"\s+")
-_SEPARATOR_SPACING_RE = re.compile(r"\s*([-|,;:·｜])\s*")
 _HASHTAG_RE = re.compile(r"(?<!\w)[#＃]\w[\w'’-]*")
 _METRIC_RE = re.compile(
     r"(?i)(?:^|[\s,;|/\-()\[\]·｜]+)"
@@ -165,7 +164,6 @@ def clean_social_title(
         value = _METRIC_RE.sub(" ", value)
     if flags["strip_creator_byline"]:
         value = _strip_trailing_creator_alias(value, aliases)
-    value = _SEPARATOR_SPACING_RE.sub(r" \1 ", value)
     value = _SPACING_RE.sub(" ", value).strip(" -|,;:·｜")
     return value
 
