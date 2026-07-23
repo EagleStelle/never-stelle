@@ -288,10 +288,10 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
 
     operations_module.queue_task(
         "https://example.test/watch?v=3",
-        quality={"mode": "video", "video_container": "webm", "video_codec": "h264"},
+        quality={"mode": "video", "video_container": "webm", "video_codec": "vp9"},
     )
     assert captured["task"]["quality"]["video_container"] == "webm"
-    assert captured["task"]["quality"]["video_codec"] == "h264"
+    assert captured["task"]["quality"]["video_codec"] == "vp9"
 
 
 def test_retry_task_migrates_to_gallerydl_engine(monkeypatch: pytest.MonkeyPatch):

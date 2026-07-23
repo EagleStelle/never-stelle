@@ -20,6 +20,7 @@ from .constants import (
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
     is_lossless_audio,
+    merge_output_format,
     normalize_quality_selection,
     video_format_selector,
 )
@@ -208,7 +209,7 @@ def build_ytdlp_command(
         if not is_lossless_audio(selection["audio_format"]):
             cmd.extend(["--audio-quality", AUDIO_BITRATE_PRESETS[selection["audio_bitrate"]]["ytdlp"]])
     else:
-        cmd.extend(["--merge-output-format", selection["video_container"]])
+        cmd.extend(["--merge-output-format", merge_output_format(selection["video_container"])])
         codec_sort = VIDEO_CODEC_PRESETS[selection["video_codec"]]["sort"]
         if codec_sort:
             # Soft preference; the --format filter enforces container compatibility.

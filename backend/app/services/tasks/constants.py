@@ -119,6 +119,32 @@ def container_acodec_filter(container: Any) -> str:
     return f"[acodec~='^({'|'.join(prefixes)})']" if prefixes else ""
 
 
+def codec_supported_by_container(codec: Any, container: Any) -> bool:
+    # Auto imposes no codec, so it fits every container. An explicit codec must be one
+    # the container can remux and play back (VP9-in-MP4 muxes but no player decodes it).
+    codec_key = str(codec or "").strip().lower()
+    if codec_key in ("", "auto"):
+        return True
+    codecs = VIDEO_CONTAINER_PRESETS.get(str(container or "").strip().lower(), {}).get("codecs") or []
+    return codec_key in codecs
+
+
+# MKV plays any codec, so it is the universal merge fallback: when the delivered streams
+# can't go into the chosen container playably (a source's only video is VP9 but MP4 was
+# picked, opus audio into MP4, ...), yt-dlp remuxes into MKV instead of an unplayable file.
+MERGE_FALLBACK_CONTAINER = "mkv"
+
+
+def merge_output_format(container: Any) -> str:
+    key = str(container or "").strip().lower()
+    if key not in VIDEO_CONTAINER_PRESETS:
+        key = DEFAULT_VIDEO_CONTAINER
+    if key == MERGE_FALLBACK_CONTAINER:
+        return key
+    # `first/second` tells yt-dlp: prefer this container, drop to MKV only if it can't hold the streams.
+    return f"{key}/{MERGE_FALLBACK_CONTAINER}"
+
+
 def video_format_selector(video_quality: Any, container: Any) -> str:
     # Prefer playable-in-container streams first, but keep recovery fallbacks for
     # sites whose extractors do not expose vcodec/acodec fields. Without these,
@@ -183,6 +209,11 @@ def normalize_quality_selection(raw: Any) -> dict[str, str]:
         str(data.get("video_container") or "").lower(), VIDEO_CONTAINER_PRESETS, DEFAULT_VIDEO_CONTAINER
     )
     video_codec = pick(str(data.get("video_codec") or "").lower(), VIDEO_CODEC_PRESETS, DEFAULT_VIDEO_CODEC)
+    # An explicit codec the container can't play back (e.g. VP9 in MP4) would mux an
+    # unplayable video stream, so fall back to Auto and let the format filter pick a
+    # container-compatible codec instead.
+    if not codec_supported_by_container(video_codec, video_container):
+        video_codec = DEFAULT_VIDEO_CODEC
     return {
         "mode": mode if mode in {"video", "audio"} else DEFAULT_MEDIA_MODE,
         "video_quality": pick(data.get("video_quality"), VIDEO_QUALITY_PRESETS, DEFAULT_VIDEO_QUALITY),
@@ -215,7 +246,11 @@ def _options(table: dict[str, dict[str, str]]) -> list[dict[str, str]]:
 def quality_options() -> dict[str, list[dict[str, Any]]]:
     return {
         "video": _options(VIDEO_QUALITY_PRESETS),
-        "video_containers": _options(VIDEO_CONTAINER_PRESETS),
+        # `codecs` lets the UI offer only container-compatible codecs (Auto always fits).
+        "video_containers": [
+            {"key": key, "label": preset["label"], "codecs": list(preset.get("codecs") or [])}
+            for key, preset in VIDEO_CONTAINER_PRESETS.items()
+        ],
         "video_codecs": _options(VIDEO_CODEC_PRESETS),
         "audio_formats": _options(AUDIO_FORMAT_PRESETS),
         "audio_bitrates": _options(AUDIO_BITRATE_PRESETS),

@@ -200,9 +200,9 @@ const DEFAULT_QUALITY_OPTIONS: QualityOptions = {
     { key: "480p", label: "480p" },
   ],
   video_containers: [
-    { key: "mp4", label: "MP4" },
-    { key: "mkv", label: "MKV" },
-    { key: "webm", label: "WebM" },
+    { key: "mp4", label: "MP4", codecs: ["av1", "h264", "h265"] },
+    { key: "mkv", label: "MKV", codecs: ["av1", "vp9", "h264", "h265"] },
+    { key: "webm", label: "WebM", codecs: ["av1", "vp9"] },
   ],
   video_codecs: [
     { key: "auto", label: "Auto" },
@@ -231,10 +231,16 @@ function createQualityPreset(source: Partial<QualityPreset>): QualityPreset {
   const key = String(source.key || "")
     .trim()
     .toLowerCase();
-  return {
+  const preset: QualityPreset = {
     key,
     label: String(source.label || key || "Unknown"),
   };
+  if (Array.isArray(source.codecs)) {
+    preset.codecs = source.codecs
+      .map((codec) => String(codec || "").trim().toLowerCase())
+      .filter(Boolean);
+  }
+  return preset;
 }
 
 function createQualityPresetList(
@@ -281,17 +287,47 @@ function optionKey(
   return items.some((item) => item.key === key) ? key : fallback;
 }
 
+// Auto imposes no codec, so it fits every container; an explicit codec must be one the
+// container can play back. Missing compatibility data (older backend) allows everything.
+export function isCodecCompatibleWithContainer(
+  codec: string,
+  container: string,
+  containers: QualityPreset[],
+): boolean {
+  const codecKey = String(codec || "").trim().toLowerCase();
+  if (!codecKey || codecKey === "auto") return true;
+  const preset = containers.find((item) => item.key === container);
+  if (!preset || !Array.isArray(preset.codecs)) return true;
+  return preset.codecs.includes(codecKey);
+}
+
+// The codec picker for a container: Auto plus the codecs that container can play back.
+export function videoCodecOptionsForContainer(
+  options: QualityOptions,
+  container: string,
+): QualityPreset[] {
+  return options.video_codecs.filter((codec) =>
+    isCodecCompatibleWithContainer(codec.key, container, options.video_containers),
+  );
+}
+
 export function createQualitySelection(
   source: Partial<QualitySelection> = {},
   qualityOptions: Partial<QualityOptions> = {},
 ): QualitySelection {
   const options = createQualityOptions(qualityOptions);
   const mode: MediaMode = source.mode === "audio" ? "audio" : "video";
+  const videoContainer = optionKey(source.video_container, options.video_containers, "mp4");
+  const videoCodec = optionKey(source.video_codec, options.video_codecs, "auto");
   return {
     mode,
     video_quality: optionKey(source.video_quality, options.video, "best"),
-    video_container: optionKey(source.video_container, options.video_containers, "mp4"),
-    video_codec: optionKey(source.video_codec, options.video_codecs, "auto"),
+    video_container: videoContainer,
+    // Drop a codec the container can't play back (e.g. VP9 in MP4) so it never forces an
+    // unplayable stream; Auto lets the backend pick a container-compatible codec.
+    video_codec: isCodecCompatibleWithContainer(videoCodec, videoContainer, options.video_containers)
+      ? videoCodec
+      : "auto",
     audio_format: optionKey(source.audio_format, options.audio_formats, "mp3"),
     audio_bitrate: optionKey(
       source.audio_bitrate,

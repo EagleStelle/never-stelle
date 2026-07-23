@@ -12,8 +12,14 @@ import {
   SegmentedControlItem,
 } from "../../components/ui/segmented-control";
 
+import { computed } from "vue";
+
 import type { QualityOptions, QualitySelection, SavedSettings } from "../../types";
-import { createQualitySelection, isLosslessAudioFormat } from "../../utils/dashboard";
+import {
+  createQualitySelection,
+  isLosslessAudioFormat,
+  videoCodecOptionsForContainer,
+} from "../../utils/dashboard";
 
 const props = defineProps<{
   savedSettings: SavedSettings;
@@ -21,6 +27,11 @@ const props = defineProps<{
   quality: QualitySelection;
   qualityOptions: QualityOptions;
 }>();
+
+// Only codecs the chosen container can play back (Auto always fits); prevents VP9-in-MP4.
+const videoCodecItems = computed(() =>
+  videoCodecOptionsForContainer(props.qualityOptions, props.quality.video_container),
+);
 
 const emit = defineEmits<{
   addDownload: [];
@@ -125,9 +136,9 @@ const pasteFromClipboard = async () => {
               aria-label="Video container"
             />
             <Combobox
-              v-if="qualityOptions.video_codecs.length"
+              v-if="videoCodecItems.length"
               :model-value="quality.video_codec"
-              :items="qualityOptions.video_codecs"
+              :items="videoCodecItems"
               @update:model-value="(val) => update({ video_codec: val })"
               class="shrink-0"
               placeholder="Codec..."

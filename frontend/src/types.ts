@@ -147,6 +147,8 @@ export interface ScrapeTestResponse {
 export interface QualityPreset {
   key: string;
   label: string;
+  // Container presets carry the codecs they can play back; the codec picker filters on it.
+  codecs?: string[];
 }
 
 export interface QualitySelection {

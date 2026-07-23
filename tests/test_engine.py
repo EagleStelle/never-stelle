@@ -12,6 +12,7 @@ from backend.app.services.tasks.constants import (
     container_acodec_filter,
     container_vcodec_filter,
     default_quality_selection,
+    merge_output_format,
     normalize_quality_selection,
     quality_options,
     template_tokens,
@@ -52,13 +53,20 @@ def test_normalize_quality_selection_defaults_and_validates():
         "audio_format": "opus",
         "audio_bitrate": "192",
     }
-    assert normalize_quality_selection({"video_container": "mp4", "video_codec": "vp9"})["video_codec"] == "vp9"
+    # A container-compatible codec is kept; an incompatible one (VP9 can't play in MP4)
+    # falls back to Auto so it never muxes an unplayable stream.
+    assert normalize_quality_selection({"video_container": "mkv", "video_codec": "vp9"})["video_codec"] == "vp9"
+    assert normalize_quality_selection({"video_container": "mp4", "video_codec": "vp9"})["video_codec"] == "auto"
+    assert normalize_quality_selection({"video_container": "webm", "video_codec": "h264"})["video_codec"] == "auto"
 
 
 def test_quality_options_expose_all_pickers():
     options = quality_options()
     assert {o["key"] for o in options["video"]} == {"best", "1080p", "720p", "480p"}
     assert {o["key"] for o in options["video_containers"]} == {"mp4", "mkv", "webm"}
+    # Containers expose their playable codecs so the UI can hide incompatible picks (e.g. VP9 in MP4).
+    mp4 = next(o for o in options["video_containers"] if o["key"] == "mp4")
+    assert "vp9" not in mp4["codecs"] and "h264" in mp4["codecs"]
     assert {o["key"] for o in options["video_codecs"]} == {"auto", "av1", "vp9", "h264", "h265"}
     assert {o["key"] for o in options["audio_formats"]} == {"mp3", "m4a", "opus", "aac", "flac", "wav"}
     assert {o["key"] for o in options["audio_bitrates"]} == {"best", "320", "192", "128"}
@@ -81,6 +89,15 @@ def test_container_vcodec_filter_restricts_incompatible_codecs():
     webm = container_vcodec_filter("webm")
     assert "avc1" not in webm and "vp09" in webm
     assert container_vcodec_filter("mkv") == ""
+
+
+def test_merge_output_format_falls_back_to_mkv():
+    # Every container prefers itself but drops to MKV (plays any codec) when the delivered
+    # streams can't go in playably — so Auto/recovery paths never yield an unplayable file.
+    assert merge_output_format("mp4") == "mp4/mkv"
+    assert merge_output_format("webm") == "webm/mkv"
+    assert merge_output_format("mkv") == "mkv"
+    assert merge_output_format("bogus") == "mp4/mkv"
 
 
 def test_container_acodec_filter_restricts_incompatible_audio():
@@ -108,12 +125,27 @@ def test_ytdlp_command_filters_format_to_container_codecs():
         "https://www.youtube.com/watch?v=x",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
-        quality={"mode": "video", "video_container": "webm", "video_codec": "h264"},
+        quality={"mode": "video", "video_container": "webm", "video_codec": "vp9"},
     )
 
-    assert cmd[cmd.index("--merge-output-format") + 1] == "webm"
+    assert cmd[cmd.index("--merge-output-format") + 1] == "webm/mkv"
     assert cmd[cmd.index("--format") + 1] == video_format_selector("best", "webm")
-    assert cmd[cmd.index("-S") + 1] == "vcodec:avc1"
+    assert cmd[cmd.index("-S") + 1] == "vcodec:vp09"
+
+
+def test_ytdlp_command_drops_codec_incompatible_with_container():
+    # VP9 can't play in MP4, so the codec preference is dropped rather than forcing an
+    # unplayable stream: no -S sort is emitted (equivalent to Auto).
+    cmd = ytdlp.build_ytdlp_command(
+        "https://www.youtube.com/watch?v=x",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        quality={"mode": "video", "video_container": "mp4", "video_codec": "vp9"},
+    )
+
+    # Container prefers MP4 but drops to MKV if the streams can't go in playably.
+    assert cmd[cmd.index("--merge-output-format") + 1] == "mp4/mkv"
+    assert "-S" not in cmd
 
 
 def test_ytdlp_username_field_uses_configured_list_authoritatively():
@@ -497,8 +529,8 @@ def test_build_gallerydl_command_routes_streams_through_ytdlp(monkeypatch):
     assert _has_cli_pair(cmd, "-o", "extractor.ytdl.module=yt_dlp")
     assert _has_cli_pair(cmd, "-o", f"downloader.ytdl.format={video_format_selector('best', 'mp4')}")
     assert _has_cli_pair(cmd, "-o", f"extractor.ytdl.format={video_format_selector('best', 'mp4')}")
-    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mp4")
-    assert _has_cli_pair(cmd, "-o", "extractor.ytdl.raw-options.merge_output_format=mp4")
+    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mp4/mkv")
+    assert _has_cli_pair(cmd, "-o", "extractor.ytdl.raw-options.merge_output_format=mp4/mkv")
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.ffmpeg_location=/usr/bin/ffmpeg")
     assert _has_cli_pair(cmd, "-o", "extractor.ytdl.raw-options.ffmpeg_location=/usr/bin/ffmpeg")
 
@@ -536,7 +568,7 @@ def test_ytdlp_command_defaults_to_best_video_merge():
     )
 
     assert cmd[cmd.index("--format") + 1] == video_format_selector("best", "mp4")
-    assert cmd[cmd.index("--merge-output-format") + 1] == "mp4"
+    assert cmd[cmd.index("--merge-output-format") + 1] == "mp4/mkv"
     assert "--extract-audio" not in cmd
 
 
@@ -549,7 +581,7 @@ def test_ytdlp_command_caps_resolution():
     )
 
     assert cmd[cmd.index("--format") + 1] == video_format_selector("720p", "mp4")
-    assert cmd[cmd.index("--merge-output-format") + 1] == "mp4"
+    assert cmd[cmd.index("--merge-output-format") + 1] == "mp4/mkv"
     assert "-S" not in cmd
 
 
@@ -573,7 +605,7 @@ def test_ytdlp_command_auto_codec_omits_sort():
         quality={"mode": "video", "video_codec": "auto", "video_container": "webm"},
     )
 
-    assert cmd[cmd.index("--merge-output-format") + 1] == "webm"
+    assert cmd[cmd.index("--merge-output-format") + 1] == "webm/mkv"
     assert "-S" not in cmd
 
 
@@ -626,8 +658,8 @@ def test_gallerydl_command_applies_capped_quality_to_ytdl_downloader(monkeypatch
 
     assert _has_cli_pair(cmd, "-o", f"downloader.ytdl.format={video_format_selector('480p', 'mp4')}")
     assert _has_cli_pair(cmd, "-o", f"extractor.ytdl.format={video_format_selector('480p', 'mp4')}")
-    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mp4")
-    assert _has_cli_pair(cmd, "-o", "extractor.ytdl.raw-options.merge_output_format=mp4")
+    assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mp4/mkv")
+    assert _has_cli_pair(cmd, "-o", "extractor.ytdl.raw-options.merge_output_format=mp4/mkv")
 
 
 def test_gallerydl_command_honors_video_container(monkeypatch):
@@ -654,6 +686,20 @@ def test_gallerydl_command_honors_video_codec(monkeypatch):
 
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.format_sort=vcodec:vp09")
     assert _has_cli_pair(cmd, "-o", "extractor.ytdl.raw-options.format_sort=vcodec:vp09")
+
+
+def test_gallerydl_command_drops_codec_incompatible_with_container(monkeypatch):
+    # VP9 can't play in MP4: no format_sort is forwarded to the ytdl sub-downloader,
+    # so gallery-dl never muxes an unplayable VP9 stream into an MP4 container.
+    monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "")
+    cmd = gallerydl.build_gallerydl_command(
+        "https://twitter.com/DohaVT/status/1",
+        "/media/twitter",
+        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        quality={"mode": "video", "video_container": "mp4", "video_codec": "vp9"},
+    )
+
+    assert not any("format_sort" in str(arg) for arg in cmd)
 
 
 def test_gallerydl_audio_mode_still_downloads_best_video(monkeypatch):

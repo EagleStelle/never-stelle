@@ -1,11 +1,39 @@
 <script setup lang="ts">
+import { computed } from "vue";
+
 import { ComboboxSelect as Combobox } from "../../../../components/ui/combobox";
-import { isLosslessAudioFormat } from "../../../../utils/dashboard";
+import {
+  isCodecCompatibleWithContainer,
+  isLosslessAudioFormat,
+  videoCodecOptionsForContainer,
+} from "../../../../utils/dashboard";
 import { useSettingsContext } from "../../context";
 import SettingsLabel from "../../SettingsLabel.vue";
 import SettingsRow from "../../SettingsRow.vue";
 
 const { settings, settingsDraft } = useSettingsContext();
+
+// Only codecs the chosen container can play back (Auto always fits); prevents VP9-in-MP4.
+const videoCodecItems = computed(() =>
+  videoCodecOptionsForContainer(
+    settings.quality_options,
+    settingsDraft.default_quality.video_container,
+  ),
+);
+
+function updateContainer(container: string): void {
+  settingsDraft.default_quality.video_container = container;
+  // A codec the new container can't play back would force an unplayable stream; reset to Auto.
+  if (
+    !isCodecCompatibleWithContainer(
+      settingsDraft.default_quality.video_codec,
+      container,
+      settings.quality_options.video_containers,
+    )
+  ) {
+    settingsDraft.default_quality.video_codec = "auto";
+  }
+}
 </script>
 
 <template>
@@ -25,7 +53,7 @@ const { settings, settingsDraft } = useSettingsContext();
     <Combobox
       :model-value="settingsDraft.default_quality.video_container"
       :items="settings.quality_options.video_containers"
-      @update:model-value="(val) => (settingsDraft.default_quality.video_container = val)"
+      @update:model-value="(val) => updateContainer(val)"
       layout="fill"
       placeholder="Choose a container"
       empty-text="No containers."
@@ -34,7 +62,7 @@ const { settings, settingsDraft } = useSettingsContext();
   <SettingsRow label="Codec">
     <Combobox
       :model-value="settingsDraft.default_quality.video_codec"
-      :items="settings.quality_options.video_codecs"
+      :items="videoCodecItems"
       @update:model-value="(val) => (settingsDraft.default_quality.video_codec = val)"
       layout="fill"
       placeholder="Choose a codec"

@@ -21,6 +21,7 @@ from .constants import (
     MEDIA_EXTENSIONS,
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
+    merge_output_format,
     normalize_quality_selection,
     video_format_selector,
 )
@@ -88,6 +89,8 @@ def _ytdl_downloader_options(quality: dict[str, str] | None = None) -> list[str]
     video_quality = "best" if audio_mode else selection["video_quality"]
     container = "mp4" if audio_mode else selection["video_container"]
     format_string = video_format_selector(video_quality, container)
+    # Prefer the chosen container but let yt-dlp drop to MKV when it can't hold the streams.
+    merge_format = merge_output_format(container)
     options = [
         "-o",
         _YTDL_DOWNLOADER_MODULE_OPTION,
@@ -100,9 +103,9 @@ def _ytdl_downloader_options(quality: dict[str, str] | None = None) -> list[str]
         "-o",
         f"extractor.ytdl.format={format_string}",
         "-o",
-        f"downloader.ytdl.raw-options.merge_output_format={container}",
+        f"downloader.ytdl.raw-options.merge_output_format={merge_format}",
         "-o",
-        f"extractor.ytdl.raw-options.merge_output_format={container}",
+        f"extractor.ytdl.raw-options.merge_output_format={merge_format}",
     ]
     codec_sort = VIDEO_CODEC_PRESETS[selection["video_codec"]]["sort"]
     if not audio_mode and codec_sort:
