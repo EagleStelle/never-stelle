@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from backend.app.services.tasks.worker import _read_creator_sidecar
-from backend.app.services.tasks.ytdlp import YTDLP_NICKNAME_FIELD, build_ytdlp_command
+from backend.app.domains.downloads.ytdlp import YTDLP_NICKNAME_FIELD, build_ytdlp_command
+from backend.app.domains.downloads.ytdlp import read_creator_sidecar as _read_creator_sidecar
 
 
 def test_read_creator_sidecar_returns_last_non_empty_line(tmp_path: Path):
@@ -60,9 +60,9 @@ def test_build_ytdlp_command_omits_print_without_sidecar():
 
 
 def test_run_engine_attempts_tries_anonymous_first_then_cookies(monkeypatch):
-    from backend.app.services.tasks.engine import YtdlpEngine
-    import backend.app.services.tasks.worker as worker_module
-    import backend.app.services.tasks.ytdlp as ytdlp_module
+    import backend.app.domains.downloads.workers.execution as worker_module
+    import backend.app.domains.downloads.ytdlp as ytdlp_module
+    from backend.app.domains.downloads.engine import YtdlpEngine
 
     attempts_seen = []
 

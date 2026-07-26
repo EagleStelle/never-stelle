@@ -24,4 +24,4 @@ def test_importing_app_does_not_load_lxml():
 
 
 def test_importing_worker_does_not_load_lxml():
-    assert _fresh_import_loads_lxml("backend.app.services.tasks.worker") is False
+    assert _fresh_import_loads_lxml("backend.app.domains.downloads.worker") is False

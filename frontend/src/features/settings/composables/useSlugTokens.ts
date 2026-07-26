@@ -13,7 +13,7 @@ import type {
 import { tokenLabel } from "../../../utils/dashboard";
 import { useTokenRoles } from "./useTokenRoles";
 
-// Per-source slug tokens: map a learned-format URL part to a user-named token, with the
+// Per-source URL-part tokens: map a learned-format URL part to a user-named token, with the
 // same role selector as the scraper. Candidates come strictly from the learned format.
 export function useSlugTokens(
   settingsDraft: SavedSettings,
@@ -75,12 +75,11 @@ export function useSlugTokens(
 
   function suggestedToken(key: string, segment: LearnedSegment): string {
     const idx = varOrdinal(key, segment.part);
-    return idx >= 0 ? `var${idx}` : "slug";
+    return idx >= 0 ? `var${idx}` : "";
   }
 
-  // Effective token name for a segment: the user's typed token wins; then the numbered
-  // var default; then the reserved id/creator name (auto tokens). A constant route word
-  // or an unnamed literal has no token name (returns "").
+  // Effective token name for a segment: the user's typed token wins; then the
+  // numbered var default; then the reserved id/creator name.
   function tokenNameFor(key: string, segment: LearnedSegment): string {
     const entry = entryForPart(key, segment.part);
     if (entry) return entry.token;

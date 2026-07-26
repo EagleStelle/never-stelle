@@ -4,13 +4,41 @@ import json
 
 import backend.app.db.database as database_module
 from backend.app.db import repositories
-from backend.app.services.tasks import serializers
-from backend.app.services.tasks.formats import learn_download
+from backend.app.domains.downloads import serializers
+from backend.app.domains.downloads.formats import learn_download
 
 
-def test_learned_formats_persist_to_formats_table(tmp_path, monkeypatch):
+def use_temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
     monkeypatch.setattr(database_module, "_INITIALIZED", False)
+
+
+def test_fresh_schema_uses_current_table_names(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        tables = {
+            row["name"]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        }
+
+    assert {"app_settings", "download_tasks", "download_history", "learned_formats", "cookie_blobs"} <= tables
+    assert {"settings", "queue", "history", "formats", "cookies"}.isdisjoint(tables)
+
+
+def test_settings_payload_roundtrips_through_app_settings(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+
+    repositories.save_settings_payload({"template_settings": {"filename_template": "{{title}}"}})
+
+    assert repositories.load_settings_payload() == {
+        "template_settings": {"filename_template": "{{title}}"}
+    }
+
+
+def test_learned_formats_persist_to_learned_formats_table(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
 
     payload = learn_download(
         {},
@@ -21,31 +49,21 @@ def test_learned_formats_persist_to_formats_table(tmp_path, monkeypatch):
     repositories.save_learned_formats_payload(payload)
 
     with database_module.transaction() as connection:
-        rows = connection.execute("SELECT source_key, templates, url_creator_fields FROM formats").fetchall()
-        columns = {row["name"] for row in connection.execute("PRAGMA table_info(formats)").fetchall()}
-        legacy = connection.execute("SELECT value FROM settings WHERE key = ?", ("learned_formats",)).fetchone()
+        rows = connection.execute(
+            "SELECT source_key, templates, url_creator_fields FROM learned_formats"
+        ).fetchall()
 
-    assert legacy is None
-    assert "template" not in columns
-    assert "templates" in columns
-    assert "url_creator_fields" in columns
-    assert "id_part" not in columns
-    assert "creator_part" not in columns
     assert len(rows) == 1
     assert rows[0]["source_key"] == "tiktok"
     assert json.loads(rows[0]["templates"]) == ["https://www.tiktok.com/@{creator}/video/{id}"]
     assert json.loads(rows[0]["url_creator_fields"]) == {}
-
-    loaded = repositories.load_learned_formats_payload()
-    assert loaded["tiktok"]["templates"] == ["https://www.tiktok.com/@{creator}/video/{id}"]
-    assert loaded["tiktok"].get("url_creator_fields", {}) == {}
-    assert "template" not in loaded["tiktok"]
+    assert repositories.load_learned_formats_payload()["tiktok"]["templates"] == [
+        "https://www.tiktok.com/@{creator}/video/{id}"
+    ]
 
 
 def test_learned_formats_persist_multiple_templates(tmp_path, monkeypatch):
-    # Both routes a source has been seen with must survive save/reload, not just the first.
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    use_temp_db(tmp_path, monkeypatch)
 
     payload = learn_download({}, "https://www.tiktok.com/@a/video/7493558766131039489", "7493558766131039489")
     payload = learn_download(payload, "https://www.tiktok.com/@a/photo/7420705673542978833", "7420705673542978833")
@@ -58,398 +76,33 @@ def test_learned_formats_persist_multiple_templates(tmp_path, monkeypatch):
     }
 
 
-def test_learned_formats_migrate_template_column_to_templates(tmp_path, monkeypatch):
-    # An older formats table with only template must copy it into templates, then drop it.
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-    database_module.initialize_database()
-    with database_module.transaction() as connection:
-        connection.execute("DROP TABLE formats")
-        connection.execute(
-            "CREATE TABLE formats (source_key TEXT PRIMARY KEY, host TEXT DEFAULT '', "
-            "template TEXT DEFAULT '', id_min INTEGER DEFAULT 0, id_max INTEGER DEFAULT 0, "
-            "id_classes TEXT DEFAULT '', id_part TEXT DEFAULT '', creator_part TEXT DEFAULT '', "
-            "samples INTEGER DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
-        )
-        connection.execute(
-            "INSERT INTO formats (source_key, template, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            ("tiktok", "https://www.tiktok.com/@{creator}/photo/{id}", "2026-07-05T00:00:00+00:00", "x"),
-        )
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-
-    loaded = repositories.load_learned_formats_payload()
-    with database_module.transaction() as connection:
-        columns = {row["name"] for row in connection.execute("PRAGMA table_info(formats)").fetchall()}
-
-    assert loaded["tiktok"]["templates"] == ["https://www.tiktok.com/@{creator}/photo/{id}"]
-    assert "template" not in columns
-    assert "templates" in columns
-    assert "url_creator_fields" in columns
-    assert "id_part" not in columns
-    assert "creator_part" not in columns
-
-
-def test_learned_formats_migrate_legacy_settings_row(tmp_path, monkeypatch):
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-
-    legacy = {"youtube": {"template": "https://www.youtube.com/watch?v={id}"}}
-    with database_module.transaction() as connection:
-        connection.execute(
-            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
-            ("learned_formats", json.dumps(legacy), "2026-07-05T00:00:00+00:00"),
-        )
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-
-    loaded = repositories.load_learned_formats_payload()
-
-    with database_module.transaction() as connection:
-        format_row = connection.execute("SELECT templates FROM formats WHERE source_key = ?", ("youtube",)).fetchone()
-        legacy_row = connection.execute("SELECT value FROM settings WHERE key = ?", ("learned_formats",)).fetchone()
-
-    assert loaded["youtube"]["templates"] == ["https://www.youtube.com/watch?v={id}"]
-    assert json.loads(format_row["templates"]) == ["https://www.youtube.com/watch?v={id}"]
-    assert legacy_row is None
-
-
-def test_learned_formats_migration_merges_legacy_settings_row_into_existing_table(tmp_path, monkeypatch):
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-
-    repositories.save_learned_formats_payload(
-        {
-            "youtube": {
-                "templates": ["https://www.youtube.com/watch?v={id}"],
-                "url_creator_fields": {"username": ["channel"]},
-            }
-        }
-    )
-    legacy = {
-        "youtube": {
-            "template": "https://youtu.be/{id}",
-            "url_creator_fields": {"username": ["uploader_id"], "nickname": ["uploader"]},
-        }
-    }
-    with database_module.transaction() as connection:
-        connection.execute(
-            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
-            ("learned_formats", json.dumps(legacy), "2026-07-05T00:00:00+00:00"),
-        )
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-
-    loaded = repositories.load_learned_formats_payload()
-
-    with database_module.transaction() as connection:
-        legacy_row = connection.execute("SELECT value FROM settings WHERE key = ?", ("learned_formats",)).fetchone()
-
-    assert loaded["youtube"]["templates"] == ["https://www.youtube.com/watch?v={id}", "https://youtu.be/{id}"]
-    assert loaded["youtube"]["url_creator_fields"] == {
-        "username": ["channel", "uploader_id"],
-        "nickname": ["uploader"],
-    }
-    assert legacy_row is None
-
-
-def test_learned_formats_loader_does_not_support_legacy_settings_row_after_startup(tmp_path, monkeypatch):
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-    database_module.initialize_database()
-    with database_module.transaction() as connection:
-        connection.execute(
-            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
-            (
-                "learned_formats",
-                json.dumps({"youtube": {"template": "https://www.youtube.com/watch?v={id}"}}),
-                "2026-07-05T00:00:00+00:00",
-            ),
-        )
-
-    assert repositories.load_learned_formats_payload() == {}
-
-
-def test_settings_app_json_migrates_legacy_shapes_on_startup(tmp_path, monkeypatch):
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-
-    format_template = "https://rule34video.com/video/{id}/{creator}"
-    repositories.save_learned_formats_payload(
-        {
-            "rule34video": {
-                "templates": [format_template],
-            }
-        }
-    )
-    legacy_app = {
-        "source_template_settings": {
-            "rule34video": {
-                "folder_template": "{{artist}}",
-                "filename_template": "{{caption}} [{{id}}]",
-            }
-        },
-        "token_roles": {
-            "rule34video": {
-                "artist": "username",
-                "caption": "title",
-                "ignored": "ignore",
-            }
-        },
-        "scrape_rules": {
-            "rule34video": {
-                "enabled": True,
-                "rules": [
-                    {
-                        "token": "artist",
-                        "selector": ".artist",
-                    }
-                ],
-            }
-        },
-    }
-    with database_module.transaction() as connection:
-        connection.execute(
-            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
-            ("app", json.dumps(legacy_app), "2026-07-05T00:00:00+00:00"),
-        )
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-
-    database_module.initialize_database()
-
-    with database_module.transaction() as connection:
-        row = connection.execute("SELECT value FROM settings WHERE key = ?", ("app",)).fetchone()
-    migrated = json.loads(row["value"])
-
-    assert "source_template_settings" not in migrated
-    assert "token_roles" not in migrated
-    assert "scrape_rules" not in migrated
-    assert migrated["source_token_roles"] == {
-        "rule34video": {
-            "artist": "creator",
-            "caption": "title",
-        }
-    }
-    assert migrated["source_templates"] == {
-        "rule34video": {
-            format_template: {
-                "folder_template": "{{artist}}",
-                "filename_template": "{{title}} [{{id}}]",
-            }
-        }
-    }
-    assert migrated["source_scrape_rules"] == {
-        "rule34video": {
-            "rules": [
-                {
-                    "token": "artist",
-                    "match_label": "",
-                    "selector": ".artist",
-                    "attr": "text",
-                    "multi": False,
-                    "xpath": "",
-                    "format": format_template,
-                }
-            ]
-        }
-    }
-
-
-def test_settings_app_json_can_use_legacy_learned_formats_row_on_startup(tmp_path, monkeypatch):
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-
-    format_template = "https://rule34video.com/video/{id}/{creator}"
-    legacy_formats = {
-        "rule34video": {
-            "template": format_template,
-        }
-    }
-    legacy_app = {
-        "source_template_settings": {
-            "rule34video": {
-                "folder_template": "{{artist}}",
-                "filename_template": "{{caption}} [{{id}}]",
-            }
-        },
-        "token_roles": {
-            "rule34video": {
-                "artist": "username",
-                "caption": "title",
-            }
-        },
-        "scrape_rules": {
-            "rule34video": {
-                "rules": [
-                    {
-                        "token": "artist",
-                        "selector": ".artist",
-                    }
-                ],
-            }
-        },
-    }
-    with database_module.transaction() as connection:
-        connection.execute(
-            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
-            ("learned_formats", json.dumps(legacy_formats), "2026-07-05T00:00:00+00:00"),
-        )
-        connection.execute(
-            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
-            ("app", json.dumps(legacy_app), "2026-07-05T00:00:00+00:00"),
-        )
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-
-    database_module.initialize_database()
-
-    with database_module.transaction() as connection:
-        row = connection.execute("SELECT value FROM settings WHERE key = ?", ("app",)).fetchone()
-        legacy_row = connection.execute("SELECT value FROM settings WHERE key = ?", ("learned_formats",)).fetchone()
-    migrated = json.loads(row["value"])
-
-    assert legacy_row is None
-    assert migrated["source_templates"] == {
-        "rule34video": {
-            format_template: {
-                "folder_template": "{{artist}}",
-                "filename_template": "{{title}} [{{id}}]",
-            }
-        }
-    }
-    assert migrated["source_scrape_rules"]["rule34video"]["rules"][0]["format"] == format_template
-
-
-def test_settings_app_json_rescopes_stale_scrape_rule_format_on_startup(tmp_path, monkeypatch):
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-
-    current_format = "https://rule34video.com/video/{id}/{var}"
-    stale_format = "https://rule34video.com/video/{id}/{slug}"
-    repositories.save_learned_formats_payload(
-        {
-            "rule34video": {
-                "templates": [current_format],
-            }
-        }
-    )
-    legacy_app = {
-        "source_token_roles": {
-            "rule34video": {
-                "artist": "creator",
-            }
-        },
-        "source_scrape_rules": {
-            "rule34video": {
-                "rules": [
-                    {
-                        "token": "artist",
-                        "match_label": "Artist",
-                        "selector": "a.item",
-                        "attr": "text",
-                        "format": stale_format,
-                    }
-                ],
-            }
-        },
-    }
-    with database_module.transaction() as connection:
-        connection.execute(
-            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
-            ("app", json.dumps(legacy_app), "2026-07-05T00:00:00+00:00"),
-        )
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-
-    database_module.initialize_database()
-
-    with database_module.transaction() as connection:
-        row = connection.execute("SELECT value FROM settings WHERE key = ?", ("app",)).fetchone()
-    migrated = json.loads(row["value"])
-
-    rule = migrated["source_scrape_rules"]["rule34video"]["rules"][0]
-    assert rule["token"] == "artist"
-    assert rule["format"] == current_format
-    assert migrated["source_token_roles"]["rule34video"]["artist"] == "creator"
-
-
-def test_engine_tags_migrate_ytdlp_rows_to_gallerydl_on_startup(tmp_path, monkeypatch):
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-    now = "2026-07-05T00:00:00+00:00"
-    with database_module.transaction() as connection:
-        connection.execute(
-            "INSERT INTO queue (id, source_url, status, source_key, progress_pct, payload, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                "ytdlp:1",
-                "https://example.test/post/1",
-                "failed",
-                "example",
-                0,
-                json.dumps(
-                    {
-                        "engine": "ytdlp",
-                        "engine_policy": "auto",
-                        "source_url": "https://example.test/post/1",
-                        "output_template": "/media/example/clip.%(ext)s",
-                    }
-                ),
-                now,
-                now,
-            ),
-        )
-        connection.execute(
-            "INSERT INTO history (task_id, source_url, source_key, payload, completed_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                "ytdlp:done",
-                "https://example.test/post/2",
-                "example",
-                json.dumps({"task_type": "ytdlp", "source_url": "https://example.test/post/2"}),
-                now,
-                now,
-            ),
-        )
-        connection.execute(
-            "INSERT INTO history (task_id, source_url, source_key, payload, completed_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                "disk:keep",
-                "https://example.test/post/3",
-                "example",
-                json.dumps({"task_type": "disk", "source_url": "https://example.test/post/3"}),
-                now,
-                now,
-            ),
-        )
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-
-    with database_module.transaction() as connection:
-        queue_payload = json.loads(
-            connection.execute("SELECT payload FROM queue WHERE id = ?", ("ytdlp:1",)).fetchone()["payload"]
-        )
-        history_payload = json.loads(
-            connection.execute("SELECT payload FROM history WHERE task_id = ?", ("ytdlp:done",)).fetchone()["payload"]
-        )
-        disk_payload = json.loads(
-            connection.execute("SELECT payload FROM history WHERE task_id = ?", ("disk:keep",)).fetchone()["payload"]
-        )
-
-    assert queue_payload["engine"] == "gallerydl"
-    assert "engine_policy" not in queue_payload
-    # Stale yt-dlp output template is dropped so the worker rebuilds it.
-    assert "output_template" not in queue_payload
-    assert history_payload["task_type"] == "gallerydl"
-    # Reconstructed `disk` rows are not a download engine and must survive intact.
-    assert disk_payload["task_type"] == "disk"
-
-
 def _seed_history(monkeypatch, tmp_path):
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    use_temp_db(tmp_path, monkeypatch)
     rows = [
-        ("t1", {"source_url": "https://youtube.com/watch?v=1", "source_key": "youtube",
-                "creator": "Hoshimachi Suisei", "resolved_filename": "Comet [1].mp4",
-                "resolved_folder": "Hoshimachi", "media_id": "1", "completed_at": "2026-07-10T00:00:00+00:00"}),
-        ("t2", {"source_url": "https://tiktok.com/@a/video/2", "source_key": "tiktok",
-                "creator": "Gawr Gura", "resolved_filename": "Shark Dance [2].mp4",
-                "resolved_folder": "Gura", "media_id": "2", "completed_at": "2026-07-09T00:00:00+00:00"}),
+        (
+            "t1",
+            {
+                "source_url": "https://youtube.com/watch?v=1",
+                "source_key": "youtube",
+                "creator": "Hoshimachi Suisei",
+                "resolved_filename": "Comet [1].mp4",
+                "resolved_folder": "Hoshimachi",
+                "media_id": "1",
+                "completed_at": "2026-07-10T00:00:00+00:00",
+            },
+        ),
+        (
+            "t2",
+            {
+                "source_url": "https://tiktok.com/@a/video/2",
+                "source_key": "tiktok",
+                "creator": "Gawr Gura",
+                "resolved_filename": "Shark Dance [2].mp4",
+                "resolved_folder": "Gura",
+                "media_id": "2",
+                "completed_at": "2026-07-09T00:00:00+00:00",
+            },
+        ),
     ]
     for task_id, payload in rows:
         repositories.save_history_row(task_id, payload)
@@ -470,7 +123,6 @@ def test_load_history_page_search_matches_filename_and_url(tmp_path, monkeypatch
 
 def test_load_history_page_search_combines_with_source_key(tmp_path, monkeypatch):
     _seed_history(monkeypatch, tmp_path)
-    # Source filter + a term that only the other source matches -> no rows.
     assert len(repositories.load_history_page(30, source_key="youtube", search="gura")) == 0
     assert len(repositories.load_history_page(30, source_key="youtube", search="comet")) == 1
 
@@ -501,3 +153,4 @@ def test_fetch_history_page_returns_opaque_next_cursor(tmp_path, monkeypatch):
     assert "total" not in first_page
     assert [task["vid"] for task in first_page["entries"]] == ["t1"]
     assert [task["vid"] for task in next_page["entries"]] == ["t2"]
+

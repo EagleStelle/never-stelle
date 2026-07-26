@@ -3,10 +3,10 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 import backend.app.db.database as database_module
+from backend.app.domains.downloads import cache as cache_module
+from backend.app.domains.downloads import operations as operations_module
+from backend.app.integrations.swaratelle import client as swaratelle
 from backend.app.main import app
-from backend.app.services import swaratelle
-from backend.app.services.tasks import cache as cache_module
-from backend.app.services.tasks import operations as operations_module
 
 # No `with` block: lifespan (db init + worker thread) stays inert for these
 # read-only route checks.
@@ -42,7 +42,7 @@ def test_unknown_api_route_is_404(tmp_path, monkeypatch):
 def test_protected_api_requires_login(tmp_path, monkeypatch):
     use_temp_auth_db(tmp_path, monkeypatch)
 
-    response = client.get("/api/tasks")
+    response = client.get("/api/downloads")
 
     assert response.status_code == 401
     assert response.json()["error"] == "Authentication required."
@@ -50,14 +50,14 @@ def test_protected_api_requires_login(tmp_path, monkeypatch):
 
 def test_probe_empty_url_is_client_error(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    response = client.post("/api/tasks/probe", json={"url": "   "})
+    response = client.post("/api/downloads/probe", json={"url": "   "})
     assert response.status_code == 400
     assert response.json()["error"] == "Paste a URL first."
 
 
-def test_settings_post_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
+def test_settings_put_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.services.tasks.store as store_module
+    import backend.app.domains.downloads.store as store_module
 
     format_template = "https://twitter.com/{creator}/status/{id}"
     monkeypatch.setattr(
@@ -66,7 +66,7 @@ def test_settings_post_accepts_format_keyed_source_templates(tmp_path, monkeypat
         lambda: {"twitter": {"templates": [format_template], "segments": []}},
     )
 
-    response = client.post(
+    response = client.put(
         "/api/settings",
         json={
             "site_locations": {},
@@ -117,7 +117,7 @@ def test_add_task_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
     monkeypatch.setattr(operations_module, "queue_task", fake_queue_task)
 
     response = client.post(
-        "/api/tasks",
+        "/api/downloads",
         json={
             "url": "https://twitter.com/DohaVT/status/2073635724684054528",
             "site_locations": {},
@@ -134,7 +134,7 @@ def test_add_task_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
 
 def test_probe_fields_saves_creator_fields_without_url_priority_hint(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.services.tasks.probe as probe_module
+    import backend.app.domains.downloads.probe as probe_module
     from backend.app.db import repositories
 
     format_template = "https://www.tiktok.com/@{creator}/video/{id}"
@@ -185,7 +185,7 @@ def test_auth_login_session_and_logout(tmp_path, monkeypatch):
 def test_auth_credentials_update_invalidates_old_login(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
 
-    response = client.post(
+    response = client.patch(
         "/api/auth/credentials",
         json={
             "username": "owner",
@@ -222,13 +222,27 @@ def test_swaratelle_task_file_route_streams_external_download(tmp_path, monkeypa
 
     monkeypatch.setattr(swaratelle, "open_download_file", fake_open_download_file)
 
-    response = client.get("/api/tasks/swaratelle:abc123/file")
+    response = client.get("/api/downloads/swaratelle:abc123/file")
 
     assert response.status_code == 200
     assert response.content == b"video"
     assert response.headers["content-disposition"] == 'attachment; filename="clip.mp4"'
     assert response.headers["content-type"].startswith("video/mp4")
     assert closed["value"] is True
+
+
+def test_get_download_returns_single_task(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        operations_module,
+        "get_task",
+        lambda task_id: {"vid": task_id, "status": "completed"},
+    )
+
+    response = client.get("/api/downloads/ytdlp:abc123")
+
+    assert response.status_code == 200
+    assert response.json() == {"vid": "ytdlp:abc123", "status": "completed"}
 
 
 def test_local_task_file_route_streams_with_cache_advice(tmp_path, monkeypatch):
@@ -248,7 +262,7 @@ def test_local_task_file_route_streams_with_cache_advice(tmp_path, monkeypatch):
         lambda fd, offset=0, length=0: advised.append((offset, length)),
     )
 
-    response = client.get("/api/tasks/ytdlp:abc123/file")
+    response = client.get("/api/downloads/ytdlp:abc123/file")
 
     assert response.status_code == 200
     assert response.content == b"abcdef"
@@ -275,7 +289,7 @@ def test_local_task_file_route_supports_byte_ranges(tmp_path, monkeypatch):
         lambda fd, offset=0, length=0: advised.append((offset, length)),
     )
 
-    response = client.get("/api/tasks/ytdlp:abc123/file", headers={"Range": "bytes=2-4"})
+    response = client.get("/api/downloads/ytdlp:abc123/file", headers={"Range": "bytes=2-4"})
 
     assert response.status_code == 206
     assert response.content == b"cde"

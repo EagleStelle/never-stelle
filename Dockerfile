@@ -144,4 +144,4 @@ COPY --link --from=frontend-builder /app/frontend/dist ./frontend/dist
 EXPOSE 8840
 STOPSIGNAL SIGTERM
 
-CMD ["python", "-m", "backend.app.server"]
+CMD ["python", "-m", "backend.app.runtime.server"]

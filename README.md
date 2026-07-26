@@ -13,7 +13,7 @@
 
 - Queue one or many URLs from a browser UI, with a probe step that previews metadata before download.
 - Track active downloads with live progress parsed from the engines.
-- Route downloads dynamically: `yt-dlp` by default, automatic fallback to `gallery-dl` for image posts, slideshows, and galleries.
+- Route downloads dynamically through `gallery-dl` as the broker, with `yt-dlp` integrated for streams and fallback extraction.
 - Optionally delegate Iwara and Oreno3D downloads to Swaratelle when configured, while showing them in the same queue and history UI.
 - Learn source keys from downloads and file each platform under `/media/<source-key>`.
 - Deduplicate downloads so repeated URLs reuse the existing record.
@@ -109,7 +109,7 @@ Runtime files live under `.local/`: SQLite database, Vue build output, temporary
 
 ## Configuration
 
-Never Stelle is configured with environment variables. Set them inline in Docker Compose or pass them to the Windows launcher. Seed credentials only apply on first run, before any account exists; change them afterward in **Settings → Account**.
+Never Stelle is configured with environment variables. Set them inline in Docker Compose or pass them to the Windows launcher. Seed credentials only apply on first run, before any account exists; change them afterward in **Settings > Account**.
 
 | Variable                      |    Default     | Description                                                                   |
 | ----------------------------- | :------------: | ----------------------------------------------------------------------------- |
@@ -157,37 +157,48 @@ The container path stays `/media/youtube`, so history entries remain valid. Skip
 
 ## Architecture
 
-| Layer           | Path                                 | Technology                                                     | Responsibility                                                                                                      |
-| --------------- | ------------------------------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Runtime service | `backend/app/main.py`                | FastAPI, Uvicorn                                               | Starts the API server, serves the built frontend and assets, opens SQLite, and handles startup/shutdown.            |
-| API layer       | `backend/app/api`                    | FastAPI                                                        | Defines HTTP routes, session authentication, JSON responses, history pagination, settings, and scan orchestration.  |
-| Swaratelle link | `backend/app/services/swaratelle.py` | HTTPX                                                          | Delegates Iwara/Oreno3D queue, active, history, and scan operations to Swaratelle when configured.                  |
-| Download worker | `backend/app/services/tasks`         | `yt-dlp`, `gallery-dl`                                         | Probes URLs, queues work, routes engines dynamically, parses progress, moves completed media, and reconciles files. |
-| Persistence     | `backend/app/db`                     | SQLite                                                         | Stores task and history records, deduplication, status counts, and offset/limit pagination.                         |
-| Frontend app    | `frontend/src`                       | Vue 3, TypeScript, TanStack Query, shadcn-vue, Tailwind CSS v4 | Provides the Downloads, History, and Settings screens, a same-origin API client, polling, and mutations.            |
-| Tests           | `tests`, `.github/workflows`         | pytest, Ruff, Vite build                                       | Covers services, persistence, and reconciliation; CI also builds the frontend on every push and pull request.       |
+| Layer           | Path                                         | Technology                                                     | Responsibility                                                                                                           |
+| --------------- | -------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Runtime service | `backend/app/runtime`, `backend/app/main.py` | FastAPI, Uvicorn                                               | Owns app lifespan, server startup, static frontend serving, and exception handling.                                      |
+| API layer       | `backend/app/api`                            | FastAPI                                                        | Defines focused routers, request schemas, session dependencies, JSON responses, history pagination, and scans.           |
+| Domains         | `backend/app/domains`                        | Python                                                         | Groups app behavior by business area: auth, downloads, library scans, and settings.                                      |
+| Integrations    | `backend/app/integrations`                   | HTTPX                                                          | Contains external service clients such as Swaratelle for Iwara/Oreno3D delegation.                                       |
+| Persistence     | `backend/app/db`                             | SQLite                                                         | Stores settings, task queue rows, history records, learned URL formats, and uploaded cookie blobs.                       |
+| Frontend app    | `frontend/src`                               | Vue 3, TypeScript, TanStack Query, shadcn-vue, Tailwind CSS v4 | Provides the Downloads, History, and Settings screens, a same-origin API client, polling, and mutations.                 |
+| Tests           | `tests`, `.github/workflows`                 | pytest, Ruff, Vite build                                       | Covers domains, API routes, persistence, and reconciliation; CI also builds the frontend on every push and pull request. |
 
 ## API
 
-The app authenticates with a session cookie set by `POST /api/login`. All routes are served under the `/api` prefix.
+The app authenticates with a session cookie set by `POST /api/auth/login`. All routes are served under the `/api` prefix.
 
-| Method   | Endpoint                                             | Description                                                 |
-| -------- | ---------------------------------------------------- | ----------------------------------------------------------- |
-| `GET`    | `/api/health`                                        | Liveness check.                                             |
-| `GET`    | `/api/auth/session`                                  | Returns the current session state.                          |
-| `POST`   | `/api/auth/login`                                    | Logs in and sets the session cookie.                        |
-| `POST`   | `/api/auth/logout`                                   | Clears the session cookie.                                  |
-| `POST`   | `/api/auth/credentials`                              | Changes the account username or password.                   |
-| `POST`   | `/api/tasks/probe`                                   | Previews metadata for a URL before queueing.                |
-| `POST`   | `/api/tasks`                                         | Queues one or more URLs.                                    |
-| `GET`    | `/api/tasks`                                         | Lists active tasks (queued, running, failed) with counts.   |
-| `GET`    | `/api/history?limit=50&cursor=&q=&source_key=` | Lists completed records, with cursor pagination and search. |
-| `POST`   | `/api/scan`                                          | Reconciles database history with files present in `/media`. |
-| `DELETE` | `/api/tasks/{id}`                                    | Removes a pending task.                                     |
-| `POST`   | `/api/tasks/{id}/cancel`                             | Cancels a running task.                                     |
-| `POST`   | `/api/tasks/{id}/retry`                              | Retries a failed task.                                      |
-| `PATCH`  | `/api/tasks/{id}/source`                             | Reassigns a task's source key.                              |
-| `GET`    | `/api/tasks/{id}/file`                               | Downloads the completed file.                               |
+| Method   | Endpoint                                                 | Description                                                 |
+| -------- | -------------------------------------------------------- | ----------------------------------------------------------- |
+| `GET`    | `/api/health`                                            | Liveness check.                                             |
+| `GET`    | `/api/auth/session`                                      | Returns the current session state.                          |
+| `POST`   | `/api/auth/login`                                        | Logs in and sets the session cookie.                        |
+| `POST`   | `/api/auth/logout`                                       | Clears the session cookie.                                  |
+| `PATCH`  | `/api/auth/credentials`                                  | Changes the account username or password.                   |
+| `GET`    | `/api/runtime-settings`                                  | Returns runtime UI settings and defaults.                   |
+| `POST`   | `/api/downloads/probe`                                   | Previews metadata for a URL before queueing.                |
+| `POST`   | `/api/downloads`                                         | Queues one or more URLs.                                    |
+| `GET`    | `/api/downloads`                                         | Lists active tasks (queued, running, failed) with counts.   |
+| `GET`    | `/api/downloads/history?limit=50&cursor=&q=&source_key=` | Lists completed records, with cursor pagination and search. |
+| `POST`   | `/api/downloads/clear-pending`                           | Clears pending queue rows.                                  |
+| `POST`   | `/api/library/scan`                                      | Reconciles database history with files present in `/media`. |
+| `GET`    | `/api/settings`                                          | Returns settings metadata and saved preferences.            |
+| `PUT`    | `/api/settings`                                          | Saves settings.                                             |
+| `POST`   | `/api/settings/scrape-test`                              | Tests configured scrape rules against a sample URL.         |
+| `POST`   | `/api/settings/probe-fields`                             | Probes and saves creator field priorities.                  |
+| `POST`   | `/api/settings/learn-format`                             | Learns a URL format from a pasted source link.              |
+| `PUT`    | `/api/settings/formats/{source_key}`                     | Reorders or deletes learned URL templates.                  |
+| `PUT`    | `/api/settings/cookies/{source_key}`                     | Uploads a cookie file for a source.                         |
+| `DELETE` | `/api/settings/cookies/{source_key}`                     | Removes uploaded cookies for a source.                      |
+| `DELETE` | `/api/downloads/{id}`                                    | Removes a pending task.                                     |
+| `POST`   | `/api/downloads/{id}/cancel`                             | Cancels a running task.                                     |
+| `POST`   | `/api/downloads/{id}/retry`                              | Retries a failed task.                                      |
+| `PATCH`  | `/api/downloads/{id}/source`                             | Reassigns a task's source key.                              |
+| `GET`    | `/api/downloads/{id}`                                    | Returns one active or historical task.                      |
+| `GET`    | `/api/downloads/{id}/file`                               | Downloads the completed file.                               |
 
 Queue example (log in first to obtain the session cookie):
 
@@ -196,7 +207,7 @@ curl -c cookies.txt -X POST http://localhost:8840/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"root","password":"change-this-password"}'
 
-curl -b cookies.txt -X POST http://localhost:8840/api/tasks \
+curl -b cookies.txt -X POST http://localhost:8840/api/downloads \
   -H "Content-Type: application/json" \
   -d '{"urls":["https://www.youtube.com/watch?v=abc123"]}'
 ```
@@ -210,25 +221,26 @@ http://localhost:8840/redoc
 
 ## Templates
 
-Output folders and filenames are built from placeholders. Supported placeholders:
+Output folders and filenames are built from placeholders. Built-in
+placeholders:
 
-| Placeholder    | Description                     |
-| -------------- | ------------------------------- |
-| `{{username}}` | Uploader handle.                |
-| `{{nickname}}` | Uploader display name.          |
-| `{{title}}`    | Media title.                    |
-| `{{slug}}`     | Descriptive slug from the URL path. |
-| `{{id}}`       | Media id.                       |
+| Placeholder    | Description                           |
+| -------------- | ------------------------------------- |
+| `{{username}}` | Uploader handle.                      |
+| `{{nickname}}` | Uploader display name.                |
+| `{{title}}`    | Media title.                          |
+| `{{id}}`       | Media id.                             |
 | `{{quality}}`  | Selected quality (`source` for best). |
 
 `{{username}}` resolves to the handle from the URL when present, else the engine's
 handle field; `{{nickname}}` resolves to the display name. On platforms without a
 distinct handle or display name, both fall back to whatever the extractor provides.
 
-`{{slug}}` is derived from the source URL, not from `yt-dlp` or `gallery-dl`
-metadata. A `.../video/<id>/<slug>/` path yields the `<slug>` segment; URLs with
-no descriptive path segment leave it empty, so pair it with a fallback like
-`{{title}}`.
+The Scraper and Slug settings panes can add per-source custom placeholders.
+Learned URL parts start as dynamic `{{var0}}`, `{{var1}}`, ... tokens, which
+can be renamed and assigned a role (`None`, `Title`, or `Creator`). A URL-part
+token only appears as its own template placeholder while its role is `None`;
+role-assigned tokens feed the built-in role placeholders instead.
 
 File extensions are appended by the downloader output builders automatically, so
 templates do not need an extension placeholder.
@@ -271,8 +283,8 @@ Continuous integration runs the backend suite and the frontend build on every pu
 
 ## Credits
 
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp): the default download engine.
-- [gallery-dl](https://github.com/mikf/gallery-dl): the fallback engine for image posts, slideshows, and galleries.
+- [gallery-dl](https://github.com/mikf/gallery-dl): the default broker for images, videos, slideshows, galleries, and supported child extractors.
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp): integrated through gallery-dl for streams and retained as a fallback engine.
 - [FastAPI](https://fastapi.tiangolo.com/): the backend framework.
 - [Vue](https://vuejs.org/) and [Vite](https://vite.dev/): the frontend application and build tooling.
 - [TanStack Query](https://tanstack.com/query/latest): client-side API state.

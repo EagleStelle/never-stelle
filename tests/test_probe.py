@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-import backend.app.services.tasks.probe as probe_module
-from backend.app.services.tasks.probe import (
+import backend.app.domains.downloads.probe as probe_module
+from backend.app.domains.downloads.probe import (
     _creator_probe_fields,
     _entry_url,
     _flatten_metadata,
@@ -285,8 +285,85 @@ def test_gallerydl_dump_prefers_cookie_probe_when_cookie_file_exists(monkeypatch
     assert calls and calls[0][-3:] == ["--cookies", "/tmp/instagram.txt", "https://www.instagram.com/reel/abc123/"]
 
 
+def test_probe_cookies_file_uses_profile_resolved_source(monkeypatch):
+    checked: list[str] = []
+
+    def fake_find_source(source_key):
+        checked.append(source_key)
+        return "/tmp/profile-cookies.txt" if source_key == "saved-profile" else ""
+
+    monkeypatch.setattr(probe_module, "detect_cookie_source", lambda url: "saved-profile")
+    monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "domain-stem")
+    monkeypatch.setattr(probe_module, "find_cookies_file_for_source", fake_find_source)
+    monkeypatch.setattr(probe_module, "find_cookies_file_for_url", lambda url: "")
+
+    assert probe_module._probe_cookies_file("https://cdn.example.test/post/abc123") == "/tmp/profile-cookies.txt"
+    assert checked == ["saved-profile"]
+
+
+def test_probe_creator_fields_uses_profile_cookie_source_when_source_key_is_blank(monkeypatch):
+    calls: list[dict[str, object]] = []
+
+    def fake_ytdlp_dump(url, **kwargs):
+        calls.append(dict(kwargs))
+        cookies_file = probe_module._probe_cookies_file(url, str(kwargs.get("cookie_source_key") or ""))
+        if kwargs.get("with_cookies") and cookies_file:
+            return {"id": "abc123", "uploader": "Cookie Creator"}, ""
+        return {"id": "abc123", "title": "Anonymous metadata"}, ""
+
+    monkeypatch.setattr(probe_module, "detect_cookie_source", lambda url: "saved-profile")
+    monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "domain-stem")
+    monkeypatch.setattr(
+        probe_module,
+        "find_cookies_file_for_source",
+        lambda source_key: "/tmp/profile-cookies.txt" if source_key == "saved-profile" else "",
+    )
+    monkeypatch.setattr(probe_module, "find_cookies_file_for_url", lambda url: "")
+    monkeypatch.setattr(probe_module, "_ytdlp_dump", fake_ytdlp_dump)
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
+
+    result = probe_creator_fields("https://cdn.example.test/post/abc123")
+
+    assert result["source_key"] == "saved-profile"
+    assert [field["field"] for field in result["fields"]] == ["uploader"]
+    assert [call["with_cookies"] for call in calls] == [False, True]
+    assert all(call["cookie_source_key"] == "saved-profile" for call in calls)
+
+
+def test_probe_creator_fields_does_not_use_cookies_when_anonymous_has_creator_fields(monkeypatch):
+    calls: list[bool] = []
+
+    def fake_ytdlp_dump(url, **kwargs):
+        with_cookies = bool(kwargs.get("with_cookies"))
+        calls.append(with_cookies)
+        if with_cookies:
+            return {"id": "abc123", "title": "Cookie metadata without creator"}, ""
+        return {"id": "abc123", "uploader": "Anonymous Creator"}, ""
+
+    monkeypatch.setattr(
+        probe_module,
+        "_probe_cookies_file",
+        lambda url, source_key="": (_ for _ in ()).throw(
+            AssertionError("cookies should not be checked after anonymous creator fields")
+        ),
+    )
+    monkeypatch.setattr(probe_module, "_ytdlp_dump", fake_ytdlp_dump)
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
+    monkeypatch.setattr(probe_module, "detect_cookie_source", lambda url: "")
+    monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "example")
+
+    result = probe_creator_fields("https://example.com/post/abc123")
+
+    assert [field["field"] for field in result["fields"]] == ["uploader"]
+    assert calls == [False]
+
+
 def test_probe_creator_fields_merges_both_engines(monkeypatch):
-    monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url, **kwargs: ({"uploader_id": "bob_h", "title": "hey"}, ""))
+    monkeypatch.setattr(
+        probe_module,
+        "_ytdlp_dump",
+        lambda url, **kwargs: ({"uploader_id": "bob_h", "title": "hey"}, ""),
+    )
     monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: {"username": "bob", "title": "hey"})
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "example")
     result = probe_creator_fields("https://example.com/x")

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-import backend.app.services.settings as settings_module
-import backend.app.services.tasks.operations as operations_module
-import backend.app.services.tasks.serializers as serializers_module
-from backend.app.services import swaratelle
+import backend.app.domains.downloads.operations as operations_module
+import backend.app.domains.downloads.serializers as serializers_module
+import backend.app.domains.settings.cookies as settings_cookies_module
+import backend.app.domains.settings.profiles as settings_profiles_module
+import backend.app.domains.settings.service as settings_module
+from backend.app.integrations.swaratelle import client as swaratelle
 
 
 def test_iwara_url_detection_includes_oreno3d() -> None:
@@ -188,8 +190,8 @@ def test_queue_task_delegates_iwara_without_local_write(monkeypatch: pytest.Monk
 
 def test_effective_profiles_include_iwara_when_swaratelle_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SWARATELLE_URL", "http://swaratelle:8842")
-    monkeypatch.setattr(settings_module, "_activity_source_profiles", lambda config_profiles: [])
-    monkeypatch.setattr(settings_module, "load_saved_settings_file", lambda: {})
+    monkeypatch.setattr(settings_profiles_module, "_activity_source_profiles", lambda config_profiles: [])
+    monkeypatch.setattr(settings_profiles_module, "load_saved_settings_file", lambda: {})
 
     profiles = settings_module.get_effective_source_profiles({}, {})
 
@@ -203,9 +205,9 @@ def test_effective_profiles_include_iwara_when_swaratelle_is_configured(monkeypa
 
 def test_iwara_is_not_exposed_as_never_stelle_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SWARATELLE_URL", "http://swaratelle:8842")
-    monkeypatch.setattr(settings_module, "_activity_source_profiles", lambda config_profiles: [])
+    monkeypatch.setattr(settings_profiles_module, "_activity_source_profiles", lambda config_profiles: [])
     monkeypatch.setattr(settings_module, "load_saved_settings_file", lambda: {})
-    monkeypatch.setattr(settings_module, "get_file_blob_metadata", lambda key: None)
+    monkeypatch.setattr(settings_cookies_module, "get_file_blob_metadata", lambda key: None)
 
     settings = settings_module.get_effective_saved_settings({"downloadLocations": ["/media"]})
 

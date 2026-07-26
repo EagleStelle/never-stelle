@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.services.tasks import cache as cache_module
+from backend.app.domains.downloads import cache as cache_module
 
 
 def test_drop_file_cache_syncs_and_advises_unique_existing_files(tmp_path, monkeypatch):

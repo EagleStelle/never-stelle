@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.server import MAX_IDLE_TICK_SECONDS, MIN_IDLE_TICK_SECONDS, idle_tick_seconds
+from backend.app.runtime.server import MAX_IDLE_TICK_SECONDS, MIN_IDLE_TICK_SECONDS, idle_tick_seconds
 
 
 def test_idle_tick_seconds_defaults(monkeypatch):

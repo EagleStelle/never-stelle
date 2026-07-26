@@ -18,7 +18,7 @@ import { Button } from "../../../../components/ui/button";
 import SettingsLabel from "../../SettingsLabel.vue";
 import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
 import { useSettingsContext } from "../../context";
-import { createTemplateSettings, displayUrlTemplate, normalizeTokenName } from "../../../../utils/dashboard";
+import { displayUrlTemplate, normalizeTokenName } from "../../../../utils/dashboard";
 
 const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles } = useSettingsContext();
 
@@ -86,14 +86,38 @@ function customTokensFor(siteKey: string) {
   const seen = new Set(baseTokens.value.map((token) => token.key));
   const roles = settingsDraft.source_token_roles[siteKey] || {};
   const out: string[] = [];
-  for (const rule of settingsDraft.source_scrape_rules[siteKey]?.rules || []) {
-    const key = normalizeTokenName(rule.token);
+
+  function addNoneRoleToken(token: unknown): void {
+    const key = normalizeTokenName(token);
     const role = key ? roles[key] : "";
     if (key && (!role || role === "ignore") && !seen.has(key)) {
       seen.add(key);
       out.push(key);
     }
   }
+
+  for (const rule of settingsDraft.source_scrape_rules[siteKey]?.rules || []) {
+    addNoneRoleToken(rule.token);
+  }
+
+  const configuredByPart = new Map(
+    (settingsDraft.source_slug_tokens[siteKey] || []).map((entry) => [
+      entry.part,
+      normalizeTokenName(entry.token),
+    ]),
+  );
+  const segments = (
+    learnedFormatsDraft?.[siteKey]?.segments ||
+    settings.learned_formats?.[siteKey]?.segments ||
+    []
+  ).filter((segment) => !segment.reserved);
+  segments.forEach((segment, index) => {
+    const token = configuredByPart.has(segment.part)
+      ? configuredByPart.get(segment.part) || ""
+      : `var${index}`;
+    addNoneRoleToken(token);
+  });
+
   return out;
 }
 
@@ -205,7 +229,7 @@ function insert(siteKey: string, format: string, token: string): void {
                 size="sm"
                 type="button"
                 class="font-mono text-[0.8125rem]"
-                title="Custom scrape token"
+                title="Custom token"
                 @mousedown.prevent
                 @click="insert(site.key, template, token)"
               >

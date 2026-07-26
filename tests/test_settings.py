@@ -1,9 +1,21 @@
 from __future__ import annotations
 
-import backend.app.services.auth as auth_module
-import backend.app.services.settings as settings_module
-import backend.app.services.tasks.planning as planning_module
-from backend.app.services.settings import (
+import backend.app.domains.auth as auth_module
+import backend.app.domains.downloads.planning as planning_module
+import backend.app.domains.settings.creator_fields as creator_fields_module
+import backend.app.domains.settings.formats as settings_formats_module
+import backend.app.domains.settings.locations as settings_locations_module
+import backend.app.domains.settings.service as settings_module
+import backend.app.domains.settings.storage as settings_storage_module
+import backend.app.domains.settings.templates as settings_templates_module
+from backend.app.domains.downloads.learning import (
+    ensure_creator_fields_learned,
+    get_learned_creator_fields,
+    learn_missing_creator_fields_for_format,
+    save_learned_creator_fields,
+    save_missing_learned_creator_fields,
+)
+from backend.app.domains.settings import (
     BUILTIN_FILENAME_TEMPLATE,
     BUILTIN_FOLDER_TEMPLATE,
     get_effective_creator_fields,
@@ -18,13 +30,6 @@ from backend.app.services.settings import (
     normalize_source_title_cleaning,
     normalize_source_token_roles,
     normalize_template_settings,
-)
-from backend.app.services.tasks.learning import (
-    ensure_creator_fields_learned,
-    get_learned_creator_fields,
-    learn_missing_creator_fields_for_format,
-    save_learned_creator_fields,
-    save_missing_learned_creator_fields,
 )
 
 
@@ -105,10 +110,25 @@ def test_normalize_source_slug_tokens_validates_parts_and_dedupes():
     assert "" not in result
 
 
+def test_active_slug_rules_exposes_implicit_var_tokens_from_learned_segments(monkeypatch):
+    import backend.app.domains.downloads.store as store_mod
+    from backend.app.domains.downloads.enrich import active_slug_rules_for_key
+    from backend.app.domains.downloads.formats import learn_download
+
+    learned = learn_download(
+        {},
+        "https://rule34video.com/video/3238394/wsds-minus8/",
+        "3238394",
+    )
+    monkeypatch.setattr(store_mod, "load_learned_formats", lambda: learned)
+
+    assert active_slug_rules_for_key({}, "rule34video") == [{"token": "var0", "part": "path:2"}]
+
+
 def test_blank_source_slug_token_disables_default_slug_mapping(monkeypatch):
-    import backend.app.services.tasks.store as store_mod
-    from backend.app.services.tasks.enrich import active_slug_rules_for_key
-    from backend.app.services.tasks.formats import learn_download
+    import backend.app.domains.downloads.store as store_mod
+    from backend.app.domains.downloads.enrich import active_slug_rules_for_key
+    from backend.app.domains.downloads.formats import learn_download
 
     learned = learn_download(
         {},
@@ -126,11 +146,61 @@ def test_blank_source_slug_token_disables_default_slug_mapping(monkeypatch):
     )
 
 
+def test_resolve_slug_tokens_uses_implicit_var_and_explicit_custom_name(monkeypatch):
+    import backend.app.domains.downloads.store as store_mod
+    from backend.app.domains.downloads.enrich import resolve_slug_tokens
+    from backend.app.domains.downloads.formats import learn_download
+
+    learned = learn_download(
+        {},
+        "https://rule34video.com/video/3238394/wsds-minus8/",
+        "3238394",
+    )
+    monkeypatch.setattr(store_mod, "load_learned_formats", lambda: learned)
+    url = "https://rule34video.com/video/3238394/wsds-minus8/"
+
+    assert resolve_slug_tokens(
+        url,
+        "rule34video",
+        {"folder_template": "", "filename_template": "{{var0}} [{{id}}]"},
+        {},
+    ) == {"var0": "wsds-minus8"}
+    assert resolve_slug_tokens(
+        url,
+        "rule34video",
+        {"folder_template": "", "filename_template": "{{slug}} [{{id}}]"},
+        {},
+    ) == {}
+    assert resolve_slug_tokens(
+        url,
+        "rule34video",
+        {"folder_template": "", "filename_template": "{{slug}} [{{id}}]"},
+        {"rule34video": [{"part": "path:2", "token": "slug"}]},
+    ) == {"slug": "wsds-minus8"}
+
+
+def test_resolve_slug_tokens_ignores_raw_template_token_when_role_assigned(monkeypatch):
+    import backend.app.domains.downloads.store as store_mod
+    from backend.app.domains.downloads.enrich import resolve_slug_tokens
+
+    monkeypatch.setattr(store_mod, "load_learned_formats", lambda: {})
+    url = "https://rule34video.com/video/3238394/wsds-minus8/"
+    slug_map = {"rule34video": [{"part": "path:2", "token": "series"}]}
+
+    assert resolve_slug_tokens(
+        url,
+        "rule34video",
+        {"folder_template": "", "filename_template": "{{series}} [{{id}}]"},
+        slug_map,
+        {"rule34video": {"series": "title"}},
+    ) == {}
+
+
 def test_resolve_slug_tokens_maps_url_part_to_role_and_custom_token(monkeypatch):
-    import backend.app.services.tasks.store as store_mod
+    import backend.app.domains.downloads.store as store_mod
     monkeypatch.setattr(store_mod, "load_learned_formats", lambda: {})
 
-    from backend.app.services.tasks.enrich import resolve_slug_tokens
+    from backend.app.domains.downloads.enrich import resolve_slug_tokens
 
     slug_map = {
         "rule34video": [
@@ -241,32 +311,28 @@ def test_normalize_source_title_cleaning_fills_defaults_and_skips_empty():
 
 
 def test_get_effective_creator_fields_resolves_per_source(monkeypatch):
-    import backend.app.services.settings as settings_mod
-
     monkeypatch.setattr(
-        settings_mod,
+        creator_fields_module,
         "load_saved_settings_file",
         lambda: {"source_creator_fields": {"youtube": {"username": ["channel"]}}},
     )
-    monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
+    monkeypatch.setattr(creator_fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
     assert get_effective_creator_fields("https://youtube.com/x") == {"username": ["channel"]}
     assert get_effective_creator_fields("") == {}
 
 
 def test_get_effective_creator_fields_leads_both_roles_with_creator_scraper_token(monkeypatch):
-    import backend.app.services.settings as settings_mod
-
     # A token assigned the Creator role must lead both username and nickname even when
     # the source has no persisted creator-field lists, so naming resolves either role.
     monkeypatch.setattr(
-        settings_mod,
+        creator_fields_module,
         "load_saved_settings_file",
         lambda: {
             "source_scrape_rules": {"rule34video": {"rules": [{"token": "artist", "xpath": "//*[@id='a']"}]}},
             "source_token_roles": {"rule34video": {"artist": "creator"}},
         },
     )
-    monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "rule34video"})
+    monkeypatch.setattr(creator_fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "rule34video"})
 
     fields = get_effective_creator_fields("https://rule34video.com/video/1/post")
 
@@ -275,40 +341,34 @@ def test_get_effective_creator_fields_leads_both_roles_with_creator_scraper_toke
 
 
 def test_get_effective_creator_fields_drops_unassigned_scraper_field(monkeypatch):
-    import backend.app.services.settings as settings_mod
-
     # A persisted scraper field whose role is no longer Creator is dropped from the list.
     monkeypatch.setattr(
-        settings_mod,
+        creator_fields_module,
         "load_saved_settings_file",
         lambda: {
             "source_creator_fields": {"rule34video": {"username": ["scraper[artist]", "uploader"]}},
             "source_token_roles": {"rule34video": {"artist": "ignore"}},
         },
     )
-    monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "rule34video"})
+    monkeypatch.setattr(creator_fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "rule34video"})
 
     assert get_effective_creator_fields("https://rule34video.com/video/1/post") == {"username": ["uploader"]}
 
 
 def test_get_effective_creator_fields_ignores_learned_url_creator_defaults(monkeypatch):
-    import backend.app.services.settings as settings_mod
-
-    monkeypatch.setattr(settings_mod, "load_saved_settings_file", lambda: {})
-    monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
+    monkeypatch.setattr(creator_fields_module, "load_saved_settings_file", lambda: {})
+    monkeypatch.setattr(creator_fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
 
     assert get_effective_creator_fields("https://www.tiktok.com/@moli0n/video/1") == {}
 
 
 def test_learned_url_creator_defaults_do_not_promote_saved_creator_fields(monkeypatch):
-    import backend.app.services.settings as settings_mod
-
     monkeypatch.setattr(
-        settings_mod,
+        creator_fields_module,
         "load_saved_settings_file",
         lambda: {"source_creator_fields": {"tiktok": {"username": ["uploader_id", "channel", "uploader"]}}},
     )
-    monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
+    monkeypatch.setattr(creator_fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
 
     assert get_effective_creator_fields("https://www.tiktok.com/@moli0n/video/1") == {
         "username": ["uploader_id", "channel", "uploader"]
@@ -321,12 +381,12 @@ def test_source_creator_field_defaults_ignore_learned_url_fields(monkeypatch):
 
 def test_add_source_and_learn_format_returns_matched_template(tmp_path, monkeypatch):
     import backend.app.db.database as database_module
-    import backend.app.services.tasks.learning as learning_mod
+    import backend.app.domains.downloads.learning as learning_mod
 
     monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
     monkeypatch.setattr(database_module, "_INITIALIZED", False)
     monkeypatch.setattr(
-        settings_module,
+        settings_formats_module,
         "load_app_config",
         lambda: {
             "sourceProfiles": [
@@ -336,7 +396,7 @@ def test_add_source_and_learn_format_returns_matched_template(tmp_path, monkeypa
     )
     monkeypatch.setattr(learning_mod, "learn_missing_creator_fields_for_format", lambda *args, **kwargs: {})
 
-    result = settings_module.add_source_and_learn_format(
+    result = settings_formats_module.add_source_and_learn_format(
         "https://www.facebook.com/reel/898199989283474"
     )
 
@@ -360,7 +420,7 @@ def test_clearing_last_format_clears_source_creator_fields(tmp_path, monkeypatch
             }
         }
     )
-    settings_module.save_saved_settings_file(
+    settings_storage_module.save_saved_settings_file(
         {
             "source_creator_fields": {
                 "tiktok": {
@@ -371,15 +431,15 @@ def test_clearing_last_format_clears_source_creator_fields(tmp_path, monkeypatch
         }
     )
 
-    result = settings_module.set_learned_format_templates("tiktok", [])
+    result = settings_formats_module.set_learned_format_templates("tiktok", [])
 
     assert result == {"source_key": "tiktok", "templates": []}
     assert repositories.load_learned_formats_payload() == {}
-    assert settings_module.load_saved_settings_file().get("source_creator_fields", {}) == {}
+    assert settings_storage_module.load_saved_settings_file().get("source_creator_fields", {}) == {}
 
 
 def test_save_learned_creator_fields_persists_only_real_probe_fields(monkeypatch):
-    import backend.app.services.tasks.learning as learning_mod
+    import backend.app.domains.downloads.learning as learning_mod
 
     payload: dict = {}
     saved: list[dict] = []
@@ -400,7 +460,7 @@ def test_save_learned_creator_fields_persists_only_real_probe_fields(monkeypatch
 
 
 def test_save_learned_creator_fields_ignores_url_creator_hint(monkeypatch):
-    import backend.app.services.tasks.learning as learning_mod
+    import backend.app.domains.downloads.learning as learning_mod
 
     payload: dict = {}
     saved: list[dict] = []
@@ -420,7 +480,7 @@ def test_save_learned_creator_fields_ignores_url_creator_hint(monkeypatch):
 
 
 def test_learned_creator_fields_merges_without_clobbering_existing(monkeypatch):
-    import backend.app.services.tasks.learning as learning_mod
+    import backend.app.domains.downloads.learning as learning_mod
 
     payload = {"source_creator_fields": {"youtube": {"username": ["channel"]}}}
     saved: list[dict] = []
@@ -439,7 +499,7 @@ def test_learned_creator_fields_merges_without_clobbering_existing(monkeypatch):
 
 
 def test_missing_creator_fields_append_without_reordering_existing(monkeypatch):
-    import backend.app.services.tasks.learning as learning_mod
+    import backend.app.domains.downloads.learning as learning_mod
 
     payload = {
         "source_creator_fields": {
@@ -471,8 +531,8 @@ def test_missing_creator_fields_append_without_reordering_existing(monkeypatch):
 
 
 def test_format_creator_probe_does_not_touch_existing_fields_when_all_present(monkeypatch):
-    import backend.app.services.tasks.learning as learning_mod
-    import backend.app.services.tasks.probe as probe_mod
+    import backend.app.domains.downloads.learning as learning_mod
+    import backend.app.domains.downloads.probe as probe_mod
 
     existing = {
         "username": ["uploader", "author[uniqueId]"],
@@ -507,8 +567,8 @@ def test_format_creator_probe_does_not_touch_existing_fields_when_all_present(mo
 
 
 def test_format_creator_probe_promotes_literal_url_creator_template(monkeypatch):
-    import backend.app.services.tasks.learning as learning_mod
-    import backend.app.services.tasks.probe as probe_mod
+    import backend.app.domains.downloads.learning as learning_mod
+    import backend.app.domains.downloads.probe as probe_mod
 
     payload: dict = {}
     learned = {
@@ -553,8 +613,8 @@ def test_format_creator_probe_promotes_literal_url_creator_template(monkeypatch)
 
 
 def test_ensure_creator_fields_learned_skips_existing_records(monkeypatch):
-    import backend.app.services.tasks.learning as learning_mod
-    import backend.app.services.tasks.probe as probe_mod
+    import backend.app.domains.downloads.learning as learning_mod
+    import backend.app.domains.downloads.probe as probe_mod
 
     monkeypatch.setattr(
         learning_mod,
@@ -567,8 +627,8 @@ def test_ensure_creator_fields_learned_skips_existing_records(monkeypatch):
 
 
 def test_ensure_creator_fields_learned_saves_first_successful_probe(monkeypatch):
-    import backend.app.services.tasks.learning as learning_mod
-    import backend.app.services.tasks.probe as probe_mod
+    import backend.app.domains.downloads.learning as learning_mod
+    import backend.app.domains.downloads.probe as probe_mod
 
     payload: dict = {}
     monkeypatch.setattr(learning_mod, "load_saved_settings_file", lambda: payload)
@@ -592,14 +652,12 @@ def test_ensure_creator_fields_learned_saves_first_successful_probe(monkeypatch)
 
 
 def test_get_effective_title_cleaning_resolves_per_source(monkeypatch):
-    import backend.app.services.settings as settings_mod
-
     monkeypatch.setattr(
-        settings_mod,
+        creator_fields_module,
         "load_saved_settings_file",
         lambda: {"source_title_cleaning": {"youtube": {"strip_hashtags": False}}},
     )
-    monkeypatch.setattr(settings_mod, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
+    monkeypatch.setattr(creator_fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
     flags = get_effective_title_cleaning("https://youtube.com/x")
     assert flags["strip_hashtags"] is False
     assert get_effective_title_cleaning("") == {}
@@ -630,11 +688,11 @@ def test_normalize_source_templates_keeps_per_source_values():
 
 
 def test_get_effective_template_settings_uses_format_keyed_source_template(monkeypatch):
-    import backend.app.services.tasks.store as store_mod
+    import backend.app.domains.downloads.store as store_mod
 
     format_template = "https://twitter.com/{creator}/status/{id}"
     monkeypatch.setattr(
-        settings_module,
+        settings_templates_module,
         "load_saved_settings_file",
         lambda: {
             "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
@@ -650,12 +708,12 @@ def test_get_effective_template_settings_uses_format_keyed_source_template(monke
         },
     )
     monkeypatch.setattr(
-        settings_module,
+        settings_templates_module,
         "get_source_profile_for_url",
         lambda *args, **kwargs: {"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]},
     )
     monkeypatch.setattr(
-        settings_module,
+        settings_templates_module,
         "get_effective_source_profiles",
         lambda *args, **kwargs: [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
     )
@@ -680,7 +738,7 @@ def test_normalize_source_locations_does_not_seed_unresolved_location():
 
 
 def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
-    monkeypatch.setattr(settings_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
+    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
     monkeypatch.setattr(
         planning_module,
         "get_effective_saved_settings",
@@ -695,7 +753,7 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
         },
     )
 
-    from backend.app.services.tasks import store
+    from backend.app.domains.downloads import store
     monkeypatch.setattr(
         store,
         "load_learned_formats_payload",
@@ -732,7 +790,7 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
 
 
 def test_resolve_task_settings_matches_format(monkeypatch):
-    monkeypatch.setattr(settings_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
+    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
     monkeypatch.setattr(
         planning_module,
         "get_effective_saved_settings",
@@ -747,7 +805,7 @@ def test_resolve_task_settings_matches_format(monkeypatch):
         },
     )
     
-    from backend.app.services.tasks import store
+    from backend.app.domains.downloads import store
     monkeypatch.setattr(
         store,
         "load_learned_formats_payload",

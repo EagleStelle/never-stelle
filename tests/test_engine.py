@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-import backend.app.services.tasks.enrich as enrich
-import backend.app.services.tasks.gallerydl as gallerydl
-import backend.app.services.tasks.ytdlp as ytdlp
-from backend.app.services.tasks import engine_by_name, engine_for_task, select_engine
-from backend.app.services.tasks.constants import (
+import backend.app.domains.downloads.enrich as enrich
+import backend.app.domains.downloads.gallerydl as gallerydl
+import backend.app.domains.downloads.ytdlp as ytdlp
+from backend.app.domains.downloads import engine_by_name, engine_for_task, select_engine
+from backend.app.domains.downloads.constants import (
     container_acodec_filter,
     container_vcodec_filter,
     default_quality_selection,
@@ -18,8 +18,9 @@ from backend.app.services.tasks.constants import (
     template_tokens,
     video_format_selector,
 )
-from backend.app.services.tasks.engine import all_engines
-from backend.app.services.tasks.worker import _count_progress, _looks_unsupported, _should_try_next_engine
+from backend.app.domains.downloads.engine import all_engines
+from backend.app.domains.downloads.workers.execution import _looks_unsupported, _should_try_next_engine
+from backend.app.domains.downloads.workers.runner import _count_progress
 
 
 def test_normalize_quality_selection_defaults_and_validates():
@@ -421,6 +422,7 @@ def test_gallerydl_engine_progress_and_path_parsing():
         "/media/imgur/artist/clip.mp4"
     )
     assert engine.extract_output_path("[download] skipping existing file") == ""
+    assert engine.extract_output_path("# /media/imgur/artist/photo.jpg") == "/media/imgur/artist/photo.jpg"
     assert engine.extract_output_path("/media/imgur/notes.txt") == ""
 
 
@@ -432,7 +434,7 @@ def test_convert_template_to_gallerydl_maps_fields_and_resolves_creator():
     gallery_username = '{username|author[uniqueId]|user[name]|user[username]|user[uniqueId]|account|author|"unknown"}'
     assert result.startswith(f"{gallery_username} - ")
     assert '{title|content|"untitled"}' in result
-    assert '{id|num|"NA"}' in result
+    assert "[2073635724684054528]" in result
 
 
 def test_convert_template_to_gallerydl_falls_back_to_metadata_creator():
@@ -480,8 +482,10 @@ def test_engines_build_output_templates_from_same_settings_snapshot():
 
     assert "%(uploader_id,playlist_uploader_id,uploader,channel,creator,channel_id|Unknown)s" in ytdlp_template
     assert "%(id|NA)s" in ytdlp_template
-    assert gallery_folder == f'{gallery_username}/{{id|num|"NA"}}'
-    assert gallery_filename.startswith(f'{gallery_username} - {{title|content|"untitled"}} [{{id|num|"NA"}}]')
+    assert gallery_folder == f"{gallery_username}/2073635724684054528"
+    assert gallery_filename.startswith(
+        f'{gallery_username} - {{title|content|"untitled"}} [2073635724684054528]'
+    )
 
 
 def test_build_gallerydl_command_layout():
@@ -514,6 +518,24 @@ def test_build_gallerydl_command_can_filter_extensions():
     assert "extension not in" in filter_expr
     assert "mp4" in filter_expr
     assert "webm" in filter_expr
+
+
+def test_build_gallerydl_command_can_write_metadata_sidecar():
+    sep = gallerydl._TEMPLATE_SEP
+    cmd = gallerydl.build_gallerydl_command(
+        "https://imgur.com/a/x",
+        "/media/imgur",
+        f"artist{sep}Clip [id].{{extension}}",
+        metadata_sidecar="/tmp/meta.tsv",
+    )
+
+    index = cmd.index("--Print-to-file")
+    metadata_format = cmd[index + 1]
+    assert metadata_format.startswith("after:\fE ")
+    assert "std.json.dumps(dict(locals()" in metadata_format
+    assert "sidecar" not in metadata_format
+    assert "post_shortcode" not in metadata_format
+    assert cmd[index + 2] == "/tmp/meta.tsv"
 
 
 def test_build_gallerydl_command_routes_streams_through_ytdlp(monkeypatch):

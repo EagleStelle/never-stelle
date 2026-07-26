@@ -1,19 +1,24 @@
 from __future__ import annotations
 
+import json
 import zipfile
 from pathlib import Path
 
 import pytest
 
-import backend.app.services.tasks.gallerydl as gallerydl_module
-import backend.app.services.tasks.history as history_module
-import backend.app.services.tasks.operations as operations_module
-import backend.app.services.tasks.scan as scan_module
-import backend.app.services.tasks.serializers as serializers_module
-import backend.app.services.tasks.urls as urls_module
-import backend.app.services.tasks.worker as worker_module
+import backend.app.domains.downloads.gallerydl as gallerydl_module
+import backend.app.domains.downloads.history as history_module
+import backend.app.domains.downloads.operations as operations_module
+import backend.app.domains.downloads.scan as scan_module
+import backend.app.domains.downloads.serializers as serializers_module
+import backend.app.domains.downloads.urls as urls_module
+import backend.app.domains.downloads.workers.completion as completion_module
+import backend.app.domains.downloads.workers.completion_learning as completion_learning_module
+import backend.app.domains.downloads.workers.completion_metadata as completion_metadata_module
+import backend.app.domains.downloads.workers.execution as worker_module
+import backend.app.domains.downloads.workers.runner as runner_module
 from backend.app.core.sources import source_label_from_key
-from backend.app.services.tasks import (
+from backend.app.domains.downloads import (
     canonicalize_source_url,
     convert_template_to_ytdlp,
     count_tasks,
@@ -24,7 +29,7 @@ from backend.app.services.tasks import (
     is_media_file,
     parse_filename_media_id,
 )
-from backend.app.services.tasks.formats import (
+from backend.app.domains.downloads.formats import (
     conflicts_with_source,
     creator_from_url,
     describe_learned_segments,
@@ -37,20 +42,27 @@ from backend.app.services.tasks.formats import (
     reconstruct_url_candidates,
     url_dedup_key,
 )
-from backend.app.services.tasks.naming import (
+from backend.app.domains.downloads.naming import (
     clean_template_filename,
     sanitize_filename_component,
     sanitize_path_literal,
     strip_numbered_suffix,
     strip_placeholder_title,
 )
-from backend.app.services.tasks.serializers import history_to_api, task_to_api
-from backend.app.services.tasks.ytdlp import (
+from backend.app.domains.downloads.serializers import history_to_api, task_to_api
+from backend.app.domains.downloads.ytdlp import (
     YTDLP_NICKNAME_FIELD,
     YTDLP_USERNAME_FIELD,
     clean_filename_title,
     clean_social_title,
 )
+
+
+def _patch_worker_task_store(monkeypatch: pytest.MonkeyPatch, store: dict, update_task):
+    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
+    monkeypatch.setattr(worker_module, "update_task", update_task)
+    monkeypatch.setattr(runner_module, "load_task_store", lambda: store)
+    monkeypatch.setattr(runner_module, "update_task", update_task)
 
 
 @pytest.mark.parametrize(
@@ -230,7 +242,7 @@ def test_parse_filename_media_id_uses_last_bracketed_id():
 
 
 def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    from backend.app.services.tasks.planning import ResolvedTaskSettings
+    from backend.app.domains.downloads.planning import ResolvedTaskSettings
 
     resolved = ResolvedTaskSettings(
         source_key="example",
@@ -482,7 +494,7 @@ def test_filename_creator_ignores_nickname_token_for_handle():
 
 def test_username_folder_not_clobbered_by_nickname_filename():
     # No handle known -> {{username}} folder unresolved -> no move, keeping the engine's handle folder.
-    folder = worker_module._render_template_folder(
+    folder = completion_module._render_template_folder(
         Path("/media/instagram"),
         {"folder_template": "{{username}}"},
         creator="",
@@ -493,7 +505,7 @@ def test_username_folder_not_clobbered_by_nickname_filename():
 
 
 def test_render_template_folder_renders_nickname_distinct_from_username():
-    folder = worker_module._render_template_folder(
+    folder = completion_module._render_template_folder(
         Path("/media/instagram"),
         {"folder_template": "{{nickname}}"},
         creator="nasa",
@@ -504,7 +516,7 @@ def test_render_template_folder_renders_nickname_distinct_from_username():
 
 
 def test_render_template_folder_renders_selected_quality():
-    folder = worker_module._render_template_folder(
+    folder = completion_module._render_template_folder(
         Path("/media/rule34video"),
         {"folder_template": "{{quality}}/{{username}}"},
         creator="artist",
@@ -519,9 +531,9 @@ def test_render_template_folder_handle_at_cleanup_can_be_disabled():
     root = Path("/media/tiktok")
     template = {"folder_template": "{{username}}"}
 
-    assert worker_module._render_template_folder(root, template, "@alice", "abc123") == root / "alice"
+    assert completion_module._render_template_folder(root, template, "@alice", "abc123") == root / "alice"
     assert (
-        worker_module._render_template_folder(
+        completion_module._render_template_folder(
             root,
             template,
             "@alice",
@@ -669,7 +681,7 @@ def test_metadata_creator_prefers_resolved_handle_over_display_name(monkeypatch)
         "uploader_id": "100044174692204",
         "original_url": "https://www.facebook.com/reel/891576008993182",
     }
-    assert worker_module._metadata_creator(metadata, "891576008993182") == "charechii"
+    assert completion_module._metadata_creator(metadata, "891576008993182") == "charechii"
 
 
 def test_metadata_creator_skips_mobile_host_wall(monkeypatch):
@@ -685,7 +697,7 @@ def test_metadata_creator_skips_mobile_host_wall(monkeypatch):
         "webpage_url": "https://m.facebook.com/watch/?v=1727302008412891",
         "original_url": "https://www.facebook.com/reel/1727302008412891",
     }
-    assert worker_module._metadata_creator(metadata, "1727302008412891") == "charechii"
+    assert completion_module._metadata_creator(metadata, "1727302008412891") == "charechii"
 
 
 def test_metadata_creator_prefers_at_handle_metadata():
@@ -698,7 +710,7 @@ def test_metadata_creator_prefers_at_handle_metadata():
         "webpage_url": "https://video.example/watch?v=In5Du5x6MZM",
     }
 
-    assert worker_module._metadata_creator(metadata, "In5Du5x6MZM") == "mili"
+    assert completion_module._metadata_creator(metadata, "In5Du5x6MZM") == "mili"
 
 
 def test_metadata_creator_rejects_opaque_id_metadata():
@@ -709,7 +721,7 @@ def test_metadata_creator_rejects_opaque_id_metadata():
         "webpage_url": "https://video.example/watch?v=In5Du5x6MZM",
     }
 
-    assert worker_module._metadata_creator(metadata, "In5Du5x6MZM") == ""
+    assert completion_module._metadata_creator(metadata, "In5Du5x6MZM") == ""
 
 
 def test_filename_creator_uses_handle_metadata_without_at():
@@ -804,7 +816,7 @@ def test_clean_template_filename_truncates_long_title_when_enabled():
     assert result == f"Poster - {'A' * 100} [abc123]_1.jpg"
 
 
-def test_clean_template_filename_preserves_slug_quality_tokens_without_title():
+def test_clean_template_filename_preserves_custom_quality_tokens_without_title():
     result = clean_template_filename(
         "daiwa-scarlet-suokanawer_source - [4483553].mp4",
         "{{slug}}_{{quality}} - [{{id}}]",
@@ -1043,9 +1055,8 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
         store["tasks"].setdefault(task_id, {}).update(updates)
         return store["tasks"][task_id]
 
-    monkeypatch.setattr(worker_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
-    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
-    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
     monkeypatch.setattr(gallerydl_module, "count_gallerydl_items", lambda *args, **kwargs: 2)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
@@ -1109,12 +1120,11 @@ def test_gallerydl_sparse_single_output_uses_probe_metadata_for_template(
         store["tasks"].setdefault(task_id, {}).update(updates)
         return store["tasks"][task_id]
 
-    monkeypatch.setattr(worker_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
-    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
-    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "get_effective_creator_fields", lambda url: {"username": ["channel"]})
     monkeypatch.setattr(
-        worker_module,
+        completion_metadata_module,
         "_probe_output_metadata",
         lambda url, source_key="": {
             "id": "abc123",
@@ -1184,12 +1194,11 @@ def test_gallerydl_cookie_probe_repairs_none_creator_and_duplicate_id_filename(
         store["tasks"].setdefault(task_id, {}).update(updates)
         return store["tasks"][task_id]
 
-    monkeypatch.setattr(worker_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
-    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
-    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "get_effective_creator_fields", lambda url: {"username": ["username"]})
     monkeypatch.setattr(
-        worker_module,
+        completion_metadata_module,
         "_probe_output_metadata",
         lambda url, source_key="": {
             "id": media_id,
@@ -1266,10 +1275,9 @@ def test_gallerydl_same_source_assets_share_one_row_and_source_id(
         store["tasks"].setdefault(task_id, {}).update(updates)
         return store["tasks"][task_id]
 
-    monkeypatch.setattr(worker_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
-    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
-    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
     monkeypatch.setattr(gallerydl_module, "count_gallerydl_items", lambda *args, **kwargs: 2)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
@@ -1310,11 +1318,69 @@ def test_gallerydl_distinct_metadata_urls_split_rows_dynamically(tmp_path: Path)
         engine_by_name("gallerydl"),
         "{{username}} - {{title}} [{{id}}]",
         metadata,
-        "https://www.example.test/post/root123",
+        "https://www.example.test/",
     )
 
     assert len(groups) == 2
     assert {group["media_id"] for group in groups} == {"asset-a", "asset-b"}
+
+
+def test_gallerydl_source_url_id_groups_distinct_child_metadata_urls(tmp_path: Path):
+    first = tmp_path / "Poster - Image [child-a]_1.jpg"
+    second = tmp_path / "Poster - Image [child-b]_2.mp4"
+    for path in (first, second):
+        path.write_bytes(b"media")
+    metadata = {
+        worker_module._path_key(first): {"webpage_url": "https://www.example.test/item/child-a"},
+        worker_module._path_key(second): {"webpage_url": "https://www.example.test/item/child-b"},
+    }
+
+    groups = worker_module._download_groups(
+        [first, second],
+        engine_by_name("gallerydl"),
+        "{{username}} - {{title}} [{{id}}]",
+        metadata,
+        "https://www.example.test/post/root123",
+    )
+
+    assert len(groups) == 1
+    assert groups[0]["media_id"] == "root123"
+
+
+def test_gallerydl_parent_group_keeps_pasted_source_url_for_child_metadata():
+    source_url = "https://www.example.test/post/root123"
+    metadata = {
+        "webpage_url": "https://www.example.test/item/child-a",
+    }
+
+    assert (
+        worker_module._item_source_url(source_url, "example", "root123", "poster", metadata)
+        == source_url
+    )
+
+
+def test_read_metadata_sidecar_accepts_gallerydl_jsonl(tmp_path: Path):
+    media_file = tmp_path / "clip.mp4"
+    sidecar = tmp_path / "metadata.jsonl"
+    sidecar.write_text(
+        json.dumps(
+            {
+                "filepath": str(media_file),
+                "id": "child-a",
+                "user": {"name": "poster"},
+                "tags": ["one", "two"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    metadata = completion_metadata_module._read_metadata_sidecar(str(sidecar))
+
+    row = metadata[worker_module._path_key(media_file)]
+    assert row["id"] == "child-a"
+    assert row["user[name]"] == "poster"
+    assert row["tags"] == "one, two"
 
 
 def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(
@@ -1368,10 +1434,9 @@ def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(
         store["tasks"].setdefault(task_id, {}).update(updates)
         return store["tasks"][task_id]
 
-    monkeypatch.setattr(worker_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
-    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
-    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
     monkeypatch.setattr(gallerydl_module, "count_gallerydl_items", lambda *args, **kwargs: 1)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
@@ -1380,7 +1445,7 @@ def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
 
     completed = store["tasks"][task_id]
-    assert commands == ["yt-dlp", "gallery-dl"]
+    assert commands == ["gallery-dl"]
     assert completed["status"] == "completed"
     assert completed["engine"] == "gallerydl"
     assert saved[task_id]["engine"] == "gallerydl"
@@ -1435,9 +1500,8 @@ def test_worker_runs_gallerydl_without_preflight(
         store["tasks"].setdefault(task_id, {}).update(updates)
         return store["tasks"][task_id]
 
-    monkeypatch.setattr(worker_module.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
-    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
     monkeypatch.setattr(
         gallerydl_module,
@@ -1521,10 +1585,9 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
         store["tasks"].setdefault(task_id, {}).update(updates)
         return store["tasks"][task_id]
 
-    monkeypatch.setattr(worker_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
-    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
-    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
 
     monkeypatch.setattr(
@@ -1537,14 +1600,11 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
 
-    clean_video = tmp_path / "love.rizzzz - [DOS-dVRkUK3].mp4"
+    clean_video = tmp_path / "love.rizzzz - [DOS-dVRkUK3]_1.mp4"
     clean_image = tmp_path / "love.rizzzz - [DOS-dVRkUK3]_2.jpg"
     completed = store["tasks"][task_id]
-    assert [cmd[0] for cmd in commands] == ["yt-dlp", "gallery-dl"]
-    gallery_cmd = commands[1]
-    filter_expr = gallery_cmd[gallery_cmd.index("--filter") + 1]
-    assert "mp4" in filter_expr
-    assert "webm" in filter_expr
+    assert [cmd[0] for cmd in commands] == ["gallery-dl"]
+    assert "--filter" not in commands[0]
     assert set(saved) == {task_id}
     assert clean_video.is_file()
     assert clean_image.is_file()
@@ -1553,7 +1613,7 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
     assert not gallery_image.exists()
     assert not stale_wrong_video.exists()
     assert completed["status"] == "completed"
-    assert completed["engine"] == "ytdlp"
+    assert completed["engine"] == "gallerydl"
     assert completed["creator"] == "love.rizzzz"
     assert completed["source_url"] == source_url
     assert completed["resolved_full_path"] == str(clean_video)
@@ -1635,10 +1695,10 @@ def test_worker_renames_display_creator_to_handle_and_template_folder(
         store["tasks"].setdefault(task_id, {}).update(updates)
         return store["tasks"][task_id]
 
-    monkeypatch.setattr(worker_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
-    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
-    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(worker_module, "_engine_run_order", lambda task: [engine_by_name("ytdlp")])
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
@@ -1709,10 +1769,10 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
         store["tasks"].setdefault(task_id, {}).update(updates)
         return store["tasks"][task_id]
 
-    monkeypatch.setattr(worker_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+    monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
-    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
-    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(worker_module, "_engine_run_order", lambda task: [engine_by_name("ytdlp")])
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "drop_file_cache", lambda paths: dropped_cache_paths.extend(paths))
@@ -2120,24 +2180,24 @@ def test_worker_reprobes_creator_fields_only_when_format_is_new(monkeypatch):
     calls: list[tuple[str, str]] = []
     url = "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833"
 
-    monkeypatch.setattr(worker_module, "persist_source_format", lambda *args, **kwargs: True)
+    monkeypatch.setattr(completion_learning_module, "persist_source_format", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        worker_module,
+        completion_learning_module,
         "learn_missing_creator_fields_for_format",
         lambda source_url, source_key: calls.append((source_url, source_key)),
     )
 
-    worker_module._learn_source_format(url, "fzyahoo.com - [7420705673542978833].jpg", source_key="tiktok")
+    completion_learning_module._learn_source_format(url, "fzyahoo.com - [7420705673542978833].jpg", source_key="tiktok")
 
-    monkeypatch.setattr(worker_module, "persist_source_format", lambda *args, **kwargs: False)
-    worker_module._learn_source_format(url, "fzyahoo.com - [7420705673542978833].jpg", source_key="tiktok")
+    monkeypatch.setattr(completion_learning_module, "persist_source_format", lambda *args, **kwargs: False)
+    completion_learning_module._learn_source_format(url, "fzyahoo.com - [7420705673542978833].jpg", source_key="tiktok")
 
     assert calls == [(url, "tiktok")]
 
 
 def test_learn_download_keeps_descriptive_segment_literal_for_single_sample():
-    # Slug is no longer auto-detected: a lone descriptive segment stays literal in the
-    # learned shape; a configured slug part overrides it at reconstruction time.
+    # URL parts are not promoted to a built-in {{slug}} token: a lone descriptive
+    # segment stays literal until a configured URL-part value overrides it.
     learned = learn_download(
         {},
         "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/",
@@ -2155,7 +2215,7 @@ def test_learn_download_keeps_descriptive_segment_literal_for_single_sample():
     )
 
 
-def test_reconstruct_url_replaces_literal_segment_with_configured_slug_value():
+def test_reconstruct_url_replaces_literal_segment_with_configured_url_part_value():
     learned = {
         "rule34video": {
             "templates": ["https://rule34video.com/video/{id}/cocolia-rand-sutekimeppou"],
@@ -2168,7 +2228,7 @@ def test_reconstruct_url_replaces_literal_segment_with_configured_slug_value():
     )
 
 
-def test_reconstruct_url_candidates_needs_slug_value_for_generalized_var():
+def test_reconstruct_url_candidates_needs_url_part_value_for_generalized_var():
     learned = learn_download({}, "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489", "7493558766131039489")
     learned = learn_download(learned, "https://www.tiktok.com/@other/video/7420705673542978833", "7420705673542978833")
     assert reconstruct_url_candidates(learned, "tiktok", "123") == []
@@ -2192,7 +2252,7 @@ def test_creator_from_url_uses_handle_segment_without_at_sign():
 
 
 def test_extract_url_part_reads_configured_path_segment():
-    # A configured slug part reads its value straight from the (canonical) URL, generically.
+    # A configured URL part reads its value straight from the canonical URL.
     url = "https://rule34video.com/video/3056158/84-minus8/"
     assert media_id_from_url(url) == "3056158"
     assert extract_url_part(url, "path:2") == "84-minus8"
@@ -2206,7 +2266,7 @@ def test_extract_url_part_reads_query_value():
     assert extract_url_part(url, "query:missing") == ""
 
 
-def test_describe_learned_segments_marks_id_reserved_and_slug_selectable():
+def test_describe_learned_segments_marks_id_reserved_and_url_part_selectable():
     learned = learn_download(
         {},
         "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/",
@@ -2215,15 +2275,15 @@ def test_describe_learned_segments_marks_id_reserved_and_slug_selectable():
     described = describe_learned_segments(learned["rule34video"])
     parts = {seg["part"]: seg for seg in described["segments"]}
     assert parts["path:1"]["kind"] == "id" and parts["path:1"]["reserved"] is True
-    # The descriptive segment is selectable so the user can name a slug token for it.
+    # The descriptive segment is selectable so the user can name a URL-part token for it.
     assert parts["path:2"]["reserved"] is False
     assert parts["path:2"]["label"] == "daiwa-scarlet-suokanawer"
     # A constant route word is not a useful token, so it stays reserved.
     assert parts["path:0"]["label"] == "video" and parts["path:0"]["reserved"] is True
 
 
-def test_learn_download_merges_same_pattern_slug_to_var():
-    # Two downloads of the same route differing only in the descriptive slug generalize
+def test_learn_download_merges_same_pattern_url_part_to_var():
+    # Two downloads of the same route differing only in the descriptive URL part generalize
     # to a single {var} template instead of piling up near-duplicate literals.
     learned = learn_download(
         {},
@@ -2255,9 +2315,9 @@ def test_describe_marks_var_selectable_after_merge():
     assert parts["path:2"]["kind"] == "var" and parts["path:2"]["reserved"] is False
 
 
-def test_reconstruct_after_merge_needs_slug_value():
-    # Once a slug generalizes to {var} the link can't be rebuilt from the id alone;
-    # a configured slug value fills the position, otherwise there is no candidate.
+def test_reconstruct_after_merge_needs_url_part_value():
+    # Once a URL part generalizes to {var} the link can't be rebuilt from the id alone;
+    # a configured URL-part value fills the position, otherwise there is no candidate.
     learned = learn_download({}, "https://rule34video.com/video/4497669/cleaning-the-base/", "4497669")
     learned = learn_download(learned, "https://rule34video.com/video/4499077/charlie-special/", "4499077")
     assert reconstruct_url(learned, "rule34video", "3238394") == ""
@@ -2677,7 +2737,7 @@ def test_scan_media_library_reconstructs_link_from_learned(tmp_path: Path, monke
     assert entry["source_url"] == "https://www.bilibili.com/video/BV1xx411c7mD"
 
 
-def test_scan_media_library_reconstructs_slug_url_from_filename_template(
+def test_scan_media_library_reconstructs_url_part_from_filename_template(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -2705,7 +2765,7 @@ def test_scan_media_library_reconstructs_slug_url_from_filename_template(
             {"rule34video": {"folder_template": "", "filename_template": "{{slug}}_{{quality}} [{{id}}]"}},
         ),
     )
-    # The user mapped path segment 2 to a slug token named "slug"; capture + reconstruct.
+    # The user mapped path segment 2 to a custom URL-part token named "slug"; capture + reconstruct.
     monkeypatch.setattr(
         scan_module,
         "_scan_slug_tokens_map",
