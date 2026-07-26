@@ -20,7 +20,8 @@ import type { SourceProfile, TaskItem } from "@/types";
 import {
   sourceIconUrl,
   sourceLink,
-  taskBackgroundStyle,
+  taskProgressState,
+  taskProgressStyle,
   taskDetail,
   taskTitle,
 } from "@/utils/task";
@@ -64,13 +65,10 @@ function hasActions(task: TaskItem): boolean {
     <Card
       v-for="task in props.tasks"
       :key="task.vid"
-      class="glass-rise glass-hoverable hover:-translate-y-0.5"
+      class="glass-rise glass-hoverable hover:-translate-y-0.5 task-progress-surface task-progress-card"
+      :data-task-state="taskProgressState(task)"
+      :style="taskProgressStyle(task)"
     >
-      <div
-        class="absolute inset-0 z-0 pointer-events-none"
-        :style="taskBackgroundStyle(task)"
-      ></div>
-
       <CardHeader>
         <CardTitle>
           <img

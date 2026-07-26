@@ -18,7 +18,7 @@ import SourcePicker from "@/components/task/SourcePicker.vue";
 
 import { taskFileUrl } from "@/api";
 import type { SourceProfile, TaskItem } from "@/types";
-import { formatSize, sourceIconUrl, sourceLink, taskBackgroundStyle } from "@/utils/task";
+import { formatSize, sourceIconUrl, sourceLink, taskProgressState, taskProgressStyle } from "@/utils/task";
 
 const props = defineProps<{
   tasks: TaskItem[];
@@ -52,7 +52,13 @@ function toggle(set: Set<string>, id: string): void {
       </TableRow>
     </TableHeader>
     <TableBody>
-      <TableRow v-for="task in props.tasks" :key="task.vid" class="glass-rise" :style="taskBackgroundStyle(task)">
+      <TableRow
+        v-for="task in props.tasks"
+        :key="task.vid"
+        class="glass-rise task-progress-surface task-progress-row"
+        :data-task-state="taskProgressState(task)"
+        :style="taskProgressStyle(task)"
+      >
         <TableCell class="w-1/2 max-w-0 min-w-72 cursor-pointer" @click="toggle(expandedFilenames, task.vid)">
           <div :class="['text-white in-[.light-mode]:text-black', expandedFilenames.has(task.vid) ? 'break-all whitespace-normal' : 'truncate']" :title="task.resolved_filename">
             {{ task.resolved_filename }}

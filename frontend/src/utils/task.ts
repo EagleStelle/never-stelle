@@ -24,9 +24,21 @@ export function mediaKindForTask(task: TaskItem): "image" | "video" {
   return task.task_type === "gallerydl" ? "image" : "video";
 }
 
-// Clamp raw progress to 0-100.
+function clampProgress(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+// Clamp raw progress to 0-100, accepting either percent or 0-1 fraction payloads.
 function progressPct(task: TaskItem): number {
-  return Math.max(0, Math.min(100, Number(task.progress_pct) || 0));
+  const pct = Number(task.progress_pct);
+  if (Number.isFinite(pct) && pct > 0) return clampProgress(pct);
+
+  const progress = Number(task.progress);
+  if (Number.isFinite(progress) && progress > 0) {
+    return clampProgress(progress <= 1 ? progress * 100 : progress);
+  }
+
+  return Number.isFinite(pct) ? clampProgress(pct) : 0;
 }
 
 // Resolve the profile matching the task's source key.
@@ -81,16 +93,16 @@ export function formatSize(bytes: number): string {
   return `${size >= 10 || unit === 0 ? Math.round(size) : size.toFixed(1)} ${units[unit]}`;
 }
 
-// Row/card background: red tint on failure, accent progress bar otherwise.
-export function taskBackgroundStyle(task: TaskItem) {
-  if (task.status === "failed") {
-    return { background: "color-mix(in srgb, var(--color-red-500) 20%, transparent)" };
-  }
+export function taskProgressState(task: TaskItem): "failed" | "progress" | undefined {
+  if (task.status === "failed") return "failed";
   const pct = progressPct(task);
-  if (task.status === "running" || (pct > 0 && pct < 100)) {
-    return {
-      background: `linear-gradient(to right, color-mix(in srgb, var(--accent) 20%, transparent) ${pct}%, transparent ${pct}%)`,
-    };
-  }
-  return {};
+  if (pct > 0 && (task.status === "running" || pct < 100)) return "progress";
+  return undefined;
+}
+
+// Row/card surface fill amount. CSS owns the paint so rows and cards stay consistent.
+export function taskProgressStyle(task: TaskItem): Record<string, string> {
+  if (taskProgressState(task) !== "progress") return {};
+  const pct = Number(progressPct(task).toFixed(2));
+  return { "--task-progress": `${pct}%` };
 }
