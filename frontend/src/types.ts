@@ -95,6 +95,7 @@ export type LearnedFormats = Record<string, LearnedFormat>;
 export interface CreatorFieldRoles {
   username: string[];
   nickname: string[];
+  title: string[];
 }
 export type SourceCreatorFields = Record<string, CreatorFieldRoles>;
 // Per source, title-cleaning flags plus a numeric max_chars; missing keys use the rule default.

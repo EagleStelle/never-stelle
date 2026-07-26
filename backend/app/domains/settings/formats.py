@@ -5,7 +5,7 @@ from typing import Any
 from backend.app.core.config import load_app_config
 from backend.app.core.sources import normalize_source_key, source_key_from_url
 
-from .creator_fields import normalize_source_creator_fields
+from .fields import normalize_source_creator_fields
 from .profiles import ensure_source_profile_for_url, get_effective_source_profiles
 from .storage import load_saved_settings_file, save_saved_settings_file
 

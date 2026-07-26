@@ -8,7 +8,7 @@ from backend.app.domains.settings.cookies import (
     has_cookies_for_url,
     save_ytdlp_cookies_upload,
 )
-from backend.app.domains.settings.creator_fields import (
+from backend.app.domains.settings.fields import (
     get_effective_creator_fields,
     get_effective_source_creator_fields_map,
     get_effective_title_cleaning,

@@ -175,8 +175,8 @@ def test_flatten_metadata_expands_one_level_and_drops_non_scalars():
 def test_creator_probe_fields_returns_only_catalog_fields_with_values():
     flat = {"uploader": "Alice", "uploader_id": "", "zzz": "last", "title": "Hi"}
     fields = [item["field"] for item in _creator_probe_fields(flat, "ytdlp")]
-    # Only creator catalog fields with values; empty uploader_id and non-catalog title/zzz dropped.
-    assert fields == ["uploader"]
+    # Catalog fields with values; empty uploader_id and non-catalog zzz dropped.
+    assert fields == ["uploader", "title"]
 
 
 def test_gallerydl_richest_metadata_finds_largest_dict():
@@ -309,7 +309,7 @@ def test_probe_creator_fields_uses_profile_cookie_source_when_source_key_is_blan
         cookies_file = probe_module._probe_cookies_file(url, str(kwargs.get("cookie_source_key") or ""))
         if kwargs.get("with_cookies") and cookies_file:
             return {"id": "abc123", "uploader": "Cookie Creator"}, ""
-        return {"id": "abc123", "title": "Anonymous metadata"}, ""
+        return {}, ""
 
     monkeypatch.setattr(probe_module, "detect_cookie_source", lambda url: "saved-profile")
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "domain-stem")
@@ -337,7 +337,7 @@ def test_probe_creator_fields_does_not_use_cookies_when_anonymous_has_creator_fi
         with_cookies = bool(kwargs.get("with_cookies"))
         calls.append(with_cookies)
         if with_cookies:
-            return {"id": "abc123", "title": "Cookie metadata without creator"}, ""
+            return {"id": "abc123", "description": "Cookie metadata without creator"}, ""
         return {"id": "abc123", "uploader": "Anonymous Creator"}, ""
 
     monkeypatch.setattr(
@@ -369,12 +369,13 @@ def test_probe_creator_fields_merges_both_engines(monkeypatch):
     result = probe_creator_fields("https://example.com/x")
     assert result["source_key"] == "example"
     fields = [f["field"] for f in result["fields"]]
-    # Merged creator fields from both engines; title (non-creator) excluded.
+    # Merged creator fields from both engines including title token field.
     assert "uploader_id" in fields
     assert "username" in fields
-    assert "title" not in fields
+    assert "title" in fields
     assert result["creator_fields"]["username"] == ["uploader_id", "username"]
     assert result["creator_fields"]["nickname"] == ["username"]
+    assert result["creator_fields"]["title"] == ["title"]
 
 
 def test_probe_creator_fields_keeps_bare_facebook_reel_uploader(monkeypatch):

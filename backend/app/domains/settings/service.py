@@ -6,7 +6,7 @@ from typing import Any
 from backend.app.core.config import load_app_config, normalize_download_locations
 
 from .cookies import get_ytdlp_cookies_status
-from .creator_fields import (
+from .fields import (
     get_source_creator_field_defaults,
     normalize_source_creator_fields,
     normalize_source_title_cleaning,

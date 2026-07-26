@@ -364,7 +364,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     ytdlp_cookies: createCookiesMap(),
     quality_options: createQualityOptions(),
     template_tokens: [],
-    creator_field_defaults: { username: [], nickname: [] },
+    creator_field_defaults: { username: [], nickname: [], title: [] },
     source_creator_field_defaults: createSourceCreatorFields(),
     title_cleaning_rules: [],
     learned_formats: {},

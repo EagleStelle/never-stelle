@@ -550,7 +550,7 @@ export function createCreatorFieldRoles(
     }
     return out;
   };
-  return { username: list(source.username), nickname: list(source.nickname) };
+  return { username: list(source.username), nickname: list(source.nickname), title: list(source.title) };
 }
 
 export function createSourceCreatorFields(

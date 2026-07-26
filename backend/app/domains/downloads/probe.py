@@ -222,7 +222,7 @@ def _exact_url_creator_fields(
     if not url_values:
         return {}
     promoted: dict[str, list[str]] = {}
-    for role in ("username", "nickname"):
+    for role in ("username", "nickname", "title"):
         fields: list[str] = []
         for field in fields_by_role.get(role) or []:
             value = str(values_by_field.get(field) or "").strip().strip("/").lstrip("@").strip()

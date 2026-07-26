@@ -15,12 +15,25 @@ import {
 } from "../../../../components/ui/card";
 import { Input } from "../../../../components/ui/input";
 import { Button } from "../../../../components/ui/button";
+import { Checkbox } from "../../../../components/ui/checkbox";
 import SettingsLabel from "../../SettingsLabel.vue";
 import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
+import SettingsRow from "../../SettingsRow.vue";
 import { useSettingsContext } from "../../context";
+import { useFieldsSettings } from "../../composables/useFieldsSettings";
 import { displayUrlTemplate, normalizeTokenName } from "../../../../utils/dashboard";
 
-const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles } = useSettingsContext();
+const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles, probeCreatorFields } = useSettingsContext();
+const {
+  cleanupRules,
+  titleLengthRule,
+  ruleEnabled,
+  setRule,
+  maxChars,
+  setMaxChars,
+} = useFieldsSettings(settingsDraft, settings, learnedFormatsDraft, editableSourceProfiles, {
+  probeCreatorFields,
+});
 
 function formatsFor(key: string): string[] {
   return (
@@ -237,6 +250,43 @@ function insert(siteKey: string, format: string, token: string): void {
               </Button>
             </CardFooter>
           </Card>
+
+          <div class="flex flex-col gap-2 pt-2">
+            <SettingsLabel>Cleanup</SettingsLabel>
+            <label
+              v-for="rule in cleanupRules"
+              :key="rule.key"
+              class="flex items-center gap-2 cursor-pointer select-none text-sm"
+            >
+              <Checkbox
+                :checked="ruleEnabled(site.key, rule)"
+                @update:checked="
+                  (v: boolean) => setRule(site.key, rule, Boolean(v))
+                "
+              />
+              <span>{{ rule.label }}</span>
+            </label>
+            <SettingsRow
+              v-if="ruleEnabled(site.key, titleLengthRule)"
+              label="Character limit"
+            >
+              <div class="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="12"
+                  :disabled="!ruleEnabled(site.key, titleLengthRule)"
+                  :model-value="String(maxChars(site.key))"
+                  class="w-24 shrink-0"
+                  @update:model-value="
+                    (v: string | number) => setMaxChars(site.key, Number(v))
+                  "
+                />
+                <span class="text-white/55 in-[.light-mode]:text-black/55">
+                  characters
+                </span>
+              </div>
+            </SettingsRow>
+          </div>
         </div>
       </AccordionContent>
     </AccordionItem>

@@ -35,7 +35,7 @@ export function useScrapeTests(
   editableSourceProfiles: ComputedRef<SourceProfile[]>,
 ) {
   const scrapeTests = reactive<Record<string, ScrapeTestState>>({});
-  const { tokenRoles, tokenRole, titleRoleOwner, isTitleRoleDisabled, removeCreatorMarker, setTokenRole } =
+  const { tokenRoles, tokenRole, titleRoleOwner, isTitleRoleDisabled, isRoleDisabled, removeCreatorMarker, setTokenRole } =
     useTokenRoles(settingsDraft);
 
   watch(
@@ -147,6 +147,7 @@ export function useScrapeTests(
     tokenRole,
     titleRoleOwner,
     isTitleRoleDisabled,
+    isRoleDisabled,
     setTokenRole,
     addScrapeRule,
     removeScrapeRule,

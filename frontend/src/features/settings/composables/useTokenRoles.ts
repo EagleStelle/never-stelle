@@ -22,15 +22,33 @@ export function useTokenRoles(settingsDraft: SavedSettings) {
     return normalized ? tokenRoles(key)[normalized] || "ignore" : "ignore";
   }
 
-  function titleRoleOwner(key: string): string {
-    const entry = Object.entries(tokenRoles(key)).find(([, role]) => role === "title");
+  function roleOwner(key: string, role: TokenRole): string {
+    if (role !== "title" && role !== "creator") return "";
+    const entry = Object.entries(tokenRoles(key)).find(([, r]) => r === role);
     return entry?.[0] || "";
   }
 
-  function isTitleRoleDisabled(key: string, token: string): boolean {
+  function isRoleDisabled(key: string, token: string, role: TokenRole): boolean {
+    if (role !== "title" && role !== "creator") return false;
     const normalized = normalizeTokenName(token);
-    const owner = titleRoleOwner(key);
+    const owner = roleOwner(key, role);
     return Boolean(normalized && owner && owner !== normalized);
+  }
+
+  function titleRoleOwner(key: string): string {
+    return roleOwner(key, "title");
+  }
+
+  function isTitleRoleDisabled(key: string, token: string): boolean {
+    return isRoleDisabled(key, token, "title");
+  }
+
+  function creatorRoleOwner(key: string): string {
+    return roleOwner(key, "creator");
+  }
+
+  function isCreatorRoleDisabled(key: string, token: string): boolean {
+    return isRoleDisabled(key, token, "creator");
   }
 
   function migrateTemplateToken(key: string, token: string, role: TokenRole): void {
@@ -72,6 +90,7 @@ export function useTokenRoles(settingsDraft: SavedSettings) {
     const previousRole = tokenRole(key, normalized);
     const roles = { ...tokenRoles(key) };
     if (role === "title" && isTitleRoleDisabled(key, token)) return;
+    if (role === "creator" && isCreatorRoleDisabled(key, token)) return;
     if (role === "ignore") {
       delete roles[normalized];
     } else {
@@ -85,8 +104,12 @@ export function useTokenRoles(settingsDraft: SavedSettings) {
   return {
     tokenRoles,
     tokenRole,
+    roleOwner,
+    isRoleDisabled,
     titleRoleOwner,
     isTitleRoleDisabled,
+    creatorRoleOwner,
+    isCreatorRoleDisabled,
     removeCreatorMarker,
     setTokenRole,
   };

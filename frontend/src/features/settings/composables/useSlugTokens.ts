@@ -21,7 +21,7 @@ export function useSlugTokens(
   learnedFormatsDraft: LearnedFormats,
   _editableSourceProfiles: ComputedRef<SourceProfile[]>,
 ) {
-  const { tokenRole, isTitleRoleDisabled, setTokenRole } = useTokenRoles(settingsDraft);
+  const { tokenRole, titleRoleOwner, creatorRoleOwner, isTitleRoleDisabled, isRoleDisabled, setTokenRole } = useTokenRoles(settingsDraft);
 
   function learnedFormat(key: string): LearnedFormat | undefined {
     return learnedFormatsDraft?.[key] || settings.learned_formats?.[key];
@@ -235,7 +235,9 @@ export function useSlugTokens(
     segmentLabel,
     displayTemplate,
     tokenRole,
+    titleRoleOwner,
     isTitleRoleDisabled,
+    isRoleDisabled,
     setTokenRole,
     setSegmentRole,
   };

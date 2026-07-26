@@ -5,7 +5,6 @@ import IconSearch from "~icons/material-symbols/search";
 import IconSpinner from "~icons/material-symbols/sync";
 
 import { Button } from "../../../../components/ui/button";
-import { Checkbox } from "../../../../components/ui/checkbox";
 import { Input } from "../../../../components/ui/input";
 import {
   Table,
@@ -16,13 +15,12 @@ import {
   TableRow,
 } from "../../../../components/ui/table";
 import {
-  useCreatorSettings,
-  type CreatorRole,
-} from "../../composables/useCreatorSettings";
+  useFieldsSettings,
+  type FieldRole,
+} from "../../composables/useFieldsSettings";
 import { useSettingsContext } from "../../context";
 import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
 import SettingsLabel from "../../SettingsLabel.vue";
-import SettingsRow from "../../SettingsRow.vue";
 import {
   Accordion,
   AccordionContent,
@@ -30,9 +28,10 @@ import {
   AccordionTrigger,
 } from "../../../../components/ui/accordion";
 
-const ROLES: { key: CreatorRole; label: string }[] = [
+const ROLES: { key: FieldRole; label: string }[] = [
   { key: "username", label: "Username" },
   { key: "nickname", label: "Nickname" },
+  { key: "title", label: "Title" },
 ];
 
 const {
@@ -44,25 +43,19 @@ const {
 } = useSettingsContext();
 const {
   probes,
-  cleanupRules,
-  titleLengthRule,
   fieldListItems,
   reorderField,
   resetRole,
   isConfigured,
-  ruleEnabled,
-  setRule,
-  maxChars,
-  setMaxChars,
   runProbe,
-} = useCreatorSettings(settingsDraft, settings, learnedFormatsDraft, editableSourceProfiles, {
+} = useFieldsSettings(settingsDraft, settings, learnedFormatsDraft, editableSourceProfiles, {
   probeCreatorFields,
 });
 
 // Native drag-and-drop reordering, scoped to one (source, role) list at a time.
 const drag = reactive<{
   key: string;
-  role: CreatorRole;
+  role: FieldRole;
   from: number;
   over: number;
 }>({
@@ -74,7 +67,7 @@ const drag = reactive<{
 
 function onDragStart(
   key: string,
-  role: CreatorRole,
+  role: FieldRole,
   index: number,
   event: DragEvent,
 ): void {
@@ -88,11 +81,11 @@ function onDragStart(
   }
 }
 
-function onDragOver(key: string, role: CreatorRole, index: number): void {
+function onDragOver(key: string, role: FieldRole, index: number): void {
   if (drag.key === key && drag.role === role) drag.over = index;
 }
 
-function onDrop(key: string, role: CreatorRole, index: number): void {
+function onDrop(key: string, role: FieldRole, index: number): void {
   if (drag.key === key && drag.role === role) {
     reorderField(key, role, drag.from, index);
   }
@@ -105,11 +98,11 @@ function resetDrag(): void {
   drag.over = -1;
 }
 
-function isDragging(key: string, role: CreatorRole, index: number): boolean {
+function isDragging(key: string, role: FieldRole, index: number): boolean {
   return drag.key === key && drag.role === role && drag.from === index;
 }
 
-function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
+function isDropTarget(key: string, role: FieldRole, index: number): boolean {
   return (
     drag.key === key &&
     drag.role === role &&
@@ -173,11 +166,11 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
             {{ probes[site.key].message }}
           </SettingsEmptyCard>
 
-          <Table v-if="probes[site.key].fields.length" class="text-[0.8125rem]">
+          <Table v-if="probes[site.key].fields.length" class="w-full table-fixed text-[0.8125rem]">
             <TableHeader>
               <TableRow>
                 <TableHead
-                  class="w-48 text-[0.68rem] uppercase tracking-wider text-white/45 in-[.light-mode]:text-black/45"
+                  class="w-36 sm:w-44 text-[0.68rem] uppercase tracking-wider text-white/45 in-[.light-mode]:text-black/45"
                 >
                   Field
                 </TableHead>
@@ -193,14 +186,14 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
                 v-for="result in probes[site.key].fields"
                 :key="result.field"
               >
-                <TableCell class="w-48 max-w-48 font-mono">
+                <TableCell class="w-36 sm:w-44 max-w-[9rem] sm:max-w-[11rem] font-mono align-top">
                   <span class="block truncate" :title="result.field">
                     {{ result.field }}
                   </span>
                 </TableCell>
-                <TableCell>
+                <TableCell class="min-w-0 align-top">
                   <span
-                    class="block min-w-0 wrap-anywhere"
+                    class="block min-w-0 break-words whitespace-pre-wrap leading-normal [word-break:break-word] max-h-32 overflow-y-auto"
                     :title="result.value"
                   >
                     {{ result.value }}
@@ -210,7 +203,7 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
             </TableBody>
           </Table>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
             <div
               v-for="role in ROLES"
               :key="role.key"
@@ -257,43 +250,6 @@ function isDropTarget(key: string, role: CreatorRole, index: number): boolean {
                 </li>
               </ul>
             </div>
-          </div>
-
-          <div class="flex flex-col gap-2">
-            <SettingsLabel>Cleanup</SettingsLabel>
-            <label
-              v-for="rule in cleanupRules"
-              :key="rule.key"
-              class="flex items-center gap-2 cursor-pointer select-none text-sm"
-            >
-              <Checkbox
-                :checked="ruleEnabled(site.key, rule)"
-                @update:checked="
-                  (v: boolean) => setRule(site.key, rule, Boolean(v))
-                "
-              />
-              <span>{{ rule.label }}</span>
-            </label>
-            <SettingsRow
-              v-if="ruleEnabled(site.key, titleLengthRule)"
-              label="Character limit"
-            >
-              <div class="flex items-center gap-2">
-                <Input
-                  type="number"
-                  min="12"
-                  :disabled="!ruleEnabled(site.key, titleLengthRule)"
-                  :model-value="String(maxChars(site.key))"
-                  class="w-24 shrink-0"
-                  @update:model-value="
-                    (v: string | number) => setMaxChars(site.key, Number(v))
-                  "
-                />
-                <span class="text-white/55 in-[.light-mode]:text-black/55">
-                  characters
-                </span>
-              </div>
-            </SettingsRow>
           </div>
         </div>
       </AccordionContent>

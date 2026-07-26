@@ -67,7 +67,7 @@ const {
   formatsFor,
   rulesForFormat,
   tokenRole,
-  isTitleRoleDisabled,
+  isRoleDisabled,
   setTokenRole,
   addScrapeRule,
   removeScrapeRule,
@@ -131,12 +131,12 @@ const {
 
           <Table
             v-if="scrapeTests[site.key].results.length"
-            class="text-[0.8125rem]"
+            class="w-full table-fixed text-[0.8125rem]"
           >
             <TableHeader>
               <TableRow>
                 <TableHead
-                  class="w-48 text-[0.68rem] uppercase tracking-wider text-white/45 in-[.light-mode]:text-black/45"
+                  class="w-36 sm:w-44 text-[0.68rem] uppercase tracking-wider text-white/45 in-[.light-mode]:text-black/45"
                 >
                   Token
                 </TableHead>
@@ -152,15 +152,15 @@ const {
                 v-for="result in scrapeTests[site.key].results"
                 :key="result.token"
               >
-                <TableCell class="w-48 max-w-48 font-mono">
+                <TableCell class="w-36 sm:w-44 max-w-[9rem] sm:max-w-[11rem] font-mono align-top">
                   <span class="block truncate" :title="tokenLabel(result.token)">
                     {{ tokenLabel(result.token) }}
                   </span>
                 </TableCell>
-                <TableCell>
+                <TableCell class="min-w-0 align-top">
                   <span
                     v-if="result.matched"
-                    class="block min-w-0 wrap-anywhere"
+                    class="block min-w-0 break-words whitespace-pre-wrap leading-normal [word-break:break-word] max-h-32 overflow-y-auto"
                     :title="result.value"
                   >
                     {{ result.value }}
@@ -252,10 +252,7 @@ const {
                       v-for="role in ROLE_ITEMS"
                       :key="role.key"
                       :value="role.key"
-                      :disabled="
-                        role.key === 'title' &&
-                        isTitleRoleDisabled(site.key, rule.token || `var${index}`)
-                      "
+                      :disabled="isRoleDisabled(site.key, rule.token || `var${index}`, role.key)"
                     >
                       {{ role.label }}
                     </SegmentedControlItem>

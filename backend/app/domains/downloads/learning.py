@@ -52,7 +52,7 @@ def _merge_creator_fields(
     learned: dict[str, list[str]],
 ) -> dict[str, list[str]]:
     merged: dict[str, list[str]] = {}
-    for role in ("username", "nickname"):
+    for role in ("username", "nickname", "title"):
         fields: list[str] = []
         for source in (existing, learned):
             for field in source.get(role, []):
@@ -68,7 +68,7 @@ def _append_missing_creator_fields(
     learned: dict[str, list[str]],
 ) -> dict[str, list[str]]:
     merged: dict[str, list[str]] = {}
-    for role in ("username", "nickname"):
+    for role in ("username", "nickname", "title"):
         fields = list(existing.get(role) or [])
         for field in learned.get(role, []):
             if field and field not in fields:

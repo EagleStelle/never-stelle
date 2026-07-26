@@ -20,7 +20,8 @@ import {
   scraperTokenFromCreatorField,
 } from "../../../utils/dashboard";
 
-export type CreatorRole = "username" | "nickname";
+export type FieldRole = "username" | "nickname" | "title";
+export type CreatorRole = FieldRole;
 
 export interface CreatorFieldListItem {
   key: string;
@@ -51,15 +52,14 @@ const FALLBACK_TITLE_LENGTH_RULE: TitleCleaningRule = {
 
 const probes = reactive<Record<string, ProbeState>>({});
 
-// Per-source username/nickname field lists, title-cleaning toggles, and the field probe.
-export function useCreatorSettings(
+// Per-source username/nickname/title field lists, title-cleaning toggles, and the field probe.
+export function useFieldsSettings(
   settingsDraft: SavedSettings,
   settings: RuntimeSettings,
   learnedFormatsDraft: LearnedFormats,
   editableSourceProfiles: ComputedRef<SourceProfile[]>,
   actions: CreatorSettingsActions,
 ) {
-
   watch(
     editableSourceProfiles,
     (profiles) => {
@@ -91,22 +91,22 @@ export function useCreatorSettings(
       FALLBACK_TITLE_LENGTH_RULE,
   );
 
-  // The ordered default field list per role; an empty per-source list tracks this.
   const defaults = computed<CreatorFieldRoles>(() => ({
     username: settings.creator_field_defaults?.username || [],
     nickname: settings.creator_field_defaults?.nickname || [],
+    title: settings.creator_field_defaults?.title || [],
   }));
 
   function creatorRoles(key: string): CreatorFieldRoles {
     if (!settingsDraft.source_creator_fields[key]) {
-      settingsDraft.source_creator_fields[key] = { username: [], nickname: [] };
+      settingsDraft.source_creator_fields[key] = { username: [], nickname: [], title: [] };
     }
     return settingsDraft.source_creator_fields[key];
   }
 
   function sourceHasSavedCreatorFields(key: string): boolean {
     const roles = settings.source_creator_fields[key];
-    return Boolean(roles?.username?.length || roles?.nickname?.length);
+    return Boolean(roles?.username?.length || roles?.nickname?.length || roles?.title?.length);
   }
 
   function sourceHasSavedFormats(key: string): boolean {
@@ -128,12 +128,12 @@ export function useCreatorSettings(
     );
   }
 
-  function sourceHasDraftCreatorFields(key: string): boolean {
+  function sourceHasDraftRole(key: string, role: FieldRole): boolean {
     const roles = creatorRoles(key);
-    return roles.username.length > 0 || roles.nickname.length > 0;
+    return roles[role]?.length > 0;
   }
 
-  function roleDefaultList(key: string, role: CreatorRole): string[] {
+  function roleDefaultList(key: string, role: FieldRole): string[] {
     if (sourceFormatsClearedInDraft(key)) return [];
     if (sourceHasSavedCreatorFields(key)) {
       return settings.source_creator_fields[key]?.[role] || [];
@@ -143,11 +143,16 @@ export function useCreatorSettings(
     return [];
   }
 
-  function scraperRoleTokens(key: string, role: CreatorRole): string[] {
+  function isTokenRoleMatchingFieldRole(tokenRole: string, role: FieldRole): boolean {
+    if (tokenRole === role) return true;
+    if (tokenRole === "creator" && (role === "username" || role === "nickname")) return true;
+    return false;
+  }
+
+  function scraperRoleTokens(key: string, role: FieldRole): string[] {
     const roles = settingsDraft.source_token_roles[key] || {};
     const seen = new Set<string>();
     const out: string[] = [];
-    // Both scraper HTML tokens and slug URL-part tokens feed creator the same way.
     const candidates = [
       ...(settingsDraft.source_scrape_rules[key]?.rules || []).map((rule) => rule.token),
       ...(settingsDraft.source_slug_tokens[key] || []).map((slug) => slug.token),
@@ -156,14 +161,14 @@ export function useCreatorSettings(
       const token = normalizeTokenName(raw);
       if (!token || seen.has(token)) continue;
       const tokenRole = roles[token] || "ignore";
-      if (tokenRole !== role && tokenRole !== "creator") continue;
+      if (!isTokenRoleMatchingFieldRole(tokenRole, role)) continue;
       seen.add(token);
       out.push(token);
     }
     return out;
   }
 
-  function assignedScraperFields(key: string, role: CreatorRole): string[] {
+  function assignedScraperFields(key: string, role: FieldRole): string[] {
     return scraperRoleTokens(key, role)
       .map((token) => scraperCreatorField(token))
       .filter(Boolean);
@@ -171,13 +176,12 @@ export function useCreatorSettings(
 
   function withAssignedScraperFields(
     key: string,
-    role: CreatorRole,
+    role: FieldRole,
     values: string[],
   ): string[] {
     const assigned = assignedScraperFields(key, role);
     const assignedSet = new Set(assigned);
     const out: string[] = [];
-    // Prepend newly assigned scraper fields to the top
     for (const field of assigned) {
       if (!values.map(normalizeCreatorField).includes(field)) {
         out.push(field);
@@ -192,19 +196,18 @@ export function useCreatorSettings(
     return out;
   }
 
-  // Shown list: source-learned fields once configured, otherwise the cold-start default.
-  function fieldList(key: string, role: CreatorRole): string[] {
+  function fieldList(key: string, role: FieldRole): string[] {
     const roles = creatorRoles(key);
     const list = roles[role];
     const base = list.length
       ? list
-      : sourceHasDraftCreatorFields(key)
+      : sourceHasDraftRole(key, role)
         ? []
         : roleDefaultList(key, role);
     return withAssignedScraperFields(key, role, base);
   }
 
-  function fieldListItems(key: string, role: CreatorRole): CreatorFieldListItem[] {
+  function fieldListItems(key: string, role: FieldRole): CreatorFieldListItem[] {
     return fieldList(key, role).map((field) => {
       const scraperToken = scraperTokenFromCreatorField(field);
       return {
@@ -217,7 +220,7 @@ export function useCreatorSettings(
 
   function sameAsDefault(
     key: string,
-    role: CreatorRole,
+    role: FieldRole,
     list: string[],
   ): boolean {
     const base = withAssignedScraperFields(key, role, roleDefaultList(key, role));
@@ -227,9 +230,7 @@ export function useCreatorSettings(
     );
   }
 
-  // Persist changed order. Unlearned sources can keep tracking global defaults with an empty list;
-  // learned sources must retain their real fields so a save never erases the probe result.
-  function commit(key: string, role: CreatorRole, list: string[]): void {
+  function commit(key: string, role: FieldRole, list: string[]): void {
     const normalized = withAssignedScraperFields(key, role, list);
     creatorRoles(key)[role] =
       sameAsDefault(key, role, normalized) && !sourceHasSavedCreatorFields(key)
@@ -237,7 +238,7 @@ export function useCreatorSettings(
         : normalized;
   }
 
-  function addField(key: string, role: CreatorRole, raw: string): void {
+  function addField(key: string, role: FieldRole, raw: string): void {
     const field = normalizeCreatorField(raw);
     if (!field) return;
     const list = [...fieldList(key, role)];
@@ -248,7 +249,7 @@ export function useCreatorSettings(
 
   function reorderField(
     key: string,
-    role: CreatorRole,
+    role: FieldRole,
     from: number,
     to: number,
   ): void {
@@ -266,14 +267,13 @@ export function useCreatorSettings(
     commit(key, role, list);
   }
 
-  function resetRole(key: string, role: CreatorRole): void {
+  function resetRole(key: string, role: FieldRole): void {
     creatorRoles(key)[role] = sourceHasSavedCreatorFields(key)
       ? [...roleDefaultList(key, role)]
       : [];
   }
 
-  // True once the source order differs from its learned/default order.
-  function isConfigured(key: string, role: CreatorRole): boolean {
+  function isConfigured(key: string, role: FieldRole): boolean {
     return !sameAsDefault(key, role, fieldList(key, role));
   }
 
@@ -320,24 +320,15 @@ export function useCreatorSettings(
 
   function mergeLearnedFields(
     key: string,
-    role: CreatorRole,
+    role: FieldRole,
     learned: string[],
   ): string[] {
     const next: string[] = [];
-    const learnedQueue = learnedFields(learned);
-    let learnedIndex = 0;
     for (const field of fieldList(key, role)) {
-      if (isScraperCreatorField(field)) {
-        if (!next.includes(field)) next.push(field);
-        continue;
-      }
-      const learnedField = learnedQueue[learnedIndex];
-      learnedIndex += 1;
-      if (learnedField && !next.includes(learnedField)) next.push(learnedField);
+      if (!next.includes(field)) next.push(field);
     }
-    for (; learnedIndex < learnedQueue.length; learnedIndex += 1) {
-      const learnedField = learnedQueue[learnedIndex];
-      if (learnedField && !next.includes(learnedField)) next.push(learnedField);
+    for (const raw of learnedFields(learned)) {
+      if (!next.includes(raw)) next.push(raw);
     }
     return withAssignedScraperFields(key, role, next);
   }
@@ -363,22 +354,17 @@ export function useCreatorSettings(
       currentState.fields = response.fields;
       const learned = createCreatorFieldRoles(response.creator_fields || {});
       const targetKey = response.source_key || key;
-      if (!response.saved) {
-        if (learned.username.length > 0 || learned.nickname.length > 0) {
-          const draftRoles = creatorRoles(targetKey);
-          draftRoles.username = mergeLearnedFields(
+      if (learned.username.length > 0 || learned.nickname.length > 0 || learned.title.length > 0) {
+        const draftRoles = creatorRoles(targetKey);
+        for (const role of ["username", "nickname", "title"] as const) {
+          draftRoles[role] = mergeLearnedFields(
             targetKey,
-            "username",
-            learned.username,
-          );
-          draftRoles.nickname = mergeLearnedFields(
-            targetKey,
-            "nickname",
-            learned.nickname,
+            role,
+            learned[role] || [],
           );
         }
       }
-      currentState.message = response.fields.length ? "" : "No creator fields found.";
+      currentState.message = response.fields.length ? "" : "No fields found.";
     } catch (error) {
       currentState.fields = [];
       currentState.message = errorMessage(error, "Could not read that link.");
@@ -404,3 +390,5 @@ export function useCreatorSettings(
     runProbe,
   };
 }
+
+export const useCreatorSettings = useFieldsSettings;

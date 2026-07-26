@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import backend.app.domains.auth as auth_module
 import backend.app.domains.downloads.planning as planning_module
-import backend.app.domains.settings.creator_fields as creator_fields_module
+import backend.app.domains.settings.fields as fields_module
 import backend.app.domains.settings.formats as settings_formats_module
 import backend.app.domains.settings.locations as settings_locations_module
 import backend.app.domains.settings.service as settings_module
@@ -312,11 +312,11 @@ def test_normalize_source_title_cleaning_fills_defaults_and_skips_empty():
 
 def test_get_effective_creator_fields_resolves_per_source(monkeypatch):
     monkeypatch.setattr(
-        creator_fields_module,
+        fields_module,
         "load_saved_settings_file",
         lambda: {"source_creator_fields": {"youtube": {"username": ["channel"]}}},
     )
-    monkeypatch.setattr(creator_fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
+    monkeypatch.setattr(fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
     assert get_effective_creator_fields("https://youtube.com/x") == {"username": ["channel"]}
     assert get_effective_creator_fields("") == {}
 
@@ -325,14 +325,14 @@ def test_get_effective_creator_fields_leads_both_roles_with_creator_scraper_toke
     # A token assigned the Creator role must lead both username and nickname even when
     # the source has no persisted creator-field lists, so naming resolves either role.
     monkeypatch.setattr(
-        creator_fields_module,
+        fields_module,
         "load_saved_settings_file",
         lambda: {
             "source_scrape_rules": {"rule34video": {"rules": [{"token": "artist", "xpath": "//*[@id='a']"}]}},
             "source_token_roles": {"rule34video": {"artist": "creator"}},
         },
     )
-    monkeypatch.setattr(creator_fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "rule34video"})
+    monkeypatch.setattr(fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "rule34video"})
 
     fields = get_effective_creator_fields("https://rule34video.com/video/1/post")
 
@@ -343,32 +343,32 @@ def test_get_effective_creator_fields_leads_both_roles_with_creator_scraper_toke
 def test_get_effective_creator_fields_drops_unassigned_scraper_field(monkeypatch):
     # A persisted scraper field whose role is no longer Creator is dropped from the list.
     monkeypatch.setattr(
-        creator_fields_module,
+        fields_module,
         "load_saved_settings_file",
         lambda: {
             "source_creator_fields": {"rule34video": {"username": ["scraper[artist]", "uploader"]}},
             "source_token_roles": {"rule34video": {"artist": "ignore"}},
         },
     )
-    monkeypatch.setattr(creator_fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "rule34video"})
+    monkeypatch.setattr(fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "rule34video"})
 
     assert get_effective_creator_fields("https://rule34video.com/video/1/post") == {"username": ["uploader"]}
 
 
 def test_get_effective_creator_fields_ignores_learned_url_creator_defaults(monkeypatch):
-    monkeypatch.setattr(creator_fields_module, "load_saved_settings_file", lambda: {})
-    monkeypatch.setattr(creator_fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
+    monkeypatch.setattr(fields_module, "load_saved_settings_file", lambda: {})
+    monkeypatch.setattr(fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
 
     assert get_effective_creator_fields("https://www.tiktok.com/@moli0n/video/1") == {}
 
 
 def test_learned_url_creator_defaults_do_not_promote_saved_creator_fields(monkeypatch):
     monkeypatch.setattr(
-        creator_fields_module,
+        fields_module,
         "load_saved_settings_file",
         lambda: {"source_creator_fields": {"tiktok": {"username": ["uploader_id", "channel", "uploader"]}}},
     )
-    monkeypatch.setattr(creator_fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
+    monkeypatch.setattr(fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
 
     assert get_effective_creator_fields("https://www.tiktok.com/@moli0n/video/1") == {
         "username": ["uploader_id", "channel", "uploader"]
@@ -653,11 +653,11 @@ def test_ensure_creator_fields_learned_saves_first_successful_probe(monkeypatch)
 
 def test_get_effective_title_cleaning_resolves_per_source(monkeypatch):
     monkeypatch.setattr(
-        creator_fields_module,
+        fields_module,
         "load_saved_settings_file",
         lambda: {"source_title_cleaning": {"youtube": {"strip_hashtags": False}}},
     )
-    monkeypatch.setattr(creator_fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
+    monkeypatch.setattr(fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
     flags = get_effective_title_cleaning("https://youtube.com/x")
     assert flags["strip_hashtags"] is False
     assert get_effective_title_cleaning("") == {}

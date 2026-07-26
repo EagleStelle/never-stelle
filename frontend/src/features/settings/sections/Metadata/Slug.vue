@@ -37,7 +37,7 @@ const {
   segmentLabel,
   displayTemplate,
   tokenRole,
-  isTitleRoleDisabled,
+  isRoleDisabled,
   setSegmentRole,
 } = useSlugTokens(settingsDraft, settings, learnedFormatsDraft, editableSourceProfiles);
 
@@ -63,7 +63,7 @@ function roleValue(key: string, segment: LearnedSegment): TokenRole {
 function roleDisabled(key: string, segment: LearnedSegment, role: TokenRole): boolean {
   const token = segmentToken(key, segment);
   if (!token) return role !== "ignore";
-  return role === "title" && isTitleRoleDisabled(key, token);
+  return isRoleDisabled(key, token, role);
 }
 </script>
 

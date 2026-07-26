@@ -16,7 +16,7 @@ import Cookies from "./sections/Settings/Cookies.vue";
 import Locations from "./sections/Settings/Locations.vue";
 import Quality from "./sections/Settings/Quality.vue";
 import Templates from "./sections/Metadata/Templates.vue";
-import Creator from "./sections/Metadata/Creator.vue";
+import Fields from "./sections/Metadata/Fields.vue";
 import Format from "./sections/Metadata/Format.vue";
 import Scraper from "./sections/Metadata/Scraper.vue";
 import Slug from "./sections/Metadata/Slug.vue";
@@ -82,15 +82,6 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     requiresSources: false,
   },
   {
-    key: "creator",
-    label: "Creator",
-    group: "Metadata",
-    icon: IconCreator,
-    component: Creator,
-    focusId: (source) => `${source}CreatorProbeInput`,
-    requiresSources: true,
-  },
-  {
     key: "slug",
     label: "Slug",
     group: "Metadata",
@@ -105,6 +96,15 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     icon: IconScraper,
     component: Scraper,
     focusId: (source) => `${source}ScraperProbeInput`,
+    requiresSources: true,
+  },
+  {
+    key: "creator",
+    label: "Fields",
+    group: "Metadata",
+    icon: IconCreator,
+    component: Fields,
+    focusId: (source) => `${source}CreatorProbeInput`,
     requiresSources: true,
   },
   {

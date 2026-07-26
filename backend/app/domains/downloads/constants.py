@@ -300,6 +300,13 @@ CREATOR_ROLE_CHAINS: dict[str, dict[str, tuple[str, ...]]] = {
             "nickname",
             "author",
         ),
+        "title": (
+            "title",
+            "fulltitle",
+            "caption",
+            "description",
+            "alt_text",
+        ),
     },
     "gallerydl": {
         "username": (
@@ -322,6 +329,13 @@ CREATOR_ROLE_CHAINS: dict[str, dict[str, tuple[str, ...]]] = {
             "username",
             "user[name]",
         ),
+        "title": (
+            "title",
+            "caption",
+            "description",
+            "alt_text",
+            "headline",
+        ),
     },
 }
 
@@ -329,7 +343,7 @@ CREATOR_ROLE_CHAINS: dict[str, dict[str, tuple[str, ...]]] = {
 def _engine_creator_candidates(engine: str) -> tuple[str, ...]:
     seen: set[str] = set()
     fields: list[str] = []
-    for role in ("username", "nickname"):
+    for role in ("username", "nickname", "title"):
         for field in CREATOR_ROLE_CHAINS.get(engine, {}).get(role, ()):
             if field not in seen:
                 seen.add(field)
@@ -345,8 +359,7 @@ CREATOR_FIELD_CANDIDATES: dict[str, tuple[str, ...]] = {
 
 
 def _creator_field_default(role: str) -> list[str]:
-    # Role chains first (engine order), then any remaining candidate field, deduped.
-    # Each engine's field spec filters this union down to fields it can actually use.
+    # Union of role chains across engines in stable order.
     seen: set[str] = set()
     out: list[str] = []
     for engine_chains in CREATOR_ROLE_CHAINS.values():
@@ -354,16 +367,11 @@ def _creator_field_default(role: str) -> list[str]:
             if field not in seen:
                 seen.add(field)
                 out.append(field)
-    for fields in CREATOR_FIELD_CANDIDATES.values():
-        for field in fields:
-            if field not in seen:
-                seen.add(field)
-                out.append(field)
     return out
 
 
 CREATOR_FIELD_DEFAULTS: dict[str, list[str]] = {
-    role: _creator_field_default(role) for role in ("username", "nickname")
+    role: _creator_field_default(role) for role in ("username", "nickname", "title")
 }
 
 
@@ -414,7 +422,7 @@ def promote_creator_field_roles(
     fields_by_role = fields_by_role if isinstance(fields_by_role, dict) else {}
     promoted_by_role = promoted_by_role if isinstance(promoted_by_role, dict) else {}
     out: dict[str, list[str]] = {}
-    for role in ("username", "nickname"):
+    for role in ("username", "nickname", "title"):
         ranked = promote_creator_role_fields(
             role,
             fields_by_role.get(role) or (),
@@ -426,13 +434,13 @@ def promote_creator_field_roles(
 
 
 def creator_roles_from_probe_fields(fields_by_engine: dict[str, list[str] | tuple[str, ...]]) -> dict[str, list[str]]:
-    """Build username/nickname lists from fields that a live probe actually saw."""
+    """Build username/nickname/title lists from fields that a live probe actually saw."""
     out: dict[str, list[str]] = {}
     engine_names = [
         *[engine for engine in CREATOR_ROLE_CHAINS if engine in fields_by_engine],
         *[engine for engine in fields_by_engine if engine not in CREATOR_ROLE_CHAINS],
     ]
-    for role in ("username", "nickname"):
+    for role in ("username", "nickname", "title"):
         fields: list[str] = []
         for engine in engine_names:
             available = set(str(field or "").strip() for field in (fields_by_engine.get(engine) or ()))
