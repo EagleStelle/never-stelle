@@ -4,7 +4,7 @@ import IconClose from "~icons/material-symbols/close";
 import IconSearch from "~icons/material-symbols/search";
 import { TabsList, TabsTrigger } from "reka-ui";
 
-import { Input } from "../../components/ui/input";
+import { Input } from "@/components/ui/input";
 import {
   Sidebar,
   SidebarGroup,
@@ -13,9 +13,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "../../components/ui/sidebar";
-import type { SettingsSection } from "../../types";
-import { SETTINGS_SECTION_DEFS, SETTINGS_SECTION_GROUPS } from "./sections";
+} from "@/components/ui/sidebar";
+import type { SettingsSection } from "@/types";
+import { SETTINGS_SECTION_DEFS, SETTINGS_SECTION_GROUPS } from "@/features/settings/sections";
 
 const emit = defineEmits<{
   close: [];

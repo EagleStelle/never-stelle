@@ -6,17 +6,17 @@ import IconMedia from "~icons/material-symbols/perm-media";
 import IconVideo from "~icons/material-symbols/movie";
 import IconImage from "~icons/material-symbols/image";
 
-import { useDashboardSettings } from "./useDashboardSettings";
-import { useAuth } from "./useAuth";
-import { useTaskQueue } from "./useTaskQueue";
-import { useHistory } from "./useHistory";
-import { useSonner } from "./useSonner";
+import { useDashboardSettings } from "@/composables/useDashboardSettings";
+import { useAuth } from "@/composables/useAuth";
+import { useTaskQueue } from "@/composables/useTaskQueue";
+import { useHistory } from "@/composables/useHistory";
+import { useSonner } from "@/composables/useSonner";
 import {
   COUNT_ICONS,
   FALLBACK_SOURCE_ICON,
   PAGE_ROUTES,
   SOURCE_ICON_COMPONENTS,
-} from "../ui";
+} from "@/ui";
 import type {
   MediaFilter,
   MenuKey,
@@ -27,7 +27,7 @@ import type {
   TaskCounts,
   TaskFilter,
   ViewMode,
-} from "../types";
+} from "@/types";
 import {
   createQualitySelection,
   isFilterKey,
@@ -39,8 +39,8 @@ import {
   hostFromUrl,
   mergeSourceProfiles,
   sourceLabelFromKey,
-} from "../utils/dashboard";
-import { mediaKindForTask } from "../utils/task";
+} from "@/utils/dashboard";
+import { mediaKindForTask } from "@/utils/task";
 
 // Settings overlay rides in a ?settings=<slug> query param, not its own path.
 const SETTINGS_SLUG_BY_SECTION: Record<SettingsSection, string> = {

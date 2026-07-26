@@ -1,10 +1,10 @@
 import { computed, type Ref } from "vue";
 import { useInfiniteQuery, type InfiniteData } from "@tanstack/vue-query";
 
-import { getHistory } from "../api";
-import { HISTORY_PAGE_SIZE, HISTORY_QUERY_KEY } from "../ui";
-import type { HistoryResponse, TaskItem } from "../types";
-import { errorMessage } from "../utils/dashboard";
+import { getHistory } from "@/api";
+import { HISTORY_PAGE_SIZE, HISTORY_QUERY_KEY } from "@/ui";
+import type { HistoryResponse, TaskItem } from "@/types";
+import { errorMessage } from "@/utils/dashboard";
 
 interface UseHistoryOptions {
   sourceKey: Ref<string>;

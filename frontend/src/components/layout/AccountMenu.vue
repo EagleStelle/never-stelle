@@ -8,8 +8,8 @@ import IconLogout from "~icons/material-symbols/logout";
 import IconMoon from "~icons/material-symbols/dark-mode";
 import IconSun from "~icons/material-symbols/light-mode";
 
-import { useAuth } from "../../composables/useAuth";
-import type { SettingsSection } from "../../types";
+import { useAuth } from "@/composables/useAuth";
+import type { SettingsSection } from "@/types";
 
 type AccountMenuVariant = "sidebar" | "sidebar-collapsed" | "bottom";
 

@@ -5,18 +5,18 @@ import IconDrag from "~icons/material-symbols/drag-indicator";
 import IconSpinner from "~icons/material-symbols/sync";
 import IconTrash from "~icons/material-symbols/delete";
 
-import { Button } from "../../../../components/ui/button";
-import { Input } from "../../../../components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "../../../../components/ui/accordion";
-import type { LearnedFormat } from "../../../../types";
-import { displayUrlTemplate } from "../../../../utils/dashboard";
-import { useSettingsContext } from "../../context";
-import { Card } from "../../../../components/ui/card";
+} from "@/components/ui/accordion";
+import type { LearnedFormat } from "@/types";
+import { displayUrlTemplate } from "@/utils/dashboard";
+import { useSettingsContext } from "@/features/settings/context";
+import { Card } from "@/components/ui/card";
 
 const {
   learnedFormatsDraft,

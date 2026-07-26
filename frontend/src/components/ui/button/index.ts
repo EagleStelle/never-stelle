@@ -1,7 +1,7 @@
 import type { VariantProps } from "class-variance-authority";
 import { cva } from "class-variance-authority";
 
-export { default as Button } from "./Button.vue";
+export { default as Button } from "@/components/ui/button/Button.vue";
 
 const PRIMARY =
   "border border-(--glass-border) bg-accent text-black hover:bg-accent/45";

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import { Button } from "../ui/button";
-import type { SourceProfile, TaskItem } from "../../types";
-import { sourceLabelFromKey } from "../../utils/dashboard";
+import { Button } from "@/components/ui/button";
+import type { SourceProfile, TaskItem } from "@/types";
+import { sourceLabelFromKey } from "@/utils/dashboard";
 
 const props = defineProps<{
   task: TaskItem;

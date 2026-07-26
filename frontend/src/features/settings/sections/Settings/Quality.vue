@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import { ComboboxSelect as Combobox } from "../../../../components/ui/combobox";
+import { ComboboxSelect as Combobox } from "@/components/ui/combobox";
 import {
   FieldGroup,
   FieldLegend,
   FieldSet,
-} from "../../../../components/ui/field";
-import { Label } from "../../../../components/ui/label";
+} from "@/components/ui/field";
+import { Label } from "@/components/ui/label";
 import {
   isCodecCompatibleWithContainer,
   isLosslessAudioFormat,
   videoCodecOptionsForContainer,
-} from "../../../../utils/dashboard";
-import { useSettingsContext } from "../../context";
+} from "@/utils/dashboard";
+import { useSettingsContext } from "@/features/settings/context";
 
 const { settings, settingsDraft } = useSettingsContext();
 

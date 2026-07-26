@@ -5,7 +5,7 @@ import IconStop from "~icons/material-symbols/stop";
 import IconRetry from "~icons/material-symbols/replay";
 import { reactive } from "vue";
 
-import { Button } from "../ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -13,12 +13,12 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "../ui/table";
-import SourcePicker from "./SourcePicker.vue";
+} from "@/components/ui/table";
+import SourcePicker from "@/components/task/SourcePicker.vue";
 
-import { taskFileUrl } from "../../api";
-import type { SourceProfile, TaskItem } from "../../types";
-import { formatSize, sourceIconUrl, sourceLink, taskBackgroundStyle } from "../../utils/task";
+import { taskFileUrl } from "@/api";
+import type { SourceProfile, TaskItem } from "@/types";
+import { formatSize, sourceIconUrl, sourceLink, taskBackgroundStyle } from "@/utils/task";
 
 const props = defineProps<{
   tasks: TaskItem[];

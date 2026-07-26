@@ -5,8 +5,8 @@ import {
   login as loginRequest,
   logout as logoutRequest,
   updateCredentials as updateCredentialsRequest,
-} from "../api";
-import type { AuthSessionResponse, CredentialsPayload, LoginPayload } from "../types";
+} from "@/api";
+import type { AuthSessionResponse, CredentialsPayload, LoginPayload } from "@/types";
 
 const ready = ref(false);
 const authenticated = ref(false);

@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import type { Component } from "vue";
-import ShadcnCombobox from "./Combobox.vue";
-import ComboboxAnchor from "./ComboboxAnchor.vue";
-import ComboboxEmpty from "./ComboboxEmpty.vue";
-import ComboboxGroup from "./ComboboxGroup.vue";
-import ComboboxInput from "./ComboboxInput.vue";
-import ComboboxItem from "./ComboboxItem.vue";
-import ComboboxItemIndicator from "./ComboboxItemIndicator.vue";
-import ComboboxList from "./ComboboxList.vue";
-import ComboboxTrigger from "./ComboboxTrigger.vue";
-import ComboboxViewport from "./ComboboxViewport.vue";
+import ShadcnCombobox from "@/components/ui/combobox/Combobox.vue";
+import ComboboxAnchor from "@/components/ui/combobox/ComboboxAnchor.vue";
+import ComboboxEmpty from "@/components/ui/combobox/ComboboxEmpty.vue";
+import ComboboxGroup from "@/components/ui/combobox/ComboboxGroup.vue";
+import ComboboxInput from "@/components/ui/combobox/ComboboxInput.vue";
+import ComboboxItem from "@/components/ui/combobox/ComboboxItem.vue";
+import ComboboxItemIndicator from "@/components/ui/combobox/ComboboxItemIndicator.vue";
+import ComboboxList from "@/components/ui/combobox/ComboboxList.vue";
+import ComboboxTrigger from "@/components/ui/combobox/ComboboxTrigger.vue";
+import ComboboxViewport from "@/components/ui/combobox/ComboboxViewport.vue";
 import { ChevronsUpDownIcon } from "@lucide/vue";
 import IconCheck from "~icons/material-symbols/check";
 

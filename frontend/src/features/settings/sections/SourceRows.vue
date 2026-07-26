@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { FieldGroup, FieldSet } from "../../../components/ui/field";
-import { Label } from "../../../components/ui/label";
-import type { SourceProfile } from "../../../types";
-import { useSettingsContext } from "../context";
+import { FieldGroup, FieldSet } from "@/components/ui/field";
+import { Label } from "@/components/ui/label";
+import type { SourceProfile } from "@/types";
+import { useSettingsContext } from "@/features/settings/context";
 
 // One labelled row per editable source; the control is supplied by the caller.
 const { editableSourceProfiles } = useSettingsContext();

@@ -10,7 +10,7 @@ import {
   useForwardPropsEmits,
 } from "reka-ui";
 import { cn } from "@/lib/utils";
-import DialogOverlay from "./DialogOverlay.vue";
+import DialogOverlay from "@/components/ui/dialog/DialogOverlay.vue";
 
 defineOptions({
   inheritAttrs: false,

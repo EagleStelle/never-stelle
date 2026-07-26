@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { FieldGroup, FieldSet } from "../../../../components/ui/field";
-import { Input } from "../../../../components/ui/input";
-import { Label } from "../../../../components/ui/label";
-import { useSettingsContext } from "../../context";
+import { FieldGroup, FieldSet } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useSettingsContext } from "@/features/settings/context";
 
 const { settingsDraft, saveSettingsDraft } = useSettingsContext();
 </script>

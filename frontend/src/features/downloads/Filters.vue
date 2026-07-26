@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ComboboxSelect as Combobox } from "../../components/ui/combobox";
+import { ComboboxSelect as Combobox } from "@/components/ui/combobox";
 import {
   SegmentedControl,
   SegmentedControlItem,
-} from "../../components/ui/segmented-control";
+} from "@/components/ui/segmented-control";
 import IconGrid from "~icons/material-symbols/grid-view";
 import IconList from "~icons/material-symbols/list";
-import type { MediaFilter, MenuKey, ViewMode } from "../../types";
+import type { MediaFilter, MenuKey, ViewMode } from "@/types";
 
 defineProps<{
   activeMenu: MenuKey;

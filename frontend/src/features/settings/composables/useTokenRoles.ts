@@ -1,8 +1,8 @@
-import type { SavedSettings, TokenRole } from "../../../types";
+import type { SavedSettings, TokenRole } from "@/types";
 import {
   normalizeTokenName,
   scraperCreatorField,
-} from "../../../utils/dashboard";
+} from "@/utils/dashboard";
 
 const TEMPLATE_TOKEN_RE = /{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}/g;
 

@@ -3,10 +3,10 @@ import { reactive, ref } from "vue";
 import IconLock from "~icons/material-symbols/lock";
 import IconPerson from "~icons/material-symbols/person";
 
-import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { useAuth } from "../../composables/useAuth";
-import { errorMessage } from "../../utils/dashboard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useAuth } from "@/composables/useAuth";
+import { errorMessage } from "@/utils/dashboard";
 
 const auth = useAuth();
 const form = reactive({

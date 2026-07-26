@@ -1,12 +1,12 @@
 import { computed, watch, type ComputedRef } from "vue";
 
-import type { RuntimeSettings, SettingsDraft, SourceProfile } from "../../../types";
+import type { RuntimeSettings, SettingsDraft, SourceProfile } from "@/types";
 import {
   createPlatformScrapeRules,
   createTemplateSettings,
   mergeSourceProfiles,
   settingsManagedSourceProfiles,
-} from "../../../utils/dashboard";
+} from "@/utils/dashboard";
 
 interface DraftSources {
   settings: RuntimeSettings;

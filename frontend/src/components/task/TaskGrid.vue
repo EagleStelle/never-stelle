@@ -4,7 +4,7 @@ import IconX from "~icons/material-symbols/close";
 import IconStop from "~icons/material-symbols/stop";
 import IconRetry from "~icons/material-symbols/replay";
 
-import { Button } from "../ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardAction,
@@ -12,18 +12,18 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "../ui/card";
-import SourcePicker from "./SourcePicker.vue";
+} from "@/components/ui/card";
+import SourcePicker from "@/components/task/SourcePicker.vue";
 
-import { taskFileUrl } from "../../api";
-import type { SourceProfile, TaskItem } from "../../types";
+import { taskFileUrl } from "@/api";
+import type { SourceProfile, TaskItem } from "@/types";
 import {
   sourceIconUrl,
   sourceLink,
   taskBackgroundStyle,
   taskDetail,
   taskTitle,
-} from "../../utils/task";
+} from "@/utils/task";
 
 const props = defineProps<{
   tasks: TaskItem[];

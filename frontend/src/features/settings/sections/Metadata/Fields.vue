@@ -4,8 +4,8 @@ import IconDrag from "~icons/material-symbols/drag-indicator";
 import IconSearch from "~icons/material-symbols/search";
 import IconSpinner from "~icons/material-symbols/sync";
 
-import { Button } from "../../../../components/ui/button";
-import { Input } from "../../../../components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -13,20 +13,20 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "../../../../components/ui/table";
+} from "@/components/ui/table";
 import {
   useFieldsSettings,
   type FieldRole,
-} from "../../composables/useFieldsSettings";
-import { useSettingsContext } from "../../context";
-import { Card } from "../../../../components/ui/card";
-import { Label } from "../../../../components/ui/label";
+} from "@/features/settings/composables/useFieldsSettings";
+import { useSettingsContext } from "@/features/settings/context";
+import { Card } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "../../../../components/ui/accordion";
+} from "@/components/ui/accordion";
 
 const ROLES: { key: FieldRole; label: string }[] = [
   { key: "username", label: "Username" },

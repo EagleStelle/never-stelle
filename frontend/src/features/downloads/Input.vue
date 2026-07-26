@@ -4,22 +4,22 @@ import IconLink from "~icons/material-symbols/link";
 import IconPaste from "~icons/material-symbols/content-paste-rounded";
 import IconMovie from "~icons/material-symbols/movie";
 import IconMusic from "~icons/material-symbols/music-note";
-import { Input } from "../../components/ui/input";
-import { Button } from "../../components/ui/button";
-import { ComboboxSelect as Combobox } from "../../components/ui/combobox";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { ComboboxSelect as Combobox } from "@/components/ui/combobox";
 import {
   SegmentedControl,
   SegmentedControlItem,
-} from "../../components/ui/segmented-control";
+} from "@/components/ui/segmented-control";
 
 import { computed } from "vue";
 
-import type { QualityOptions, QualitySelection, SavedSettings } from "../../types";
+import type { QualityOptions, QualitySelection, SavedSettings } from "@/types";
 import {
   createQualitySelection,
   isLosslessAudioFormat,
   videoCodecOptionsForContainer,
-} from "../../utils/dashboard";
+} from "@/utils/dashboard";
 
 const props = defineProps<{
   savedSettings: SavedSettings;

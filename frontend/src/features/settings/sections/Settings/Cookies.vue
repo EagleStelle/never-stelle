@@ -3,12 +3,12 @@ import { reactive } from "vue";
 import IconTrash from "~icons/material-symbols/delete";
 import IconUpload from "~icons/material-symbols/upload";
 
-import { Button } from "../../../../components/ui/button";
-import { Card } from "../../../../components/ui/card";
-import { FieldGroup, FieldSet } from "../../../../components/ui/field";
-import { Input } from "../../../../components/ui/input";
-import { Label } from "../../../../components/ui/label";
-import { useSettingsContext } from "../../context";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FieldGroup, FieldSet } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useSettingsContext } from "@/features/settings/context";
 
 const {
   editableSourceProfiles,

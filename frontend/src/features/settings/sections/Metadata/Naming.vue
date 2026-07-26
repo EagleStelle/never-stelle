@@ -4,22 +4,22 @@ import {
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "../../../../components/ui/accordion";
-import { Checkbox } from "../../../../components/ui/checkbox";
+} from "@/components/ui/accordion";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   FieldGroup,
   FieldLegend,
   FieldSet,
-} from "../../../../components/ui/field";
-import { Input } from "../../../../components/ui/input";
-import { Label } from "../../../../components/ui/label";
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   SegmentedControl,
   SegmentedControlItem,
-} from "../../../../components/ui/segmented-control";
-import type { NamingChoice } from "../../../../types";
-import { useNamingSettings } from "../../composables/useNamingSettings";
-import { useSettingsContext } from "../../context";
+} from "@/components/ui/segmented-control";
+import type { NamingChoice } from "@/types";
+import { useNamingSettings } from "@/features/settings/composables/useNamingSettings";
+import { useSettingsContext } from "@/features/settings/context";
 
 const { settings, settingsDraft, editableSourceProfiles } =
   useSettingsContext();

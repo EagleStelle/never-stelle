@@ -1,2 +1,2 @@
-export { default as SegmentedControl } from './SegmentedControl.vue';
-export { default as SegmentedControlItem } from './SegmentedControlItem.vue';
+export { default as SegmentedControl } from '@/components/ui/segmented-control/SegmentedControl.vue';
+export { default as SegmentedControlItem } from '@/components/ui/segmented-control/SegmentedControlItem.vue';

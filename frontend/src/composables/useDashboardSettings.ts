@@ -9,9 +9,9 @@ import {
   saveSettings,
   setFormatTemplates,
   uploadPlatformCookies,
-} from "../api";
-import { useAuth } from "./useAuth";
-import { DEFAULT_SOURCE_PROFILES, UI_CONFIG_QUERY_KEY } from "../ui";
+} from "@/api";
+import { useAuth } from "@/composables/useAuth";
+import { DEFAULT_SOURCE_PROFILES, UI_CONFIG_QUERY_KEY } from "@/ui";
 import type {
   CookiesMap,
   CookiesStatus,
@@ -31,7 +31,7 @@ import type {
   SourceTokenRoles,
   ToastType,
   UiConfigResponse,
-} from "../types";
+} from "@/types";
 import {
   createCookiesStatus,
   createQualityOptions,
@@ -54,7 +54,7 @@ import {
   normalizeSourceKey,
   settingsManagedSourceProfiles,
   sourceLabelFromKey,
-} from "../utils/dashboard";
+} from "@/utils/dashboard";
 
 function replaceRecord<T>(
   target: Record<string, T>,

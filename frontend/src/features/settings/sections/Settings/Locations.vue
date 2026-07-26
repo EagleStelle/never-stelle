@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Input } from "../../../../components/ui/input";
-import { useSettingsContext } from "../../context";
-import SourceRows from "../SourceRows.vue";
+import { Input } from "@/components/ui/input";
+import { useSettingsContext } from "@/features/settings/context";
+import SourceRows from "@/features/settings/sections/SourceRows.vue";
 
 const { settingsDraft } = useSettingsContext();
 </script>

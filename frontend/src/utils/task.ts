@@ -1,5 +1,5 @@
-import type { SourceProfile, TaskItem } from "../types";
-import { faviconUrlForHost, hostFromUrl, sourceLabelFromKey } from "./dashboard";
+import type { SourceProfile, TaskItem } from "@/types";
+import { faviconUrlForHost, hostFromUrl, sourceLabelFromKey } from "@/utils/dashboard";
 
 const IMAGE_EXTENSIONS = new Set([
   "jpg",

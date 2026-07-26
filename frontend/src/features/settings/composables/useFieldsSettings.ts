@@ -8,7 +8,7 @@ import type {
   RuntimeSettings,
   SavedSettings,
   SourceProfile,
-} from "../../../types";
+} from "@/types";
 import {
   createCreatorFieldRoles,
   errorMessage,
@@ -17,7 +17,7 @@ import {
   normalizeTokenName,
   scraperCreatorField,
   scraperTokenFromCreatorField,
-} from "../../../utils/dashboard";
+} from "@/utils/dashboard";
 
 export type FieldRole = "username" | "nickname" | "title";
 export type CreatorRole = FieldRole;

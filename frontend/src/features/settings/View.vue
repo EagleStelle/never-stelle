@@ -3,8 +3,8 @@ import { computed, nextTick, ref } from "vue";
 import IconClose from "~icons/material-symbols/close";
 import { TabsContent, TabsRoot } from "reka-ui";
 
-import { DialogShell as Dialog } from "../../components/ui/dialog";
-import { Button } from "../../components/ui/button";
+import { DialogShell as Dialog } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import type {
   CookiesMap,
   LearnedFormats,
@@ -13,12 +13,12 @@ import type {
   SettingsSection,
   SourceProfile,
   ProbeFieldsResponse,
-} from "../../types";
-import { useSettingsDraft } from "./composables/useSettingsDraft";
-import { provideSettingsContext } from "./context";
-import { Card } from "../../components/ui/card";
-import { SETTINGS_SECTION_DEFS } from "./sections";
-import SettingsSidebar from "./Sidebar.vue";
+} from "@/types";
+import { useSettingsDraft } from "@/features/settings/composables/useSettingsDraft";
+import { provideSettingsContext } from "@/features/settings/context";
+import { Card } from "@/components/ui/card";
+import { SETTINGS_SECTION_DEFS } from "@/features/settings/sections";
+import SettingsSidebar from "@/features/settings/Sidebar.vue";
 
 const props = defineProps<{
   cookieStatuses: CookiesMap;

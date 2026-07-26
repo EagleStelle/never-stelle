@@ -2,10 +2,10 @@
 import { computed, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
 import IconSpinner from "~icons/material-symbols/sync";
 
-import TaskGrid from "./TaskGrid.vue";
-import TaskTable from "./TaskTable.vue";
+import TaskGrid from "@/components/task/TaskGrid.vue";
+import TaskTable from "@/components/task/TaskTable.vue";
 
-import type { SourceProfile, TaskItem, ViewMode } from "../../types";
+import type { SourceProfile, TaskItem, ViewMode } from "@/types";
 
 const PAGE_SIZE = 30;
 

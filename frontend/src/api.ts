@@ -13,7 +13,7 @@ import type {
   ScrapeTestResponse,
   TasksResponse,
   UiConfigResponse,
-} from "./types";
+} from "@/types";
 
 async function readError(response: Response, fallback: string): Promise<string> {
   const contentType = response.headers.get("content-type") || "";

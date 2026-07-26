@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "reka-ui";
 import { X } from "@lucide/vue";
-import DialogRoot from "./Dialog.vue";
+import DialogRoot from "@/components/ui/dialog/Dialog.vue";
 
 const props = withDefaults(
   defineProps<{

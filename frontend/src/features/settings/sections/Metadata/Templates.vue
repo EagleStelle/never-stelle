@@ -5,22 +5,22 @@ import {
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "../../../../components/ui/accordion";
+} from "@/components/ui/accordion";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   CardFooter,
-} from "../../../../components/ui/card";
-import { Input } from "../../../../components/ui/input";
-import { Button } from "../../../../components/ui/button";
-import { Label } from "../../../../components/ui/label";
-import { useSettingsContext } from "../../context";
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { useSettingsContext } from "@/features/settings/context";
 import {
   displayUrlTemplate,
   normalizeTokenName,
-} from "../../../../utils/dashboard";
+} from "@/utils/dashboard";
 
 const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles } =
   useSettingsContext();

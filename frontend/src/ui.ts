@@ -6,7 +6,7 @@ import IconFolder from "~icons/material-symbols/folder";
 import IconTray from "~icons/material-symbols/inbox";
 import IconSpinner from "~icons/material-symbols/sync";
 
-import type { SettingsSection, SourceProfile, TaskFilter } from "./types";
+import type { SettingsSection, SourceProfile, TaskFilter } from "@/types";
 
 export const DEFAULT_SOURCE_PROFILES: SourceProfile[] = [];
 

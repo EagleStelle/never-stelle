@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch, watchEffect } from "vue";
-import { DialogShell as Dialog } from "../../components/ui/dialog";
-import { Button } from "../../components/ui/button";
+import { DialogShell as Dialog } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -9,8 +9,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "../../components/ui/table";
-import type { PlaylistEntry } from "../../types";
+} from "@/components/ui/table";
+import type { PlaylistEntry } from "@/types";
 
 const props = defineProps<{
   open: boolean;

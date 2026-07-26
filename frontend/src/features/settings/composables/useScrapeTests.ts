@@ -1,7 +1,7 @@
 import { reactive, watch, type ComputedRef } from "vue";
 import { toast } from "vue-sonner";
 
-import { testScrapeRules } from "../../../api";
+import { testScrapeRules } from "@/api";
 import type {
   LearnedFormats,
   PlatformScrapeRules,
@@ -10,13 +10,13 @@ import type {
   ScrapeRule,
   ScrapeTestResult,
   SourceProfile,
-} from "../../../types";
+} from "@/types";
 import {
   createScrapeRule,
   errorMessage,
   normalizeTokenName,
-} from "../../../utils/dashboard";
-import { useTokenRoles } from "./useTokenRoles";
+} from "@/utils/dashboard";
+import { useTokenRoles } from "@/features/settings/composables/useTokenRoles";
 
 interface ScrapeTestState {
   url: string;

@@ -1,26 +1,26 @@
 <script setup lang="ts">
-import { Input } from "../../../../components/ui/input";
+import { Input } from "@/components/ui/input";
 import {
   SegmentedControl,
   SegmentedControlItem,
-} from "../../../../components/ui/segmented-control";
+} from "@/components/ui/segmented-control";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "../../../../components/ui/accordion";
+} from "@/components/ui/accordion";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   CardDescription,
-} from "../../../../components/ui/card";
-import type { LearnedSegment, TokenRole } from "../../../../types";
-import { useSlugTokens } from "../../composables/useSlugTokens";
-import { useSettingsContext } from "../../context";
-import { Label } from "../../../../components/ui/label";
+} from "@/components/ui/card";
+import type { LearnedSegment, TokenRole } from "@/types";
+import { useSlugTokens } from "@/features/settings/composables/useSlugTokens";
+import { useSettingsContext } from "@/features/settings/context";
+import { Label } from "@/components/ui/label";
 
 const ROLE_ITEMS: { key: TokenRole; label: string }[] = [
   { key: "ignore", label: "None" },

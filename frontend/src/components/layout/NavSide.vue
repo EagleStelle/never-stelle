@@ -4,8 +4,8 @@ import IconPanelOpen from "~icons/material-symbols/left-panel-open";
 import IconPanelClose from "~icons/material-symbols/left-panel-close";
 import type { Component } from "vue";
 
-import type { PageKey, SettingsSection } from "../../types";
-import AccountMenu from "./AccountMenu.vue";
+import type { PageKey, SettingsSection } from "@/types";
+import AccountMenu from "@/components/layout/AccountMenu.vue";
 import {
   Sidebar,
   SidebarHeader,
@@ -14,7 +14,7 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-} from "../ui/sidebar";
+} from "@/components/ui/sidebar";
 
 defineProps<{
   activePage: PageKey;

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { Component } from "vue";
 
-import type { PageKey, SettingsSection } from "../../types";
-import AccountMenu from "./AccountMenu.vue";
+import type { PageKey, SettingsSection } from "@/types";
+import AccountMenu from "@/components/layout/AccountMenu.vue";
 
 defineProps<{
   activePage: PageKey;

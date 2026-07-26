@@ -6,7 +6,7 @@ import type {
   RuntimeSettings,
   SavedSettings,
   TitleCleaningRule,
-} from "../../../types";
+} from "@/types";
 
 const DEFAULT_MAX_CHARS = 100;
 const TITLE_MAX_CHARS_KEY = "max_chars";

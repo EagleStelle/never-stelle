@@ -8,7 +8,7 @@ import type {
   SettingsDraft,
   SettingsSection,
   SourceProfile,
-} from "../../types";
+} from "@/types";
 
 // Shared state every settings section reads, provided once by the shell so panes
 // stay prop-free: adding a section never means threading more props through View.

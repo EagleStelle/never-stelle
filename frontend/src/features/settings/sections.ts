@@ -11,17 +11,17 @@ import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconScraper from "~icons/material-symbols/travel-explore";
 import IconSlug from "~icons/material-symbols/link";
 
-import type { SettingsSection } from "../../types";
-import Account from "./sections/Settings/Account.vue";
-import Cookies from "./sections/Settings/Cookies.vue";
-import Locations from "./sections/Settings/Locations.vue";
-import Quality from "./sections/Settings/Quality.vue";
-import Templates from "./sections/Metadata/Templates.vue";
-import Fields from "./sections/Metadata/Fields.vue";
-import Format from "./sections/Metadata/Format.vue";
-import Naming from "./sections/Metadata/Naming.vue";
-import Scraper from "./sections/Metadata/Scraper.vue";
-import Slug from "./sections/Metadata/Slug.vue";
+import type { SettingsSection } from "@/types";
+import Account from "@/features/settings/sections/Settings/Account.vue";
+import Cookies from "@/features/settings/sections/Settings/Cookies.vue";
+import Locations from "@/features/settings/sections/Settings/Locations.vue";
+import Quality from "@/features/settings/sections/Settings/Quality.vue";
+import Templates from "@/features/settings/sections/Metadata/Templates.vue";
+import Fields from "@/features/settings/sections/Metadata/Fields.vue";
+import Format from "@/features/settings/sections/Metadata/Format.vue";
+import Naming from "@/features/settings/sections/Metadata/Naming.vue";
+import Scraper from "@/features/settings/sections/Metadata/Scraper.vue";
+import Slug from "@/features/settings/sections/Metadata/Slug.vue";
 
 export interface SettingsSectionDef {
   key: SettingsSection;

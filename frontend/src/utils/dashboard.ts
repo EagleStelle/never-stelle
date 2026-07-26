@@ -1,4 +1,4 @@
-import { DEFAULT_SOURCE_PROFILES } from "../ui";
+import { DEFAULT_SOURCE_PROFILES } from "@/ui";
 import {
   PAGE_KEYS,
   type CookiesStatus,
@@ -29,7 +29,7 @@ import {
   type TaskItem,
   type TokenRole,
   type ViewMode,
-} from "../types";
+} from "@/types";
 
 const REMOVED_SOURCE_KEYS = new Set(["others"]);
 

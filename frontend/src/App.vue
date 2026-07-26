@@ -2,29 +2,29 @@
 import { computed, onMounted, useTemplateRef } from "vue";
 import { useElementSize } from "@vueuse/core";
 
-import DownloadInput from "./features/downloads/Input.vue";
-import DownloadPanel from "./features/downloads/Panel.vue";
-import DownloadFilters from "./features/downloads/Filters.vue";
-import PlaylistDialog from "./features/downloads/PlaylistDialog.vue";
-import Login from "./features/auth/Login.vue";
-import NavSide from "./components/layout/NavSide.vue";
-import BarStatus from "./components/layout/BarStatus.vue";
-import NavBottom from "./components/layout/NavBottom.vue";
-import SettingsView from "./features/settings/View.vue";
-import { Toaster } from "./components/ui/sonner";
-import { Button } from "./components/ui/button";
-import { Input } from "./components/ui/input";
+import DownloadInput from "@/features/downloads/Input.vue";
+import DownloadPanel from "@/features/downloads/Panel.vue";
+import DownloadFilters from "@/features/downloads/Filters.vue";
+import PlaylistDialog from "@/features/downloads/PlaylistDialog.vue";
+import Login from "@/features/auth/Login.vue";
+import NavSide from "@/components/layout/NavSide.vue";
+import BarStatus from "@/components/layout/BarStatus.vue";
+import NavBottom from "@/components/layout/NavBottom.vue";
+import SettingsView from "@/features/settings/View.vue";
+import { Toaster } from "@/components/ui/sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   SegmentedControl,
   SegmentedControlItem,
-} from "./components/ui/segmented-control";
+} from "@/components/ui/segmented-control";
 import IconGrid from "~icons/material-symbols/grid-view";
 import IconList from "~icons/material-symbols/list";
 import IconRefresh from "~icons/material-symbols/sync";
 import IconSearch from "~icons/material-symbols/search";
 
-import { useDownloadDashboard } from "./composables/useDownloadDashboard";
-import { useAuth } from "./composables/useAuth";
+import { useDownloadDashboard } from "@/composables/useDownloadDashboard";
+import { useAuth } from "@/composables/useAuth";
 
 const auth = useAuth();
 const authReady = auth.ready;

@@ -4,22 +4,22 @@ import IconSearch from "~icons/material-symbols/search";
 import IconSpinner from "~icons/material-symbols/sync";
 import IconTrash from "~icons/material-symbols/delete";
 
-import { Button } from "../../../../components/ui/button";
-import { Checkbox } from "../../../../components/ui/checkbox";
-import { ComboboxSelect as Combobox } from "../../../../components/ui/combobox";
-import { Input } from "../../../../components/ui/input";
-import { Textarea } from "../../../../components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ComboboxSelect as Combobox } from "@/components/ui/combobox";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   SegmentedControl,
   SegmentedControlItem,
-} from "../../../../components/ui/segmented-control";
+} from "@/components/ui/segmented-control";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   CardDescription,
-} from "../../../../components/ui/card";
+} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -27,18 +27,18 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "../../../../components/ui/table";
-import type { ScrapeRule, TokenRole } from "../../../../types";
-import { displayUrlTemplate, tokenLabel } from "../../../../utils/dashboard";
-import { useScrapeTests } from "../../composables/useScrapeTests";
-import { useSettingsContext } from "../../context";
-import { Label } from "../../../../components/ui/label";
+} from "@/components/ui/table";
+import type { ScrapeRule, TokenRole } from "@/types";
+import { displayUrlTemplate, tokenLabel } from "@/utils/dashboard";
+import { useScrapeTests } from "@/features/settings/composables/useScrapeTests";
+import { useSettingsContext } from "@/features/settings/context";
+import { Label } from "@/components/ui/label";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "../../../../components/ui/accordion";
+} from "@/components/ui/accordion";
 
 const SCRAPE_ATTR_ITEMS = [
   { key: "text", label: "Text" },

@@ -9,9 +9,9 @@ import type {
   SlugToken,
   SourceProfile,
   TokenRole,
-} from "../../../types";
-import { tokenLabel } from "../../../utils/dashboard";
-import { useTokenRoles } from "./useTokenRoles";
+} from "@/types";
+import { tokenLabel } from "@/utils/dashboard";
+import { useTokenRoles } from "@/features/settings/composables/useTokenRoles";
 
 // Per-source URL-part tokens: map a learned-format URL part to a user-named token, with the
 // same role selector as the scraper. Candidates come strictly from the learned format.

@@ -12,8 +12,8 @@ import {
   retryTask as retryTaskRequest,
   scanMediaLibrary,
   setTaskSource as setTaskSourceRequest,
-} from "../api";
-import { useAuth } from "./useAuth";
+} from "@/api";
+import { useAuth } from "@/composables/useAuth";
 import {
   POLL_PENDING_MS,
   POLL_RUNNING_MS,
@@ -21,9 +21,9 @@ import {
   REUSED_TASK_FALLBACK,
   REUSED_TASK_MESSAGES,
   TASKS_QUERY_KEY,
-} from "../ui";
-import type { PlaylistEntry, QualitySelection, SavedSettings, TaskItem, TaskStatus, TasksResponse, ToastType } from "../types";
-import { countTasks, errorMessage, normalizeSourceKey } from "../utils/dashboard";
+} from "@/ui";
+import type { PlaylistEntry, QualitySelection, SavedSettings, TaskItem, TaskStatus, TasksResponse, ToastType } from "@/types";
+import { countTasks, errorMessage, normalizeSourceKey } from "@/utils/dashboard";
 
 interface UseTaskQueueOptions {
   getSavedSettings: () => SavedSettings;

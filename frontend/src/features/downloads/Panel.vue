@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import TaskCollection from "../../components/task/TaskCollection.vue";
-import type { SourceProfile, TaskItem, ViewMode } from "../../types";
+import TaskCollection from "@/components/task/TaskCollection.vue";
+import type { SourceProfile, TaskItem, ViewMode } from "@/types";
 
 defineProps<{
   errorMessage: string;

@@ -1,6 +1,6 @@
 import { toast as sonnerToast } from "vue-sonner";
 
-import type { ToastType } from "../types";
+import type { ToastType } from "@/types";
 
 // Single boundary to the sonner engine; call sites use toast(message, type).
 export function useSonner() {
