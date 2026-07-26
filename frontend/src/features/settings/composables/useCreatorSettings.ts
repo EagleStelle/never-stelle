@@ -140,7 +140,7 @@ export function useCreatorSettings(
     }
     const learned = settings.source_creator_field_defaults[key]?.[role] || [];
     if (learned.length) return learned;
-    return sourceHasDraftFormats(key) ? defaults.value[role] : [];
+    return [];
   }
 
   function scraperRoleTokens(key: string, role: CreatorRole): string[] {
@@ -274,8 +274,7 @@ export function useCreatorSettings(
 
   // True once the source order differs from its learned/default order.
   function isConfigured(key: string, role: CreatorRole): boolean {
-    const list = withAssignedScraperFields(key, role, creatorRoles(key)[role]);
-    return list.length > 0 && !sameAsDefault(key, role, list);
+    return !sameAsDefault(key, role, fieldList(key, role));
   }
 
   function cleaningFlags(key: string): Record<string, boolean | number> {
@@ -365,17 +364,19 @@ export function useCreatorSettings(
       const learned = createCreatorFieldRoles(response.creator_fields || {});
       const targetKey = response.source_key || key;
       if (!response.saved) {
-        const draftRoles = creatorRoles(targetKey);
-        draftRoles.username = mergeLearnedFields(
-          targetKey,
-          "username",
-          learned.username,
-        );
-        draftRoles.nickname = mergeLearnedFields(
-          targetKey,
-          "nickname",
-          learned.nickname,
-        );
+        if (learned.username.length > 0 || learned.nickname.length > 0) {
+          const draftRoles = creatorRoles(targetKey);
+          draftRoles.username = mergeLearnedFields(
+            targetKey,
+            "username",
+            learned.username,
+          );
+          draftRoles.nickname = mergeLearnedFields(
+            targetKey,
+            "nickname",
+            learned.nickname,
+          );
+        }
       }
       currentState.message = response.fields.length ? "" : "No creator fields found.";
     } catch (error) {
