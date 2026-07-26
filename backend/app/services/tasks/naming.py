@@ -8,14 +8,24 @@ from typing import Any
 
 from .constants import CREATOR_FIELDS, TEMPLATE_RE, TITLE_MAX_CHARS_DEFAULT, normalize_title_cleaning, quality_label
 
+# --- Shared character classes ---
 _INVALID_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f\u29f8\u29f9]')
 _SPACING_RE = re.compile(r"\s+")
+_STRONG_SEPARATORS = r"|｜:·・—–\-"
+_LEAD_SEPARATORS = r"[\s\-|:｜]+"
+_METRIC_BOUNDARY = r"[\s,;|/\-()\[\]·｜]+"
+# Junk left dangling once a segment is removed. Filename stems also shed dots and
+# underscores; social titles keep them so sentence punctuation survives.
+_TITLE_TRIM_CHARS = " -|,;:·｜"
+_STEM_TRIM_CHARS = f"{_TITLE_TRIM_CHARS}._"
+
+# --- Social title patterns ---
 _HASHTAG_RE = re.compile(r"(?<!\w)[#＃]\w[\w'’-]*")
 _METRIC_RE = re.compile(
-    r"(?i)(?:^|[\s,;|/\-()\[\]·｜]+)"
+    rf"(?i)(?:^|{_METRIC_BOUNDARY})"
     r"(?:\d+(?:[.,]\d+)?\s*[kmb]?|\d[\d,.]*)\s+"
     r"(?:views?|reactions?|likes?|comments?|shares?|plays?|reposts?|quotes?|saves?)"
-    r"(?=$|[\s,;|/\-()\[\]·｜]+)"
+    rf"(?=$|{_METRIC_BOUNDARY})"
 )
 _MEDIA_KIND_RE = r"(?:videos?|photos?|images?|posts?|reels?|clips?|shorts?|stories|story|pins?|galleries|gallery)"
 _SURFACE_NOUN_RE = (
@@ -23,36 +33,53 @@ _SURFACE_NOUN_RE = (
     r"|reels?|videos?|photos?|galler(?:y|ies)|moments?)"
 )
 _ATTRIBUTION_RE = re.compile(
-    rf"(?i)(?:^|[\s\-|:｜]+){_MEDIA_KIND_RE}\s+by\s+[^|:｜()\[\]\n]{{1,80}}$"
+    rf"(?i)(?:^|{_LEAD_SEPARATORS}){_MEDIA_KIND_RE}\s+by\s+[^|:｜()\[\]\n]{{1,80}}$"
 )
 # Auto-generated placeholder captions like "Photos from Charess's post" carry no real title.
 _GENERIC_DESCRIPTION_RE = re.compile(
     rf"(?i)^{_MEDIA_KIND_RE}\s+(?:from|by|of)\s+.+['’]s\s+{_SURFACE_NOUN_RE}$"
 )
-_STRONG_SEPARATORS = r"|｜:·・—–\-"
 _ON_SURFACE_RE = re.compile(r"(?i)\s*[\|｜]\s*[^|｜\n]{1,80}\s+on\s+[a-z][a-z0-9 _.-]{1,40}\s*$")
 _KNOWN_CREATOR_PREFIX_TEMPLATE = r"^\s*(?P<prefix>{creator})\s*(?P<separator>[-|:｜])\s+(?P<body>.+)$"
 _LEADING_BYLINE_RE = re.compile(r"^\s*(?P<byline>.+?)\s+(?P<separator>[-|:｜])\s+(?P<body>.+)$")
 _URLISH_RE = re.compile(r"(?i)\b(?:https?://|www\.)")
 _TERMINAL_SENTENCE_RE = re.compile(r"[.!?。！？…]$")
-
-
 _PLACEHOLDER_TITLE_RE = re.compile(
     rf"^(?P<source>[A-Za-z][A-Za-z0-9.+_-]*(?:\s+[A-Za-z][A-Za-z0-9.+_-]*){{0,4}})"
     rf"\s+{_MEDIA_KIND_RE}\s+#(?P<id>[A-Za-z0-9_-]+)$",
     re.IGNORECASE,
 )
+_EMPTY_TITLE_VALUES = {"none", "null", "undefined", "unknown", "untitled", "n/a", "na"}
+_MATCH_KEY_RE = re.compile(r"[^a-z0-9]+")
+TITLE_MAX_CHARS = TITLE_MAX_CHARS_DEFAULT
+
+# --- Filename and template patterns ---
 _NUMBERED_SUFFIX_RE = re.compile(r"_\d+$")
 _DISPLAY_FILENAME_ID_RE = re.compile(r"^(?P<title>.*) \[(?P<id>[A-Za-z0-9_-]+)\](?:_\d+)?$")
 _EXT_TEMPLATE_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$", re.IGNORECASE)
+_EMPTY_BRACKETS_RE = re.compile(r"\[\s*\]|\(\s*\)|\{\s*\}")
 _ID_TEMPLATE_FIELDS = {"id"}
-_EMPTY_TITLE_VALUES = {"none", "null", "undefined", "unknown", "untitled", "n/a", "na"}
-TITLE_MAX_CHARS = TITLE_MAX_CHARS_DEFAULT
+
+
+# --- Text coercion and path-safe literals ---
+
+
+def _text(value: Any) -> str:
+    # Every entry point takes loosely-typed values; coerce and trim in one place.
+    return str(value or "").strip()
 
 
 def sanitize_path_literal(value: str) -> str:
     # Path-safe literal with no fallback; callers add engine-specific escaping.
     return _INVALID_FILENAME_CHARS_RE.sub("_", str(value or "")).strip().strip(".")
+
+
+def sanitize_filename_component(value: str) -> str:
+    # Path-safe literal plus collapsed spacing and a non-empty fallback.
+    return _SPACING_RE.sub(" ", sanitize_path_literal(value)) or "Unknown"
+
+
+# --- Title primitives ---
 
 
 def _is_empty_title(value: str) -> bool:
@@ -61,9 +88,14 @@ def _is_empty_title(value: str) -> bool:
     return str(value).strip(" \t\n\r\"'`").lower() in _EMPTY_TITLE_VALUES
 
 
+def _normalize_title(value: str) -> str:
+    value = _SPACING_RE.sub(" ", str(value or "")).strip()
+    return "" if _is_empty_title(value) else value
+
+
 def shorten_filename_title(title: str, max_chars: int = TITLE_MAX_CHARS) -> str:
-    value = _SPACING_RE.sub(" ", str(title or "")).strip()
-    if not value or _is_empty_title(value):
+    value = _normalize_title(title)
+    if not value:
         return ""
     max_chars = max(12, int(max_chars or TITLE_MAX_CHARS))
     if len(value) <= max_chars:
@@ -72,20 +104,26 @@ def shorten_filename_title(title: str, max_chars: int = TITLE_MAX_CHARS) -> str:
     word_break = candidate.rfind(" ")
     if word_break >= max(20, int(max_chars * 0.6)):
         candidate = candidate[:word_break]
-    candidate = candidate.rstrip(" -_|,;:.Â·ï½œ")
+    candidate = candidate.rstrip(_STEM_TRIM_CHARS)
     return candidate or value[:max_chars].strip()
 
 
 def _apply_shorten(title: str, flags: dict[str, Any]) -> str:
     # Normalize spacing always; only truncate to max_chars when `shorten` is enabled.
     if not flags.get("shorten", True):
-        value = _SPACING_RE.sub(" ", str(title or "")).strip()
-        return "" if _is_empty_title(value) else value
+        return _normalize_title(title)
     return shorten_filename_title(title, flags.get("max_chars", TITLE_MAX_CHARS))
 
 
+def strip_numbered_suffix(stem: str) -> str:
+    return _NUMBERED_SUFFIX_RE.sub("", _text(stem))
+
+
+# --- Placeholder and repeated-id removal ---
+
+
 def _normalize_match_key(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+    return _MATCH_KEY_RE.sub("", str(value or "").lower())
 
 
 def _source_matches_placeholder(source_label: str, source_key: str) -> bool:
@@ -95,28 +133,61 @@ def _source_matches_placeholder(source_label: str, source_key: str) -> bool:
 
 
 def strip_placeholder_title(title: str, media_id: str = "", source_key: str = "") -> str:
-    value = str(title or "").strip()
+    value = _text(title)
     if _is_empty_title(value):
         return ""
     match = _PLACEHOLDER_TITLE_RE.match(value)
     if not match:
         return value
     placeholder_id = match.group("id").strip()
-    id_matches = bool(media_id and placeholder_id.lower() == str(media_id).strip().lower())
+    id_matches = bool(media_id and placeholder_id.lower() == _text(media_id).lower())
     if id_matches or _source_matches_placeholder(match.group("source"), source_key):
         return ""
     return value
 
 
-def strip_numbered_suffix(stem: str) -> str:
-    return _NUMBERED_SUFFIX_RE.sub("", str(stem or "").strip())
+def _maybe_strip_placeholder(title: str, media_id: str, source_key: str, flags: dict[str, Any]) -> str:
+    return (
+        strip_placeholder_title(title, media_id, source_key)
+        if flags["strip_placeholder"]
+        else _text(title)
+    )
+
+
+def _strip_repeated_media_id(title: str, media_id: str = "") -> str:
+    value = _text(title)
+    media_id = _text(media_id)
+    if not value or len(media_id) < 4:
+        return value
+    pattern = re.compile(
+        rf"(?i)(?:^|[\s\-|:_]+)[\[\(\{{]?\s*{re.escape(media_id)}\s*[\]\)\}}]?\s*$"
+    )
+    previous = ""
+    while value and value != previous:
+        previous = value
+        next_value = pattern.sub("", value)
+        if next_value == value:
+            break
+        value = next_value.strip(_STEM_TRIM_CHARS)
+    return value
+
+
+# --- Creator handles, aliases and bylines ---
+
+
+def _clean_creator_token(value: str, flags: dict[str, Any]) -> str:
+    value = _text(value)
+    if flags.get("strip_handle_at", True):
+        value = value.lstrip("@")
+    value = value.strip()
+    return "" if _is_empty_title(value) else value
 
 
 def _creator_alias_set(creator: str, creator_aliases: tuple[str, ...] | None) -> list[str]:
     seen: set[str] = set()
     aliases: list[str] = []
     for value in (creator, *(creator_aliases or ())):
-        value = str(value or "").strip().lstrip("@").strip()
+        value = _text(value).lstrip("@").strip()
         key = value.lower()
         if len(value) < 2 or key in seen or value == "Unknown":
             continue
@@ -125,46 +196,26 @@ def _creator_alias_set(creator: str, creator_aliases: tuple[str, ...] | None) ->
     return aliases
 
 
+def _alias_alternation(aliases: list[str]) -> str:
+    return "|".join(re.escape(alias) for alias in aliases)
+
+
 def _strip_trailing_creator_alias(value: str, aliases: list[str]) -> str:
     # Drop a trailing "｜ Creator" byline that repeats the resolved creator/display name.
     if not aliases:
         return value
-    escaped_aliases = "|".join(re.escape(alias) for alias in aliases)
-    pattern = re.compile(rf"(?i)\s*[{_STRONG_SEPARATORS}]\s*(?:{escaped_aliases})\s*$")
+    pattern = re.compile(rf"(?i)\s*[{_STRONG_SEPARATORS}]\s*(?:{_alias_alternation(aliases)})\s*$")
     return pattern.sub("", value)
 
 
-def clean_social_title(
-    title: str,
-    creator: str = "",
-    creator_aliases: tuple[str, ...] | None = None,
-    cleaning: dict[str, Any] | None = None,
-) -> str:
-    flags = normalize_title_cleaning(cleaning)
-    original = str(title or "").strip()
-    if not original or _is_empty_title(original):
-        return ""
-    if flags["strip_placeholder"] and _GENERIC_DESCRIPTION_RE.match(original):
-        return ""
-    aliases = _creator_alias_set(creator, creator_aliases)
-    value = original
-    if flags["strip_on_surface"]:
-        value = _ON_SURFACE_RE.sub("", value)
-    if flags["strip_attribution"]:
-        for alias in aliases:
-            by_creator = re.compile(
-                rf"(?i)(?:^|[\s\-|:｜]+){_MEDIA_KIND_RE}\s+by\s+{re.escape(alias)}\b"
-            )
-            value = by_creator.sub(" ", value)
-        value = _ATTRIBUTION_RE.sub("", value)
-    if flags["strip_hashtags"]:
-        value = _HASHTAG_RE.sub(" ", value)
-    if flags["strip_metrics"]:
-        value = _METRIC_RE.sub(" ", value)
-    if flags["strip_creator_byline"]:
-        value = _strip_trailing_creator_alias(value, aliases)
-    value = _SPACING_RE.sub(" ", value).strip(" -|,;:·｜")
-    return value
+def _strip_attribution_by_alias(value: str, aliases: list[str]) -> str:
+    # Drop "Video by <creator>" anywhere in the title when it names a known alias.
+    if not aliases:
+        return value
+    pattern = re.compile(
+        rf"(?i)(?:^|{_LEAD_SEPARATORS}){_MEDIA_KIND_RE}\s+by\s+(?:{_alias_alternation(aliases)})\b"
+    )
+    return pattern.sub(" ", value)
 
 
 def _creator_prefix_candidates(creator: str) -> list[str]:
@@ -180,7 +231,7 @@ def _creator_prefix_candidates(creator: str) -> list[str]:
 
 
 def _split_known_creator_prefix(value: str, creator: str) -> tuple[str, str, str]:
-    value = str(value or "").strip()
+    value = _text(value)
     for candidate in _creator_prefix_candidates(creator):
         match = re.match(_KNOWN_CREATOR_PREFIX_TEMPLATE.format(creator=re.escape(candidate)), value)
         if match:
@@ -193,8 +244,8 @@ def _has_name_symbol(value: str) -> bool:
 
 
 def _looks_like_social_byline(byline: str, body: str) -> bool:
-    byline = str(byline or "").strip()
-    body = str(body or "").strip()
+    byline = _text(byline)
+    body = _text(body)
     if not byline or not body or len(byline) > 64 or len(body) < 8:
         return False
     if _URLISH_RE.search(byline) or _TERMINAL_SENTENCE_RE.search(byline):
@@ -210,7 +261,7 @@ def _looks_like_social_byline(byline: str, body: str) -> bool:
 
 
 def _strip_leading_social_byline(value: str) -> str:
-    value = str(value or "").strip()
+    value = _text(value)
     match = _LEADING_BYLINE_RE.match(value)
     if not match:
         return value
@@ -219,12 +270,36 @@ def _strip_leading_social_byline(value: str) -> str:
     return body if _looks_like_social_byline(byline, body) else value
 
 
-def _maybe_strip_placeholder(title: str, media_id: str, source_key: str, flags: dict[str, Any]) -> str:
-    return (
-        strip_placeholder_title(title, media_id, source_key)
-        if flags["strip_placeholder"]
-        else str(title or "").strip()
-    )
+# --- Title cleaning ---
+
+
+def clean_social_title(
+    title: str,
+    creator: str = "",
+    creator_aliases: tuple[str, ...] | None = None,
+    cleaning: dict[str, Any] | None = None,
+) -> str:
+    flags = normalize_title_cleaning(cleaning)
+    original = _text(title)
+    if not original or _is_empty_title(original):
+        return ""
+    if flags["strip_placeholder"] and _GENERIC_DESCRIPTION_RE.match(original):
+        return ""
+    aliases = _creator_alias_set(creator, creator_aliases)
+    value = original
+    if flags["strip_on_surface"]:
+        value = _ON_SURFACE_RE.sub("", value)
+    if flags["strip_attribution"]:
+        value = _strip_attribution_by_alias(value, aliases)
+        value = _ATTRIBUTION_RE.sub("", value)
+    if flags["strip_hashtags"]:
+        value = _HASHTAG_RE.sub(" ", value)
+    if flags["strip_metrics"]:
+        value = _METRIC_RE.sub(" ", value)
+    if flags["strip_creator_byline"]:
+        value = _strip_trailing_creator_alias(value, aliases)
+    value = _SPACING_RE.sub(" ", value).strip(_TITLE_TRIM_CHARS)
+    return value
 
 
 def clean_filename_title(
@@ -236,38 +311,43 @@ def clean_filename_title(
     cleaning: dict[str, Any] | None = None,
 ) -> str:
     flags = normalize_title_cleaning(cleaning)
-    original = str(title or "").strip()
+    original = _text(title)
     if not original or _is_empty_title(original):
         return ""
     original = _maybe_strip_placeholder(original, media_id, source_key, flags)
+    original = _strip_repeated_media_id(original, media_id)
     if not original:
         return ""
     prefix, separator, body = _split_known_creator_prefix(original, creator)
-    if prefix:
-        cleaned_body = clean_social_title(
-            _maybe_strip_placeholder(body, media_id, source_key, flags), creator, creator_aliases, cleaning
+    if not prefix:
+        return clean_social_title(original, creator, creator_aliases, cleaning)
+
+    def clean_body(text: str) -> str:
+        return clean_social_title(
+            _maybe_strip_placeholder(text, media_id, source_key, flags), creator, creator_aliases, cleaning
         )
-        if flags["strip_creator_byline"]:
-            cleaned_body = _strip_leading_social_byline(cleaned_body)
-        cleaned_body = clean_social_title(
-            _maybe_strip_placeholder(cleaned_body, media_id, source_key, flags), creator, creator_aliases, cleaning
-        )
-        return f"{prefix} {separator} {cleaned_body}".strip() if cleaned_body else prefix
-    return clean_social_title(original, creator, creator_aliases, cleaning)
+
+    cleaned_body = clean_body(body)
+    if flags["strip_creator_byline"]:
+        cleaned_body = _strip_leading_social_byline(cleaned_body)
+    # Second pass: byline removal can expose another placeholder or attribution tail.
+    cleaned_body = clean_body(cleaned_body)
+    return f"{prefix} {separator} {cleaned_body}".strip() if cleaned_body else prefix
 
 
-def sanitize_filename_component(value: str) -> str:
-    value = _INVALID_FILENAME_CHARS_RE.sub("_", str(value or ""))
-    value = _SPACING_RE.sub(" ", value).strip().strip(".")
-    return value or "Unknown"
+# --- Template matching (filename → fields) ---
 
 
 def _template_stem(template: str) -> str:
-    return _EXT_TEMPLATE_TAIL_RE.sub("", str(template or "").strip()).rstrip(". ")
+    return _EXT_TEMPLATE_TAIL_RE.sub("", _text(template)).rstrip(". ")
 
 
 def _template_field_pattern(field: str) -> str:
     return r"[A-Za-z0-9_-]+" if field in _ID_TEMPLATE_FIELDS else r"[^/\\]+?"
+
+
+def template_literal_pattern(literal: str) -> str:
+    return "".join(r"\s*" if char.isspace() else re.escape(char) for char in literal)
 
 
 def _compile_template_matcher(template: str) -> tuple[re.Pattern[str] | None, dict[str, str]]:
@@ -279,17 +359,17 @@ def _compile_template_matcher(template: str) -> tuple[re.Pattern[str] | None, di
     used: set[str] = set()
     cursor = 0
     for index, match in enumerate(TEMPLATE_RE.finditer(value)):
-        parts.append(re.escape(value[cursor : match.start()]))
+        parts.append(template_literal_pattern(value[cursor : match.start()]))
         field = match.group(1).strip().lower()
         if field in used:
-            parts.append(f"(?:{_template_field_pattern(field)})")
+            parts.append(f"(?:{_template_field_pattern(field)})?")
         else:
             group = f"field_{index}"
             used.add(field)
             groups[group] = field
-            parts.append(f"(?P<{group}>{_template_field_pattern(field)})")
+            parts.append(f"(?P<{group}>{_template_field_pattern(field)})?")
         cursor = match.end()
-    parts.append(re.escape(value[cursor:]))
+    parts.append(template_literal_pattern(value[cursor:]))
     try:
         return re.compile(f"^{''.join(parts)}$"), groups
     except re.error:
@@ -300,7 +380,7 @@ def _match_template_fields(stem: str, filename_template: str) -> tuple[dict[str,
     pattern, groups = _compile_template_matcher(filename_template)
     if pattern is None:
         return {}, ""
-    candidates = [(str(stem or "").strip(), "")]
+    candidates = [(_text(stem), "")]
     stripped = strip_numbered_suffix(stem)
     if stripped != stem:
         suffix = str(stem)[len(stripped) :]
@@ -318,31 +398,29 @@ def _match_template_fields(stem: str, filename_template: str) -> tuple[dict[str,
     return {}, ""
 
 
-def filename_template_fields(filename: str, filename_template: str) -> dict[str, str]:
-    path = Path(str(filename or ""))
-    fields, _ = _match_template_fields(path.stem, filename_template)
-    return fields
-
-
 def template_fields(text: str, template: str) -> dict[str, str]:
     """Match raw text (a filename stem or a relative folder) against a {{token}} template."""
-    fields, _ = _match_template_fields(str(text or "").strip(), template)
+    fields, _ = _match_template_fields(_text(text), template)
     return fields
+
+
+def filename_template_fields(filename: str, filename_template: str) -> dict[str, str]:
+    return template_fields(Path(str(filename or "")).stem, filename_template)
 
 
 def _field_value(fields: dict[str, str], *names: str) -> str:
     for name in names:
-        value = str(fields.get(name) or "").strip()
+        value = _text(fields.get(name))
         if value:
             return value
     return ""
 
 
-def _clean_creator_token(value: str, flags: dict[str, Any]) -> str:
-    value = str(value or "").strip()
-    if flags.get("strip_handle_at", True):
-        value = value.lstrip("@")
-    return value.strip()
+# --- Template rendering (fields → filename) ---
+
+
+def _quality_token(quality: dict[str, str] | None) -> str:
+    return sanitize_path_literal(quality_label(quality))
 
 
 def _render_template_stem(
@@ -359,25 +437,21 @@ def _render_template_stem(
         field = match.group(1).strip().lower()
         if extra_tokens:
             override = extra_tokens.get(field)
-            if override is not None and str(override).strip():
+            if override is not None and _text(override):
                 if field in CREATOR_FIELDS:
                     override = _clean_creator_token(str(override), flags)
                 return sanitize_path_literal(override)
         if field == "quality" and quality is not None:
-            return sanitize_path_literal(quality_label(quality))
+            return _quality_token(quality)
         value = fields.get(field, "")
-        if field in CREATOR_FIELDS and not value:
-            value = _field_value(fields, "username", "nickname")
         if field in CREATOR_FIELDS:
-            value = _clean_creator_token(value, flags)
-        if field in _ID_TEMPLATE_FIELDS and not value:
-            value = _field_value(fields, *_ID_TEMPLATE_FIELDS)
+            value = _clean_creator_token(value or _field_value(fields, "username", "nickname"), flags)
         return sanitize_path_literal(value)
 
     value = TEMPLATE_RE.sub(replace, template)
     value = _SPACING_RE.sub(" ", value)
-    value = re.sub(r"\[\s*\]|\(\s*\)|\{\s*\}", "", value)
-    value = _SPACING_RE.sub(" ", value).strip(" -|,;:·｜._")
+    value = _EMPTY_BRACKETS_RE.sub("", value)
+    value = _SPACING_RE.sub(" ", value).strip(_STEM_TRIM_CHARS)
     return value
 
 
@@ -389,13 +463,13 @@ def _extra_tokens_change_fields(
 ) -> bool:
     referenced = {match.group(1).strip().lower() for match in TEMPLATE_RE.finditer(str(filename_template or ""))}
     if quality is not None and "quality" in referenced:
-        value = sanitize_path_literal(quality_label(quality))
+        value = _quality_token(quality)
         if value and fields.get("quality", "") != value:
             return True
     if not extra_tokens:
         return False
     for token, value in extra_tokens.items():
-        token = str(token or "").strip().lower()
+        token = _text(token).lower()
         value = sanitize_path_literal(value)
         if token in referenced and value and fields.get(token, "") != value:
             return True
@@ -416,7 +490,7 @@ def clean_template_filename(
     cleaning: dict[str, Any] | None = None,
     quality: dict[str, str] | None = None,
 ) -> str:
-    value = str(filename or "").strip()
+    value = _text(filename)
     if not value:
         return ""
     path = Path(value)
@@ -424,44 +498,53 @@ def clean_template_filename(
     fields, numbered_suffix = _match_template_fields(path.stem, filename_template)
     raw_title = _field_value(fields, "title")
     fallback_match = _DISPLAY_FILENAME_ID_RE.match(path.stem.strip())
-    fallback_media_id = str(media_id or "").strip() or (fallback_match.group("id").strip() if fallback_match else "")
-    fallback_username = _clean_creator_token(str(creator or ""), flags)
-    fallback_nickname = _clean_creator_token(str(nickname or ""), flags)
-    fallback_title = str(title or "").strip()
+    fallback_media_id = _text(media_id) or (fallback_match.group("id").strip() if fallback_match else "")
+    fallback_username = _clean_creator_token(creator, flags)
+    fallback_nickname = _clean_creator_token(nickname, flags)
+    fallback_title = _text(title)
+
+    def compose(overrides: dict[str, str], suffix: str, fallback_stem: str = "") -> str:
+        # `title` is always written (an emptied title must clear the token); other
+        # overrides only replace what the filename already carries when non-empty.
+        rendered_fields = dict(fields)
+        rendered_fields.update({key: token for key, token in overrides.items() if token or key == "title"})
+        stem = _render_template_stem(filename_template, rendered_fields, extra_tokens, cleaning, quality)
+        stem = stem or fallback_stem
+        if keep_numbered_suffix and suffix:
+            stem = f"{stem}{suffix}"
+        return f"{stem}{path.suffix}" if stem else value
+
     if (not fields or not raw_title) and (
         fallback_username or fallback_nickname or fallback_media_id or fallback_title
     ):
-        rendered_fields = dict(fields)
         if not raw_title and fallback_title:
             raw_title = clean_filename_title(
                 fallback_title,
                 fallback_username or fallback_nickname,
                 fallback_media_id,
                 source_key,
-                creator_aliases=tuple(value for value in (fallback_username, fallback_nickname) if value),
+                creator_aliases=tuple(alias for alias in (fallback_username, fallback_nickname) if alias),
                 cleaning=cleaning,
             )
             raw_title = _apply_shorten(raw_title, flags)
-        rendered_fields["title"] = raw_title
-        if fallback_username:
-            rendered_fields["username"] = fallback_username
-        if fallback_nickname or fallback_username:
-            rendered_fields["nickname"] = fallback_nickname or fallback_username
-        if fallback_media_id:
-            rendered_fields["id"] = fallback_media_id
-        stem = _render_template_stem(filename_template, rendered_fields, extra_tokens, cleaning, quality)
-        numbered = re.search(r"_\d+$", path.stem)
-        if keep_numbered_suffix and numbered:
-            stem = f"{stem}{numbered.group(0)}"
-        return f"{stem}{path.suffix}" if stem else value
-    if not fields or not raw_title:
+        numbered = _NUMBERED_SUFFIX_RE.search(path.stem)
+        return compose(
+            {
+                "title": raw_title,
+                "username": fallback_username,
+                "nickname": fallback_nickname or fallback_username,
+                "id": fallback_media_id,
+            },
+            numbered.group(0) if numbered else "",
+        )
+    if not fields:
         return ""
     original_media_id = _field_value(fields, "id")
     raw_original_username = _field_value(fields, "username", "nickname")
     raw_original_nickname = _field_value(fields, "nickname", "username")
     original_username = _clean_creator_token(raw_original_username, flags)
     original_nickname = _clean_creator_token(raw_original_nickname, flags)
-    resolved_media_id = str(media_id or "").strip() or original_media_id
+    resolved_media_id = _text(media_id) or original_media_id
     # {{username}} keeps the handle; {{nickname}} keeps the display name. Each falls
     # back to the other so a template using only one token still resolves.
     resolved_username = fallback_username or original_username or original_nickname
@@ -491,10 +574,10 @@ def clean_template_filename(
     )
     shortened_title = _apply_shorten(cleaned_title, flags)
     media_id_changed = bool(resolved_media_id and original_media_id and resolved_media_id != original_media_id)
+    # Resolved values already fold in the handle-stripped originals, so comparing
+    # them against the raw on-disk segments covers both rewrites and @-stripping.
     creator_changed = bool(
-        (original_username and raw_original_username and original_username != raw_original_username)
-        or (original_nickname and raw_original_nickname and original_nickname != raw_original_nickname)
-        or (resolved_username and raw_original_username and resolved_username != raw_original_username)
+        (resolved_username and raw_original_username and resolved_username != raw_original_username)
         or (resolved_nickname and raw_original_nickname and resolved_nickname != raw_original_nickname)
     )
     # A scraped token whose value differs from what the filename already carries
@@ -509,22 +592,18 @@ def clean_template_filename(
     ):
         return value
 
-    rendered_fields = dict(fields)
-    rendered_fields["title"] = shortened_title
-    if resolved_media_id:
-        rendered_fields["id"] = resolved_media_id
-    if resolved_username:
-        rendered_fields["username"] = resolved_username
-    if resolved_nickname:
-        rendered_fields["nickname"] = resolved_nickname
-    stem = _render_template_stem(filename_template, rendered_fields, extra_tokens, cleaning, quality)
-    if not stem:
-        stem = sanitize_path_literal(
+    return compose(
+        {
+            "title": shortened_title,
+            "id": resolved_media_id,
+            "username": resolved_username,
+            "nickname": resolved_nickname,
+        },
+        numbered_suffix,
+        sanitize_path_literal(
             resolved_media_id or resolved_username or resolved_nickname or strip_numbered_suffix(path.stem)
-        )
-    if keep_numbered_suffix and numbered_suffix:
-        stem = f"{stem}{numbered_suffix}"
-    return f"{stem}{path.suffix}" if stem else value
+        ),
+    )
 
 
 def clean_template_display_filename(
@@ -540,10 +619,10 @@ def clean_template_display_filename(
     cleaning: dict[str, Any] | None = None,
     quality: dict[str, str] | None = None,
 ) -> str:
-    value = str(filename or "").strip()
+    value = _text(filename)
     if not value:
         return ""
-    filename_template = str((template_settings or {}).get("filename_template") or "").strip()
+    filename_template = _text((template_settings or {}).get("filename_template"))
     if filename_template:
         rendered = clean_template_filename(
             value,
@@ -561,6 +640,9 @@ def clean_template_display_filename(
         if rendered:
             return rendered
     return value
+
+
+# --- ffmpeg discovery ---
 
 
 def detect_ffmpeg_location() -> str:

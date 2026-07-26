@@ -416,6 +416,33 @@ def _template_needs_probe_metadata(template_settings: dict[str, str] | None) -> 
     return bool(_template_token_names(template_settings) - {"id", "quality", "ext"})
 
 
+def _empty_metadata_value(value: str) -> bool:
+    return str(value or "").strip(" \t\n\r\"'`").lower() in {
+        "",
+        "unknown",
+        "none",
+        "null",
+        "undefined",
+        "untitled",
+        "na",
+        "n/a",
+    }
+
+
+def _metadata_title_has_value(value: str, media_id: str = "") -> bool:
+    value = str(value or "").strip()
+    if _empty_metadata_value(value):
+        return False
+    media_id = str(media_id or "").strip()
+    if len(media_id) < 4:
+        return True
+    pattern = re.compile(
+        rf"(?i)(?:^|[\s\-|:_]+)[\[\(\{{]?\s*{re.escape(media_id)}\s*[\]\)\}}]?\s*$"
+    )
+    stripped = pattern.sub("", value).strip(" -|,;:._")
+    return not _empty_metadata_value(stripped)
+
+
 def _filename_satisfies_template_metadata(path: Path, template_settings: dict[str, str] | None) -> bool:
     filename_template = _filename_template(template_settings)
     tokens = _template_token_names(template_settings) - {"quality", "ext"}
@@ -423,14 +450,17 @@ def _filename_satisfies_template_metadata(path: Path, template_settings: dict[st
         return True
     fields = filename_template_fields(path.name, filename_template) if filename_template else {}
     parsed_media_id, parsed_title = parse_filename_media_id(path.name)
+    media_id = _field_value(fields, "id") or parsed_media_id
 
     def has_token(token: str) -> bool:
         if token == "id":
-            return bool(_field_value(fields, "id") or parsed_media_id)
+            return bool(media_id)
         if token == "title":
-            return bool(_field_value(fields, "title") or parsed_title)
+            return _metadata_title_has_value(_field_value(fields, "title") or parsed_title, media_id)
         if token == "nickname":
-            return bool(_field_value(fields, "nickname", "username"))
+            return bool(_clean_creator_candidate(_field_value(fields, "nickname", "username")))
+        if token in CREATOR_FIELDS:
+            return bool(_clean_creator_candidate(_field_value(fields, token)))
         return bool(_field_value(fields, token))
 
     return all(has_token(token) for token in tokens)
@@ -443,7 +473,12 @@ def _probe_output_metadata(source_url: str, source_key: str = "") -> dict[str, s
         with_cookies = has_cookies_for_url(source_url) or (
             bool(source_key) and has_cookies_for_source(source_key)
         )
-        metadata = probe_metadata(source_url, with_cookies=with_cookies)
+        cookie_source_key = source_key if source_key and has_cookies_for_source(source_key) else ""
+        metadata = probe_metadata(
+            source_url,
+            with_cookies=with_cookies,
+            cookie_source_key=cookie_source_key,
+        )
     except Exception:
         return {}
     if not isinstance(metadata, dict):
@@ -1764,7 +1799,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     resolved_full_path=str(final_path),
                     resolved_folder=str(final_path.parent),
                     resolved_filename=display_filename,
-                    title=Path(display_filename).stem,
+                    title=filename_template_fields(display_filename, filename_template).get("title", ""),
                     last_log_lines=[],
                     output_dir="",
                     output_template="",

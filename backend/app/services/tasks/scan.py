@@ -23,7 +23,11 @@ from .formats import (
     reconstruct_url_candidates,
 )
 from .learning import update_learned_formats_with_download
-from .naming import clean_template_display_filename
+from .naming import (
+    clean_template_display_filename,
+    strip_numbered_suffix,
+    template_literal_pattern,
+)
 from .store import (
     load_history,
     load_learned_formats,
@@ -123,16 +127,16 @@ def compile_template(
     used: set[str] = set()
     cursor = 0
     for match in TEMPLATE_RE.finditer(value):
-        parts.append(re.escape(value[cursor : match.start()]))
+        parts.append(template_literal_pattern(value[cursor : match.start()]))
         group = _template_group(match.group(1).strip().lower(), token_roles, slug_tokens)
         pattern = _template_pattern(group)
         if group and group not in used:
             used.add(group)
-            parts.append(f"(?P<{group}>{pattern})")
+            parts.append(f"(?P<{group}>{pattern})?")
         else:
-            parts.append(f"(?:{pattern})")
+            parts.append(f"(?:{pattern})?")
         cursor = match.end()
-    parts.append(re.escape(value[cursor:]))
+    parts.append(template_literal_pattern(value[cursor:]))
     try:
         return re.compile(f"^{''.join(parts)}$")
     except re.error:
@@ -142,10 +146,12 @@ def compile_template(
 def _match_template(pattern: re.Pattern[str] | None, text: str) -> dict[str, str]:
     if pattern is None:
         return {}
-    match = pattern.match(str(text or "").strip())
-    if not match:
-        return {}
-    return {key: value.strip() for key, value in match.groupdict().items() if value and value.strip()}
+    value = str(text or "").strip()
+    for candidate in dict.fromkeys((value, strip_numbered_suffix(value))):
+        match = pattern.match(candidate)
+        if match:
+            return {key: group.strip() for key, group in match.groupdict().items() if group and group.strip()}
+    return {}
 
 
 def _path_key(path: Path | str) -> str:
@@ -256,17 +262,6 @@ def _creator_for_file(
     folder_text = _relative_folder(_folder_base(root, path, source_folders), path.parent)
     creator = _match_template(folder_pattern, folder_text).get("creator", "")
     return creator or _match_template(filename_pattern, path.stem).get("creator", "")
-
-
-def _creator_from_title(title: str) -> str:
-    value = str(title or "").strip()
-    if not value:
-        return ""
-    if value.rstrip().endswith("-"):
-        return value.rstrip(" -").strip()
-    if " - " in value:
-        return value.split(" - ", 1)[0].strip()
-    return ""
 
 
 def _completed_records() -> dict[str, dict[str, Any]]:
@@ -752,9 +747,9 @@ def _parse_media_fields(path: Path, filename_pattern: re.Pattern[str] | None) ->
     media_id = fields.get("id", "")
     title = fields.get("title", "")
     if media_id and media_id.lower() not in UNRECOVERABLE_MEDIA_IDS:
-        return media_id, (title or path.stem)
-    generic_id, generic_title = parse_filename_media_id(path.name)
-    return generic_id, (title or generic_title)
+        return media_id, title
+    generic_id, _ = parse_filename_media_id(path.name)
+    return generic_id, title
 
 
 def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, int]:
@@ -830,10 +825,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         slug_names = {rule["token"] for rule in slug_rules if rule.get("token")}
         # Recover configured URL parts from the filename so links reconstruct generically.
         slug_values = _slug_values_from_fields(slug_rules, source_roles, slug_names, filename_fields)
-        disk_creator = (
-            _creator_for_file(root, path, source_folders, folder_pattern, filename_pattern)
-            or _creator_from_title(title)
-        )
+        disk_creator = _creator_for_file(root, path, source_folders, folder_pattern, filename_pattern)
         folder_template, filename_template = templates.templates_for_format(source_key, matched_fmt)
         prior = records.get(task_id) or {}
         prior_creator = str(prior.get("artist") or "").strip()
@@ -871,14 +863,11 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
                     learned, source_key, media_id, creator="", slug_values=slug_values
                 )
         template_settings = {"folder_template": folder_template, "filename_template": filename_template}
-        creator_key = creator.strip().lstrip("@").casefold()
-        title_key = re.sub(r"\s*[-|:]+\s*$", "", title).strip().lstrip("@").casefold()
-        title_hint = "" if creator_key and creator_key == title_key else title
         display_filename = clean_template_display_filename(
             path.name,
             template_settings,
             creator=creator,
-            title=title_hint,
+            title=title,
             media_id=media_id,
             source_key=source_key,
         )

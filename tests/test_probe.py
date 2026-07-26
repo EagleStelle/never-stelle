@@ -186,11 +186,11 @@ def test_gallerydl_richest_metadata_finds_largest_dict():
 
 
 def test_gallerydl_tiktok_photo_author_fields_are_creator_candidates(monkeypatch):
-    monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url: (None, "unsupported url"))
+    monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url, **kwargs: (None, "unsupported url"))
     monkeypatch.setattr(
         probe_module,
         "_gallerydl_dump",
-        lambda url: {
+        lambda url, **kwargs: {
             "id": "7420705673542978833",
             "author": {
                 "id": "6673617364291994625",
@@ -233,9 +233,61 @@ def test_gallerydl_dump_uses_tiktok_no_audio_probe_option(monkeypatch):
     assert captured["cmd"][:4] == ["gallery-dl", "-j", "-o", "extractor.tiktok.audio=false"]
 
 
+def test_ytdlp_dump_prefers_cookie_probe_when_cookie_file_exists(monkeypatch):
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+
+        class Result:
+            returncode = 0
+            stdout = '{"id": "abc123", "uploader": "Cookie Creator"}\n'
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(probe_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(probe_module, "find_cookies_file_for_source", lambda source_key: "/tmp/instagram.txt")
+    monkeypatch.setattr(probe_module, "find_cookies_file_for_url", lambda url: "")
+
+    info, error = probe_module._ytdlp_dump(
+        "https://www.instagram.com/reel/abc123/",
+        cookie_source_key="instagram",
+    )
+
+    assert error == ""
+    assert info == {"id": "abc123", "uploader": "Cookie Creator"}
+    assert calls and calls[0][-3:] == ["--cookies", "/tmp/instagram.txt", "https://www.instagram.com/reel/abc123/"]
+
+
+def test_gallerydl_dump_prefers_cookie_probe_when_cookie_file_exists(monkeypatch):
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+
+        class Result:
+            returncode = 0
+            stdout = '[[2, {"id": "abc123", "username": "cookie.creator"}]]'
+
+        return Result()
+
+    monkeypatch.setattr(probe_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(probe_module, "find_cookies_file_for_source", lambda source_key: "/tmp/instagram.txt")
+    monkeypatch.setattr(probe_module, "find_cookies_file_for_url", lambda url: "")
+
+    metadata = probe_module._gallerydl_dump(
+        "https://www.instagram.com/reel/abc123/",
+        cookie_source_key="instagram",
+    )
+
+    assert metadata == {"id": "abc123", "username": "cookie.creator"}
+    assert calls and calls[0][-3:] == ["--cookies", "/tmp/instagram.txt", "https://www.instagram.com/reel/abc123/"]
+
+
 def test_probe_creator_fields_merges_both_engines(monkeypatch):
-    monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url: ({"uploader_id": "bob_h", "title": "hey"}, ""))
-    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: {"username": "bob", "title": "hey"})
+    monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url, **kwargs: ({"uploader_id": "bob_h", "title": "hey"}, ""))
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: {"username": "bob", "title": "hey"})
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "example")
     result = probe_creator_fields("https://example.com/x")
     assert result["source_key"] == "example"
@@ -252,7 +304,7 @@ def test_probe_creator_fields_keeps_bare_facebook_reel_uploader(monkeypatch):
     monkeypatch.setattr(
         probe_module,
         "_ytdlp_dump",
-        lambda url: (
+        lambda url, **kwargs: (
             {
                 "id": "849162654788919",
                 "uploader": "Tomet Fonn",
@@ -261,7 +313,7 @@ def test_probe_creator_fields_keeps_bare_facebook_reel_uploader(monkeypatch):
             "",
         ),
     )
-    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: None)
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "facebook")
 
     result = probe_creator_fields("https://www.facebook.com/reel/849162654788919")
@@ -276,7 +328,7 @@ def test_probe_creator_fields_keeps_facebook_share_post_uploader(monkeypatch):
     monkeypatch.setattr(
         probe_module,
         "_ytdlp_dump",
-        lambda url: (
+        lambda url, **kwargs: (
             {
                 "id": "194bUYA419",
                 "uploader": "Tomet Fonn",
@@ -285,7 +337,7 @@ def test_probe_creator_fields_keeps_facebook_share_post_uploader(monkeypatch):
             "",
         ),
     )
-    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: None)
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "facebook")
 
     result = probe_creator_fields("https://www.facebook.com/share/p/194bUYA419/")
@@ -300,7 +352,7 @@ def test_probe_creator_fields_keeps_live_fields_without_url_owner_filter(monkeyp
     monkeypatch.setattr(
         probe_module,
         "_ytdlp_dump",
-        lambda url: (
+        lambda url, **kwargs: (
             {
                 "id": "7487436336081734913",
                 "uploader": "wrong-owner",
@@ -309,7 +361,7 @@ def test_probe_creator_fields_keeps_live_fields_without_url_owner_filter(monkeyp
             "",
         ),
     )
-    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: None)
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "tiktok")
 
     result = probe_creator_fields("https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913")
@@ -324,7 +376,7 @@ def test_probe_creator_fields_promotes_exact_url_creator_match(monkeypatch):
     monkeypatch.setattr(
         probe_module,
         "_ytdlp_dump",
-        lambda url: (
+        lambda url, **kwargs: (
             {
                 "id": "7487436336081734913",
                 "uploader_id": "6673617364291994625",
@@ -336,7 +388,7 @@ def test_probe_creator_fields_promotes_exact_url_creator_match(monkeypatch):
             "",
         ),
     )
-    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: None)
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "tiktok")
 
     result = probe_creator_fields("https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913")
@@ -347,8 +399,8 @@ def test_probe_creator_fields_promotes_exact_url_creator_match(monkeypatch):
 
 
 def test_probe_creator_fields_skips_engine_that_returns_nothing(monkeypatch):
-    monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url: (None, "unsupported url"))
-    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: {"username": "bob"})
+    monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url, **kwargs: (None, "unsupported url"))
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: {"username": "bob"})
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "example")
     result = probe_creator_fields("https://example.com/x")
     assert [f["field"] for f in result["fields"]] == ["username"]
@@ -356,7 +408,7 @@ def test_probe_creator_fields_skips_engine_that_returns_nothing(monkeypatch):
 
 
 def test_probe_creator_fields_raises_when_both_engines_fail(monkeypatch):
-    monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url: (None, "bad link line"))
-    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url: None)
+    monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url, **kwargs: (None, "bad link line"))
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
     with pytest.raises(ValueError):
         probe_creator_fields("https://example.com/x")

@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
 
 from backend.app.core.sources import normalize_source_key, source_key_from_url
-from backend.app.services.settings import find_cookies_file_for_url
+from backend.app.services.settings import find_cookies_file_for_source, find_cookies_file_for_url
 
 from .constants import (
     CREATOR_FIELD_CANDIDATES,
@@ -21,6 +21,15 @@ _RADIO_PREFIX = "RD"
 _PROBE_TIMEOUT_SECONDS = 90
 _MAX_ENTRIES = 500
 _GALLERYDL_TIKTOK_NO_AUDIO_OPTION = "extractor.tiktok.audio=false"
+
+
+def _probe_cookies_file(url: str, source_key: str = "") -> str:
+    key = normalize_source_key(source_key)
+    if key:
+        cookies_file = find_cookies_file_for_source(key)
+        if cookies_file:
+            return cookies_file
+    return find_cookies_file_for_url(url)
 
 
 def _strip_playlist_param(url: str) -> str:
@@ -61,7 +70,7 @@ def _flat_playlist(url: str) -> dict[str, Any]:
         "--remote-components",
         "ejs:github",
     ]
-    cookies_file = find_cookies_file_for_url(url)
+    cookies_file = _probe_cookies_file(url)
     if cookies_file:
         cmd.extend(["--cookies", cookies_file])
     cmd.extend(["--playlist-end", str(_MAX_ENTRIES), url])
@@ -196,7 +205,9 @@ def _exact_url_creator_fields(
     return promoted
 
 
-def _ytdlp_dump(url: str, *, with_cookies: bool = True) -> tuple[dict[str, Any] | None, str]:
+def _ytdlp_dump(
+    url: str, *, with_cookies: bool = True, cookie_source_key: str = ""
+) -> tuple[dict[str, Any] | None, str]:
     cmd = [
         "yt-dlp",
         "--dump-json",
@@ -209,7 +220,7 @@ def _ytdlp_dump(url: str, *, with_cookies: bool = True) -> tuple[dict[str, Any] 
         "--remote-components",
         "ejs:github",
     ]
-    cookies_file = find_cookies_file_for_url(url) if with_cookies else ""
+    cookies_file = _probe_cookies_file(url, cookie_source_key) if with_cookies else ""
 
     def _exec(extra_args: list[str]) -> tuple[dict[str, Any] | None, str]:
         try:
@@ -234,10 +245,10 @@ def _ytdlp_dump(url: str, *, with_cookies: bool = True) -> tuple[dict[str, Any] 
             return None, ""
 
     if cookies_file:
-        res, err = _exec([])
+        res, err = _exec(["--cookies", cookies_file])
         if res is not None:
             return res, ""
-        return _exec(["--cookies", cookies_file])
+        return _exec([])
     return _exec([])
 
 
@@ -255,9 +266,9 @@ def _gallerydl_richest_metadata(node: Any) -> dict[str, Any]:
     return best
 
 
-def _gallerydl_dump(url: str, *, with_cookies: bool = True) -> dict[str, Any] | None:
+def _gallerydl_dump(url: str, *, with_cookies: bool = True, cookie_source_key: str = "") -> dict[str, Any] | None:
     cmd = ["gallery-dl", "-j", "-o", _GALLERYDL_TIKTOK_NO_AUDIO_OPTION]
-    cookies_file = find_cookies_file_for_url(url) if with_cookies else ""
+    cookies_file = _probe_cookies_file(url, cookie_source_key) if with_cookies else ""
 
     def _exec(extra_args: list[str]) -> dict[str, Any] | None:
         try:
@@ -281,14 +292,14 @@ def _gallerydl_dump(url: str, *, with_cookies: bool = True) -> dict[str, Any] | 
         return metadata or None
 
     if cookies_file:
-        res = _exec([])
+        res = _exec(["--cookies", cookies_file])
         if res is not None:
             return res
-        return _exec(["--cookies", cookies_file])
+        return _exec([])
     return _exec([])
 
 
-def probe_metadata(source_url: str, *, with_cookies: bool = True) -> dict[str, str]:
+def probe_metadata(source_url: str, *, with_cookies: bool = True, cookie_source_key: str = "") -> dict[str, str]:
     """Flat metadata for a URL from whichever engine answers first; ``{}`` on failure.
 
     The library scan uses this to resolve a manually-placed file's creator without a
@@ -298,10 +309,10 @@ def probe_metadata(source_url: str, *, with_cookies: bool = True) -> dict[str, s
     url = _prepare_url(source_url)
     if not url:
         return {}
-    info, _ = _ytdlp_dump(url, with_cookies=with_cookies)
+    info, _ = _ytdlp_dump(url, with_cookies=with_cookies, cookie_source_key=cookie_source_key)
     if isinstance(info, dict) and info:
         return _flatten_metadata(info)
-    metadata = _gallerydl_dump(url, with_cookies=with_cookies)
+    metadata = _gallerydl_dump(url, with_cookies=with_cookies, cookie_source_key=cookie_source_key)
     if isinstance(metadata, dict) and metadata:
         return _flatten_metadata(metadata)
     return {}
@@ -320,13 +331,13 @@ def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any
 
     probed: list[tuple[str, dict[str, str]]] = []
     errors: list[str] = []
-    info, error = _ytdlp_dump(url)
+    info, error = _ytdlp_dump(url, cookie_source_key=resolved_key)
     if isinstance(info, dict) and info:
         probed.append(("ytdlp", _flatten_metadata(info)))
     elif error:
         errors.append(error)
 
-    metadata = _gallerydl_dump(url)
+    metadata = _gallerydl_dump(url, cookie_source_key=resolved_key)
     if isinstance(metadata, dict) and metadata:
         probed.append(("gallerydl", _flatten_metadata(metadata)))
 

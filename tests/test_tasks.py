@@ -771,6 +771,26 @@ def test_clean_template_filename_drops_none_title_segment():
     assert result == "Poster - [abc123]_1.jpg"
 
 
+@pytest.mark.parametrize(
+    ("template", "empty_title_name", "titled_name"),
+    [
+        ("{{username}} - {{title}} [{{id}}]", "poster - [abc123].jpg", "poster - Nice clip [abc123].jpg"),
+        ("{{nickname}} | {{title}} ({{id}})", "poster | (abc123).jpg", "poster | Nice clip (abc123).jpg"),
+        ("{{title}} :: {{username}} [{{id}}]", "poster [abc123].jpg", "Nice clip :: poster [abc123].jpg"),
+        ("[{{id}}] {{username}}_{{title}}", "[abc123] poster.jpg", "[abc123] poster_Nice clip.jpg"),
+    ],
+)
+def test_clean_template_filename_keeps_empty_title_empty_across_renders(template, empty_title_name, titled_name):
+    def render(name: str, title: str) -> str:
+        return clean_template_filename(name, template, creator="poster", title=title, media_id="abc123")
+
+    assert render("gallerydl-raw.jpg", "Nice clip") == titled_name
+    assert render("gallerydl-raw.jpg", "") == empty_title_name
+    assert empty_title_name.count("poster") == 1
+    assert render(empty_title_name, "") == empty_title_name
+    assert render(titled_name, "Nice clip") == titled_name
+
+
 def test_clean_template_filename_truncates_long_title_when_enabled():
     title = "A" * 140
     result = clean_template_filename(
@@ -815,6 +835,17 @@ def test_clean_template_filename_rebuilds_sparse_gallerydl_name_from_title_hint(
     )
 
     assert result == "alice - Nice clip [abc123]_1.jpg"
+
+
+def test_clean_template_filename_repairs_none_creator_and_duplicate_id_title():
+    result = clean_template_filename(
+        "None - [DZwrrifkye4] [DZwrrifkye4].mp4",
+        "{{username}} - {{title}} [{{id}}]",
+        creator="real.creator",
+        media_id="DZwrrifkye4",
+    )
+
+    assert result == "real.creator - [DZwrrifkye4].mp4"
 
 
 def test_clean_resolved_filename_renames_real_file_using_settings_template(tmp_path: Path):
@@ -1032,7 +1063,7 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
     assert not second.exists()
     assert completed["resolved_full_path"] == str(first_clean)
     assert completed["resolved_filename"] == "Creator - [1234567890].jpg"
-    assert completed["title"] == "Creator - [1234567890]"
+    assert completed["title"] == ""
     assert saved[task_id]["resolved_full_path"] == str(first_clean)
     assert saved[task_id]["resolved_filename"] == "Creator - [1234567890].jpg"
 
@@ -1109,6 +1140,79 @@ def test_gallerydl_sparse_single_output_uses_probe_metadata_for_template(
     assert completed["resolved_filename"] == clean_video.name
     assert completed["creator"] == "ChannelHandle"
     assert saved[task_id]["template_settings"] == store["tasks"][task_id]["template_settings"]
+
+
+def test_gallerydl_cookie_probe_repairs_none_creator_and_duplicate_id_filename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media_id = "DZwrrifkye4"
+    raw_video = tmp_path / f"None - [{media_id}] [{media_id}].mp4"
+    raw_video.write_bytes(b"video")
+    source_url = f"https://www.instagram.com/reel/{media_id}/"
+    task_id = "gallerydl:instagram-cookie-metadata"
+    store = {
+        "tasks": {
+            task_id: {
+                "engine": "gallerydl",
+                "source_url": source_url,
+                "source_key": "instagram",
+                "status": "pending",
+                "output_dir": str(tmp_path),
+                "resolved_folder": str(tmp_path),
+                "template_settings": {
+                    "folder_template": "",
+                    "filename_template": "{{username}} - {{title}} [{{id}}]",
+                },
+            }
+        }
+    }
+    saved: dict[str, dict] = {}
+
+    class FakeProcess:
+        stdout = iter([f"{raw_video}\n"])
+
+        def wait(self):
+            return 0
+
+        def poll(self):
+            return 0
+
+        def kill(self):
+            return None
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    monkeypatch.setattr(worker_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+    monkeypatch.setattr(worker_module, "load_task_store", lambda: store)
+    monkeypatch.setattr(worker_module, "update_task", fake_update_task)
+    monkeypatch.setattr(worker_module, "get_effective_creator_fields", lambda url: {"username": ["username"]})
+    monkeypatch.setattr(
+        worker_module,
+        "_probe_output_metadata",
+        lambda url, source_key="": {
+            "id": media_id,
+            "webpage_url": source_url,
+            "username": "real.creator",
+            "title": f"None - [{media_id}]",
+        },
+    )
+    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "_learn_creator_fields_from_download", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+
+    worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+
+    completed = store["tasks"][task_id]
+    clean_video = tmp_path / f"real.creator - [{media_id}].mp4"
+    assert completed["status"] == "completed"
+    assert clean_video.is_file()
+    assert not raw_video.exists()
+    assert completed["resolved_full_path"] == str(clean_video)
+    assert completed["resolved_filename"] == clean_video.name
+    assert completed["creator"] == "real.creator"
+    assert saved[task_id]["resolved_filename"] == clean_video.name
 
 
 def test_gallerydl_same_source_assets_share_one_row_and_source_id(

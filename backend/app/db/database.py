@@ -446,6 +446,30 @@ def _migrate_schema(connection: sqlite3.Connection) -> None:
     _migrate_engine_tags(connection)
     _migrate_legacy_learned_formats_row(connection)
     _migrate_legacy_settings_json(connection)
+    _migrate_stem_titles(connection)
+
+
+def _migrate_stem_titles(connection: sqlite3.Connection) -> None:
+    from backend.app.services.tasks.naming import filename_template_fields
+
+    for table, key_column in (("queue", "id"), ("history", "task_id")):
+        updates: list[tuple[str, str]] = []
+        for row in connection.execute(f"SELECT {key_column}, payload FROM {table}"):
+            try:
+                payload = json.loads(row["payload"])
+            except Exception:
+                continue
+            if not isinstance(payload, dict) or not str(payload.get("title") or "").strip():
+                continue
+            settings = payload.get("template_settings")
+            template = str((settings or {}).get("filename_template") or "").strip()
+            if not isinstance(settings, dict) or not template:
+                continue
+            title = filename_template_fields(payload.get("resolved_filename") or "", template).get("title", "")
+            if title != payload["title"]:
+                payload["title"] = title
+                updates.append((json.dumps(payload), row[key_column]))
+        connection.executemany(f"UPDATE {table} SET payload = ? WHERE {key_column} = ?", updates)
 
 
 def _migrate_engine_tags(connection: sqlite3.Connection) -> None:
