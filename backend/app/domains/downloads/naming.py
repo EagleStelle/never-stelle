@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,11 @@ _EXT_TEMPLATE_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$", re.IGNORECASE)
 _EMPTY_BRACKETS_RE = re.compile(r"\[\s*\]|\(\s*\)|\{\s*\}")
 _ID_TEMPLATE_FIELDS = {"id"}
 
+# --- Filename styling patterns ---
+_SEPARATOR_CHARS = {"underscore": "_", "dash": "-"}
+_INVALID_REPLACEMENTS = {"underscore": "_", "dash": "-", "space": " "}
+_APOSTROPHES = {"'", "’"}
+
 
 # --- Text coercion and path-safe literals ---
 
@@ -69,9 +75,13 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def sanitize_path_literal(value: str) -> str:
+def sanitize_path_literal(value: str, replacement: str = "_") -> str:
     # Path-safe literal with no fallback; callers add engine-specific escaping.
-    return _INVALID_FILENAME_CHARS_RE.sub("_", str(value or "")).strip().strip(".")
+    return _INVALID_FILENAME_CHARS_RE.sub(replacement, str(value or "")).strip().strip(".")
+
+
+def invalid_char_replacement(flags: dict[str, Any]) -> str:
+    return _INVALID_REPLACEMENTS.get(str(flags.get("invalid_chars") or "underscore"), "_")
 
 
 def sanitize_filename_component(value: str) -> str:
@@ -117,6 +127,94 @@ def _apply_shorten(title: str, flags: dict[str, Any]) -> str:
 
 def strip_numbered_suffix(stem: str) -> str:
     return _NUMBERED_SUFFIX_RE.sub("", _text(stem))
+
+
+# --- Filename styling ---
+
+
+def _to_ascii(value: str) -> str:
+    # Decompose first so accents fold to their base letter instead of being dropped.
+    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    return _SPACING_RE.sub(" ", folded).strip()
+
+
+def _title_case(value: str) -> str:
+    out: list[str] = []
+    at_word_start = True
+    for char in value.lower():
+        if char.isalpha():
+            out.append(char.upper() if at_word_start else char)
+            at_word_start = False
+        elif char.isdigit():
+            out.append(char)
+            at_word_start = False
+        else:
+            out.append(char)
+            at_word_start = char not in _APOSTROPHES
+    return "".join(out)
+
+
+def _apply_case(value: str, flags: dict[str, Any]) -> str:
+    mode = str(flags.get("case") or "original")
+    if mode == "lowercase":
+        return value.lower()
+    if mode == "uppercase":
+        return value.upper()
+    if mode == "capitalized":
+        return _title_case(value)
+    return value
+
+
+def apply_token_style(value: str, flags: dict[str, Any]) -> str:
+    """Style one substituted token value.
+
+    Styling is per token by definition: the template is written by the user and its
+    literal text is the layout they asked for. With separator=underscore, the template
+    "{{username}} - {{title}} [{{id}}]" still renders its " - " and brackets verbatim;
+    only spaces inside a token's own value become underscores.
+    """
+    if not value:
+        return value
+    if str(flags.get("charset") or "keep") == "remove":
+        value = _to_ascii(value)
+    value = _apply_case(value, flags)
+    separator = _SEPARATOR_CHARS.get(str(flags.get("separator") or "space"))
+    if separator:
+        value = _SPACING_RE.sub(separator, value.strip())
+    return value
+
+
+def _cap_stem(value: str, max_chars: int) -> str:
+    # Whole-stem cap, unlike `max_chars` which only bounds the title token. Break on a
+    # word edge when one sits late enough that the result is still recognizable.
+    if max_chars <= 0 or len(value) <= max_chars:
+        return value
+    candidate = value[:max_chars].rstrip()
+    break_at = max(candidate.rfind(" "), candidate.rfind("_"), candidate.rfind("-"))
+    # No absolute floor here, unlike the title cap: a short stem limit must still be
+    # allowed to break on a word rather than always cutting mid-word.
+    if break_at >= int(max_chars * 0.6):
+        candidate = candidate[:break_at]
+    return candidate.rstrip(_STEM_TRIM_CHARS) or value[:max_chars].strip()
+
+
+def naming_style_active(flags: dict[str, Any]) -> bool:
+    return bool(
+        str(flags.get("charset") or "keep") != "keep"
+        or str(flags.get("case") or "original") != "original"
+        or str(flags.get("separator") or "space") != "space"
+        or str(flags.get("invalid_chars") or "underscore") != "underscore"
+        or int(flags.get("stem_max_chars") or 0) > 0
+    )
+
+
+def apply_stem_limit(stem: str, flags: dict[str, Any]) -> str:
+    # The only whole-stem step. Everything else is per token so the template's own
+    # literals survive; a length cap has no per-token meaning.
+    value = _text(stem)
+    if not value:
+        return value
+    return _cap_stem(value, int(flags.get("stem_max_chars") or 0)).strip(_STEM_TRIM_CHARS)
 
 
 # --- Placeholder and repeated-id removal ---
@@ -432,6 +530,10 @@ def _render_template_stem(
 ) -> str:
     template = _template_stem(filename_template)
     flags = normalize_title_cleaning(cleaning)
+    replacement = invalid_char_replacement(flags)
+
+    def styled(field: str, value: str) -> str:
+        return value if field in _ID_TEMPLATE_FIELDS else apply_token_style(value, flags)
 
     def replace(match: re.Match[str]) -> str:
         field = match.group(1).strip().lower()
@@ -440,19 +542,19 @@ def _render_template_stem(
             if override is not None and _text(override):
                 if field in CREATOR_FIELDS:
                     override = _clean_creator_token(str(override), flags)
-                return sanitize_path_literal(override)
+                return styled(field, sanitize_path_literal(override, replacement))
         if field == "quality" and quality is not None:
-            return _quality_token(quality)
+            return styled(field, _quality_token(quality))
         value = fields.get(field, "")
         if field in CREATOR_FIELDS:
             value = _clean_creator_token(value or _field_value(fields, "username", "nickname"), flags)
-        return sanitize_path_literal(value)
+        return styled(field, sanitize_path_literal(value, replacement))
 
     value = TEMPLATE_RE.sub(replace, template)
     value = _SPACING_RE.sub(" ", value)
     value = _EMPTY_BRACKETS_RE.sub("", value)
     value = _SPACING_RE.sub(" ", value).strip(_STEM_TRIM_CHARS)
-    return value
+    return apply_stem_limit(value, flags)
 
 
 def _extra_tokens_change_fields(
@@ -583,11 +685,14 @@ def clean_template_filename(
     # A scraped token whose value differs from what the filename already carries
     # must force a re-render, so recovery paths still pick up uploader/artist.
     extra_changed = _extra_tokens_change_fields(filename_template, fields, extra_tokens, quality)
+    # Styling rewrites the stem, so it must force a re-render even when no field moved.
+    style_changed = naming_style_active(flags)
     if (
         shortened_title == raw_title
         and not media_id_changed
         and not creator_changed
         and not extra_changed
+        and not style_changed
         and (keep_numbered_suffix or not numbered_suffix)
     ):
         return value

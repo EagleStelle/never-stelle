@@ -42,8 +42,6 @@ def normalize_creator_field(value: Any) -> str:
 
 
 def normalize_source_creator_fields(raw: Any) -> dict[str, dict[str, list[str]]]:
-    from backend.app.domains.downloads.constants import CREATOR_FIELDS
-
     source = raw if isinstance(raw, dict) else {}
     out: dict[str, dict[str, list[str]]] = {}
     for raw_key, raw_roles in source.items():

@@ -473,13 +473,79 @@ def title_cleaning_rules() -> list[dict[str, Any]]:
     ]
 
 
+# Per-source filename styling, applied to the rendered stem after the title is cleaned.
+# Every default reproduces the untouched behavior, so an unconfigured source is unaffected.
+STEM_MAX_CHARS_DEFAULT = 0  # 0 disables the whole-stem cap
+NAMING_CHOICES: dict[str, dict[str, Any]] = {
+    "charset": {
+        "label": "Special characters",
+        "default": "keep",
+        "options": [
+            {"value": "keep", "label": "Keep"},
+            {"value": "remove", "label": "Remove"},
+        ],
+    },
+    "invalid_chars": {
+        # Stand-in for what no filesystem accepts (< > : " / \ | ? * and control codes).
+        # These are always substituted; only the stand-in is configurable.
+        "label": "Illegal characters",
+        "default": "underscore",
+        "options": [
+            {"value": "space", "label": "Space"},
+            {"value": "underscore", "label": "Underscore"},
+            {"value": "dash", "label": "Dash"},
+        ],
+    },
+    "separator": {
+        "label": "Separator",
+        "default": "space",
+        "options": [
+            {"value": "space", "label": "Space"},
+            {"value": "underscore", "label": "Underscore"},
+            {"value": "dash", "label": "Dash"},
+        ],
+    },
+    "case": {
+        "label": "Casing",
+        "default": "original",
+        "options": [
+            {"value": "original", "label": "Original"},
+            {"value": "lowercase", "label": "Lowercase"},
+            {"value": "uppercase", "label": "Uppercase"},
+            {"value": "capitalized", "label": "Capitalized"},
+        ],
+    },
+}
+
+
+def naming_choices() -> list[dict[str, Any]]:
+    return [
+        {
+            "key": key,
+            "label": choice["label"],
+            "default": choice["default"],
+            "options": [dict(option) for option in choice["options"]],
+        }
+        for key, choice in NAMING_CHOICES.items()
+    ]
+
+
+def _positive_int(value: Any) -> int:
+    try:
+        parsed = int(str(value or "").strip() or 0)
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed > 0 else 0
+
+
 def normalize_title_cleaning(raw: Any) -> dict[str, Any]:
     # Fill each flag from raw or its rule default; None/non-dict yields the all-default set.
     source = raw if isinstance(raw, dict) else {}
     out: dict[str, Any] = {key: bool(source.get(key, rule["default"])) for key, rule in TITLE_CLEANING_RULES.items()}
-    try:
-        max_chars = int(str(source.get("max_chars") or "").strip() or 0)
-    except (TypeError, ValueError):
-        max_chars = 0
-    out["max_chars"] = max_chars if max_chars > 0 else TITLE_MAX_CHARS_DEFAULT
+    out["max_chars"] = _positive_int(source.get("max_chars")) or TITLE_MAX_CHARS_DEFAULT
+    out["stem_max_chars"] = _positive_int(source.get("stem_max_chars")) or STEM_MAX_CHARS_DEFAULT
+    for key, choice in NAMING_CHOICES.items():
+        value = str(source.get(key) or "").strip().lower()
+        allowed = {str(option["value"]) for option in choice["options"]}
+        out[key] = value if value in allowed else str(choice["default"])
     return out

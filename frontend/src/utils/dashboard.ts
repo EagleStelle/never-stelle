@@ -21,6 +21,7 @@ import {
   type SourceScrapeRules,
   type SourceSlugTokens,
   type SourceTemplates,
+  type NamingFlagValue,
   type SourceTitleCleaning,
   type SourceTokenRoles,
   type TaskCounts,
@@ -567,15 +568,23 @@ export function createSourceCreatorFields(
   return out;
 }
 
+// Numeric caps; 0 or invalid means "unset", so the key is dropped and the server default applies.
+const NAMING_NUMBER_KEYS = new Set(["max_chars", "stem_max_chars"]);
+
 // Keep only user-set flags; untouched sources stay empty so the server applies rule defaults.
+// Choices arrive as strings and must survive verbatim — coercing them to Boolean would
+// collapse every option to `true`.
 function createTitleCleaning(
-  source: Record<string, boolean | number> = {},
-): Record<string, boolean | number> {
-  const out: Record<string, boolean | number> = {};
+  source: Record<string, NamingFlagValue> = {},
+): Record<string, NamingFlagValue> {
+  const out: Record<string, NamingFlagValue> = {};
   for (const [key, value] of Object.entries(source || {})) {
-    if (key === "max_chars") {
+    if (NAMING_NUMBER_KEYS.has(key)) {
       const parsed = Math.floor(Number(value));
-      if (Number.isFinite(parsed) && parsed > 0) out.max_chars = parsed;
+      if (Number.isFinite(parsed) && parsed > 0) out[key] = parsed;
+    } else if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) out[key] = trimmed;
     } else {
       out[key] = Boolean(value);
     }
@@ -584,7 +593,7 @@ function createTitleCleaning(
 }
 
 export function createSourceTitleCleaning(
-  source: Record<string, Record<string, boolean | number>> = {},
+  source: Record<string, Record<string, NamingFlagValue>> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
 ): SourceTitleCleaning {
   const out: SourceTitleCleaning = {};
@@ -632,6 +641,7 @@ export function isSettingsSection(
     value === "quality" ||
     value === "format" ||
     value === "templates" ||
+    value === "naming" ||
     value === "creator" ||
     value === "scraper" ||
     value === "slug"

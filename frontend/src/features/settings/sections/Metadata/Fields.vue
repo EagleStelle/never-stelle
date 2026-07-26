@@ -48,9 +48,15 @@ const {
   resetRole,
   isConfigured,
   runProbe,
-} = useFieldsSettings(settingsDraft, settings, learnedFormatsDraft, editableSourceProfiles, {
-  probeCreatorFields,
-});
+} = useFieldsSettings(
+  settingsDraft,
+  settings,
+  learnedFormatsDraft,
+  editableSourceProfiles,
+  {
+    probeCreatorFields,
+  },
+);
 
 // Native drag-and-drop reordering, scoped to one (source, role) list at a time.
 const drag = reactive<{
@@ -160,13 +166,14 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
             </div>
           </div>
 
-          <SettingsEmptyCard
-            v-if="probes[site.key].message"
-          >
+          <SettingsEmptyCard v-if="probes[site.key].message">
             {{ probes[site.key].message }}
           </SettingsEmptyCard>
 
-          <Table v-if="probes[site.key].fields.length" class="w-full table-fixed text-[0.8125rem]">
+          <Table
+            v-if="probes[site.key].fields.length"
+            class="w-full table-fixed text-[0.8125rem]"
+          >
             <TableHeader>
               <TableRow>
                 <TableHead
@@ -186,7 +193,9 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
                 v-for="result in probes[site.key].fields"
                 :key="result.field"
               >
-                <TableCell class="w-36 sm:w-44 max-w-[9rem] sm:max-w-[11rem] font-mono align-top">
+                <TableCell
+                  class="w-36 sm:w-44 max-w-[9rem] sm:max-w-[11rem] font-mono align-top"
+                >
                   <span class="block truncate" :title="result.field">
                     {{ result.field }}
                   </span>

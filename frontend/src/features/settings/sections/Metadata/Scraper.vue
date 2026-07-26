@@ -55,13 +55,19 @@ const ROLE_ITEMS: { key: TokenRole; label: string }[] = [
   { key: "title", label: "Title" },
 ];
 
-function updateRole(siteKey: string, rule: ScrapeRule, index: number, value: unknown): void {
+function updateRole(
+  siteKey: string,
+  rule: ScrapeRule,
+  index: number,
+  value: unknown,
+): void {
   const next = String(value || "ignore") as TokenRole;
   const role = ROLE_ITEMS.some((item) => item.key === next) ? next : "ignore";
   setTokenRole(siteKey, rule.token || `var${index}`, role);
 }
 
-const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles } = useSettingsContext();
+const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles } =
+  useSettingsContext();
 const {
   scrapeTests,
   formatsFor,
@@ -73,7 +79,12 @@ const {
   removeScrapeRule,
   runScrapeTest,
   setRuleToken,
-} = useScrapeTests(settingsDraft, settings, learnedFormatsDraft, editableSourceProfiles);
+} = useScrapeTests(
+  settingsDraft,
+  settings,
+  learnedFormatsDraft,
+  editableSourceProfiles,
+);
 </script>
 
 <template>
@@ -152,8 +163,13 @@ const {
                 v-for="result in scrapeTests[site.key].results"
                 :key="result.token"
               >
-                <TableCell class="w-36 sm:w-44 max-w-[9rem] sm:max-w-[11rem] font-mono align-top">
-                  <span class="block truncate" :title="tokenLabel(result.token)">
+                <TableCell
+                  class="w-36 sm:w-44 max-w-[9rem] sm:max-w-[11rem] font-mono align-top"
+                >
+                  <span
+                    class="block truncate"
+                    :title="tokenLabel(result.token)"
+                  >
                     {{ tokenLabel(result.token) }}
                   </span>
                 </TableCell>
@@ -171,6 +187,11 @@ const {
             </TableBody>
           </Table>
 
+          <SettingsEmptyCard v-if="!formatsFor(site.key).length">
+            Download once from this source to learn its URL format, then add
+            scraper rules.
+          </SettingsEmptyCard>
+
           <div
             v-for="template in formatsFor(site.key)"
             :key="template"
@@ -180,13 +201,23 @@ const {
               {{ displayUrlTemplate(template) }}
             </SettingsLabel>
 
+            <SettingsEmptyCard
+              v-if="!rulesForFormat(site.key, template).length"
+            >
+              This format has no scraper rules yet.
+            </SettingsEmptyCard>
+
             <Card
               v-for="{ rule, index } in rulesForFormat(site.key, template)"
               :key="index"
             >
               <CardHeader>
                 <CardTitle class="font-mono text-sm leading-snug">
-                  {{ rule.token ? tokenLabel(rule.token) : tokenLabel(`var${index}`) }}
+                  {{
+                    rule.token
+                      ? tokenLabel(rule.token)
+                      : tokenLabel(`var${index}`)
+                  }}
                 </CardTitle>
                 <CardDescription class="font-mono text-xs">
                   {{ rule.selector }}
@@ -200,7 +231,9 @@ const {
                     :model-value="rule.token"
                     aria-label="Token name"
                     input-class="font-mono"
-                    @update:model-value="(v) => setRuleToken(site.key, rule, index, String(v))"
+                    @update:model-value="
+                      (v) => setRuleToken(site.key, rule, index, String(v))
+                    "
                   />
                 </label>
 
@@ -244,22 +277,34 @@ const {
                 <div class="flex flex-col gap-1.5 lg:col-span-2">
                   <SettingsLabel>Role</SettingsLabel>
                   <SegmentedControl
-                    :model-value="tokenRole(site.key, rule.token || `var${index}`)"
+                    :model-value="
+                      tokenRole(site.key, rule.token || `var${index}`)
+                    "
                     class="flex-wrap h-auto min-h-9"
-                    @update:model-value="(value) => updateRole(site.key, rule, index, value)"
+                    @update:model-value="
+                      (value) => updateRole(site.key, rule, index, value)
+                    "
                   >
                     <SegmentedControlItem
                       v-for="role in ROLE_ITEMS"
                       :key="role.key"
                       :value="role.key"
-                      :disabled="isRoleDisabled(site.key, rule.token || `var${index}`, role.key)"
+                      :disabled="
+                        isRoleDisabled(
+                          site.key,
+                          rule.token || `var${index}`,
+                          role.key,
+                        )
+                      "
                     >
                       {{ role.label }}
                     </SegmentedControlItem>
                   </SegmentedControl>
                 </div>
 
-                <div class="flex items-center justify-between gap-3 lg:col-span-2">
+                <div
+                  class="flex items-center justify-between gap-3 lg:col-span-2"
+                >
                   <label class="flex items-center gap-2 text-sm">
                     <Checkbox
                       :checked="rule.multi"

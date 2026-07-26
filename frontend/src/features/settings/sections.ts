@@ -6,6 +6,7 @@ import IconFolder from "~icons/material-symbols/folder";
 import IconQuality from "~icons/material-symbols/high-quality";
 import IconCreator from "~icons/material-symbols/badge";
 import IconFormat from "~icons/material-symbols/pattern";
+import IconNaming from "~icons/material-symbols/text-format";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconScraper from "~icons/material-symbols/travel-explore";
 import IconSlug from "~icons/material-symbols/link";
@@ -18,6 +19,7 @@ import Quality from "./sections/Settings/Quality.vue";
 import Templates from "./sections/Metadata/Templates.vue";
 import Fields from "./sections/Metadata/Fields.vue";
 import Format from "./sections/Metadata/Format.vue";
+import Naming from "./sections/Metadata/Naming.vue";
 import Scraper from "./sections/Metadata/Scraper.vue";
 import Slug from "./sections/Metadata/Slug.vue";
 
@@ -113,6 +115,15 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     group: "Metadata",
     icon: IconRuleFolder,
     component: Templates,
+    requiresSources: true,
+  },
+  // Last stage of the pipeline: Templates decides the shape, Naming the text written to disk.
+  {
+    key: "naming",
+    label: "Naming",
+    group: "Metadata",
+    icon: IconNaming,
+    component: Naming,
     requiresSources: true,
   },
 ];

@@ -471,6 +471,81 @@ def test_clean_template_filename_nickname_token_not_overwritten_by_handle():
     assert result == "NASA - Cool Rocket [ABC123].jpg"
 
 
+NAMING_TEMPLATE = "{{username}} - {{title}} [{{id}}]"
+NAMING_SAMPLE = "nasa - Café Rocket Launch [aB3dK9x].jpg"
+
+
+def _named(**cleaning: object) -> str:
+    return clean_template_filename(
+        NAMING_SAMPLE,
+        NAMING_TEMPLATE,
+        creator="nasa",
+        media_id="aB3dK9x",
+        cleaning=cleaning,
+    )
+
+
+def test_naming_case_never_folds_the_media_id():
+    # Folding an id breaks every later match of the file against it, so case is per token.
+    assert _named(case="lowercase") == "nasa - café rocket launch [aB3dK9x].jpg"
+    assert _named(case="uppercase") == "NASA - CAFÉ ROCKET LAUNCH [aB3dK9x].jpg"
+    assert _named(case="capitalized") == "Nasa - Café Rocket Launch [aB3dK9x].jpg"
+
+
+def test_naming_styles_token_values_and_never_template_literals():
+    # The template's own " - " and brackets are the layout the user wrote; only spaces
+    # inside a token's value are separators.
+    assert _named(separator="underscore") == "nasa - Café_Rocket_Launch [aB3dK9x].jpg"
+    assert _named(separator="dash") == "nasa - Café-Rocket-Launch [aB3dK9x].jpg"
+    assert _named(charset="remove") == "nasa - Cafe Rocket Launch [aB3dK9x].jpg"
+    assert _named(case="lowercase") == "nasa - café rocket launch [aB3dK9x].jpg"
+
+
+def test_naming_ascii_folds_accents_rather_than_dropping_them():
+    assert _named(charset="remove") == "nasa - Cafe Rocket Launch [aB3dK9x].jpg"
+
+
+def test_naming_stem_cap_bounds_the_whole_name():
+    result = _named(stem_max_chars=20)
+    assert result == "nasa - Café Rocket.jpg"
+    assert len(Path(result).stem) <= 20
+
+
+def test_naming_blocked_character_replacement_is_configurable():
+    # `:` and `/` are illegal in a filename and were always forced to `_`.
+    def named(**cleaning: object) -> str:
+        return clean_template_filename(
+            "sample.jpg",
+            NAMING_TEMPLATE,
+            creator="nasa",
+            title="Ep 1: A/B what?",
+            media_id="aB3dK9x",
+            cleaning=cleaning,
+        )
+
+    assert named() == "nasa - Ep 1_ A_B what_ [aB3dK9x].jpg"
+    assert named(invalid_chars="dash") == "nasa - Ep 1- A-B what- [aB3dK9x].jpg"
+    assert named(invalid_chars="space") == "nasa - Ep 1 A B what [aB3dK9x].jpg"
+    # An unknown value falls back to the default rather than dropping the character.
+    assert named(invalid_chars="bogus") == "nasa - Ep 1_ A_B what_ [aB3dK9x].jpg"
+
+
+def test_naming_defaults_leave_the_name_untouched():
+    assert _named() == NAMING_SAMPLE
+
+
+def test_naming_title_case_handles_unicode_letters_and_apostrophes():
+    result = clean_template_filename(
+        "nasa - naïve don't stop [aB3dK9x].jpg",
+        NAMING_TEMPLATE,
+        creator="nasa",
+        media_id="aB3dK9x",
+        cleaning={"case": "capitalized"},
+    )
+
+    assert result == "Nasa - Naïve Don't Stop [aB3dK9x].jpg"
+
+
 def test_clean_template_filename_handle_at_cleanup_can_be_disabled():
     name = "@alice - Nice clip [abc123].mp4"
     template = "{{username}} - {{title}} [{{id}}]"

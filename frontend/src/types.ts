@@ -18,7 +18,8 @@ export type SettingsSection =
   | "creator"
   | "scraper"
   | "slug"
-  | "templates";
+  | "templates"
+  | "naming";
 export type ToastType = "success" | "error";
 
 export type SourceLocations = Record<string, string>;
@@ -98,16 +99,30 @@ export interface CreatorFieldRoles {
   title: string[];
 }
 export type SourceCreatorFields = Record<string, CreatorFieldRoles>;
-// Per source, title-cleaning flags plus a numeric max_chars; missing keys use the rule default.
+// Per source, every Naming setting: boolean cleaning rules, numeric caps, and the
+// string-valued choices. Missing keys fall back to the rule or choice default.
+export type NamingFlagValue = boolean | number | string;
 export type SourceTitleCleaning = Record<
   string,
-  Record<string, boolean | number>
+  Record<string, NamingFlagValue>
 >;
 
 export interface TitleCleaningRule {
   key: string;
   label: string;
   default: boolean;
+}
+
+export interface NamingChoiceOption {
+  value: string;
+  label: string;
+}
+
+export interface NamingChoice {
+  key: string;
+  label: string;
+  default: string;
+  options: NamingChoiceOption[];
 }
 
 export interface ProbeField {
@@ -221,6 +236,7 @@ export interface RuntimeSettings extends SavedSettings {
   creator_field_defaults: CreatorFieldRoles;
   source_creator_field_defaults: SourceCreatorFields;
   title_cleaning_rules: TitleCleaningRule[];
+  naming_choices: NamingChoice[];
   learned_formats: LearnedFormats;
 }
 
@@ -239,9 +255,10 @@ export interface UiConfigResponse {
   learn_result?: LearnFormatResult;
   source_creator_fields?: Record<string, Partial<CreatorFieldRoles>>;
   source_creator_field_defaults?: Record<string, Partial<CreatorFieldRoles>>;
-  source_title_cleaning?: Record<string, Record<string, boolean | number>>;
+  source_title_cleaning?: Record<string, Record<string, NamingFlagValue>>;
   creator_field_defaults?: Partial<CreatorFieldRoles>;
   title_cleaning_rules?: TitleCleaningRule[];
+  naming_choices?: NamingChoice[];
   ytdlp_cookies?: Record<string, Partial<CookiesStatus>>;
   default_quality?: Partial<QualitySelection>;
   quality_options?: Partial<QualityOptions>;

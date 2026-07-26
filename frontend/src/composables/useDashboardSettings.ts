@@ -367,6 +367,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     creator_field_defaults: { username: [], nickname: [], title: [] },
     source_creator_field_defaults: createSourceCreatorFields(),
     title_cleaning_rules: [],
+    naming_choices: [],
     learned_formats: {},
   });
   const settingsDraft = reactive<SettingsDraft>({
@@ -837,6 +838,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     settings.title_cleaning_rules = Array.isArray(data.title_cleaning_rules)
       ? data.title_cleaning_rules
       : [];
+    settings.naming_choices = Array.isArray(data.naming_choices)
+      ? data.naming_choices
+      : [];
 
     const qualityOptions = createQualityOptions(data.quality_options || {});
     settings.quality_options = qualityOptions;
@@ -1236,6 +1240,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       scraper: `${firstSource}ScraperProbeInput`,
       slug: `${firstSource}SlugSection`,
       templates: "",
+      naming: "",
     };
     void nextTick(() =>
       document.getElementById(focusTargets[settingsSection.value])?.focus(),

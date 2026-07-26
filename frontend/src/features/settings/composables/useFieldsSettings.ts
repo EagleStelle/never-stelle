@@ -8,7 +8,6 @@ import type {
   RuntimeSettings,
   SavedSettings,
   SourceProfile,
-  TitleCleaningRule,
 } from "../../../types";
 import {
   createCreatorFieldRoles,
@@ -43,16 +42,10 @@ interface CreatorSettingsActions {
   ) => Promise<ProbeFieldsResponse>;
 }
 
-const DEFAULT_MAX_CHARS = 100;
-const FALLBACK_TITLE_LENGTH_RULE: TitleCleaningRule = {
-  key: "shorten",
-  label: "Limit overly long titles",
-  default: false,
-};
-
 const probes = reactive<Record<string, ProbeState>>({});
 
-// Per-source username/nickname/title field lists, title-cleaning toggles, and the field probe.
+// Per-source username/nickname/title field lists and the field probe. Title cleaning and
+// filename styling live in useNamingSettings.
 export function useFieldsSettings(
   settingsDraft: SavedSettings,
   settings: RuntimeSettings,
@@ -75,20 +68,6 @@ export function useFieldsSettings(
       }
     },
     { immediate: true },
-  );
-
-  const rules = computed<TitleCleaningRule[]>(
-    () => settings.title_cleaning_rules || [],
-  );
-  const cleanupRules = computed<TitleCleaningRule[]>(() =>
-    rules.value.some((rule) => rule.key === "shorten")
-      ? rules.value
-      : [...rules.value, FALLBACK_TITLE_LENGTH_RULE],
-  );
-  const titleLengthRule = computed<TitleCleaningRule>(
-    () =>
-      rules.value.find((rule) => rule.key === "shorten") ||
-      FALLBACK_TITLE_LENGTH_RULE,
   );
 
   const defaults = computed<CreatorFieldRoles>(() => ({
@@ -277,36 +256,6 @@ export function useFieldsSettings(
     return !sameAsDefault(key, role, fieldList(key, role));
   }
 
-  function cleaningFlags(key: string): Record<string, boolean | number> {
-    if (!settingsDraft.source_title_cleaning[key])
-      settingsDraft.source_title_cleaning[key] = {};
-    return settingsDraft.source_title_cleaning[key];
-  }
-
-  function ruleEnabled(key: string, rule: TitleCleaningRule): boolean {
-    const stored = cleaningFlags(key)[rule.key];
-    return typeof stored === "boolean" ? stored : rule.default;
-  }
-
-  function setRule(
-    key: string,
-    rule: TitleCleaningRule,
-    enabled: boolean,
-  ): void {
-    cleaningFlags(key)[rule.key] = enabled;
-  }
-
-  function maxChars(key: string): number {
-    const value = cleaningFlags(key).max_chars;
-    return typeof value === "number" && value > 0 ? value : DEFAULT_MAX_CHARS;
-  }
-
-  function setMaxChars(key: string, value: number): void {
-    const parsed = Math.floor(Number(value));
-    if (Number.isFinite(parsed) && parsed > 0)
-      cleaningFlags(key).max_chars = parsed;
-  }
-
   function learnedFields(values: string[]): string[] {
     const out: string[] = [];
     for (const value of values) {
@@ -375,18 +324,12 @@ export function useFieldsSettings(
 
   return {
     probes,
-    cleanupRules,
-    titleLengthRule,
     fieldList,
     fieldListItems,
     addField,
     reorderField,
     resetRole,
     isConfigured,
-    ruleEnabled,
-    setRule,
-    maxChars,
-    setMaxChars,
     runProbe,
   };
 }

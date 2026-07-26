@@ -140,10 +140,7 @@ function isDropTarget(key: string, index: number): boolean {
     </div>
   </div>
 
-  <SettingsEmptyCard
-    v-if="editableSourceProfiles.length === 0"
-    class="mt-3"
-  >
+  <SettingsEmptyCard v-if="editableSourceProfiles.length === 0" class="mt-3">
     No sources yet.
   </SettingsEmptyCard>
 
@@ -158,9 +155,7 @@ function isDropTarget(key: string, index: number): boolean {
       </AccordionTrigger>
 
       <AccordionContent>
-        <SettingsEmptyCard
-          v-if="!templatesFor(site.key).length"
-        >
+        <SettingsEmptyCard v-if="!templatesFor(site.key).length">
           No format learned yet.
         </SettingsEmptyCard>
 
@@ -180,7 +175,9 @@ function isDropTarget(key: string, index: number): boolean {
             @dragend="resetDrag"
           >
             <IconDrag class="w-4 h-4 shrink-0 opacity-50" aria-hidden="true" />
-            <span class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere">
+            <span
+              class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere"
+            >
               {{ displayUrlTemplate(template) }}
             </span>
             <Button

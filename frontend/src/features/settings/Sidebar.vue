@@ -32,7 +32,9 @@ const groups = computed(() => {
     SETTINGS_SECTION_GROUPS.map((label) => ({
       label,
       items: SETTINGS_SECTION_DEFS.filter(
-        (def) => def.group === label && (!filter || def.label.toLowerCase().includes(term)),
+        (def) =>
+          def.group === label &&
+          (!filter || def.label.toLowerCase().includes(term)),
       ),
     })).filter((group) => group.items.length);
   if (!term) return build(false);
@@ -107,10 +109,10 @@ const groups = computed(() => {
                   item.label
                 }}</span>
               </SidebarMenuButton>
-              </TabsTrigger>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarGroup>
-      </TabsList>
+            </TabsTrigger>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroup>
+    </TabsList>
   </Sidebar>
 </template>

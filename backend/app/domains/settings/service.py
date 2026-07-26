@@ -145,6 +145,7 @@ def build_settings_response(
     from backend.app.domains.downloads.constants import (
         creator_field_defaults,
         default_quality_selection,
+        naming_choices,
         quality_options,
         template_tokens,
         title_cleaning_rules,
@@ -173,5 +174,6 @@ def build_settings_response(
         "source_title_cleaning": saved.get("source_title_cleaning", {}),
         "creator_field_defaults": creator_field_defaults(),
         "title_cleaning_rules": title_cleaning_rules(),
+        "naming_choices": naming_choices(),
         "settings_loaded_at": int(time.time()),
     }

@@ -29,8 +29,14 @@ const props = defineProps<{
   learnedFormatsDraft: LearnedFormats;
   sourceProfiles: SourceProfile[];
   learnFormat: (url: string) => Promise<string>;
-  probeCreatorFields: (url: string, sourceKey?: string) => Promise<ProbeFieldsResponse>;
-  reorderFormatTemplates: (sourceKey: string, templates: string[]) => Promise<void>;
+  probeCreatorFields: (
+    url: string,
+    sourceKey?: string,
+  ) => Promise<ProbeFieldsResponse>;
+  reorderFormatTemplates: (
+    sourceKey: string,
+    templates: string[],
+  ) => Promise<void>;
   hasUnsavedChanges: boolean;
   markSettingsDraftDirty: (section?: SettingsSection) => void;
   saveSettingsDraft: () => Promise<void>;
@@ -78,7 +84,8 @@ provideSettingsContext({
   cookieStatuses: computed(() => props.cookieStatuses),
   editableSourceProfiles,
   connectCookies: (platform, file) => emit("connectCookies", platform, file),
-  connectCookiesSource: (source, file) => emit("connectCookiesSource", source, file),
+  connectCookiesSource: (source, file) =>
+    emit("connectCookiesSource", source, file),
   removeCookies: (platform) => emit("removeCookies", platform),
   learnFormat: (url) => props.learnFormat(url),
   probeCreatorFields: (url, sourceKey) =>
@@ -102,7 +109,9 @@ provideSettingsContext({
 function selectSection(section: SettingsSection): void {
   sectionModel.value = section;
   const firstSource = editableSourceProfiles.value[0]?.key || "settings";
-  const id = SETTINGS_SECTION_DEFS.find((def) => def.key === section)?.focusId?.(firstSource);
+  const id = SETTINGS_SECTION_DEFS.find(
+    (def) => def.key === section,
+  )?.focusId?.(firstSource);
   if (id) void nextTick(() => document.getElementById(id)?.focus());
 }
 
@@ -178,16 +187,15 @@ function markActivePaneDirty(event: Event): void {
       class="flex min-h-0 flex-1 flex-col sm:flex-row"
       orientation="vertical"
     >
-      <SettingsSidebar
-        @close="openModel = false"
-        @select="selectSection"
-      />
+      <SettingsSidebar @close="openModel = false" @select="selectSection" />
 
       <!-- Content -->
-      <div class="relative min-h-0 min-w-0 flex-1 flex flex-col">
+      <!-- `sm:gap-4` separates the desktop header from the panes. The header is
+           `display:none` on mobile, so it contributes no gap there. -->
+      <div class="relative min-h-0 min-w-0 flex-1 flex flex-col sm:gap-4">
         <!-- Desktop Header & Close Button -->
         <div
-          class="hidden sm:flex h-14 shrink-0 items-center justify-between px-4 gap-2 border-0 border-b border-(--glass-border) mb-4 sm:mb-0 sm:border-0"
+          class="hidden sm:flex h-14 shrink-0 items-center justify-between px-4 gap-2 border-0 border-b border-(--glass-border) sm:border-0"
         >
           <div></div>
           <button
@@ -200,9 +208,11 @@ function markActivePaneDirty(event: Event): void {
           </button>
         </div>
 
-        <!-- Scrollable Settings -->
+        <!-- Scrollable Settings. The vertical inset is not spacing: `overflow-y-auto`
+             clips at its own edge and a focus ring draws outside its element, so a first
+             or last row sitting flush would lose its ring. Rows are spaced by group gaps. -->
         <div
-          class="flex-1 overflow-y-auto px-5 pb-6 pt-4 sm:pt-0 sm:px-8"
+          class="flex-1 overflow-y-auto px-5 pb-6 pt-4 sm:pt-1 sm:px-8"
           @input.capture="markActivePaneDirty"
           @change.capture="markActivePaneDirty"
         >
@@ -250,14 +260,20 @@ function markActivePaneDirty(event: Event): void {
       v-if="confirmCloseOpen"
       class="absolute inset-0 z-80 flex items-center justify-center bg-black/60 backdrop-blur-md transition-all duration-300 rounded-2xl"
     >
-      <div class="glass-chrome flex w-[min(400px,90vw)] flex-col gap-4 rounded-xl border border-(--glass-border) bg-primary p-6 shadow-2xl">
-        <h3 class="text-base font-semibold text-white in-[.light-mode]:text-black">
+      <div
+        class="glass-chrome flex w-[min(400px,90vw)] flex-col gap-4 rounded-xl border border-(--glass-border) bg-primary p-6 shadow-2xl"
+      >
+        <h3
+          class="text-base font-semibold text-white in-[.light-mode]:text-black"
+        >
           Unsaved Changes
         </h3>
         <p class="text-sm text-white/70 in-[.light-mode]:text-black/70">
           You have unsaved changes. Do you want to save them before closing?
         </p>
-        <div class="flex flex-col gap-2 sm:flex-row sm:justify-end sm:gap-3 mt-2">
+        <div
+          class="flex flex-col gap-2 sm:flex-row sm:justify-end sm:gap-3 mt-2"
+        >
           <Button
             variant="ghost"
             class="sm:order-1"

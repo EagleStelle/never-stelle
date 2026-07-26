@@ -29,7 +29,8 @@ const ROLE_ITEMS: { key: TokenRole; label: string }[] = [
   { key: "title", label: "Title" },
 ];
 
-const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles } = useSettingsContext();
+const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles } =
+  useSettingsContext();
 const {
   learnedFormat,
   tokenForPart,
@@ -39,13 +40,24 @@ const {
   tokenRole,
   isRoleDisabled,
   setSegmentRole,
-} = useSlugTokens(settingsDraft, settings, learnedFormatsDraft, editableSourceProfiles);
+} = useSlugTokens(
+  settingsDraft,
+  settings,
+  learnedFormatsDraft,
+  editableSourceProfiles,
+);
 
 function selectableSegments(key: string): LearnedSegment[] {
-  return (learnedFormat(key)?.segments || []).filter((segment) => !segment.reserved);
+  return (learnedFormat(key)?.segments || []).filter(
+    (segment) => !segment.reserved,
+  );
 }
 
-function updateRole(key: string, segment: LearnedSegment, value: unknown): void {
+function updateRole(
+  key: string,
+  segment: LearnedSegment,
+  value: unknown,
+): void {
   const next = String(value || "ignore") as TokenRole;
   const role = ROLE_ITEMS.some((item) => item.key === next) ? next : "ignore";
   setSegmentRole(key, segment, role);
@@ -60,7 +72,11 @@ function roleValue(key: string, segment: LearnedSegment): TokenRole {
   return token ? tokenRole(key, token) : "ignore";
 }
 
-function roleDisabled(key: string, segment: LearnedSegment, role: TokenRole): boolean {
+function roleDisabled(
+  key: string,
+  segment: LearnedSegment,
+  role: TokenRole,
+): boolean {
   const token = segmentToken(key, segment);
   if (!token) return role !== "ignore";
   return isRoleDisabled(key, token, role);
@@ -79,11 +95,9 @@ function roleDisabled(key: string, segment: LearnedSegment, role: TokenRole): bo
       </AccordionTrigger>
 
       <AccordionContent>
-        <SettingsEmptyCard
-          v-if="!learnedFormat(site.key)"
-        >
-          Download once from this source to learn its URL format, then choose which
-          parts become tokens.
+        <SettingsEmptyCard v-if="!learnedFormat(site.key)">
+          Download once from this source to learn its URL format, then choose
+          which parts become tokens.
         </SettingsEmptyCard>
 
         <div v-else class="flex flex-col gap-[0.85rem]">
@@ -95,9 +109,7 @@ function roleDisabled(key: string, segment: LearnedSegment, role: TokenRole): bo
             {{ displayTemplate(site.key, template) }}
           </SettingsLabel>
 
-          <SettingsEmptyCard
-            v-if="!selectableSegments(site.key).length"
-          >
+          <SettingsEmptyCard v-if="!selectableSegments(site.key).length">
             This platform has no configurable parts yet.
           </SettingsEmptyCard>
 
@@ -121,7 +133,10 @@ function roleDisabled(key: string, segment: LearnedSegment, role: TokenRole): bo
                   :model-value="tokenForPart(site.key, segment.part, segment)"
                   aria-label="Token name"
                   input-class="font-mono"
-                  @update:model-value="(v) => setTokenName(site.key, segment.part, String(v), segment)"
+                  @update:model-value="
+                    (v) =>
+                      setTokenName(site.key, segment.part, String(v), segment)
+                  "
                 />
               </label>
 
@@ -130,7 +145,9 @@ function roleDisabled(key: string, segment: LearnedSegment, role: TokenRole): bo
                 <SegmentedControl
                   :model-value="roleValue(site.key, segment)"
                   class="flex-wrap h-auto min-h-9"
-                  @update:model-value="(value) => updateRole(site.key, segment, value)"
+                  @update:model-value="
+                    (value) => updateRole(site.key, segment, value)
+                  "
                 >
                   <SegmentedControlItem
                     v-for="role in ROLE_ITEMS"

@@ -15,25 +15,16 @@ import {
 } from "../../../../components/ui/card";
 import { Input } from "../../../../components/ui/input";
 import { Button } from "../../../../components/ui/button";
-import { Checkbox } from "../../../../components/ui/checkbox";
 import SettingsLabel from "../../SettingsLabel.vue";
 import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
-import SettingsRow from "../../SettingsRow.vue";
 import { useSettingsContext } from "../../context";
-import { useFieldsSettings } from "../../composables/useFieldsSettings";
-import { displayUrlTemplate, normalizeTokenName } from "../../../../utils/dashboard";
+import {
+  displayUrlTemplate,
+  normalizeTokenName,
+} from "../../../../utils/dashboard";
 
-const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles, probeCreatorFields } = useSettingsContext();
-const {
-  cleanupRules,
-  titleLengthRule,
-  ruleEnabled,
-  setRule,
-  maxChars,
-  setMaxChars,
-} = useFieldsSettings(settingsDraft, settings, learnedFormatsDraft, editableSourceProfiles, {
-  probeCreatorFields,
-});
+const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles } =
+  useSettingsContext();
 
 function formatsFor(key: string): string[] {
   return (
@@ -63,7 +54,10 @@ function getFilenameInputId(siteKey: string, format: string): string {
 
 // Ref getters/setters for folder and filename templates
 function getFolderTemplate(siteKey: string, format: string): string {
-  return settingsDraft.source_templates[siteKey]?.[format]?.folder_template ?? "{{username}}";
+  return (
+    settingsDraft.source_templates[siteKey]?.[format]?.folder_template ??
+    "{{username}}"
+  );
 }
 
 function setFolderTemplate(siteKey: string, format: string, val: string): void {
@@ -72,11 +66,18 @@ function setFolderTemplate(siteKey: string, format: string, val: string): void {
 }
 
 function getFilenameTemplate(siteKey: string, format: string): string {
-  return settingsDraft.source_templates[siteKey]?.[format]?.filename_template ?? "{{username}} - {{title}} [{{id}}]";
+  return (
+    settingsDraft.source_templates[siteKey]?.[format]?.filename_template ??
+    "{{username}} - {{title}} [{{id}}]"
+  );
 }
 
 // Track if we need to initialize when filename is typed
-function setFilenameTemplate(siteKey: string, format: string, val: string): void {
+function setFilenameTemplate(
+  siteKey: string,
+  format: string,
+  val: string,
+): void {
   ensureFormatInitialized(siteKey, format);
   settingsDraft.source_templates[siteKey][format].filename_template = val;
 }
@@ -88,7 +89,7 @@ function ensureFormatInitialized(siteKey: string, format: string): void {
   if (!settingsDraft.source_templates[siteKey][format]) {
     settingsDraft.source_templates[siteKey][format] = {
       folder_template: "{{username}}",
-      filename_template: "{{username}} - {{title}} [{{id}}]"
+      filename_template: "{{username}} - {{title}} [{{id}}]",
     };
   }
 }
@@ -147,7 +148,9 @@ function insert(siteKey: string, format: string, token: string): void {
   const isFilename = targetId === getFilenameInputId(siteKey, format);
   if (!isFolder && !isFilename) return;
 
-  const current = isFolder ? getFolderTemplate(siteKey, format) : getFilenameTemplate(siteKey, format);
+  const current = isFolder
+    ? getFolderTemplate(siteKey, format)
+    : getFilenameTemplate(siteKey, format);
   const el = document.getElementById(targetId) as HTMLInputElement | null;
   const start = el?.selectionStart ?? current.length;
   const end = el?.selectionEnd ?? current.length;
@@ -180,17 +183,13 @@ function insert(siteKey: string, format: string, token: string): void {
       </AccordionTrigger>
 
       <AccordionContent>
-        <SettingsEmptyCard
-          v-if="!formatsFor(site.key).length"
-        >
-          Download once from this source to learn its URL format, then customize its templates.
+        <SettingsEmptyCard v-if="!formatsFor(site.key).length">
+          Download once from this source to learn its URL format, then customize
+          its templates.
         </SettingsEmptyCard>
 
         <div v-else class="flex flex-col gap-[0.85rem]">
-          <Card
-            v-for="template in formatsFor(site.key)"
-            :key="template"
-          >
+          <Card v-for="template in formatsFor(site.key)" :key="template">
             <CardHeader>
               <CardTitle class="font-mono text-sm leading-snug wrap-anywhere">
                 {{ displayUrlTemplate(template) }}
@@ -205,7 +204,9 @@ function insert(siteKey: string, format: string, token: string): void {
                   input-class="font-mono"
                   placeholder="{{username}}"
                   @focus="recordFocus(getFolderInputId(site.key, template))"
-                  @update:model-value="(v) => setFolderTemplate(site.key, template, String(v))"
+                  @update:model-value="
+                    (v) => setFolderTemplate(site.key, template, String(v))
+                  "
                 />
               </label>
 
@@ -217,11 +218,16 @@ function insert(siteKey: string, format: string, token: string): void {
                   input-class="font-mono"
                   placeholder="{{username}} - {{title}} [{{id}}]"
                   @focus="recordFocus(getFilenameInputId(site.key, template))"
-                  @update:model-value="(v) => setFilenameTemplate(site.key, template, String(v))"
+                  @update:model-value="
+                    (v) => setFilenameTemplate(site.key, template, String(v))
+                  "
                 />
               </label>
             </CardContent>
-            <CardFooter v-if="baseTokens.length || customTokensFor(site.key).length" class="flex flex-wrap gap-1.5 pt-0 pb-1">
+            <CardFooter
+              v-if="baseTokens.length || customTokensFor(site.key).length"
+              class="flex flex-wrap gap-1.5 pt-0 pb-1"
+            >
               <Button
                 v-for="token in baseTokens"
                 :key="token.key"
@@ -250,43 +256,6 @@ function insert(siteKey: string, format: string, token: string): void {
               </Button>
             </CardFooter>
           </Card>
-
-          <div class="flex flex-col gap-2 pt-2">
-            <SettingsLabel>Cleanup</SettingsLabel>
-            <label
-              v-for="rule in cleanupRules"
-              :key="rule.key"
-              class="flex items-center gap-2 cursor-pointer select-none text-sm"
-            >
-              <Checkbox
-                :checked="ruleEnabled(site.key, rule)"
-                @update:checked="
-                  (v: boolean) => setRule(site.key, rule, Boolean(v))
-                "
-              />
-              <span>{{ rule.label }}</span>
-            </label>
-            <SettingsRow
-              v-if="ruleEnabled(site.key, titleLengthRule)"
-              label="Character limit"
-            >
-              <div class="flex items-center gap-2">
-                <Input
-                  type="number"
-                  min="12"
-                  :disabled="!ruleEnabled(site.key, titleLengthRule)"
-                  :model-value="String(maxChars(site.key))"
-                  class="w-24 shrink-0"
-                  @update:model-value="
-                    (v: string | number) => setMaxChars(site.key, Number(v))
-                  "
-                />
-                <span class="text-white/55 in-[.light-mode]:text-black/55">
-                  characters
-                </span>
-              </div>
-            </SettingsRow>
-          </div>
         </div>
       </AccordionContent>
     </AccordionItem>
