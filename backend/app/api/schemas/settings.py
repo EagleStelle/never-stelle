@@ -14,7 +14,7 @@ class SettingsPayload(BaseModel):
     source_scrape_rules: dict[str, Any] = Field(default_factory=dict)
     source_token_roles: dict[str, Any] = Field(default_factory=dict)
     source_slug_tokens: dict[str, Any] = Field(default_factory=dict)
-    source_creator_fields: dict[str, Any] = Field(default_factory=dict)
+    source_fields: dict[str, Any] = Field(default_factory=dict)
     source_title_cleaning: dict[str, Any] = Field(default_factory=dict)
 
 

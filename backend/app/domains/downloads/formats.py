@@ -256,14 +256,14 @@ def _creator_token_for_segment(value: str, metadata: dict[str, Any] | None) -> s
         return ""
 
     try:
-        from .constants import CREATOR_ROLE_CHAINS
+        from .constants import FIELD_ROLE_CHAINS
     except Exception:
         return ""
 
     matched_roles: set[str] = set()
     for role in ("username", "nickname"):
         role_fields: list[str] = []
-        for chains in CREATOR_ROLE_CHAINS.values():
+        for chains in FIELD_ROLE_CHAINS.values():
             for field in chains.get(role, ()):
                 if field not in role_fields:
                     role_fields.append(field)
@@ -533,23 +533,23 @@ def _entry_templates(entry: dict[str, Any]) -> list[str]:
     return templates
 
 
-def infer_url_creator_fields(
+def infer_url_field_roles(
     source_url: str,
     metadata: dict[str, Any] | None,
     media_id: str = "",
 ) -> dict[str, list[str]]:
-    """Legacy hook kept for persisted payload compatibility.
+    """URL-derived field roles describe URL shape only.
 
-    URL creator segments describe URL shape only. They must not promote or select
-    filename creator fields; the source creator-field list owns that decision.
+    They must not promote or select filename fields; the source field list owns
+    that decision.
     """
     return {}
 
 
-def learn_url_creator_fields(
+def learn_url_field_roles(
     learned: dict[str, Any],
     source_key: str,
-    url_creator_fields: Any,
+    url_field_roles: Any,
 ) -> dict[str, Any]:
     return learned
 

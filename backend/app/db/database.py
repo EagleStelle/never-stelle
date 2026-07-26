@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS learned_formats (
     source_key TEXT PRIMARY KEY,
     host TEXT NOT NULL DEFAULT '',
     templates TEXT NOT NULL DEFAULT '',
-    url_creator_fields TEXT NOT NULL DEFAULT '',
+    url_field_roles TEXT NOT NULL DEFAULT '',
     id_min INTEGER NOT NULL DEFAULT 0,
     id_max INTEGER NOT NULL DEFAULT 0,
     id_classes TEXT NOT NULL DEFAULT '',
@@ -112,6 +112,18 @@ def close_database() -> None:
         _INITIALIZED = False
 
 
+def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row["name"]) for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _ensure_current_schema(connection: sqlite3.Connection) -> None:
+    learned_columns = _columns(connection, "learned_formats")
+    if "url_field_roles" not in learned_columns:
+        connection.execute(
+            "ALTER TABLE learned_formats ADD COLUMN url_field_roles TEXT NOT NULL DEFAULT ''"
+        )
+
+
 @contextmanager
 def transaction() -> Iterator[sqlite3.Connection]:
     initialize_database()
@@ -136,6 +148,7 @@ def initialize_database() -> None:
         connection = _shared_connection()
         try:
             connection.executescript(SCHEMA)
+            _ensure_current_schema(connection)
             connection.execute(
                 """
                 DELETE FROM download_tasks
@@ -148,4 +161,3 @@ def initialize_database() -> None:
             connection.rollback()
             raise
         _INITIALIZED = True
-

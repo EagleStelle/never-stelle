@@ -29,7 +29,7 @@ const props = defineProps<{
   learnedFormatsDraft: LearnedFormats;
   sourceProfiles: SourceProfile[];
   learnFormat: (url: string) => Promise<string>;
-  probeCreatorFields: (
+  probeFields: (
     url: string,
     sourceKey?: string,
   ) => Promise<ProbeFieldsResponse>;
@@ -88,8 +88,8 @@ provideSettingsContext({
     emit("connectCookiesSource", source, file),
   removeCookies: (platform) => emit("removeCookies", platform),
   learnFormat: (url) => props.learnFormat(url),
-  probeCreatorFields: (url, sourceKey) =>
-    props.probeCreatorFields(url, sourceKey),
+  probeFields: (url, sourceKey) =>
+    props.probeFields(url, sourceKey),
   reorderFormatTemplates: (sourceKey, templates) =>
     props.reorderFormatTemplates(sourceKey, templates),
   markSettingsDraftDirty: (section) =>

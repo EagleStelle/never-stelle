@@ -1,7 +1,7 @@
 import { computed, reactive, watch, type ComputedRef } from "vue";
 
 import type {
-  CreatorFieldRoles,
+  FieldRoles,
   LearnedFormats,
   ProbeFieldsResponse,
   ProbeField,
@@ -10,19 +10,18 @@ import type {
   SourceProfile,
 } from "@/types";
 import {
-  createCreatorFieldRoles,
+  createFieldRoles,
   errorMessage,
-  isScraperCreatorField,
-  normalizeCreatorField,
+  isScraperField,
+  normalizeField,
   normalizeTokenName,
-  scraperCreatorField,
-  scraperTokenFromCreatorField,
+  scraperField,
+  scraperTokenFromField,
 } from "@/utils/dashboard";
 
 export type FieldRole = "username" | "nickname" | "title";
-export type CreatorRole = FieldRole;
 
-export interface CreatorFieldListItem {
+export interface FieldListItem {
   key: string;
   label: string;
   scraper: boolean;
@@ -35,8 +34,8 @@ interface ProbeState {
   message: string;
 }
 
-interface CreatorSettingsActions {
-  probeCreatorFields: (
+interface FieldSettingsActions {
+  probeFields: (
     url: string,
     sourceKey?: string,
   ) => Promise<ProbeFieldsResponse>;
@@ -51,7 +50,7 @@ export function useFieldsSettings(
   settings: RuntimeSettings,
   learnedFormatsDraft: LearnedFormats,
   editableSourceProfiles: ComputedRef<SourceProfile[]>,
-  actions: CreatorSettingsActions,
+  actions: FieldSettingsActions,
 ) {
   watch(
     editableSourceProfiles,
@@ -70,21 +69,21 @@ export function useFieldsSettings(
     { immediate: true },
   );
 
-  const defaults = computed<CreatorFieldRoles>(() => ({
-    username: settings.creator_field_defaults?.username || [],
-    nickname: settings.creator_field_defaults?.nickname || [],
-    title: settings.creator_field_defaults?.title || [],
+  const defaults = computed<FieldRoles>(() => ({
+    username: settings.field_defaults?.username || [],
+    nickname: settings.field_defaults?.nickname || [],
+    title: settings.field_defaults?.title || [],
   }));
 
-  function creatorRoles(key: string): CreatorFieldRoles {
-    if (!settingsDraft.source_creator_fields[key]) {
-      settingsDraft.source_creator_fields[key] = { username: [], nickname: [], title: [] };
+  function fieldRoles(key: string): FieldRoles {
+    if (!settingsDraft.source_fields[key]) {
+      settingsDraft.source_fields[key] = { username: [], nickname: [], title: [] };
     }
-    return settingsDraft.source_creator_fields[key];
+    return settingsDraft.source_fields[key];
   }
 
-  function sourceHasSavedCreatorFields(key: string): boolean {
-    const roles = settings.source_creator_fields[key];
+  function sourceHasSavedFields(key: string): boolean {
+    const roles = settings.source_fields[key];
     return Boolean(roles?.username?.length || roles?.nickname?.length || roles?.title?.length);
   }
 
@@ -108,16 +107,16 @@ export function useFieldsSettings(
   }
 
   function sourceHasDraftRole(key: string, role: FieldRole): boolean {
-    const roles = creatorRoles(key);
+    const roles = fieldRoles(key);
     return roles[role]?.length > 0;
   }
 
   function roleDefaultList(key: string, role: FieldRole): string[] {
     if (sourceFormatsClearedInDraft(key)) return [];
-    if (sourceHasSavedCreatorFields(key)) {
-      return settings.source_creator_fields[key]?.[role] || [];
+    if (sourceHasSavedFields(key)) {
+      return settings.source_fields[key]?.[role] || [];
     }
-    const learned = settings.source_creator_field_defaults[key]?.[role] || [];
+    const learned = settings.source_field_defaults[key]?.[role] || [];
     if (learned.length) return learned;
     return [];
   }
@@ -149,7 +148,7 @@ export function useFieldsSettings(
 
   function assignedScraperFields(key: string, role: FieldRole): string[] {
     return scraperRoleTokens(key, role)
-      .map((token) => scraperCreatorField(token))
+      .map((token) => scraperField(token))
       .filter(Boolean);
   }
 
@@ -162,21 +161,21 @@ export function useFieldsSettings(
     const assignedSet = new Set(assigned);
     const out: string[] = [];
     for (const field of assigned) {
-      if (!values.map(normalizeCreatorField).includes(field)) {
+      if (!values.map(normalizeField).includes(field)) {
         out.push(field);
       }
     }
     for (const value of values) {
-      const field = normalizeCreatorField(value);
+      const field = normalizeField(value);
       if (!field) continue;
-      if (isScraperCreatorField(field) && !assignedSet.has(field)) continue;
+      if (isScraperField(field) && !assignedSet.has(field)) continue;
       if (!out.includes(field)) out.push(field);
     }
     return out;
   }
 
   function fieldList(key: string, role: FieldRole): string[] {
-    const roles = creatorRoles(key);
+    const roles = fieldRoles(key);
     const list = roles[role];
     const base = list.length
       ? list
@@ -186,9 +185,9 @@ export function useFieldsSettings(
     return withAssignedScraperFields(key, role, base);
   }
 
-  function fieldListItems(key: string, role: FieldRole): CreatorFieldListItem[] {
+  function fieldListItems(key: string, role: FieldRole): FieldListItem[] {
     return fieldList(key, role).map((field) => {
-      const scraperToken = scraperTokenFromCreatorField(field);
+      const scraperToken = scraperTokenFromField(field);
       return {
         key: `field:${field}`,
         label: scraperToken || field,
@@ -211,14 +210,14 @@ export function useFieldsSettings(
 
   function commit(key: string, role: FieldRole, list: string[]): void {
     const normalized = withAssignedScraperFields(key, role, list);
-    creatorRoles(key)[role] =
-      sameAsDefault(key, role, normalized) && !sourceHasSavedCreatorFields(key)
+    fieldRoles(key)[role] =
+      sameAsDefault(key, role, normalized) && !sourceHasSavedFields(key)
         ? []
         : normalized;
   }
 
   function addField(key: string, role: FieldRole, raw: string): void {
-    const field = normalizeCreatorField(raw);
+    const field = normalizeField(raw);
     if (!field) return;
     const list = [...fieldList(key, role)];
     if (list.includes(field)) return;
@@ -247,7 +246,7 @@ export function useFieldsSettings(
   }
 
   function resetRole(key: string, role: FieldRole): void {
-    creatorRoles(key)[role] = sourceHasSavedCreatorFields(key)
+    fieldRoles(key)[role] = sourceHasSavedFields(key)
       ? [...roleDefaultList(key, role)]
       : [];
   }
@@ -259,8 +258,8 @@ export function useFieldsSettings(
   function learnedFields(values: string[]): string[] {
     const out: string[] = [];
     for (const value of values) {
-      const field = normalizeCreatorField(value);
-      if (field && !isScraperCreatorField(field) && !out.includes(field)) {
+      const field = normalizeField(value);
+      if (field && !isScraperField(field) && !out.includes(field)) {
         out.push(field);
       }
     }
@@ -299,12 +298,12 @@ export function useFieldsSettings(
     }
     const currentState = probes[key];
     try {
-      const response = await actions.probeCreatorFields(url, key);
+      const response = await actions.probeFields(url, key);
       currentState.fields = response.fields;
-      const learned = createCreatorFieldRoles(response.creator_fields || {});
+      const learned = createFieldRoles(response.field_roles || {});
       const targetKey = response.source_key || key;
       if (learned.username.length > 0 || learned.nickname.length > 0 || learned.title.length > 0) {
-        const draftRoles = creatorRoles(targetKey);
+        const draftRoles = fieldRoles(targetKey);
         for (const role of ["username", "nickname", "title"] as const) {
           draftRoles[role] = mergeLearnedFields(
             targetKey,
@@ -334,4 +333,4 @@ export function useFieldsSettings(
   };
 }
 
-export const useCreatorSettings = useFieldsSettings;
+export const useFieldSettings = useFieldsSettings;

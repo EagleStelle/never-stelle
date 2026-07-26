@@ -4,13 +4,13 @@ import pytest
 
 import backend.app.domains.downloads.probe as probe_module
 from backend.app.domains.downloads.probe import (
-    _creator_probe_fields,
+    _candidate_probe_fields,
     _entry_url,
     _flatten_metadata,
     _gallerydl_richest_metadata,
     _radio_single_url,
     _strip_playlist_param,
-    probe_creator_fields,
+    probe_fields,
     probe_url,
 )
 
@@ -172,9 +172,9 @@ def test_flatten_metadata_expands_one_level_and_drops_non_scalars():
     assert "tags" not in flat
 
 
-def test_creator_probe_fields_returns_only_catalog_fields_with_values():
+def test_candidate_probe_fields_returns_only_catalog_fields_with_values():
     flat = {"uploader": "Alice", "uploader_id": "", "zzz": "last", "title": "Hi"}
-    fields = [item["field"] for item in _creator_probe_fields(flat, "ytdlp")]
+    fields = [item["field"] for item in _candidate_probe_fields(flat, "ytdlp")]
     # Catalog fields with values; empty uploader_id and non-catalog zzz dropped.
     assert fields == ["uploader", "title"]
 
@@ -202,14 +202,14 @@ def test_gallerydl_tiktok_photo_author_fields_are_creator_candidates(monkeypatch
     )
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "tiktok")
 
-    result = probe_creator_fields("https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833")
+    result = probe_fields("https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833")
 
     assert [field["field"] for field in result["fields"]] == ["author[uniqueId]", "author[nickname]"]
-    assert result["creator_fields"] == {
+    assert result["field_roles"] == {
         "username": ["author[uniqueId]"],
         "nickname": ["author[nickname]"],
     }
-    assert result["url_creator_fields"] == {}
+    assert result["url_field_roles"] == {}
 
 
 def test_gallerydl_dump_uses_tiktok_no_audio_probe_option(monkeypatch):
@@ -301,7 +301,7 @@ def test_probe_cookies_file_uses_profile_resolved_source(monkeypatch):
     assert checked == ["saved-profile"]
 
 
-def test_probe_creator_fields_uses_profile_cookie_source_when_source_key_is_blank(monkeypatch):
+def test_probe_fields_uses_profile_cookie_source_when_source_key_is_blank(monkeypatch):
     calls: list[dict[str, object]] = []
 
     def fake_ytdlp_dump(url, **kwargs):
@@ -322,7 +322,7 @@ def test_probe_creator_fields_uses_profile_cookie_source_when_source_key_is_blan
     monkeypatch.setattr(probe_module, "_ytdlp_dump", fake_ytdlp_dump)
     monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
 
-    result = probe_creator_fields("https://cdn.example.test/post/abc123")
+    result = probe_fields("https://cdn.example.test/post/abc123")
 
     assert result["source_key"] == "saved-profile"
     assert [field["field"] for field in result["fields"]] == ["uploader"]
@@ -330,7 +330,7 @@ def test_probe_creator_fields_uses_profile_cookie_source_when_source_key_is_blan
     assert all(call["cookie_source_key"] == "saved-profile" for call in calls)
 
 
-def test_probe_creator_fields_does_not_use_cookies_when_anonymous_has_creator_fields(monkeypatch):
+def test_probe_fields_does_not_use_cookies_when_anonymous_has_field_roles(monkeypatch):
     calls: list[bool] = []
 
     def fake_ytdlp_dump(url, **kwargs):
@@ -344,7 +344,7 @@ def test_probe_creator_fields_does_not_use_cookies_when_anonymous_has_creator_fi
         probe_module,
         "_probe_cookies_file",
         lambda url, source_key="": (_ for _ in ()).throw(
-            AssertionError("cookies should not be checked after anonymous creator fields")
+            AssertionError("cookies should not be checked after anonymous fields")
         ),
     )
     monkeypatch.setattr(probe_module, "_ytdlp_dump", fake_ytdlp_dump)
@@ -352,13 +352,13 @@ def test_probe_creator_fields_does_not_use_cookies_when_anonymous_has_creator_fi
     monkeypatch.setattr(probe_module, "detect_cookie_source", lambda url: "")
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "example")
 
-    result = probe_creator_fields("https://example.com/post/abc123")
+    result = probe_fields("https://example.com/post/abc123")
 
     assert [field["field"] for field in result["fields"]] == ["uploader"]
     assert calls == [False]
 
 
-def test_probe_creator_fields_merges_both_engines(monkeypatch):
+def test_probe_fields_merges_both_engines(monkeypatch):
     monkeypatch.setattr(
         probe_module,
         "_ytdlp_dump",
@@ -366,19 +366,19 @@ def test_probe_creator_fields_merges_both_engines(monkeypatch):
     )
     monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: {"username": "bob", "title": "hey"})
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "example")
-    result = probe_creator_fields("https://example.com/x")
+    result = probe_fields("https://example.com/x")
     assert result["source_key"] == "example"
     fields = [f["field"] for f in result["fields"]]
-    # Merged creator fields from both engines including title token field.
+    # Merged fields from both engines including title token field.
     assert "uploader_id" in fields
     assert "username" in fields
     assert "title" in fields
-    assert result["creator_fields"]["username"] == ["uploader_id", "username"]
-    assert result["creator_fields"]["nickname"] == ["username"]
-    assert result["creator_fields"]["title"] == ["title"]
+    assert result["field_roles"]["username"] == ["uploader_id", "username"]
+    assert result["field_roles"]["nickname"] == ["username"]
+    assert result["field_roles"]["title"] == ["title"]
 
 
-def test_probe_creator_fields_keeps_bare_facebook_reel_uploader(monkeypatch):
+def test_probe_fields_keeps_bare_facebook_reel_uploader(monkeypatch):
     monkeypatch.setattr(
         probe_module,
         "_ytdlp_dump",
@@ -394,15 +394,15 @@ def test_probe_creator_fields_keeps_bare_facebook_reel_uploader(monkeypatch):
     monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "facebook")
 
-    result = probe_creator_fields("https://www.facebook.com/reel/849162654788919")
+    result = probe_fields("https://www.facebook.com/reel/849162654788919")
 
     assert [field["field"] for field in result["fields"]] == ["uploader_id", "uploader"]
-    assert result["creator_fields"]["username"] == ["uploader_id", "uploader"]
-    assert result["creator_fields"]["nickname"] == ["uploader"]
-    assert result["url_creator_fields"] == {}
+    assert result["field_roles"]["username"] == ["uploader_id", "uploader"]
+    assert result["field_roles"]["nickname"] == ["uploader"]
+    assert result["url_field_roles"] == {}
 
 
-def test_probe_creator_fields_keeps_facebook_share_post_uploader(monkeypatch):
+def test_probe_fields_keeps_facebook_share_post_uploader(monkeypatch):
     monkeypatch.setattr(
         probe_module,
         "_ytdlp_dump",
@@ -418,15 +418,15 @@ def test_probe_creator_fields_keeps_facebook_share_post_uploader(monkeypatch):
     monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "facebook")
 
-    result = probe_creator_fields("https://www.facebook.com/share/p/194bUYA419/")
+    result = probe_fields("https://www.facebook.com/share/p/194bUYA419/")
 
     assert [field["field"] for field in result["fields"]] == ["uploader_id", "uploader"]
-    assert result["creator_fields"]["username"] == ["uploader_id", "uploader"]
-    assert result["creator_fields"]["nickname"] == ["uploader"]
-    assert result["url_creator_fields"] == {}
+    assert result["field_roles"]["username"] == ["uploader_id", "uploader"]
+    assert result["field_roles"]["nickname"] == ["uploader"]
+    assert result["url_field_roles"] == {}
 
 
-def test_probe_creator_fields_keeps_live_fields_without_url_owner_filter(monkeypatch):
+def test_probe_fields_keeps_live_fields_without_url_owner_filter(monkeypatch):
     monkeypatch.setattr(
         probe_module,
         "_ytdlp_dump",
@@ -442,15 +442,15 @@ def test_probe_creator_fields_keeps_live_fields_without_url_owner_filter(monkeyp
     monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "tiktok")
 
-    result = probe_creator_fields("https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913")
+    result = probe_fields("https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913")
 
     assert [field["field"] for field in result["fields"]] == ["uploader_id", "uploader"]
-    assert result["creator_fields"]["username"] == ["uploader_id", "uploader"]
-    assert result["creator_fields"]["nickname"] == ["uploader"]
-    assert result["url_creator_fields"] == {}
+    assert result["field_roles"]["username"] == ["uploader_id", "uploader"]
+    assert result["field_roles"]["nickname"] == ["uploader"]
+    assert result["url_field_roles"] == {}
 
 
-def test_probe_creator_fields_promotes_exact_url_creator_match(monkeypatch):
+def test_probe_fields_promotes_exact_url_creator_match(monkeypatch):
     monkeypatch.setattr(
         probe_module,
         "_ytdlp_dump",
@@ -469,24 +469,24 @@ def test_probe_creator_fields_promotes_exact_url_creator_match(monkeypatch):
     monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "tiktok")
 
-    result = probe_creator_fields("https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913")
+    result = probe_fields("https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913")
 
     assert [field["field"] for field in result["fields"]][:2] == ["uploader_id", "uploader"]
-    assert result["url_creator_fields"] == {}
-    assert result["creator_fields"]["username"][:2] == ["uploader", "uploader_id"]
+    assert result["url_field_roles"] == {}
+    assert result["field_roles"]["username"][:2] == ["uploader", "uploader_id"]
 
 
-def test_probe_creator_fields_skips_engine_that_returns_nothing(monkeypatch):
+def test_probe_fields_skips_engine_that_returns_nothing(monkeypatch):
     monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url, **kwargs: (None, "unsupported url"))
     monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: {"username": "bob"})
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "example")
-    result = probe_creator_fields("https://example.com/x")
+    result = probe_fields("https://example.com/x")
     assert [f["field"] for f in result["fields"]] == ["username"]
-    assert result["creator_fields"]["username"] == ["username"]
+    assert result["field_roles"]["username"] == ["username"]
 
 
-def test_probe_creator_fields_raises_when_both_engines_fail(monkeypatch):
+def test_probe_fields_raises_when_both_engines_fail(monkeypatch):
     monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url, **kwargs: (None, "bad link line"))
     monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
     with pytest.raises(ValueError):
-        probe_creator_fields("https://example.com/x")
+        probe_fields("https://example.com/x")

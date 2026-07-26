@@ -102,7 +102,7 @@ export function testScrapeRules(url: string, sourceKey: string, rules: ScrapeRul
   );
 }
 
-export function probeCreatorFields(url: string, sourceKey = ""): Promise<ProbeFieldsResponse> {
+export function probeFields(url: string, sourceKey = ""): Promise<ProbeFieldsResponse> {
   return jsonRequest<ProbeFieldsResponse>(
     "/api/settings/probe-fields",
     {

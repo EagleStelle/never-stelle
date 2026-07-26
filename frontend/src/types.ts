@@ -15,7 +15,7 @@ export type SettingsSection =
   | "cookies"
   | "quality"
   | "format"
-  | "creator"
+  | "fields"
   | "scraper"
   | "slug"
   | "templates"
@@ -55,7 +55,7 @@ export interface ScrapeRule {
   multi: boolean;
   xpath: string;
   // Learned template (display form) this rule is scoped to; it fires only when the
-  // download URL matches this format. "" is a legacy rule, migrated to the first format.
+  // download URL matches this format. Empty format rules are shown under the first format.
   format: string;
 }
 
@@ -92,13 +92,13 @@ export interface LearnedFormat {
 }
 export type LearnedFormats = Record<string, LearnedFormat>;
 
-// Per source, the ordered field-preference lists for the username/nickname tokens.
-export interface CreatorFieldRoles {
+// Per source, the ordered field-preference lists for username/nickname/title.
+export interface FieldRoles {
   username: string[];
   nickname: string[];
   title: string[];
 }
-export type SourceCreatorFields = Record<string, CreatorFieldRoles>;
+export type SourceFields = Record<string, FieldRoles>;
 // Per source, every Naming setting: boolean cleaning rules, numeric caps, and the
 // string-valued choices. Missing keys fall back to the rule or choice default.
 export type NamingFlagValue = boolean | number | string;
@@ -133,8 +133,8 @@ export interface ProbeField {
 export interface ProbeFieldsResponse {
   source_key: string;
   fields: ProbeField[];
-  creator_fields?: Partial<CreatorFieldRoles>;
-  url_creator_fields?: Partial<CreatorFieldRoles>;
+  field_roles?: Partial<FieldRoles>;
+  url_field_roles?: Partial<FieldRoles>;
   saved?: boolean;
 }
 
@@ -214,7 +214,7 @@ export interface SavedSettings {
   source_scrape_rules: SourceScrapeRules;
   source_token_roles: SourceTokenRoles;
   source_slug_tokens: SourceSlugTokens;
-  source_creator_fields: SourceCreatorFields;
+  source_fields: SourceFields;
   source_title_cleaning: SourceTitleCleaning;
 }
 
@@ -233,8 +233,8 @@ export interface RuntimeSettings extends SavedSettings {
   ytdlp_cookies: CookiesMap;
   quality_options: QualityOptions;
   template_tokens: TemplateToken[];
-  creator_field_defaults: CreatorFieldRoles;
-  source_creator_field_defaults: SourceCreatorFields;
+  field_defaults: FieldRoles;
+  source_field_defaults: SourceFields;
   title_cleaning_rules: TitleCleaningRule[];
   naming_choices: NamingChoice[];
   learned_formats: LearnedFormats;
@@ -253,10 +253,10 @@ export interface UiConfigResponse {
   source_slug_tokens?: Record<string, SlugToken[]>;
   learned_formats?: LearnedFormats;
   learn_result?: LearnFormatResult;
-  source_creator_fields?: Record<string, Partial<CreatorFieldRoles>>;
-  source_creator_field_defaults?: Record<string, Partial<CreatorFieldRoles>>;
+  source_fields?: Record<string, Partial<FieldRoles>>;
+  source_field_defaults?: Record<string, Partial<FieldRoles>>;
   source_title_cleaning?: Record<string, Record<string, NamingFlagValue>>;
-  creator_field_defaults?: Partial<CreatorFieldRoles>;
+  field_defaults?: Partial<FieldRoles>;
   title_cleaning_rules?: TitleCleaningRule[];
   naming_choices?: NamingChoice[];
   ytdlp_cookies?: Record<string, Partial<CookiesStatus>>;

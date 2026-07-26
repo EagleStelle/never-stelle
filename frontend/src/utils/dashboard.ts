@@ -9,12 +9,12 @@ import {
   type QualityOptions,
   type QualityPreset,
   type QualitySelection,
-  type CreatorFieldRoles,
+  type FieldRoles,
   type PlatformScrapeRules,
   type SavedSettings,
   type ScrapeRule,
   type SettingsSection,
-  type SourceCreatorFields,
+  type SourceFields,
   type SourceLocations,
   type SourceProfile,
   type SlugToken,
@@ -495,7 +495,6 @@ export function createSourceTokenRoles(
   const out: SourceTokenRoles = {};
   for (const key of keys) {
     const roles: Record<string, TokenRole> = {};
-    let titleClaimed = false;
     for (const [token, role] of Object.entries(normalizedSource[key] || {})) {
       const normalizedToken = normalizeTokenName(token);
       const rawRole = String(role || "").trim().toLowerCase();
@@ -503,10 +502,6 @@ export function createSourceTokenRoles(
         rawRole === "username" || rawRole === "nickname" ? "creator" : rawRole
       ) as TokenRole;
       if (!normalizedToken || !TOKEN_ROLES.has(normalizedRole)) continue;
-      if (normalizedRole === "title") {
-        if (titleClaimed) continue;
-        titleClaimed = true;
-      }
       roles[normalizedToken] = normalizedRole;
     }
     out[key] = roles;
@@ -514,39 +509,39 @@ export function createSourceTokenRoles(
   return out;
 }
 
-const CREATOR_FIELD_RE = /[^A-Za-z0-9_[\]]+/g;
-const SCRAPER_CREATOR_FIELD_RE = /^scraper\[([A-Za-z_][A-Za-z0-9_]*)\]$/;
+const FIELD_RE = /[^A-Za-z0-9_[\]]+/g;
+const SCRAPER_FIELD_RE = /^scraper\[([A-Za-z_][A-Za-z0-9_]*)\]$/;
 
-export function scraperCreatorField(token: unknown): string {
+export function scraperField(token: unknown): string {
   const normalized = normalizeTokenName(token);
   return normalized ? `scraper[${normalized}]` : "";
 }
 
-export function scraperTokenFromCreatorField(value: unknown): string {
-  const match = SCRAPER_CREATOR_FIELD_RE.exec(String(value || "").trim());
+export function scraperTokenFromField(value: unknown): string {
+  const match = SCRAPER_FIELD_RE.exec(String(value || "").trim());
   return match?.[1] || "";
 }
 
-export function isScraperCreatorField(value: unknown): boolean {
-  return Boolean(scraperTokenFromCreatorField(value));
+export function isScraperField(value: unknown): boolean {
+  return Boolean(scraperTokenFromField(value));
 }
 
 // Keep identifier chars plus gallery-dl [sub] nesting; strip everything else.
-export function normalizeCreatorField(value: unknown): string {
+export function normalizeField(value: unknown): string {
   const raw = String(value || "").trim();
   if (raw.toLowerCase().startsWith("scraper[") && raw.endsWith("]")) {
-    return scraperCreatorField(raw.slice(8, -1));
+    return scraperField(raw.slice(8, -1));
   }
-  return raw.replace(CREATOR_FIELD_RE, "");
+  return raw.replace(FIELD_RE, "");
 }
 
-export function createCreatorFieldRoles(
-  source: Partial<CreatorFieldRoles> = {},
-): CreatorFieldRoles {
+export function createFieldRoles(
+  source: Partial<FieldRoles> = {},
+): FieldRoles {
   const list = (values: unknown): string[] => {
     const out: string[] = [];
     for (const value of Array.isArray(values) ? values : []) {
-      const field = normalizeCreatorField(value);
+      const field = normalizeField(value);
       if (field && !out.includes(field)) out.push(field);
     }
     return out;
@@ -554,16 +549,16 @@ export function createCreatorFieldRoles(
   return { username: list(source.username), nickname: list(source.nickname), title: list(source.title) };
 }
 
-export function createSourceCreatorFields(
-  source: Record<string, Partial<CreatorFieldRoles>> = {},
+export function createSourceFields(
+  source: Record<string, Partial<FieldRoles>> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
-): SourceCreatorFields {
-  const out: SourceCreatorFields = {};
+): SourceFields {
+  const out: SourceFields = {};
   for (const profile of profiles)
-    out[profile.key] = createCreatorFieldRoles(source[profile.key] || {});
+    out[profile.key] = createFieldRoles(source[profile.key] || {});
   for (const [key, value] of Object.entries(source)) {
     const normalizedKey = normalizeSourceKey(key);
-    if (normalizedKey) out[normalizedKey] = createCreatorFieldRoles(value);
+    if (normalizedKey) out[normalizedKey] = createFieldRoles(value);
   }
   return out;
 }
@@ -642,7 +637,7 @@ export function isSettingsSection(
     value === "format" ||
     value === "templates" ||
     value === "naming" ||
-    value === "creator" ||
+    value === "fields" ||
     value === "scraper" ||
     value === "slug"
   );

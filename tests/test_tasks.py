@@ -1039,12 +1039,12 @@ def test_clean_resolved_filename_strips_at_from_username(tmp_path: Path):
     assert not media_file.exists()
 
 
-def test_configured_creator_field_honors_opaque_id_in_priority_order(monkeypatch):
+def test_configured_field_value_honors_opaque_id_in_priority_order(monkeypatch):
     # channel_id first in the configured order must win, even though the handle
     # heuristics reject it as an opaque identifier.
     monkeypatch.setattr(
         worker_module,
-        "get_effective_creator_fields",
+        "get_effective_fields",
         lambda url: {"username": ["channel_id", "uploader"]},
     )
     metadata = {
@@ -1054,16 +1054,16 @@ def test_configured_creator_field_honors_opaque_id_in_priority_order(monkeypatch
     }
 
     assert (
-        worker_module._configured_creator_field(metadata, "https://video.example/watch?v=x", "username")
+        worker_module._configured_field_value(metadata, "https://video.example/watch?v=x", "username")
         == "UC-wNqHVYS82PF4mkaQb0Alg"
     )
 
 
-def test_configured_creator_field_empty_order_defers_to_heuristics(monkeypatch):
-    monkeypatch.setattr(worker_module, "get_effective_creator_fields", lambda url: {})
+def test_configured_field_value_empty_order_defers_to_heuristics(monkeypatch):
+    monkeypatch.setattr(worker_module, "get_effective_fields", lambda url: {})
     metadata = {"channel_id": "UC-wNqHVYS82PF4mkaQb0Alg", "uploader": "Mili"}
 
-    assert worker_module._configured_creator_field(metadata, "https://video.example/watch?v=x", "username") == ""
+    assert worker_module._configured_field_value(metadata, "https://video.example/watch?v=x", "username") == ""
 
 
 def test_clean_resolved_filename_keeps_authoritative_creator_over_url_handle(tmp_path: Path):
@@ -1197,7 +1197,7 @@ def test_gallerydl_sparse_single_output_uses_probe_metadata_for_template(
 
     monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
-    monkeypatch.setattr(worker_module, "get_effective_creator_fields", lambda url: {"username": ["channel"]})
+    monkeypatch.setattr(worker_module, "get_effective_fields", lambda url: {"username": ["channel"]})
     monkeypatch.setattr(
         completion_metadata_module,
         "_probe_output_metadata",
@@ -1210,7 +1210,7 @@ def test_gallerydl_sparse_single_output_uses_probe_metadata_for_template(
         },
     )
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
-    monkeypatch.setattr(worker_module, "_learn_creator_fields_from_download", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "_learn_field_roles_from_download", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
@@ -1271,7 +1271,7 @@ def test_gallerydl_cookie_probe_repairs_none_creator_and_duplicate_id_filename(
 
     monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
-    monkeypatch.setattr(worker_module, "get_effective_creator_fields", lambda url: {"username": ["username"]})
+    monkeypatch.setattr(worker_module, "get_effective_fields", lambda url: {"username": ["username"]})
     monkeypatch.setattr(
         completion_metadata_module,
         "_probe_output_metadata",
@@ -1283,7 +1283,7 @@ def test_gallerydl_cookie_probe_repairs_none_creator_and_duplicate_id_filename(
         },
     )
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
-    monkeypatch.setattr(worker_module, "_learn_creator_fields_from_download", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "_learn_field_roles_from_download", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
@@ -2182,7 +2182,7 @@ def test_learn_download_keeps_multiple_templates_per_source():
     }
 
 
-def test_learn_download_does_not_store_url_creator_field_priority():
+def test_learn_download_does_not_store_url_creator_role_hints():
     learned = learn_download(
         {},
         "https://www.tiktok.com/@moli0n/video/7645876413593128210",
@@ -2190,7 +2190,7 @@ def test_learn_download_does_not_store_url_creator_field_priority():
         {"uploader": "moli0n", "channel": "Moli Display"},
     )
 
-    assert learned["tiktok"].get("url_creator_fields", {}) == {}
+    assert learned["tiktok"].get("url_field_roles", {}) == {}
 
 
 def test_describe_learned_segments_keeps_shared_url_creator_generic():
@@ -2208,11 +2208,11 @@ def test_describe_learned_segments_keeps_shared_url_creator_generic():
     assert described["segments"][0]["label"] == "{creator}"
 
 
-def test_describe_learned_segments_keeps_legacy_url_creator_fields_generic():
+def test_describe_learned_segments_ignores_url_field_roles_for_display():
     described = describe_learned_segments(
         {
             "templates": ["https://www.tiktok.com/@{creator}/photo/{id}"],
-            "url_creator_fields": {"username": ["author[uniqueId]"]},
+            "url_field_roles": {"username": ["author[uniqueId]"]},
         }
     )
 
@@ -2228,7 +2228,7 @@ def test_learn_download_url_creator_role_does_not_create_field_priority():
         {"uploader": "moli0n"},
     )
 
-    assert learned["tiktok"].get("url_creator_fields", {}) == {}
+    assert learned["tiktok"].get("url_field_roles", {}) == {}
 
 
 def test_reconstruct_url_candidates_returns_every_learned_route():
@@ -2251,14 +2251,14 @@ def test_reconstruct_url_candidates_returns_every_learned_route():
     }
 
 
-def test_worker_reprobes_creator_fields_only_when_format_is_new(monkeypatch):
+def test_worker_reprobes_field_roles_only_when_format_is_new(monkeypatch):
     calls: list[tuple[str, str]] = []
     url = "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833"
 
     monkeypatch.setattr(completion_learning_module, "persist_source_format", lambda *args, **kwargs: True)
     monkeypatch.setattr(
         completion_learning_module,
-        "learn_missing_creator_fields_for_format",
+        "learn_missing_fields_for_format",
         lambda source_url, source_key: calls.append((source_url, source_key)),
     )
 
@@ -2896,7 +2896,7 @@ def test_scan_probes_manual_file_in_configured_username_order(tmp_path: Path, mo
     )
     monkeypatch.setattr(
         scan_module,
-        "_scan_creator_fields_map",
+        "_scan_field_roles_map",
         lambda: {"youtube": {"username": ["channel_id", "uploader"]}},
     )
     probed: list[str] = []
@@ -2940,7 +2940,7 @@ def test_scan_reconstructs_creator_route_when_probe_matches_url_creator(
         "_scan_template_map",
         lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
     )
-    monkeypatch.setattr(scan_module, "_scan_creator_fields_map", lambda: {"tiktok": {"username": ["uploader"]}})
+    monkeypatch.setattr(scan_module, "_scan_field_roles_map", lambda: {"tiktok": {"username": ["uploader"]}})
     monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: {"uploader": "moli0n"})
     monkeypatch.setattr(
         scan_module,
@@ -2983,7 +2983,7 @@ def test_scan_skips_creator_route_when_probe_field_mismatches_url_creator(
         "_scan_template_map",
         lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
     )
-    monkeypatch.setattr(scan_module, "_scan_creator_fields_map", lambda: {"tiktok": {"username": ["uploader"]}})
+    monkeypatch.setattr(scan_module, "_scan_field_roles_map", lambda: {"tiktok": {"username": ["uploader"]}})
     monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: {"uploader": "moli0n"})
     monkeypatch.setattr(
         scan_module,
@@ -3020,7 +3020,7 @@ def test_scan_probe_uses_nickname_order_when_folder_token_is_nickname(
     )
     monkeypatch.setattr(
         scan_module,
-        "_scan_creator_fields_map",
+        "_scan_field_roles_map",
         lambda: {"youtube": {"username": ["channel_id"], "nickname": ["uploader", "channel"]}},
     )
     monkeypatch.setattr(
@@ -3056,7 +3056,7 @@ def test_scan_skips_creator_probe_for_scraper_backed_template_role(
     monkeypatch.setattr(scan_module, "_scan_scrape_rule_tokens", lambda: {"youtube": {"artist"}})
     monkeypatch.setattr(
         scan_module,
-        "_scan_creator_fields_map",
+        "_scan_field_roles_map",
         lambda: {"youtube": {"username": ["scraper[artist]", "channel"]}},
     )
 
@@ -3093,7 +3093,7 @@ def test_scan_keeps_creator_probe_when_scraper_backed_role_is_not_top(
     monkeypatch.setattr(scan_module, "_scan_scrape_rule_tokens", lambda: {"youtube": {"artist"}})
     monkeypatch.setattr(
         scan_module,
-        "_scan_creator_fields_map",
+        "_scan_field_roles_map",
         lambda: {"youtube": {"username": ["channel", "scraper[artist]"]}},
     )
     probed: list[str] = []

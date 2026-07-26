@@ -9,15 +9,15 @@ from typing import Any
 from backend.app.domains.settings import (
     find_cookies_file_for_source,
     find_cookies_file_for_url,
-    get_effective_creator_fields,
+    get_effective_fields,
     get_effective_template_settings,
     get_effective_title_cleaning,
-    is_scraper_creator_field,
+    is_scraper_field,
     normalize_template_settings,
 )
 
 from .constants import (
-    CREATOR_ROLE_CHAINS,
+    FIELD_ROLE_CHAINS,
     MEDIA_EXTENSIONS,
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
@@ -32,13 +32,13 @@ from .naming import detect_ffmpeg_location, sanitize_path_literal
 _GALLERYDL_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\[[A-Za-z0-9_]+\])*$")
 
 
-def _creator_field_list(creator_fields: dict[str, Any] | None, role: str) -> list[str] | None:
-    if not isinstance(creator_fields, dict):
+def _field_role_list(field_roles: dict[str, Any] | None, role: str) -> list[str] | None:
+    if not isinstance(field_roles, dict):
         return None
-    values = creator_fields.get(role)
+    values = field_roles.get(role)
     if not isinstance(values, list) or not values:
         return None
-    fields = [str(value) for value in values if not is_scraper_creator_field(value)]
+    fields = [str(value) for value in values if not is_scraper_field(value)]
     return fields or None
 
 
@@ -46,7 +46,7 @@ def _gallerydl_field_spec(fields: list[str], fallback: str) -> str:
     clean = [
         field
         for field in fields
-        if not is_scraper_creator_field(field) and _GALLERYDL_FIELD_RE.match(str(field or "").strip())
+        if not is_scraper_field(field) and _GALLERYDL_FIELD_RE.match(str(field or "").strip())
     ]
     parts = list(dict.fromkeys(clean)) or ["username"]
     return "{" + "|".join([*parts, f'"{fallback}"']) + "}"
@@ -54,14 +54,14 @@ def _gallerydl_field_spec(fields: list[str], fallback: str) -> str:
 
 # A configured list is authoritative (no hidden fallback); an empty one uses the engine chain.
 def gallerydl_username_field(custom: list[str] | None = None) -> str:
-    return _gallerydl_field_spec(custom or CREATOR_ROLE_CHAINS["gallerydl"]["username"], "unknown")
+    return _gallerydl_field_spec(custom or FIELD_ROLE_CHAINS["gallerydl"]["username"], "unknown")
 
 
 def gallerydl_nickname_field(custom: list[str] | None = None) -> str:
-    return _gallerydl_field_spec(custom or CREATOR_ROLE_CHAINS["gallerydl"]["nickname"], "unknown")
+    return _gallerydl_field_spec(custom or FIELD_ROLE_CHAINS["gallerydl"]["nickname"], "unknown")
 
 
-# Specifiers for tokens gallery-dl fills itself; username/nickname are resolved dynamically instead.
+# Specifiers for tokens gallery-dl fills itself; creator fields are resolved dynamically instead.
 _GALLERYDL_FIELD = {
     "title": '{title|content|"untitled"}',
     "id": '{id|media_id|num|"NA"}',
@@ -206,7 +206,7 @@ def _gallerydl_field(
     source_url: str,
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
-    creator_fields: dict[str, Any] | None = None,
+    field_roles: dict[str, Any] | None = None,
     cleaning: dict[str, Any] | None = None,
 ) -> str:
     field = str(name or "").strip().lower()
@@ -218,9 +218,9 @@ def _gallerydl_field(
         if source_media_id:
             return _escape_literal(sanitize_path_literal(source_media_id))
     if field == "username":
-        return gallerydl_username_field(_creator_field_list(creator_fields, "username"))
+        return gallerydl_username_field(_field_role_list(field_roles, "username"))
     if field == "nickname":
-        return gallerydl_nickname_field(_creator_field_list(creator_fields, "nickname"))
+        return gallerydl_nickname_field(_field_role_list(field_roles, "nickname"))
     if field in _REMOVED_TEMPLATE_FIELDS:
         return ""
     return _GALLERYDL_FIELD.get(field, "")
@@ -231,14 +231,14 @@ def convert_template_to_gallerydl(
     source_url: str = "",
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
-    creator_fields: dict[str, Any] | None = None,
+    field_roles: dict[str, Any] | None = None,
     cleaning: dict[str, Any] | None = None,
 ) -> str:
     value = str(template or "").strip()
     if not value:
         return ""
     return TEMPLATE_RE.sub(
-        lambda match: _gallerydl_field(match.group(1), source_url, quality, extra_tokens, creator_fields, cleaning),
+        lambda match: _gallerydl_field(match.group(1), source_url, quality, extra_tokens, field_roles, cleaning),
         value,
     )
 
@@ -255,13 +255,13 @@ def build_gallerydl_output_template(
         if template_settings is not None
         else get_effective_template_settings(source_url)
     )
-    creator_fields = get_effective_creator_fields(source_url)
+    field_roles = get_effective_fields(source_url)
     cleaning = get_effective_title_cleaning(source_url)
     folder = convert_template_to_gallerydl(
-        settings["folder_template"], source_url, quality, extra_tokens, creator_fields, cleaning
+        settings["folder_template"], source_url, quality, extra_tokens, field_roles, cleaning
     )
     stem = convert_template_to_gallerydl(
-        settings["filename_template"], source_url, quality, extra_tokens, creator_fields, cleaning
+        settings["filename_template"], source_url, quality, extra_tokens, field_roles, cleaning
     )
     stem = stem.replace(".{extension}", "").replace("{extension}", "").rstrip(". ")
     # {num} keeps every image in a multi-file post (slideshow) unique.

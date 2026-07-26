@@ -7,16 +7,16 @@ from typing import Any
 from backend.app.domains.settings import (
     find_cookies_file_for_source,
     find_cookies_file_for_url,
-    get_effective_creator_fields,
+    get_effective_fields,
     get_effective_template_settings,
     get_effective_title_cleaning,
-    is_scraper_creator_field,
+    is_scraper_field,
     normalize_template_settings,
 )
 
 from .constants import (
     AUDIO_BITRATE_PRESETS,
-    CREATOR_ROLE_CHAINS,
+    FIELD_ROLE_CHAINS,
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
     is_lossless_audio,
@@ -59,11 +59,11 @@ def _ytdlp_field_spec(fields: tuple[str, ...] | list[str]) -> str:
 
 # A configured list is authoritative (no hidden fallback); an empty one uses the engine chain.
 def ytdlp_username_field(custom: list[str] | None = None) -> str:
-    return _ytdlp_field_spec(custom or CREATOR_ROLE_CHAINS["ytdlp"]["username"])
+    return _ytdlp_field_spec(custom or FIELD_ROLE_CHAINS["ytdlp"]["username"])
 
 
 def ytdlp_nickname_field(custom: list[str] | None = None) -> str:
-    return _ytdlp_field_spec(custom or CREATOR_ROLE_CHAINS["ytdlp"]["nickname"])
+    return _ytdlp_field_spec(custom or FIELD_ROLE_CHAINS["ytdlp"]["nickname"])
 
 
 YTDLP_USERNAME_FIELD = ytdlp_username_field()
@@ -74,7 +74,7 @@ def _safe_literal(value: str) -> str:
     return sanitize_path_literal(value).replace("%", "%%")
 
 
-# Specifiers for tokens yt-dlp fills itself; username/nickname are resolved dynamically instead.
+# Specifiers for tokens yt-dlp fills itself; creator fields are resolved dynamically instead.
 _YTDLP_FIELD = {
     "title": "%(title|Unknown)s",
     "id": "%(id|NA)s",
@@ -83,19 +83,19 @@ _YTDLP_FIELD = {
 _REMOVED_TEMPLATE_FIELDS = {"source", "ext"}
 
 
-def _creator_field_list(creator_fields: dict[str, Any] | None, role: str) -> list[str] | None:
-    if not isinstance(creator_fields, dict):
+def _field_role_list(field_roles: dict[str, Any] | None, role: str) -> list[str] | None:
+    if not isinstance(field_roles, dict):
         return None
-    values = creator_fields.get(role)
+    values = field_roles.get(role)
     if not isinstance(values, list) or not values:
         return None
-    fields = [str(value) for value in values if not is_scraper_creator_field(value)]
+    fields = [str(value) for value in values if not is_scraper_field(value)]
     return fields or None
 
 
 def _effective_nickname_field(source_url: str) -> str:
-    creator_fields = get_effective_creator_fields(source_url)
-    return ytdlp_nickname_field(_creator_field_list(creator_fields, "nickname"))
+    field_roles = get_effective_fields(source_url)
+    return ytdlp_nickname_field(_field_role_list(field_roles, "nickname"))
 
 
 def _yt_dlp_field(
@@ -103,7 +103,7 @@ def _yt_dlp_field(
     source_url: str = "",
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
-    creator_fields: dict[str, Any] | None = None,
+    field_roles: dict[str, Any] | None = None,
     cleaning: dict[str, Any] | None = None,
 ) -> str:
     field = str(name or "").strip().lower()
@@ -111,9 +111,9 @@ def _yt_dlp_field(
     if derived is not None:
         return _safe_literal(derived)
     if field == "username":
-        return ytdlp_username_field(_creator_field_list(creator_fields, "username"))
+        return ytdlp_username_field(_field_role_list(field_roles, "username"))
     if field == "nickname":
-        return ytdlp_nickname_field(_creator_field_list(creator_fields, "nickname"))
+        return ytdlp_nickname_field(_field_role_list(field_roles, "nickname"))
     if field in _REMOVED_TEMPLATE_FIELDS:
         return ""
     return _YTDLP_FIELD.get(field, f"%({name}|Unknown)s")
@@ -124,14 +124,14 @@ def convert_template_to_ytdlp(
     source_url: str = "",
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
-    creator_fields: dict[str, Any] | None = None,
+    field_roles: dict[str, Any] | None = None,
     cleaning: dict[str, Any] | None = None,
 ) -> str:
     value = str(template or "").strip()
     if not value:
         return ""
     return TEMPLATE_RE.sub(
-        lambda match: _yt_dlp_field(match.group(1), source_url, quality, extra_tokens, creator_fields, cleaning), value
+        lambda match: _yt_dlp_field(match.group(1), source_url, quality, extra_tokens, field_roles, cleaning), value
     )
 
 
@@ -147,13 +147,13 @@ def build_output_template(
         if template_settings is not None
         else get_effective_template_settings(source_url)
     )
-    creator_fields = get_effective_creator_fields(source_url)
+    field_roles = get_effective_fields(source_url)
     cleaning = get_effective_title_cleaning(source_url)
     folder_template = convert_template_to_ytdlp(
-        settings["folder_template"], source_url, quality, extra_tokens, creator_fields, cleaning
+        settings["folder_template"], source_url, quality, extra_tokens, field_roles, cleaning
     )
     filename_template = convert_template_to_ytdlp(
-        settings["filename_template"], source_url, quality, extra_tokens, creator_fields, cleaning
+        settings["filename_template"], source_url, quality, extra_tokens, field_roles, cleaning
     )
     if "%(ext" not in filename_template:
         filename_template = f"{filename_template}.%(ext)s"

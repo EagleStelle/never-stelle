@@ -11,9 +11,9 @@ from urllib.parse import unquote
 from backend.app.core.config import discover_volume_roots
 from backend.app.core.sources import normalize_source_key
 from backend.app.db.database import utc_now
-from backend.app.domains.settings import is_scraper_creator_field, scraper_token_from_creator_field
+from backend.app.domains.settings import is_scraper_field, scraper_token_from_field
 
-from .constants import CREATOR_FIELD_DEFAULTS, CREATOR_FIELDS, TEMPLATE_RE
+from .constants import CREATOR_FIELDS, FIELD_DEFAULTS, TEMPLATE_RE
 from .files import is_media_file, recover_task_path
 from .formats import (
     conflicts_with_source,
@@ -457,14 +457,14 @@ def _scan_source_profile_keys() -> set[str]:
         return set()
 
 
-def _scan_creator_fields_map() -> dict[str, dict[str, list[str]]]:
-    # Per-source username/nickname field priority: user settings first, then learned URL defaults.
+def _scan_field_roles_map() -> dict[str, dict[str, list[str]]]:
+    # Per-source creator-field priority: user settings first, then learned URL defaults.
     try:
         from backend.app.core.config import load_app_config
-        from backend.app.domains.settings import get_effective_source_creator_fields_map, get_effective_source_profiles
+        from backend.app.domains.settings import get_effective_source_fields_map, get_effective_source_profiles
 
         cfg = load_app_config()
-        fields = get_effective_source_creator_fields_map(get_effective_source_profiles(cfg))
+        fields = get_effective_source_fields_map(get_effective_source_profiles(cfg))
         return fields if isinstance(fields, dict) else {}
     except Exception:
         return {}
@@ -550,7 +550,7 @@ def _leading_scraper_tokens_for_role(
         return []
     out: list[str] = []
     for field in order or []:
-        token = scraper_token_from_creator_field(field)
+        token = scraper_token_from_field(field)
         if not token:
             break
         assigned = _normalize_scraper_role((token_roles or {}).get(token))
@@ -573,7 +573,7 @@ def _template_has_active_scraper_rule(
 
 
 def _probe_metadata_order(order: list[str]) -> list[str]:
-    return [field for field in order or [] if not is_scraper_creator_field(field)]
+    return [field for field in order or [] if not is_scraper_field(field)]
 
 
 def _probe_disk_creator(
@@ -586,7 +586,7 @@ def _probe_disk_creator(
 ) -> tuple[str, str]:
     """Probe a manually-placed file's reconstructed link and pick its creator.
 
-    Walks the configured field order (username or nickname) over the probed metadata and
+    Walks the configured creator-field order over the probed metadata and
     stops at the first field that carries a value. Reconstructs media_id (+slug) links
     first, only using the disk creator for templates that actually contain ``{creator}``.
     Returns ``(creator, matched_url)``; ``("", "")`` when nothing probes or matches.
@@ -665,14 +665,6 @@ class _TemplateResolver:
         templates_dict = self._per_source.get(source_key) or {}
         settings = templates_dict.get(format_template) or self._base
         return str(settings.get("folder_template") or ""), str(settings.get("filename_template") or "")
-
-    # For backward compatibility
-    def for_source(self, source_key: str) -> tuple[re.Pattern[str] | None, re.Pattern[str] | None]:
-        return self.for_source_format(source_key, "")
-
-    def templates_for(self, source_key: str) -> tuple[str, str]:
-        return self.templates_for_format(source_key, "")
-
 
 def _source_location_index(locations: dict[str, str]) -> list[tuple[str, str]]:
     # Only folders owned by exactly one resolved source carry a usable signal.
@@ -768,7 +760,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
     scrape_rule_tokens_map = _scan_scrape_rule_tokens()
     slug_tokens_map = _scan_slug_tokens_map()
     templates = _TemplateResolver(*_scan_template_map(), token_role_map, slug_tokens_map)
-    creator_fields_map = _scan_creator_fields_map()
+    field_roles_map = _scan_field_roles_map()
     learned = load_learned_formats()
     learned_before = learned
     learned = _seed_learned_from_history(learned, records)
@@ -838,7 +830,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         else:
             # Manually-placed file with no resolved creator yet: probe in the configured order.
             role = _creator_role_for_templates(folder_template, filename_template, source_roles)
-            order = (creator_fields_map.get(source_key) or {}).get(role) or CREATOR_FIELD_DEFAULTS.get(role, [])
+            order = (field_roles_map.get(source_key) or {}).get(role) or FIELD_DEFAULTS.get(role, [])
             scraper_backed_role = _template_role_has_scraper_rule(
                 folder_template,
                 filename_template,

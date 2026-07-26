@@ -24,22 +24,14 @@ def normalize_source_token_roles(raw: Any) -> dict[str, dict[str, str]]:
     for raw_key, raw_roles in source.items():
         key = normalize_source_key(raw_key)
         roles: dict[str, str] = {}
-        title_claimed = False
-        creator_claimed = False
         if isinstance(raw_roles, dict):
             for raw_token, raw_role in raw_roles.items():
                 token = normalize_token_name(raw_token)
                 role = str(raw_role or "").strip().lower()
+                if role in {"username", "nickname"}:
+                    role = "creator"
                 if not token or role not in TOKEN_ROLES:
                     continue
-                if role == "title":
-                    if title_claimed:
-                        continue
-                    title_claimed = True
-                elif role == "creator":
-                    if creator_claimed:
-                        continue
-                    creator_claimed = True
                 roles[token] = role
         if key and roles:
             out[key] = roles

@@ -166,8 +166,8 @@ def test_gallerydl_nickname_field_uses_configured_list_authoritatively():
     assert spec == '{display[name]|"unknown"}'
 
 
-def test_build_output_template_applies_per_source_creator_fields(monkeypatch):
-    monkeypatch.setattr(ytdlp, "get_effective_creator_fields", lambda url: {"username": ["channel"]})
+def test_build_output_template_applies_per_source_fields(monkeypatch):
+    monkeypatch.setattr(ytdlp, "get_effective_fields", lambda url: {"username": ["channel"]})
     template = ytdlp.build_output_template(
         "https://example.com/watch?v=x",
         "/media/out",
@@ -178,7 +178,7 @@ def test_build_output_template_applies_per_source_creator_fields(monkeypatch):
 
 
 def test_ytdlp_creator_sidecar_uses_per_source_nickname_fields(monkeypatch):
-    monkeypatch.setattr(ytdlp, "get_effective_creator_fields", lambda url: {"nickname": ["channel"]})
+    monkeypatch.setattr(ytdlp, "get_effective_fields", lambda url: {"nickname": ["channel"]})
     cmd = ytdlp.build_ytdlp_command(
         "https://example.com/watch?v=x",
         "/usr/bin/ffmpeg",
@@ -189,9 +189,9 @@ def test_ytdlp_creator_sidecar_uses_per_source_nickname_fields(monkeypatch):
     assert "after_move:%(channel|Unknown)s" in cmd
 
 
-def test_convert_template_to_gallerydl_uses_creator_fields():
+def test_convert_template_to_gallerydl_uses_field_roles():
     rendered = gallerydl.convert_template_to_gallerydl(
-        "{{nickname}}", "https://example.com/x", creator_fields={"nickname": ["fullname"]}
+        "{{nickname}}", "https://example.com/x", field_roles={"nickname": ["fullname"]}
     )
     assert rendered == '{fullname|"unknown"}'
 
@@ -218,7 +218,10 @@ def test_resolve_scraped_tokens_returns_role_keyed_overrides(monkeypatch):
         {"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"},
         rules,
         roles,
-        creator_fields={"username": ["scraper[artist]", "uploader"]},
+        field_roles={
+            "username": ["scraper[artist]", "uploader"],
+            "title": ["scraper[caption]", "title"],
+        },
     )
 
     assert result == {"username": "Trace Artist", "title": "Scraped Title"}
@@ -240,7 +243,7 @@ def test_resolve_scraped_tokens_creator_role_feeds_username_and_nickname(monkeyp
         {"folder_template": "{{username}}", "filename_template": "{{nickname}} [{{id}}]"},
         rules,
         roles,
-        creator_fields={
+        field_roles={
             "username": ["scraper[artist]", "uploader"],
             "nickname": ["scraper[artist]", "uploader"],
         },
@@ -249,7 +252,7 @@ def test_resolve_scraped_tokens_creator_role_feeds_username_and_nickname(monkeyp
     assert result == {"username": "Trace Artist", "nickname": "Trace Artist"}
 
 
-def test_resolve_scraped_tokens_uses_first_top_scraper_creator_field(monkeypatch):
+def test_resolve_scraped_tokens_uses_first_top_scraper_field(monkeypatch):
     rules = {
         "rule34video": {
             "rules": [
@@ -271,8 +274,34 @@ def test_resolve_scraped_tokens_uses_first_top_scraper_creator_field(monkeypatch
         {"folder_template": "{{username}}", "filename_template": "{{id}}"},
         rules,
         roles,
-        creator_fields={"username": ["scraper[alt_artist]", "scraper[artist]", "uploader"]},
+        field_roles={"username": ["scraper[alt_artist]", "scraper[artist]", "uploader"]},
     ) == {"username": "Top Artist"}
+
+
+def test_resolve_scraped_tokens_uses_first_top_title_scraper_field(monkeypatch):
+    rules = {
+        "rule34video": {
+            "rules": [
+                {"token": "caption", "xpath": "//*[@id='caption']", "attr": "text"},
+                {"token": "alt_caption", "xpath": "//*[@id='alt']", "attr": "text"},
+            ]
+        }
+    }
+    roles = {"rule34video": {"caption": "title", "alt_caption": "title"}}
+    monkeypatch.setattr(
+        enrich,
+        "fetch_html",
+        lambda *args: "<main><h1 id='caption'>Rule Order Title</h1><h2 id='alt'>Top Title</h2></main>",
+    )
+
+    assert enrich.resolve_scraped_tokens(
+        "https://rule34video.com/video/1/post",
+        "rule34video",
+        {"folder_template": "", "filename_template": "{{title}} [{{id}}]"},
+        rules,
+        roles,
+        field_roles={"title": ["scraper[alt_caption]", "scraper[caption]", "title"]},
+    ) == {"title": "Top Title"}
 
 
 def test_resolve_scraped_tokens_ignores_role_rule_when_scraper_field_is_not_top(monkeypatch):
@@ -280,7 +309,7 @@ def test_resolve_scraped_tokens_ignores_role_rule_when_scraper_field_is_not_top(
     roles = {"rule34video": {"artist": "username"}}
 
     def fail_fetch(*args):
-        raise AssertionError("non-top scraper creator field should not trigger a fetch")
+        raise AssertionError("non-top scraper field should not trigger a fetch")
 
     monkeypatch.setattr(enrich, "fetch_html", fail_fetch)
 
@@ -290,7 +319,26 @@ def test_resolve_scraped_tokens_ignores_role_rule_when_scraper_field_is_not_top(
         {"folder_template": "{{username}}", "filename_template": "{{id}}"},
         rules,
         roles,
-        creator_fields={"username": ["uploader", "scraper[artist]"]},
+        field_roles={"username": ["uploader", "scraper[artist]"]},
+    ) == {}
+
+
+def test_resolve_scraped_tokens_ignores_title_rule_when_scraper_field_is_not_top(monkeypatch):
+    rules = {"rule34video": {"rules": [{"token": "caption", "xpath": "//*[@id='caption']", "attr": "text"}]}}
+    roles = {"rule34video": {"caption": "title"}}
+
+    def fail_fetch(*args):
+        raise AssertionError("non-top scraper title field should not trigger a fetch")
+
+    monkeypatch.setattr(enrich, "fetch_html", fail_fetch)
+
+    assert enrich.resolve_scraped_tokens(
+        "https://rule34video.com/video/1/post",
+        "rule34video",
+        {"folder_template": "", "filename_template": "{{title}} [{{id}}]"},
+        rules,
+        roles,
+        field_roles={"title": ["title", "scraper[caption]"]},
     ) == {}
 
 

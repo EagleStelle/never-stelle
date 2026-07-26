@@ -21,7 +21,7 @@ export function useSlugTokens(
   learnedFormatsDraft: LearnedFormats,
   _editableSourceProfiles: ComputedRef<SourceProfile[]>,
 ) {
-  const { tokenRole, titleRoleOwner, creatorRoleOwner, isTitleRoleDisabled, isRoleDisabled, setTokenRole } = useTokenRoles(settingsDraft);
+  const { tokenRole, isRoleDisabled, setTokenRole } = useTokenRoles(settingsDraft);
 
   function learnedFormat(key: string): LearnedFormat | undefined {
     return learnedFormatsDraft?.[key] || settings.learned_formats?.[key];
@@ -191,7 +191,7 @@ export function useSlugTokens(
     if (index !== -1) {
       const [removed] = list.splice(index, 1);
       settingsDraft.source_slug_tokens[key] = [...list];
-      // Drop any role/creator-field connection the removed token owned.
+      // Drop any role/field connection the removed token owned.
       if (removed?.token) setTokenRole(key, removed.token, "ignore");
     }
   }
@@ -235,8 +235,6 @@ export function useSlugTokens(
     segmentLabel,
     displayTemplate,
     tokenRole,
-    titleRoleOwner,
-    isTitleRoleDisabled,
     isRoleDisabled,
     setTokenRole,
     setSegmentRole,

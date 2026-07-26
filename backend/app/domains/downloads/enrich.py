@@ -10,7 +10,7 @@ from backend.app.core.sources import normalize_source_key
 from backend.app.domains.settings import (
     find_cookies_file_for_source,
     find_cookies_file_for_url,
-    scraper_token_from_creator_field,
+    scraper_token_from_field,
 )
 
 from .constants import TEMPLATE_RE
@@ -288,19 +288,19 @@ def _output_rules_for_template(
     rules: list[dict[str, Any]],
     roles: dict[str, str],
     template_settings: Any,
-    creator_fields: Any = None,
+    field_roles: Any = None,
 ) -> list[tuple[dict[str, Any], str]]:
     referenced = _template_token_names(template_settings)
     if not referenced:
         return []
     rule_by_token = {_normalize_token(rule.get("token")): rule for rule in rules}
     leading_role_tokens = {
-        role: _leading_scraper_tokens_for_role(creator_fields, role, roles, set(rule_by_token))
-        for role in ("username", "nickname")
+        role: _leading_scraper_tokens_for_role(field_roles, role, roles, set(rule_by_token))
+        for role in ("username", "nickname", "title")
     }
     out: list[tuple[dict[str, Any], str]] = []
     claimed_role_tokens: set[str] = set()
-    for role in ("username", "nickname"):
+    for role in ("username", "nickname", "title"):
         if role not in referenced:
             continue
         for token in leading_role_tokens[role]:
@@ -313,31 +313,35 @@ def _output_rules_for_template(
         if token in claimed_role_tokens:
             continue
         role = _scraper_role(roles.get(token))
-        if role == "title" and role in referenced:
-            out.append((rule, role))
-        elif not role and token in referenced:
+        if not role and token in referenced:
             out.append((rule, token))
     return out
 
 
 def _leading_scraper_tokens_for_role(
-    creator_fields: Any,
+    field_roles: Any,
     role: str,
     roles: dict[str, str],
     rule_tokens: set[str],
 ) -> list[str]:
-    values = (creator_fields if isinstance(creator_fields, dict) else {}).get(role)
+    values = (field_roles if isinstance(field_roles, dict) else {}).get(role)
     if not isinstance(values, list):
         return []
     out: list[str] = []
     for value in values:
-        token = scraper_token_from_creator_field(value)
+        token = scraper_token_from_field(value)
         if not token:
             break
         assigned = _scraper_role(roles.get(token))
-        if token in rule_tokens and (assigned == "creator" or assigned == role) and token not in out:
+        if token in rule_tokens and _role_matches_field(assigned, role) and token not in out:
             out.append(token)
     return out
+
+
+def _role_matches_field(assigned: str, role: str) -> bool:
+    if assigned == role:
+        return True
+    return assigned == "creator" and role in {"username", "nickname"}
 
 
 def _map_output_values(
@@ -363,7 +367,7 @@ def resolve_scraped_tokens(
     rules_map: Any,
     token_roles_map: Any = None,
     cookie_source_key: str = "",
-    creator_fields: Any = None,
+    field_roles: Any = None,
     learned_formats: Any = None,
 ) -> dict[str, str]:
     """Scrape the page once for scraper rules whose assigned roles are in use.
@@ -387,7 +391,7 @@ def resolve_scraped_tokens(
     if not rules:
         return {}
     roles = (token_roles_map if isinstance(token_roles_map, dict) else {}).get(normalize_source_key(source_key)) or {}
-    output_rules = _output_rules_for_template(rules, roles, template_settings, creator_fields)
+    output_rules = _output_rules_for_template(rules, roles, template_settings, field_roles)
     if not output_rules:
         return {}
     selected_rules = [rule for rule, _ in output_rules]
@@ -443,7 +447,7 @@ def resolve_slug_tokens(
     template_settings: Any,
     slug_map: Any,
     token_roles_map: Any = None,
-    creator_fields: Any = None,
+    field_roles: Any = None,
 ) -> dict[str, str]:
     """URL-part tokens for one source, mapped through the shared role pipeline.
 
@@ -456,7 +460,7 @@ def resolve_slug_tokens(
     if not rules:
         return {}
     roles = (token_roles_map if isinstance(token_roles_map, dict) else {}).get(normalize_source_key(source_key)) or {}
-    output_rules = _output_rules_for_template(rules, roles, template_settings, creator_fields)
+    output_rules = _output_rules_for_template(rules, roles, template_settings, field_roles)
     if not output_rules:
         return {}
     raw_values: dict[str, str] = {}

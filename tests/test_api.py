@@ -132,7 +132,7 @@ def test_add_task_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
     assert captured["source_templates"] == source_templates
 
 
-def test_probe_fields_saves_creator_fields_without_url_priority_hint(tmp_path, monkeypatch):
+def test_probe_fields_saves_field_roles_without_url_priority_hint(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
     import backend.app.domains.downloads.probe as probe_module
     from backend.app.db import repositories
@@ -141,15 +141,15 @@ def test_probe_fields_saves_creator_fields_without_url_priority_hint(tmp_path, m
     repositories.save_learned_formats_payload({"tiktok": {"templates": [format_template]}})
     monkeypatch.setattr(
         probe_module,
-        "probe_creator_fields",
+        "probe_fields",
         lambda url, source_key: {
             "source_key": "tiktok",
             "fields": [
                 {"field": "uploader", "value": "fzyahoo.com"},
                 {"field": "uploader_id", "value": "6673617364291994625"},
             ],
-            "creator_fields": {"username": ["uploader", "uploader_id"]},
-            "url_creator_fields": {"username": ["uploader"]},
+            "field_roles": {"username": ["uploader", "uploader_id"]},
+            "url_field_roles": {"username": ["uploader"]},
         },
     )
 
@@ -162,8 +162,8 @@ def test_probe_fields_saves_creator_fields_without_url_priority_hint(tmp_path, m
     )
 
     assert response.status_code == 200
-    assert response.json()["creator_fields"] == {"username": ["uploader", "uploader_id"]}
-    assert repositories.load_learned_formats_payload()["tiktok"].get("url_creator_fields", {}) == {}
+    assert response.json()["field_roles"] == {"username": ["uploader", "uploader_id"]}
+    assert repositories.load_learned_formats_payload()["tiktok"].get("url_field_roles", {}) == {}
 
 
 def test_auth_login_session_and_logout(tmp_path, monkeypatch):

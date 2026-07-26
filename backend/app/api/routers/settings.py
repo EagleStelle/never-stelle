@@ -54,7 +54,7 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
         payload.default_quality,
         payload.source_scrape_rules,
         payload.source_token_roles,
-        payload.source_creator_fields,
+        payload.source_fields,
         payload.source_title_cleaning,
         payload.source_slug_tokens,
     )
@@ -98,23 +98,23 @@ def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
 
 @router.post("/probe-fields")
 def probe_fields(payload: ProbeFieldsPayload) -> dict[str, Any]:
-    from backend.app.domains.downloads.learning import promote_learned_format_from_probe, save_learned_creator_fields
-    from backend.app.domains.downloads.probe import probe_creator_fields
+    from backend.app.domains.downloads.learning import promote_learned_format_from_probe, save_learned_fields
+    from backend.app.domains.downloads.probe import probe_fields as probe_field_roles
     from backend.app.domains.downloads.urls import resolve_redirect_url
 
     url = resolve_redirect_url(payload.url)
     try:
-        result = probe_creator_fields(url, payload.source_key)
+        result = probe_field_roles(url, payload.source_key)
         promote_learned_format_from_probe(url, result.get("fields"))
-        learned = save_learned_creator_fields(
+        learned = save_learned_fields(
             url,
             str(result.get("source_key") or payload.source_key),
-            result.get("creator_fields"),
+            result.get("field_roles"),
             only_when_missing=False,
             merge=True,
         )
         if learned:
-            result["creator_fields"] = learned
+            result["field_roles"] = learned
             result["saved"] = True
         return result
     except ValueError as exc:

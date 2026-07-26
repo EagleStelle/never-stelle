@@ -13,9 +13,9 @@ from backend.app.domains.settings import (
 )
 
 from .constants import (
-    CREATOR_FIELD_CANDIDATES,
-    creator_roles_from_probe_fields,
-    promote_creator_field_roles,
+    FIELD_CANDIDATES,
+    field_roles_from_probe_fields,
+    promote_field_roles,
 )
 from .formats import _prepare_url
 
@@ -182,11 +182,11 @@ def _flatten_metadata(data: Any) -> dict[str, str]:
     return out
 
 
-def _creator_probe_fields(flat: dict[str, str], engine: str) -> list[dict[str, str]]:
-    # Only the handle/display-name candidates for this engine, in stable order.
+def _candidate_probe_fields(flat: dict[str, str], engine: str) -> list[dict[str, str]]:
+    # Only the candidate fields for this engine, in stable order.
     fields: list[dict[str, str]] = []
     seen: set[str] = set()
-    for field in CREATOR_FIELD_CANDIDATES.get(engine, ()):
+    for field in FIELD_CANDIDATES.get(engine, ()):
         if field in seen:
             continue
         seen.add(field)
@@ -213,7 +213,7 @@ def _url_exact_values(source_url: str) -> set[str]:
     return values
 
 
-def _exact_url_creator_fields(
+def _exact_url_field_roles(
     source_url: str,
     fields_by_role: dict[str, list[str]],
     values_by_field: dict[str, str],
@@ -331,7 +331,7 @@ def probe_metadata(source_url: str, *, with_cookies: bool = True, cookie_source_
     """Flat metadata for a URL from whichever engine answers first; ``{}`` on failure.
 
     The library scan uses this to resolve a manually-placed file's creator without a
-    download. Unlike ``probe_creator_fields`` it returns every scalar field (flattened
+    download. Unlike ``probe_fields`` it returns every scalar field (flattened
     to ``key[sub]``) so the caller can walk its own configured field-priority order.
     """
     url = _prepare_url(source_url)
@@ -346,7 +346,7 @@ def probe_metadata(source_url: str, *, with_cookies: bool = True, cookie_source_
     return {}
 
 
-def _probe_creator_metadata(
+def _probe_field_metadata(
     url: str,
     source_key: str,
     *,
@@ -366,14 +366,14 @@ def _probe_creator_metadata(
     return probed, errors
 
 
-def _creator_field_count(probed: list[tuple[str, dict[str, str]]]) -> int:
-    return sum(len(_creator_probe_fields(flat, engine)) for engine, flat in probed)
+def _candidate_field_count(probed: list[tuple[str, dict[str, str]]]) -> int:
+    return sum(len(_candidate_probe_fields(flat, engine)) for engine, flat in probed)
 
 
-def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any]:
-    """List the handle/display-name candidate fields for a link, no download.
+def probe_fields(source_url: str, source_key: str = "") -> dict[str, Any]:
+    """List candidate metadata fields for a link, no download.
 
-    Probes both yt-dlp and gallery-dl and merges the username/nickname catalog fields
+    Probes both yt-dlp and gallery-dl and merges the username/nickname/title catalog fields
     each returns, so the user sees whichever engine's fields apply to this source.
     """
     url = _prepare_url(source_url)
@@ -385,9 +385,9 @@ def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any
     errors: list[str] = []
     for with_cookies in (False, True):
         if with_cookies:
-            if _creator_field_count(probed) or not _probe_cookies_file(url, resolved_key):
+            if _candidate_field_count(probed) or not _probe_cookies_file(url, resolved_key):
                 break
-        attempt_probed, attempt_errors = _probe_creator_metadata(
+        attempt_probed, attempt_errors = _probe_field_metadata(
             url,
             resolved_key,
             with_cookies=with_cookies,
@@ -396,7 +396,7 @@ def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any
         if not attempt_probed:
             continue
         probed.extend(attempt_probed)
-        if _creator_field_count(attempt_probed):
+        if _candidate_field_count(attempt_probed):
             break
 
     if not probed:
@@ -408,7 +408,7 @@ def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any
     values_by_field: dict[str, str] = {}
     seen: set[str] = set()
     for engine, flat in probed:
-        engine_fields = _creator_probe_fields(flat, engine)
+        engine_fields = _candidate_probe_fields(flat, engine)
         fields_by_engine[engine] = [item["field"] for item in engine_fields]
         for item in engine_fields:
             values_by_field.setdefault(item["field"], item["value"])
@@ -416,14 +416,14 @@ def probe_creator_fields(source_url: str, source_key: str = "") -> dict[str, Any
                 continue
             seen.add(item["field"])
             fields.append(item)
-    creator_fields = creator_roles_from_probe_fields(fields_by_engine)
-    creator_fields = promote_creator_field_roles(
-        creator_fields,
-        _exact_url_creator_fields(url, creator_fields, values_by_field),
+    field_roles = field_roles_from_probe_fields(fields_by_engine)
+    field_roles = promote_field_roles(
+        field_roles,
+        _exact_url_field_roles(url, field_roles, values_by_field),
     )
     return {
         "source_key": resolved_key,
         "fields": fields,
-        "creator_fields": creator_fields,
-        "url_creator_fields": {},
+        "field_roles": field_roles,
+        "url_field_roles": {},
     }

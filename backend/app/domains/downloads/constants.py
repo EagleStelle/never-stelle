@@ -52,8 +52,8 @@ MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS | AUDIO_EXTENSIONS
 PROGRESS_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%")
 TEMPLATE_RE = re.compile(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}")
 # Template placeholders that identify the uploader across engines: the handle
-# ({{username}}) and the display name ({{nickname}}). Both feed creator-cleaning
-# and the folder/filename creator group; the engines map each to distinct fields.
+# ({{username}}) and the display name ({{nickname}}). These creator fields feed
+# creator-cleaning and the folder/filename creator group.
 CREATOR_FIELDS = {"username", "nickname"}
 
 # Video mode caps resolution and prefers codecs the merge container can play,
@@ -276,7 +276,7 @@ def template_tokens() -> list[dict[str, str]]:
 # once a source has a successful probe, its persisted per-source fields become
 # authoritative so the UI and engine do not carry irrelevant fallback fields.
 # username = handle first; nickname = display name first.
-CREATOR_ROLE_CHAINS: dict[str, dict[str, tuple[str, ...]]] = {
+FIELD_ROLE_CHAINS: dict[str, dict[str, tuple[str, ...]]] = {
     "ytdlp": {
         "username": (
             "uploader_id",
@@ -340,11 +340,11 @@ CREATOR_ROLE_CHAINS: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 
-def _engine_creator_candidates(engine: str) -> tuple[str, ...]:
+def _engine_field_candidates(engine: str) -> tuple[str, ...]:
     seen: set[str] = set()
     fields: list[str] = []
     for role in ("username", "nickname", "title"):
-        for field in CREATOR_ROLE_CHAINS.get(engine, {}).get(role, ()):
+        for field in FIELD_ROLE_CHAINS.get(engine, {}).get(role, ()):
             if field not in seen:
                 seen.add(field)
                 fields.append(field)
@@ -353,16 +353,16 @@ def _engine_creator_candidates(engine: str) -> tuple[str, ...]:
 
 # Candidate handle/display-name fields that the field probe can expose. Derived
 # from the role priors so field discovery and engine fallback cannot drift apart.
-CREATOR_FIELD_CANDIDATES: dict[str, tuple[str, ...]] = {
-    engine: _engine_creator_candidates(engine) for engine in CREATOR_ROLE_CHAINS
+FIELD_CANDIDATES: dict[str, tuple[str, ...]] = {
+    engine: _engine_field_candidates(engine) for engine in FIELD_ROLE_CHAINS
 }
 
 
-def _creator_field_default(role: str) -> list[str]:
+def _field_default(role: str) -> list[str]:
     # Union of role chains across engines in stable order.
     seen: set[str] = set()
     out: list[str] = []
-    for engine_chains in CREATOR_ROLE_CHAINS.values():
+    for engine_chains in FIELD_ROLE_CHAINS.values():
         for field in engine_chains.get(role, ()):
             if field not in seen:
                 seen.add(field)
@@ -370,22 +370,22 @@ def _creator_field_default(role: str) -> list[str]:
     return out
 
 
-CREATOR_FIELD_DEFAULTS: dict[str, list[str]] = {
-    role: _creator_field_default(role) for role in ("username", "nickname", "title")
+FIELD_DEFAULTS: dict[str, list[str]] = {
+    role: _field_default(role) for role in ("username", "nickname", "title")
 }
 
 
-def creator_field_defaults() -> dict[str, list[str]]:
-    return {role: list(fields) for role, fields in CREATOR_FIELD_DEFAULTS.items()}
+def field_defaults() -> dict[str, list[str]]:
+    return {role: list(fields) for role, fields in FIELD_DEFAULTS.items()}
 
 
-def rank_creator_role_fields(role: str, fields: list[str] | tuple[str, ...]) -> list[str]:
+def rank_field_role_fields(role: str, fields: list[str] | tuple[str, ...]) -> list[str]:
     """Order observed fields by the central role priors, preserving unknowns last."""
     seen: set[str] = set()
     available = [str(field or "").strip() for field in fields if str(field or "").strip()]
     available_set = set(available)
     ranked: list[str] = []
-    for engine_chains in CREATOR_ROLE_CHAINS.values():
+    for engine_chains in FIELD_ROLE_CHAINS.values():
         for field in engine_chains.get(role, ()):
             if field in available_set and field not in seen:
                 seen.add(field)
@@ -397,7 +397,7 @@ def rank_creator_role_fields(role: str, fields: list[str] | tuple[str, ...]) -> 
     return ranked
 
 
-def promote_creator_role_fields(
+def promote_field_role_fields(
     role: str,
     fields: list[str] | tuple[str, ...],
     promoted: list[str] | tuple[str, ...],
@@ -414,16 +414,16 @@ def promote_creator_role_fields(
     return out
 
 
-def promote_creator_field_roles(
+def promote_field_roles(
     fields_by_role: dict[str, list[str] | tuple[str, ...]] | None,
     promoted_by_role: dict[str, list[str] | tuple[str, ...]] | None,
 ) -> dict[str, list[str]]:
-    """Promote caller-specified creator fields role-by-role while preserving all others."""
+    """Promote caller-specified fields role-by-role while preserving all others."""
     fields_by_role = fields_by_role if isinstance(fields_by_role, dict) else {}
     promoted_by_role = promoted_by_role if isinstance(promoted_by_role, dict) else {}
     out: dict[str, list[str]] = {}
     for role in ("username", "nickname", "title"):
-        ranked = promote_creator_role_fields(
+        ranked = promote_field_role_fields(
             role,
             fields_by_role.get(role) or (),
             promoted_by_role.get(role) or (),
@@ -433,22 +433,22 @@ def promote_creator_field_roles(
     return out
 
 
-def creator_roles_from_probe_fields(fields_by_engine: dict[str, list[str] | tuple[str, ...]]) -> dict[str, list[str]]:
+def field_roles_from_probe_fields(fields_by_engine: dict[str, list[str] | tuple[str, ...]]) -> dict[str, list[str]]:
     """Build username/nickname/title lists from fields that a live probe actually saw."""
     out: dict[str, list[str]] = {}
     engine_names = [
-        *[engine for engine in CREATOR_ROLE_CHAINS if engine in fields_by_engine],
-        *[engine for engine in fields_by_engine if engine not in CREATOR_ROLE_CHAINS],
+        *[engine for engine in FIELD_ROLE_CHAINS if engine in fields_by_engine],
+        *[engine for engine in fields_by_engine if engine not in FIELD_ROLE_CHAINS],
     ]
     for role in ("username", "nickname", "title"):
         fields: list[str] = []
         for engine in engine_names:
             available = set(str(field or "").strip() for field in (fields_by_engine.get(engine) or ()))
-            for field in CREATOR_ROLE_CHAINS.get(engine, {}).get(role, ()):
+            for field in FIELD_ROLE_CHAINS.get(engine, {}).get(role, ()):
                 if field in available and field not in fields:
                     fields.append(field)
         if fields:
-            out[role] = rank_creator_role_fields(role, fields)
+            out[role] = rank_field_role_fields(role, fields)
     return out
 
 

@@ -4,7 +4,7 @@ import IconCookie from "~icons/material-symbols/cookie";
 import IconDescription from "~icons/material-symbols/description";
 import IconFolder from "~icons/material-symbols/folder";
 import IconQuality from "~icons/material-symbols/high-quality";
-import IconCreator from "~icons/material-symbols/badge";
+import IconFields from "~icons/material-symbols/badge";
 import IconFormat from "~icons/material-symbols/pattern";
 import IconNaming from "~icons/material-symbols/text-format";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
@@ -101,12 +101,12 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     requiresSources: true,
   },
   {
-    key: "creator",
+    key: "fields",
     label: "Fields",
     group: "Metadata",
-    icon: IconCreator,
+    icon: IconFields,
     component: Fields,
-    focusId: (source) => `${source}CreatorProbeInput`,
+    focusId: (source) => `${source}FieldsProbeInput`,
     requiresSources: true,
   },
   {

@@ -35,7 +35,7 @@ export function useScrapeTests(
   editableSourceProfiles: ComputedRef<SourceProfile[]>,
 ) {
   const scrapeTests = reactive<Record<string, ScrapeTestState>>({});
-  const { tokenRoles, tokenRole, titleRoleOwner, isTitleRoleDisabled, isRoleDisabled, removeCreatorMarker, setTokenRole } =
+  const { tokenRoles, tokenRole, isRoleDisabled, removeFieldMarker, setTokenRole } =
     useTokenRoles(settingsDraft);
 
   watch(
@@ -62,7 +62,7 @@ export function useScrapeTests(
     return settingsDraft.source_scrape_rules[key];
   }
 
-  // Rules shown under one format: those tagged with it, plus legacy (formatless) rules
+  // Rules shown under one format: those tagged with it, plus formatless rules
   // folded into the first format. Stale format scopes from older learned templates are
   // also shown there so saved rules never disappear from the editor.
   function rulesForFormat(key: string, template: string): { rule: ScrapeRule; index: number }[] {
@@ -95,7 +95,7 @@ export function useScrapeTests(
       const previousRole = roles[normalized];
       delete roles[normalized];
       settingsDraft.source_token_roles[key] = roles;
-      removeCreatorMarker(key, normalized, previousRole);
+      removeFieldMarker(key, normalized, previousRole);
     }
   }
 
@@ -145,8 +145,6 @@ export function useScrapeTests(
     rulesForFormat,
     platformRules,
     tokenRole,
-    titleRoleOwner,
-    isTitleRoleDisabled,
     isRoleDisabled,
     setTokenRole,
     addScrapeRule,

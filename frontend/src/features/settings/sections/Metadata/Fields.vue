@@ -39,7 +39,7 @@ const {
   settingsDraft,
   learnedFormatsDraft,
   editableSourceProfiles,
-  probeCreatorFields,
+  probeFields,
 } = useSettingsContext();
 const {
   probes,
@@ -54,7 +54,7 @@ const {
   learnedFormatsDraft,
   editableSourceProfiles,
   {
-    probeCreatorFields,
+    probeFields,
   },
 );
 
@@ -134,7 +134,7 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
             <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Probe URL</Label>
             <div class="flex items-center gap-2 w-full">
               <Input
-                :id="`${site.key}CreatorProbeInput`"
+                :id="`${site.key}FieldsProbeInput`"
                 v-model="probes[site.key].url"
                 data-settings-system
                 type="text"

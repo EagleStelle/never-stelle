@@ -45,7 +45,7 @@ const {
   connectCookiesForSource,
   cookieStatuses,
   learnFormat,
-  probeCreatorFields,
+  probeFields,
   reorderFormatTemplates,
   countCards,
   historyRefreshing,
@@ -361,7 +361,7 @@ const { height: statusBarHeight } = useElementSize(
       :learned-formats-draft="learnedFormatsDraft"
       :source-profiles="sourceProfiles"
       :learn-format="learnFormat"
-      :probe-creator-fields="probeCreatorFields"
+      :probe-fields="probeFields"
       :reorder-format-templates="reorderFormatTemplates"
       :has-unsaved-changes="hasUnsavedChanges"
       :mark-settings-draft-dirty="markSettingsDraftDirty"

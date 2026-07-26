@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from backend.app.domains.downloads.workers.completion_creators import (
-    _configured_creator_field,
+    _configured_field_value,
     _filename_creator,
     _filename_media_id,
     _filename_nickname,
@@ -15,7 +15,7 @@ from backend.app.domains.downloads.workers.completion_creators import (
 )
 from backend.app.domains.downloads.workers.completion_learning import (
     _cleanup_file,
-    _learn_creator_fields_from_download,
+    _learn_field_roles_from_download,
     _learn_source_format,
 )
 from backend.app.domains.downloads.workers.completion_metadata import (
@@ -67,7 +67,7 @@ __all__ = [
     "_clean_resolved_filename",
     "_cleanup_duplicate_library_media",
     "_cleanup_file",
-    "_configured_creator_field",
+    "_configured_field_value",
     "_creator_candidate_score",
     "_dedupe_output_records",
     "_display_creator_candidate",
@@ -84,7 +84,7 @@ __all__ = [
     "_has_output_media",
     "_item_source_url",
     "_json_sidecar_value",
-    "_learn_creator_fields_from_download",
+    "_learn_field_roles_from_download",
     "_learn_source_format",
     "_looks_like_handle_value",
     "_looks_like_opaque_identifier",

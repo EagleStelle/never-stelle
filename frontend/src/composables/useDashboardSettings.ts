@@ -5,7 +5,7 @@ import {
   deletePlatformCookies,
   getUiConfig,
   learnPlatformFormat,
-  probeCreatorFields as probeCreatorFieldsRequest,
+  probeFields as probeFieldsRequest,
   saveSettings,
   setFormatTemplates,
   uploadPlatformCookies,
@@ -15,14 +15,14 @@ import { DEFAULT_SOURCE_PROFILES, UI_CONFIG_QUERY_KEY } from "@/ui";
 import type {
   CookiesMap,
   CookiesStatus,
-  CreatorFieldRoles,
+  FieldRoles,
   LearnedFormats,
   ProbeFieldsResponse,
   RuntimeSettings,
   SavedSettings,
   SettingsDraft,
   SettingsSection,
-  SourceCreatorFields,
+  SourceFields,
   SourceLocations,
   SourceProfile,
   SourceSlugTokens,
@@ -35,9 +35,9 @@ import type {
 import {
   createCookiesStatus,
   createQualityOptions,
-  createCreatorFieldRoles,
+  createFieldRoles,
   createQualitySelection,
-  createSourceCreatorFields,
+  createSourceFields,
   createSourceLocations,
   createSourceProfile,
   createSourceScrapeRules,
@@ -345,7 +345,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
     source_slug_tokens: createSourceSlugTokens(),
-    source_creator_fields: createSourceCreatorFields(),
+    source_fields: createSourceFields(),
     source_title_cleaning: createSourceTitleCleaning(),
   });
   const settings = reactive<RuntimeSettings>({
@@ -358,14 +358,14 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
     source_slug_tokens: createSourceSlugTokens(),
-    source_creator_fields: createSourceCreatorFields(),
+    source_fields: createSourceFields(),
     source_title_cleaning: createSourceTitleCleaning(),
     download_locations: [],
     ytdlp_cookies: createCookiesMap(),
     quality_options: createQualityOptions(),
     template_tokens: [],
-    creator_field_defaults: { username: [], nickname: [], title: [] },
-    source_creator_field_defaults: createSourceCreatorFields(),
+    field_defaults: { username: [], nickname: [], title: [] },
+    source_field_defaults: createSourceFields(),
     title_cleaning_rules: [],
     naming_choices: [],
     learned_formats: {},
@@ -385,7 +385,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
     source_slug_tokens: createSourceSlugTokens(),
-    source_creator_fields: createSourceCreatorFields(),
+    source_fields: createSourceFields(),
     source_title_cleaning: createSourceTitleCleaning(),
   });
   const learnedFormatsDraft = reactive<LearnedFormats>({});
@@ -431,9 +431,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   const learnFormatMutation = useMutation({
     mutationFn: (url: string) => learnPlatformFormat(url),
   });
-  const probeCreatorFieldsMutation = useMutation({
+  const probeFieldsMutation = useMutation({
     mutationFn: ({ url, sourceKey }: { url: string; sourceKey: string }) =>
-      probeCreatorFieldsRequest(url, sourceKey),
+      probeFieldsRequest(url, sourceKey),
   });
   const formatTemplatesMutation = useMutation({
     mutationFn: ({ sourceKey, templates }: { sourceKey: string; templates: string[] }) =>
@@ -499,9 +499,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         recordForProfiles(source.source_slug_tokens as SourceSlugTokens, profiles),
         profiles,
       ),
-      source_creator_fields: createSourceCreatorFields(
+      source_fields: createSourceFields(
         recordForProfiles(
-          source.source_creator_fields as SourceCreatorFields,
+          source.source_fields as SourceFields,
           profiles,
         ),
         profiles,
@@ -583,11 +583,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         ),
         profiles,
       ),
-      source_creator_fields: createSourceCreatorFields(
+      source_fields: createSourceFields(
         recordForProfiles(
           {
-            ...defaults.source_creator_fields,
-            ...settings.source_creator_fields,
+            ...defaults.source_fields,
+            ...settings.source_fields,
           },
           profiles,
         ),
@@ -630,7 +630,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         source_scrape_rules: settingsDraft.source_scrape_rules,
         source_token_roles: settingsDraft.source_token_roles,
         source_slug_tokens: settingsDraft.source_slug_tokens,
-        source_creator_fields: settingsDraft.source_creator_fields,
+        source_fields: settingsDraft.source_fields,
         source_title_cleaning: settingsDraft.source_title_cleaning,
       }),
     );
@@ -811,12 +811,12 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
 
     settings.learned_formats = (data.learned_formats || {}) as LearnedFormats;
 
-    const creatorFields = createSourceCreatorFields(
-      recordForProfiles(data.source_creator_fields || {}, managedProfiles),
+    const fields = createSourceFields(
+      recordForProfiles(data.source_fields || {}, managedProfiles),
       managedProfiles,
     );
-    replaceRecord(defaults.source_creator_fields, creatorFields);
-    replaceRecord(settings.source_creator_fields, creatorFields);
+    replaceRecord(defaults.source_fields, fields);
+    replaceRecord(settings.source_fields, fields);
 
     const titleCleaning = createSourceTitleCleaning(
       recordForProfiles(data.source_title_cleaning || {}, managedProfiles),
@@ -825,13 +825,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     replaceRecord(defaults.source_title_cleaning, titleCleaning);
     replaceRecord(settings.source_title_cleaning, titleCleaning);
 
-    settings.creator_field_defaults = createCreatorFieldRoles(
-      data.creator_field_defaults || {},
+    settings.field_defaults = createFieldRoles(
+      data.field_defaults || {},
     );
     replaceRecord(
-      settings.source_creator_field_defaults,
-      createSourceCreatorFields(
-        recordForProfiles(data.source_creator_field_defaults || {}, managedProfiles),
+      settings.source_field_defaults,
+      createSourceFields(
+        recordForProfiles(data.source_field_defaults || {}, managedProfiles),
         managedProfiles,
       ),
     );
@@ -966,9 +966,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       server.source_slug_tokens,
     );
     mergeCleanRecordEntries(
-      settingsDraft.source_creator_fields,
-      previous.source_creator_fields,
-      server.source_creator_fields,
+      settingsDraft.source_fields,
+      previous.source_fields,
+      server.source_fields,
     );
     mergeCleanRecordEntries(
       settingsDraft.source_title_cleaning,
@@ -1134,36 +1134,36 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     lastFormatDraftSnapshot = JSON.stringify(stableValue(serverFormats));
   }
 
-  function creatorFieldsHaveValues(fields: CreatorFieldRoles): boolean {
-    return fields.username.length > 0 || fields.nickname.length > 0;
+  function fieldRolesHaveValues(fields: FieldRoles): boolean {
+    return fields.username.length > 0 || fields.nickname.length > 0 || fields.title.length > 0;
   }
 
-  function syncSavedCreatorFields(
+  function syncSavedFields(
     sourceKey: string,
-    fields: Partial<CreatorFieldRoles>,
+    fields: Partial<FieldRoles>,
   ): void {
     const key = normalizeSourceKey(sourceKey);
     if (!key) return;
 
-    const normalized = createCreatorFieldRoles(fields);
-    if (!creatorFieldsHaveValues(normalized)) return;
+    const normalized = createFieldRoles(fields);
+    if (!fieldRolesHaveValues(normalized)) return;
 
     const previous = savedPayloadFromSnapshot();
     const draftWasDirty = hasSettingsUnsavedChanges.value;
-    const previousFields = createCreatorFieldRoles(
-      previous.source_creator_fields[key] || {},
+    const previousFields = createFieldRoles(
+      previous.source_fields[key] || {},
     );
-    const draftFields = createCreatorFieldRoles(
-      settingsDraft.source_creator_fields[key] || {},
+    const draftFields = createFieldRoles(
+      settingsDraft.source_fields[key] || {},
     );
     const draftWasClean = sameJson(draftFields, previousFields);
     const savedFields = cloneJson(normalized);
 
-    settings.source_creator_fields[key] = cloneJson(savedFields);
-    defaults.source_creator_fields[key] = cloneJson(savedFields);
-    if (draftWasClean) settingsDraft.source_creator_fields[key] = cloneJson(savedFields);
+    settings.source_fields[key] = cloneJson(savedFields);
+    defaults.source_fields[key] = cloneJson(savedFields);
+    if (draftWasClean) settingsDraft.source_fields[key] = cloneJson(savedFields);
 
-    previous.source_creator_fields[key] = cloneJson(savedFields);
+    previous.source_fields[key] = cloneJson(savedFields);
     lastSavedSnapshot = snapshotFor(previous);
     if (!draftWasDirty) clearSettingsDraftDirty();
   }
@@ -1202,8 +1202,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       normalized.source_slug_tokens,
     );
     replaceRecord(
-      settingsDraft.source_creator_fields,
-      normalized.source_creator_fields,
+      settingsDraft.source_fields,
+      normalized.source_fields,
     );
     replaceRecord(
       settingsDraft.source_title_cleaning,
@@ -1236,7 +1236,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       cookies: `${firstSource}CookiesInput`,
       quality: "defaultQualityMode",
       format: "formatLearnInput",
-      creator: `${firstSource}CreatorProbeInput`,
+      fields: `${firstSource}FieldsProbeInput`,
       scraper: `${firstSource}ScraperProbeInput`,
       slug: `${firstSource}SlugSection`,
       templates: "",
@@ -1546,20 +1546,20 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     removeDraftOnlySourceIfEmpty(key);
   }
 
-  async function probeCreatorFields(
+  async function probeFields(
     url: string,
     sourceKey = "",
   ): Promise<ProbeFieldsResponse> {
-    const response = await probeCreatorFieldsMutation.mutateAsync({
+    const response = await probeFieldsMutation.mutateAsync({
       url: url.trim(),
       sourceKey: normalizeSourceKey(sourceKey),
     });
-    if (response.saved && response.creator_fields) {
-      syncSavedCreatorFields(
+    if (response.saved && response.field_roles) {
+      syncSavedFields(
         response.source_key || sourceKey,
-        response.creator_fields,
+        response.field_roles,
       );
-      toast("Creator fields saved.");
+      toast("Fields saved.");
     }
     return response;
   }
@@ -1599,7 +1599,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   watch(settingsOpen, (open) => {
     document.body.classList.toggle("dialog-open", open);
     if (open) {
-      // Downloads learn creator fields server-side; refetch so the list is current on open.
+      // Downloads learn fields server-side; refetch so the list is current on open.
       queryClient.invalidateQueries({ queryKey: UI_CONFIG_QUERY_KEY });
     } else {
       lastFocusedTrigger.value?.focus();
@@ -1612,7 +1612,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     connectCookiesForSource,
     cookieStatuses,
     learnFormat,
-    probeCreatorFields,
+    probeFields,
     reorderFormatTemplates,
     getSavedSettings,
     openSettings,

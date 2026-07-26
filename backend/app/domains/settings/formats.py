@@ -5,7 +5,7 @@ from typing import Any
 from backend.app.core.config import load_app_config
 from backend.app.core.sources import normalize_source_key, source_key_from_url
 
-from .fields import normalize_source_creator_fields
+from .fields import normalize_source_fields
 from .profiles import ensure_source_profile_for_url, get_effective_source_profiles
 from .storage import load_saved_settings_file, save_saved_settings_file
 
@@ -29,7 +29,7 @@ def get_learned_formats_for_ui() -> dict[str, dict[str, Any]]:
 def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
     """Add a platform from a pasted link and learn its URL format in one step."""
     from backend.app.domains.downloads.formats import match_template, media_id_from_url
-    from backend.app.domains.downloads.learning import learn_missing_creator_fields_for_format, learn_source_format
+    from backend.app.domains.downloads.learning import learn_missing_fields_for_format, learn_source_format
     from backend.app.domains.downloads.store import load_learned_formats
 
     url = str(url_or_link or "").strip()
@@ -45,7 +45,7 @@ def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
     ensure_source_profile_for_url(url)
     media_id = media_id_from_url(url)
     learned = learn_source_format(url, media_id) if media_id else False
-    creator_fields = learn_missing_creator_fields_for_format(url, key) if learned else {}
+    field_roles = learn_missing_fields_for_format(url, key) if learned else {}
     format_template = match_template(load_learned_formats(), key, url, media_id) if media_id else ""
     return {
         "source_key": key,
@@ -53,7 +53,7 @@ def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
         "learned": bool(learned),
         "media_id": media_id,
         "format_template": format_template,
-        "creator_fields": creator_fields,
+        "field_roles": field_roles,
     }
 
 
@@ -84,12 +84,12 @@ def set_learned_format_templates(source_key: str, templates: Any) -> dict[str, A
     save_learned_formats(updated)
     if not ordered:
         payload = load_saved_settings_file()
-        creator_fields = normalize_source_creator_fields(payload.get("source_creator_fields"))
-        if key in creator_fields:
-            creator_fields.pop(key, None)
-            if creator_fields:
-                payload["source_creator_fields"] = creator_fields
+        field_roles = normalize_source_fields(payload.get("source_fields"))
+        if key in field_roles:
+            field_roles.pop(key, None)
+            if field_roles:
+                payload["source_fields"] = field_roles
             else:
-                payload.pop("source_creator_fields", None)
+                payload.pop("source_fields", None)
             save_saved_settings_file(payload)
     return {"source_key": key, "templates": ordered}

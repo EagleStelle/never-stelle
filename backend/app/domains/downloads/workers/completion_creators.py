@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from backend.app.core.sources import apex_host, host_from_url, normalize_source_key
-from backend.app.domains.downloads.constants import CREATOR_FIELD_DEFAULTS
+from backend.app.domains.downloads.constants import FIELD_DEFAULTS
 from backend.app.domains.downloads.formats import creator_from_url, media_id_from_url
 from backend.app.domains.downloads.naming import filename_template_fields, template_fields
 from backend.app.domains.downloads.scan import parse_filename_media_id
@@ -20,13 +20,13 @@ from backend.app.domains.downloads.workers.completion_values import (
     _looks_like_opaque_identifier,
     _same_creator_value,
 )
-from backend.app.domains.settings import get_effective_creator_fields, is_scraper_creator_field
+from backend.app.domains.settings import get_effective_fields, is_scraper_field
 
 
 def _metadata_nickname(metadata: dict[str, str], username_hint: str = "") -> str:
     username_hint = _clean_creator_candidate(username_hint)
     fallback = ""
-    for key in CREATOR_FIELD_DEFAULTS.get("nickname") or ():
+    for key in FIELD_DEFAULTS.get("nickname") or ():
         value = _clean_creator_candidate(str(metadata.get(key) or ""))
         if not value or _looks_like_opaque_identifier(value):
             continue
@@ -157,13 +157,13 @@ def _filename_media_id(path: Path, filename_template: str, metadata: dict[str, s
             return media_id
     return ""
 
-def _configured_creator_field(metadata: dict[str, str], source_url: str, role: str) -> str:
-    # A user-configured field order (source_creator_fields) is authoritative: read the
+def _configured_field_value(metadata: dict[str, str], source_url: str, role: str) -> str:
+    # A user-configured field order (source_fields) is authoritative: read the
     # first populated field straight from the metadata sidecar in that exact order,
     # bypassing the handle heuristics so an explicit choice like channel_id is honored
     # even when it is an opaque identifier. Empty list -> heuristics stay in charge.
-    for field in get_effective_creator_fields(source_url).get(role) or ():
-        if is_scraper_creator_field(field):
+    for field in get_effective_fields(source_url).get(role) or ():
+        if is_scraper_field(field):
             continue
         value = _clean_creator_candidate(str(metadata.get(field) or ""), strip_at=False)
         if value:

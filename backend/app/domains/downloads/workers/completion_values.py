@@ -16,9 +16,9 @@ def _field_value(fields: dict[str, str], *names: str) -> str:
 
 def _metadata_title(metadata: dict[str, str], source_url: str = "") -> str:
     if source_url:
-        from backend.app.domains.settings import get_effective_creator_fields, is_scraper_creator_field
-        for field in get_effective_creator_fields(source_url).get("title") or ():
-            if is_scraper_creator_field(field):
+        from backend.app.domains.settings import get_effective_fields, is_scraper_field
+        for field in get_effective_fields(source_url).get("title") or ():
+            if is_scraper_field(field):
                 continue
             value = str(metadata.get(field) or "").strip()
             if value:

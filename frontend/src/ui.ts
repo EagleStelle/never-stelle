@@ -47,7 +47,7 @@ export const SETTINGS_SECTIONS: Array<{
   { key: "downloads", label: "Locations", route: "/settings/locations" },
   { key: "cookies", label: "Cookies", route: "/settings/cookies" },
   { key: "quality", label: "Quality", route: "/settings/quality" },
-  { key: "creator", label: "Creator", route: "/settings/creator" },
+  { key: "fields", label: "Fields", route: "/settings/fields" },
   { key: "scraper", label: "Scraper", route: "/settings/scraper" },
   { key: "templates", label: "Templates", route: "/settings/templates" },
 ];

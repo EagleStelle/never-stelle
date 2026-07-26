@@ -71,6 +71,7 @@ const {
   scrapeTests,
   formatsFor,
   rulesForFormat,
+  platformRules,
   tokenRole,
   isRoleDisabled,
   setTokenRole,
@@ -203,15 +204,6 @@ const {
             <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider wrap-anywhere">
               {{ displayUrlTemplate(template) }}
             </Label>
-
-            <Card
-              v-if="!rulesForFormat(site.key, template).length"
-              class="px-6"
-            >
-              <p class="text-[0.8125rem] text-muted-foreground">
-                This format has no scraper rules yet.
-              </p>
-            </Card>
 
             <Card
               v-for="{ rule, index } in rulesForFormat(site.key, template)"
@@ -350,6 +342,15 @@ const {
               </Button>
             </div>
           </div>
+
+          <Card
+            v-if="formatsFor(site.key).length && !platformRules(site.key).rules.length"
+            class="px-6"
+          >
+            <p class="text-[0.8125rem] text-muted-foreground">
+              This platform has no scraper rules yet.
+            </p>
+          </Card>
         </div>
       </AccordionContent>
     </AccordionItem>

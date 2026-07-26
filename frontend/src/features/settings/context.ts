@@ -24,8 +24,8 @@ export interface SettingsContext {
   removeCookies: (platform: string) => void;
   // Stage a link's format in the accordion; Save performs the backend learn.
   learnFormat: (url: string) => Promise<string>;
-  // Probe creator metadata. Successful learned fields are saved server-side.
-  probeCreatorFields: (url: string, sourceKey?: string) => Promise<ProbeFieldsResponse>;
+  // Probe metadata fields. Successful learned fields are saved server-side.
+  probeFields: (url: string, sourceKey?: string) => Promise<ProbeFieldsResponse>;
   // Stage a source's learned URL templates in a new order (reorder or delete).
   reorderFormatTemplates: (sourceKey: string, templates: string[]) => Promise<void>;
   markSettingsDraftDirty: (section?: SettingsSection) => void;

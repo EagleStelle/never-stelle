@@ -49,7 +49,7 @@ const SETTINGS_SLUG_BY_SECTION: Record<SettingsSection, string> = {
   cookies: "cookies",
   quality: "quality",
   format: "format",
-  creator: "creator",
+  fields: "fields",
   scraper: "scraper",
   slug: "slug",
   templates: "templates",

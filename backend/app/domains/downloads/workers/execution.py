@@ -34,7 +34,7 @@ from backend.app.domains.downloads.workers.completion import (
     _fill_single_output_metadata_fallback,
     _has_output_media,
     _item_source_url,
-    _learn_creator_fields_from_download,
+    _learn_field_roles_from_download,
     _learn_source_format,
     _metadata_title,
     _move_group_to_template_folder,
@@ -49,11 +49,11 @@ from backend.app.domains.downloads.workers.processes import _cancel_pending, _cl
 from backend.app.domains.downloads.workers.runner import _run_engine_to_task
 from backend.app.domains.settings import (
     detect_cookie_source,
-    get_effective_creator_fields,
+    get_effective_fields,
     get_effective_title_cleaning,
     has_cookies_for_source,
     has_cookies_for_url,
-    is_scraper_creator_field,
+    is_scraper_field,
     load_scrape_rules,
     load_slug_tokens,
     load_token_roles,
@@ -68,16 +68,6 @@ _UNSUPPORTED_MARKERS = (
     "no video formats found",
     "no formats found",
 )
-
-
-def _configured_creator_field(metadata: dict[str, str], source_url: str, role: str) -> str:
-    for field in get_effective_creator_fields(source_url).get(role) or ():
-        if is_scraper_creator_field(field):
-            continue
-        value = _clean_creator_candidate(str(metadata.get(field) or ""), strip_at=False)
-        if value:
-            return value
-    return ""
 
 
 def _looks_unsupported(task: dict[str, Any]) -> bool:
@@ -95,6 +85,16 @@ def _should_try_next_engine(rc: int, task: dict[str, Any], last_dest: str, emitt
     if _has_output_media(last_dest, emitted_paths):
         return False
     return True
+
+
+def _configured_field_value(metadata: dict[str, str], source_url: str, role: str) -> str:
+    for field in get_effective_fields(source_url).get(role) or ():
+        if is_scraper_field(field):
+            continue
+        value = _clean_creator_candidate(str(metadata.get(field) or ""), strip_at=False)
+        if value:
+            return value
+    return ""
 
 
 def _failure_detail(engine: Engine, rc: int, task: dict[str, Any]) -> str:
@@ -190,7 +190,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
     output_root.mkdir(parents=True, exist_ok=True)
 
     token_roles = load_token_roles()
-    creator_fields = get_effective_creator_fields(source_url)
+    field_roles = get_effective_fields(source_url)
     # URL-part tokens (no fetch) plus page-scraped values, both mapped through the
     # shared role pipeline. Scraper HTML wins on a name/role collision.
     extra_tokens = resolve_slug_tokens(
@@ -199,7 +199,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
         template_settings,
         load_slug_tokens(),
         token_roles,
-        creator_fields,
+        field_roles,
     )
     extra_tokens.update(
         resolve_scraped_tokens(
@@ -209,7 +209,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             load_scrape_rules(),
             token_roles,
             cookie_source_key,
-            creator_fields,
+            field_roles,
             load_learned_formats(),
         )
     )
@@ -357,7 +357,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 collapse_source_items,
             )
             completed_rows: list[tuple[str, dict[str, Any]]] = []
-            creator_fields_learned = False
+            field_roles_learned = False
             for index, group in enumerate(groups):
                 media_id = str(group.get("media_id") or "").strip()
                 raw_path = Path(group["path"])
@@ -365,8 +365,8 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                 # Honor the per-source field priority the same way the download template does.
                 scraped_username = _role_token_value(extra_tokens, token_roles, task_source_key, "username")
                 scraped_nickname = _role_token_value(extra_tokens, token_roles, task_source_key, "nickname")
-                configured_username = scraped_username or _configured_creator_field(metadata, source_url, "username")
-                configured_nickname = scraped_nickname or _configured_creator_field(metadata, source_url, "nickname")
+                configured_username = scraped_username or _configured_field_value(metadata, source_url, "username")
+                configured_nickname = scraped_nickname or _configured_field_value(metadata, source_url, "nickname")
                 creator_hint = (
                     _role_creator(extra_tokens, token_roles, task_source_key)
                     or configured_username
@@ -441,9 +441,9 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     if _path_key(record["path"]) == _path_key(raw_path):
                         row_engine = record["engine"].name
                         break
-                if not creator_fields_learned:
-                    _learn_creator_fields_from_download(item_source_url, item_source_key, row_engine, metadata)
-                    creator_fields_learned = True
+                if not field_roles_learned:
+                    _learn_field_roles_from_download(item_source_url, item_source_key, row_engine, metadata)
+                    field_roles_learned = True
                 completed_task = update_task(
                     row_task_id,
                     status="completed",

@@ -7,10 +7,10 @@ from backend.app.core.config import load_app_config, normalize_download_location
 
 from .cookies import get_ytdlp_cookies_status
 from .fields import (
-    get_source_creator_field_defaults,
-    normalize_source_creator_fields,
+    get_source_field_defaults,
+    normalize_source_fields,
     normalize_source_title_cleaning,
-    saved_creator_fields,
+    saved_fields,
 )
 from .formats import get_learned_formats_for_ui
 from .locations import normalize_source_location_selection
@@ -56,7 +56,7 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
         "source_scrape_rules": get_effective_scrape_rules(payload),
         "source_token_roles": token_roles,
         "source_slug_tokens": get_effective_slug_tokens(payload),
-        "source_creator_fields": saved_creator_fields(payload),
+        "source_fields": saved_fields(payload),
         "source_title_cleaning": normalize_source_title_cleaning(payload.get("source_title_cleaning")),
     }
 
@@ -70,7 +70,7 @@ def persist_settings(
     raw_default_quality: Any = None,
     raw_scrape_rules: Any = None,
     raw_token_roles: Any = None,
-    raw_creator_fields: Any = None,
+    raw_fields: Any = None,
     raw_title_cleaning: Any = None,
     raw_slug_tokens: Any = None,
 ) -> dict[str, Any]:
@@ -106,6 +106,7 @@ def persist_settings(
     normalized_slug_tokens = normalize_source_slug_tokens(
         raw_slug_tokens if raw_slug_tokens is not None else existing.get("source_slug_tokens")
     )
+    raw_field_payload = raw_fields if raw_fields is not None else existing.get("source_fields")
     template_settings = normalize_template_settings(raw_template_settings)
     existing.update(
         {
@@ -125,9 +126,7 @@ def persist_settings(
             "source_scrape_rules": normalized_scrape_rules,
             "source_token_roles": normalized_token_roles,
             "source_slug_tokens": normalized_slug_tokens,
-            "source_creator_fields": normalize_source_creator_fields(
-                raw_creator_fields if raw_creator_fields is not None else existing.get("source_creator_fields")
-            ),
+            "source_fields": normalize_source_fields(raw_field_payload),
             "source_title_cleaning": normalize_source_title_cleaning(
                 raw_title_cleaning if raw_title_cleaning is not None else existing.get("source_title_cleaning")
             ),
@@ -143,8 +142,8 @@ def build_settings_response(
 ) -> dict[str, Any]:
     from backend.app.domains.auth import auth_public_payload
     from backend.app.domains.downloads.constants import (
-        creator_field_defaults,
         default_quality_selection,
+        field_defaults,
         naming_choices,
         quality_options,
         template_tokens,
@@ -169,10 +168,10 @@ def build_settings_response(
         "source_token_roles": saved.get("source_token_roles", get_effective_token_roles()),
         "source_slug_tokens": saved.get("source_slug_tokens", get_effective_slug_tokens()),
         "learned_formats": get_learned_formats_for_ui(),
-        "source_creator_fields": saved.get("source_creator_fields", {}),
-        "source_creator_field_defaults": get_source_creator_field_defaults(saved.get("source_profiles")),
+        "source_fields": saved.get("source_fields", {}),
+        "source_field_defaults": get_source_field_defaults(saved.get("source_profiles")),
         "source_title_cleaning": saved.get("source_title_cleaning", {}),
-        "creator_field_defaults": creator_field_defaults(),
+        "field_defaults": field_defaults(),
         "title_cleaning_rules": title_cleaning_rules(),
         "naming_choices": naming_choices(),
         "settings_loaded_at": int(time.time()),

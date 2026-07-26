@@ -18,11 +18,11 @@ def _dedupe_templates(values: Any) -> list[str]:
     return seen
 
 
-def _normalize_creator_fields(value: Any) -> dict[str, list[str]]:
+def _normalize_field_roles(value: Any) -> dict[str, list[str]]:
     if not isinstance(value, dict):
         return {}
     out: dict[str, list[str]] = {}
-    for role in ("username", "nickname"):
+    for role in ("username", "nickname", "title"):
         fields: list[str] = []
         raw_fields = value.get(role)
         if not isinstance(raw_fields, list):
@@ -38,10 +38,10 @@ def _normalize_creator_fields(value: Any) -> dict[str, list[str]]:
 
 def _format_entry_from_row(row: Any) -> dict[str, Any]:
     templates = _dedupe_templates(_decode(str(row["templates"] or ""), []))
-    url_creator_fields = _normalize_creator_fields(_decode(str(row["url_creator_fields"] or ""), {}))
+    url_field_roles = _normalize_field_roles(_decode(str(row["url_field_roles"] or ""), {}))
     entry: dict[str, Any] = {
         "templates": templates,
-        "url_creator_fields": url_creator_fields,
+        "url_field_roles": url_field_roles,
         "host": str(row["host"] or ""),
         "samples": int(row["samples"] or 0),
     }
@@ -70,7 +70,7 @@ def _normalize_format_payload(payload: dict[str, Any]) -> dict[str, dict[str, An
         if not templates:
             continue
         entry["templates"] = templates
-        entry["url_creator_fields"] = _normalize_creator_fields(entry.get("url_creator_fields"))
+        entry["url_field_roles"] = _normalize_field_roles(entry.get("url_field_roles"))
         normalized[key] = entry
     return normalized
 
@@ -94,11 +94,11 @@ def _save_format_rows(connection: Any, payload: dict[str, Any]) -> None:
     for key, entry in normalized.items():
         id_classes = ",".join(sorted(str(item) for item in (entry.get("id_classes") or []) if str(item)))
         templates = _dedupe_templates(entry.get("templates"))
-        url_creator_fields = _normalize_creator_fields(entry.get("url_creator_fields"))
+        url_field_roles = _normalize_field_roles(entry.get("url_field_roles"))
         connection.execute(
             """
             INSERT OR REPLACE INTO learned_formats (
-                source_key, host, templates, url_creator_fields, id_min, id_max, id_classes,
+                source_key, host, templates, url_field_roles, id_min, id_max, id_classes,
                 samples, created_at, updated_at
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -107,7 +107,7 @@ def _save_format_rows(connection: Any, payload: dict[str, Any]) -> None:
                 key,
                 str(entry.get("host") or ""),
                 _encode(templates),
-                _encode(url_creator_fields),
+                _encode(url_field_roles),
                 int(entry.get("id_min") or 0),
                 int(entry.get("id_max") or 0),
                 id_classes,
@@ -122,7 +122,7 @@ def load_learned_formats_payload() -> dict[str, Any]:
     with transaction() as connection:
         rows = connection.execute(
             """
-            SELECT source_key, host, templates, url_creator_fields, id_min, id_max, id_classes,
+            SELECT source_key, host, templates, url_field_roles, id_min, id_max, id_classes,
                    samples
             FROM learned_formats
             ORDER BY source_key

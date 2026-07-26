@@ -1,14 +1,10 @@
 import type { SavedSettings, TokenRole } from "@/types";
-import {
-  normalizeTokenName,
-  scraperCreatorField,
-} from "@/utils/dashboard";
+import { normalizeTokenName, scraperField } from "@/utils/dashboard";
 
 const TEMPLATE_TOKEN_RE = /{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}/g;
 
-// Per-source token roles shared by every named-token subsystem (scraper HTML tokens
-// and slug URL-part tokens live in one namespace). Owns role assignment, the single
-// title-owner rule, template {{token}}→{{role}} migration, and creator-field markers.
+// Per-source token roles shared by every named-token subsystem. Scraper HTML tokens
+// and slug URL-part tokens live in one namespace, and Fields order decides priority.
 export function useTokenRoles(settingsDraft: SavedSettings) {
   function tokenRoles(key: string): Record<string, TokenRole> {
     if (!settingsDraft.source_token_roles[key]) {
@@ -22,33 +18,8 @@ export function useTokenRoles(settingsDraft: SavedSettings) {
     return normalized ? tokenRoles(key)[normalized] || "ignore" : "ignore";
   }
 
-  function roleOwner(key: string, role: TokenRole): string {
-    if (role !== "title" && role !== "creator") return "";
-    const entry = Object.entries(tokenRoles(key)).find(([, r]) => r === role);
-    return entry?.[0] || "";
-  }
-
-  function isRoleDisabled(key: string, token: string, role: TokenRole): boolean {
-    if (role !== "title" && role !== "creator") return false;
-    const normalized = normalizeTokenName(token);
-    const owner = roleOwner(key, role);
-    return Boolean(normalized && owner && owner !== normalized);
-  }
-
-  function titleRoleOwner(key: string): string {
-    return roleOwner(key, "title");
-  }
-
-  function isTitleRoleDisabled(key: string, token: string): boolean {
-    return isRoleDisabled(key, token, "title");
-  }
-
-  function creatorRoleOwner(key: string): string {
-    return roleOwner(key, "creator");
-  }
-
-  function isCreatorRoleDisabled(key: string, token: string): boolean {
-    return isRoleDisabled(key, token, "creator");
+  function isRoleDisabled(_key: string, _token: string, _role: TokenRole): boolean {
+    return false;
   }
 
   function migrateTemplateToken(key: string, token: string, role: TokenRole): void {
@@ -68,10 +39,10 @@ export function useTokenRoles(settingsDraft: SavedSettings) {
     }
   }
 
-  function removeCreatorMarker(key: string, token: string, role?: TokenRole): void {
-    const field = scraperCreatorField(token);
+  function removeFieldMarker(key: string, token: string, role?: TokenRole): void {
+    const field = scraperField(token);
     if (!field) return;
-    const roles = settingsDraft.source_creator_fields[key];
+    const roles = settingsDraft.source_fields[key];
     if (!roles) return;
     const targetRoles =
       role === "creator" || !role
@@ -89,28 +60,21 @@ export function useTokenRoles(settingsDraft: SavedSettings) {
     if (!normalized) return;
     const previousRole = tokenRole(key, normalized);
     const roles = { ...tokenRoles(key) };
-    if (role === "title" && isTitleRoleDisabled(key, token)) return;
-    if (role === "creator" && isCreatorRoleDisabled(key, token)) return;
     if (role === "ignore") {
       delete roles[normalized];
     } else {
       roles[normalized] = role;
     }
     settingsDraft.source_token_roles[key] = roles;
-    if (previousRole !== role) removeCreatorMarker(key, normalized, previousRole);
+    if (previousRole !== role) removeFieldMarker(key, normalized, previousRole);
     migrateTemplateToken(key, token, role);
   }
 
   return {
     tokenRoles,
     tokenRole,
-    roleOwner,
     isRoleDisabled,
-    titleRoleOwner,
-    isTitleRoleDisabled,
-    creatorRoleOwner,
-    isCreatorRoleDisabled,
-    removeCreatorMarker,
+    removeFieldMarker,
     setTokenRole,
   };
 }
