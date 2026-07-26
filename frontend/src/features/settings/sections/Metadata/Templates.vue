@@ -15,8 +15,7 @@ import {
 } from "../../../../components/ui/card";
 import { Input } from "../../../../components/ui/input";
 import { Button } from "../../../../components/ui/button";
-import SettingsLabel from "../../SettingsLabel.vue";
-import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
+import { Label } from "../../../../components/ui/label";
 import { useSettingsContext } from "../../context";
 import {
   displayUrlTemplate,
@@ -183,10 +182,12 @@ function insert(siteKey: string, format: string, token: string): void {
       </AccordionTrigger>
 
       <AccordionContent>
-        <SettingsEmptyCard v-if="!formatsFor(site.key).length">
-          Download once from this source to learn its URL format, then customize
-          its templates.
-        </SettingsEmptyCard>
+        <Card v-if="!formatsFor(site.key).length" class="px-6">
+          <p class="text-[0.8125rem] text-muted-foreground">
+            Download once from this source to learn its URL format, then customize
+            its templates.
+          </p>
+        </Card>
 
         <div v-else class="flex flex-col gap-[0.85rem]">
           <Card v-for="template in formatsFor(site.key)" :key="template">
@@ -197,7 +198,7 @@ function insert(siteKey: string, format: string, token: string): void {
             </CardHeader>
             <CardContent class="flex flex-col gap-3">
               <label class="flex flex-col gap-1.5">
-                <SettingsLabel>Folder</SettingsLabel>
+                <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Folder</Label>
                 <Input
                   :id="getFolderInputId(site.key, template)"
                   :model-value="getFolderTemplate(site.key, template)"
@@ -211,7 +212,7 @@ function insert(siteKey: string, format: string, token: string): void {
               </label>
 
               <label class="flex flex-col gap-1.5">
-                <SettingsLabel>Filename</SettingsLabel>
+                <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filename</Label>
                 <Input
                   :id="getFilenameInputId(site.key, template)"
                   :model-value="getFilenameTemplate(site.key, template)"

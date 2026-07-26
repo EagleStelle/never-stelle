@@ -4,12 +4,11 @@ import IconTrash from "~icons/material-symbols/delete";
 import IconUpload from "~icons/material-symbols/upload";
 
 import { Button } from "../../../../components/ui/button";
+import { Card } from "../../../../components/ui/card";
+import { FieldGroup, FieldSet } from "../../../../components/ui/field";
 import { Input } from "../../../../components/ui/input";
+import { Label } from "../../../../components/ui/label";
 import { useSettingsContext } from "../../context";
-import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
-import SettingsGroup from "../../SettingsGroup.vue";
-import SettingsRow from "../../SettingsRow.vue";
-import SettingsSection from "../../SettingsSection.vue";
 
 const {
   editableSourceProfiles,
@@ -59,8 +58,8 @@ function connectNew(): void {
 </script>
 
 <template>
-  <SettingsSection>
-    <SettingsGroup>
+  <div class="flex flex-col gap-6">
+    <div class="flex flex-col gap-4">
       <div class="flex w-full items-center gap-2">
         <Input
           v-model="newCookie.source"
@@ -92,63 +91,70 @@ function connectNew(): void {
         </Button>
       </div>
 
-      <SettingsEmptyCard v-if="editableSourceProfiles.length === 0">
-        No sources yet.
-      </SettingsEmptyCard>
-    </SettingsGroup>
+      <Card v-if="editableSourceProfiles.length === 0" class="px-6 py-4">
+        <p class="text-[0.8125rem] text-muted-foreground">
+          No sources yet.
+        </p>
+      </Card>
+    </div>
 
-    <SettingsGroup v-if="editableSourceProfiles.length">
-      <SettingsRow
-        v-for="site in editableSourceProfiles"
-        :key="site.key"
-        :label="site.label"
-      >
-        <div class="flex items-center gap-2">
-          <input
-            :id="`${site.key}CookiesInput`"
-            data-settings-system
-            type="file"
-            accept=".txt,.cookies,text/plain"
-            class="hidden"
-            @change="onCookieFile(site.key, $event)"
-          />
-          <template v-if="!hasCookies(site.key)">
-            <Input model-value="No cookies file" disabled class="flex-1" />
-            <Button
-              variant="primary"
-              type="button"
-              class="shrink-0"
-              :title="`Upload ${site.label} cookies`"
-              :aria-label="`Upload ${site.label} cookies`"
-              @click="openPicker(site.key)"
-            >
-              <template #icon>
-                <IconUpload class="w-5 h-5" aria-hidden="true" />
+    <FieldSet v-if="editableSourceProfiles.length">
+      <FieldGroup class="gap-4">
+        <div
+          v-for="site in editableSourceProfiles"
+          :key="site.key"
+          class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
+        >
+          <Label class="sm:w-40 sm:shrink-0">{{ site.label }}</Label>
+          <div class="w-full sm:flex-auto">
+            <div class="flex items-center gap-2">
+              <input
+                :id="`${site.key}CookiesInput`"
+                data-settings-system
+                type="file"
+                accept=".txt,.cookies,text/plain"
+                class="hidden"
+                @change="onCookieFile(site.key, $event)"
+              />
+              <template v-if="!hasCookies(site.key)">
+                <Input model-value="No cookies file" disabled class="flex-1" />
+                <Button
+                  variant="primary"
+                  type="button"
+                  class="shrink-0"
+                  :title="`Upload ${site.label} cookies`"
+                  :aria-label="`Upload ${site.label} cookies`"
+                  @click="openPicker(site.key)"
+                >
+                  <template #icon>
+                    <IconUpload class="w-5 h-5" aria-hidden="true" />
+                  </template>
+                </Button>
               </template>
-            </Button>
-          </template>
-          <template v-else>
-            <Input
-              :model-value="cookieLabel(site.key)"
-              disabled
-              class="flex-1"
-              input-class="font-mono"
-            />
-            <Button
-              variant="danger"
-              type="button"
-              class="shrink-0"
-              :title="`Delete ${site.label} cookies`"
-              :aria-label="`Delete ${site.label} cookies`"
-              @click="removeCookies(site.key)"
-            >
-              <template #icon>
-                <IconTrash class="w-5 h-5" aria-hidden="true" />
+              <template v-else>
+                <Input
+                  :model-value="cookieLabel(site.key)"
+                  disabled
+                  class="flex-1"
+                  input-class="font-mono"
+                />
+                <Button
+                  variant="danger"
+                  type="button"
+                  class="shrink-0"
+                  :title="`Delete ${site.label} cookies`"
+                  :aria-label="`Delete ${site.label} cookies`"
+                  @click="removeCookies(site.key)"
+                >
+                  <template #icon>
+                    <IconTrash class="w-5 h-5" aria-hidden="true" />
+                  </template>
+                </Button>
               </template>
-            </Button>
-          </template>
+            </div>
+          </div>
         </div>
-      </SettingsRow>
-    </SettingsGroup>
-  </SettingsSection>
+      </FieldGroup>
+    </FieldSet>
+  </div>
 </template>

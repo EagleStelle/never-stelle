@@ -16,7 +16,7 @@ import {
 import type { LearnedFormat } from "../../../../types";
 import { displayUrlTemplate } from "../../../../utils/dashboard";
 import { useSettingsContext } from "../../context";
-import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
+import { Card } from "../../../../components/ui/card";
 
 const {
   learnedFormatsDraft,
@@ -140,9 +140,11 @@ function isDropTarget(key: string, index: number): boolean {
     </div>
   </div>
 
-  <SettingsEmptyCard v-if="editableSourceProfiles.length === 0" class="mt-3">
-    No sources yet.
-  </SettingsEmptyCard>
+  <Card v-if="editableSourceProfiles.length === 0" class="mt-3 px-6">
+    <p class="text-[0.8125rem] text-muted-foreground">
+      No sources yet.
+    </p>
+  </Card>
 
   <Accordion v-else v-model="open" type="multiple" class="w-full">
     <AccordionItem
@@ -155,9 +157,11 @@ function isDropTarget(key: string, index: number): boolean {
       </AccordionTrigger>
 
       <AccordionContent>
-        <SettingsEmptyCard v-if="!templatesFor(site.key).length">
-          No format learned yet.
-        </SettingsEmptyCard>
+        <Card v-if="!templatesFor(site.key).length" class="px-6">
+          <p class="text-[0.8125rem] text-muted-foreground">
+            No format learned yet.
+          </p>
+        </Card>
 
         <ul v-else class="flex flex-col gap-1">
           <li

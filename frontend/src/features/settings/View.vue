@@ -16,8 +16,8 @@ import type {
 } from "../../types";
 import { useSettingsDraft } from "./composables/useSettingsDraft";
 import { provideSettingsContext } from "./context";
+import { Card } from "../../components/ui/card";
 import { SETTINGS_SECTION_DEFS } from "./sections";
-import SettingsEmptyCard from "./SettingsEmptyCard.vue";
 import SettingsSidebar from "./Sidebar.vue";
 
 const props = defineProps<{
@@ -222,11 +222,14 @@ function markActivePaneDirty(event: Event): void {
             :value="def.key"
             class="focus:outline-none"
           >
-            <SettingsEmptyCard
+            <Card
               v-if="def.requiresSources && editableSourceProfiles.length === 0"
+              class="px-6"
             >
-              No sources yet.
-            </SettingsEmptyCard>
+              <p class="text-[0.8125rem] text-muted-foreground">
+                No sources yet.
+              </p>
+            </Card>
             <component :is="def.component" />
           </TabsContent>
         </div>

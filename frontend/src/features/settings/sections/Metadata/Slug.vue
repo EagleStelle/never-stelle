@@ -20,8 +20,7 @@ import {
 import type { LearnedSegment, TokenRole } from "../../../../types";
 import { useSlugTokens } from "../../composables/useSlugTokens";
 import { useSettingsContext } from "../../context";
-import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
-import SettingsLabel from "../../SettingsLabel.vue";
+import { Label } from "../../../../components/ui/label";
 
 const ROLE_ITEMS: { key: TokenRole; label: string }[] = [
   { key: "ignore", label: "None" },
@@ -95,23 +94,27 @@ function roleDisabled(
       </AccordionTrigger>
 
       <AccordionContent>
-        <SettingsEmptyCard v-if="!learnedFormat(site.key)">
-          Download once from this source to learn its URL format, then choose
-          which parts become tokens.
-        </SettingsEmptyCard>
+        <Card v-if="!learnedFormat(site.key)" class="px-6">
+          <p class="text-[0.8125rem] text-muted-foreground">
+            Download once from this source to learn its URL format, then choose
+            which parts become tokens.
+          </p>
+        </Card>
 
         <div v-else class="flex flex-col gap-[0.85rem]">
-          <SettingsLabel
+          <Label
             v-for="template in learnedFormat(site.key)?.templates || []"
             :key="template"
-            class="wrap-anywhere"
+            class="text-xs font-semibold text-muted-foreground uppercase tracking-wider wrap-anywhere"
           >
             {{ displayTemplate(site.key, template) }}
-          </SettingsLabel>
+          </Label>
 
-          <SettingsEmptyCard v-if="!selectableSegments(site.key).length">
-            This platform has no configurable parts yet.
-          </SettingsEmptyCard>
+          <Card v-if="!selectableSegments(site.key).length" class="px-6">
+            <p class="text-[0.8125rem] text-muted-foreground">
+              This platform has no configurable parts yet.
+            </p>
+          </Card>
 
           <Card
             v-for="segment in selectableSegments(site.key)"
@@ -128,7 +131,7 @@ function roleDisabled(
 
             <CardContent class="grid grid-cols-1 gap-3 lg:grid-cols-2">
               <label class="flex flex-col gap-1.5">
-                <SettingsLabel>Token</SettingsLabel>
+                <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Token</Label>
                 <Input
                   :model-value="tokenForPart(site.key, segment.part, segment)"
                   aria-label="Token name"
@@ -141,7 +144,7 @@ function roleDisabled(
               </label>
 
               <div class="flex flex-col gap-1.5">
-                <SettingsLabel>Role</SettingsLabel>
+                <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Role</Label>
                 <SegmentedControl
                   :model-value="roleValue(site.key, segment)"
                   class="flex-wrap h-auto min-h-9"

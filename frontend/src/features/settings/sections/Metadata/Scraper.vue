@@ -32,8 +32,7 @@ import type { ScrapeRule, TokenRole } from "../../../../types";
 import { displayUrlTemplate, tokenLabel } from "../../../../utils/dashboard";
 import { useScrapeTests } from "../../composables/useScrapeTests";
 import { useSettingsContext } from "../../context";
-import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
-import SettingsLabel from "../../SettingsLabel.vue";
+import { Label } from "../../../../components/ui/label";
 import {
   Accordion,
   AccordionContent,
@@ -101,7 +100,7 @@ const {
       <AccordionContent>
         <div class="flex flex-col gap-[0.85rem]">
           <div class="flex flex-col gap-1.5">
-            <SettingsLabel>Probe URL</SettingsLabel>
+            <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Probe URL</Label>
             <div class="flex items-center gap-2 w-full">
               <Input
                 :id="`${site.key}ScraperProbeInput`"
@@ -136,9 +135,11 @@ const {
             </div>
           </div>
 
-          <SettingsEmptyCard v-if="scrapeTests[site.key].message">
-            {{ scrapeTests[site.key].message }}
-          </SettingsEmptyCard>
+          <Card v-if="scrapeTests[site.key].message" class="px-6">
+            <p class="text-[0.8125rem] text-muted-foreground">
+              {{ scrapeTests[site.key].message }}
+            </p>
+          </Card>
 
           <Table
             v-if="scrapeTests[site.key].results.length"
@@ -187,25 +188,30 @@ const {
             </TableBody>
           </Table>
 
-          <SettingsEmptyCard v-if="!formatsFor(site.key).length">
-            Download once from this source to learn its URL format, then add
-            scraper rules.
-          </SettingsEmptyCard>
+          <Card v-if="!formatsFor(site.key).length" class="px-6">
+            <p class="text-[0.8125rem] text-muted-foreground">
+              Download once from this source to learn its URL format, then add
+              scraper rules.
+            </p>
+          </Card>
 
           <div
             v-for="template in formatsFor(site.key)"
             :key="template"
             class="flex flex-col gap-2"
           >
-            <SettingsLabel class="wrap-anywhere">
+            <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider wrap-anywhere">
               {{ displayUrlTemplate(template) }}
-            </SettingsLabel>
+            </Label>
 
-            <SettingsEmptyCard
+            <Card
               v-if="!rulesForFormat(site.key, template).length"
+              class="px-6"
             >
-              This format has no scraper rules yet.
-            </SettingsEmptyCard>
+              <p class="text-[0.8125rem] text-muted-foreground">
+                This format has no scraper rules yet.
+              </p>
+            </Card>
 
             <Card
               v-for="{ rule, index } in rulesForFormat(site.key, template)"
@@ -226,7 +232,7 @@ const {
 
               <CardContent class="grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <label class="flex flex-col gap-1.5">
-                  <SettingsLabel>Token</SettingsLabel>
+                  <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Token</Label>
                   <Input
                     :model-value="rule.token"
                     aria-label="Token name"
@@ -238,7 +244,7 @@ const {
                 </label>
 
                 <label class="flex flex-col gap-1.5">
-                  <SettingsLabel>Label</SettingsLabel>
+                  <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Label</Label>
                   <Input
                     v-model="rule.match_label"
                     aria-label="Label to anchor on"
@@ -246,7 +252,7 @@ const {
                 </label>
 
                 <label class="flex flex-col gap-1.5">
-                  <SettingsLabel>Selector</SettingsLabel>
+                  <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Selector</Label>
                   <Input
                     v-model="rule.selector"
                     aria-label="CSS selector"
@@ -255,7 +261,7 @@ const {
                 </label>
 
                 <label class="flex flex-col gap-1.5">
-                  <SettingsLabel>Attribute</SettingsLabel>
+                  <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Attribute</Label>
                   <Combobox
                     :model-value="rule.attr"
                     :items="SCRAPE_ATTR_ITEMS"
@@ -266,7 +272,7 @@ const {
                 </label>
 
                 <label class="flex flex-col gap-1.5 lg:col-span-2">
-                  <SettingsLabel>XPath (Optional)</SettingsLabel>
+                  <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">XPath (Optional)</Label>
                   <Textarea
                     v-model="rule.xpath"
                     aria-label="XPath"
@@ -275,7 +281,7 @@ const {
                 </label>
 
                 <div class="flex flex-col gap-1.5 lg:col-span-2">
-                  <SettingsLabel>Role</SettingsLabel>
+                  <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Role</Label>
                   <SegmentedControl
                     :model-value="
                       tokenRole(site.key, rule.token || `var${index}`)

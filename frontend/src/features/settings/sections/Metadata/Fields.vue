@@ -19,8 +19,8 @@ import {
   type FieldRole,
 } from "../../composables/useFieldsSettings";
 import { useSettingsContext } from "../../context";
-import SettingsEmptyCard from "../../SettingsEmptyCard.vue";
-import SettingsLabel from "../../SettingsLabel.vue";
+import { Card } from "../../../../components/ui/card";
+import { Label } from "../../../../components/ui/label";
 import {
   Accordion,
   AccordionContent,
@@ -131,7 +131,7 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
       <AccordionContent>
         <div class="flex flex-col gap-[0.85rem]">
           <div class="flex flex-col gap-1.5">
-            <SettingsLabel>Probe URL</SettingsLabel>
+            <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Probe URL</Label>
             <div class="flex items-center gap-2 w-full">
               <Input
                 :id="`${site.key}CreatorProbeInput`"
@@ -166,9 +166,11 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
             </div>
           </div>
 
-          <SettingsEmptyCard v-if="probes[site.key].message">
-            {{ probes[site.key].message }}
-          </SettingsEmptyCard>
+          <Card v-if="probes[site.key].message" class="px-6">
+            <p class="text-[0.8125rem] text-muted-foreground">
+              {{ probes[site.key].message }}
+            </p>
+          </Card>
 
           <Table
             v-if="probes[site.key].fields.length"
@@ -219,7 +221,7 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
               class="flex flex-col gap-2"
             >
               <div class="flex items-center justify-between gap-2 min-h-6">
-                <SettingsLabel>{{ role.label }}</SettingsLabel>
+                <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ role.label }}</Label>
                 <button
                   v-if="isConfigured(site.key, role.key)"
                   type="button"
