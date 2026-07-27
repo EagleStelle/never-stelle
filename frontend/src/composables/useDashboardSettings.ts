@@ -13,13 +13,16 @@ import {
 } from "@/api";
 import { useAuth } from "@/composables/useAuth";
 import { DEFAULT_SOURCE_PROFILES, UI_CONFIG_QUERY_KEY } from "@/ui";
+import { FIELD_ROLE_KEYS } from "@/features/settings/composables/useFieldsSettings";
 import type {
   CookiePolicy,
+  CookiePolicyField,
   CookiesMap,
   CookiesStatus,
   SourceCookiePolicies,
   FieldRoles,
   LearnedFormats,
+  NamingDefaults,
   ProbeFieldsResponse,
   RuntimeSettings,
   SavedSettings,
@@ -36,8 +39,10 @@ import type {
   UiConfigResponse,
 } from "@/types";
 import {
+  createCookiePolicy,
   createCookiePolicyDefaults,
   createCookiesStatus,
+  createNamingFlags,
   createSourceCookiePolicies,
   createQualityOptions,
   createFieldRoles,
@@ -67,6 +72,12 @@ function replaceRecord<T>(
   source: Record<string, T>,
 ): void {
   for (const key of Object.keys(target)) delete target[key];
+  Object.assign(target, source);
+}
+
+// A cookie policy holds only the fields it overrides, so stale keys must go.
+function replaceCookiePolicy(target: CookiePolicy, source: CookiePolicy): void {
+  for (const key of Object.keys(target) as CookiePolicyField[]) delete target[key];
   Object.assign(target, source);
 }
 
@@ -379,6 +390,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_fields: createSourceFields(),
     source_title_cleaning: createSourceTitleCleaning(),
     source_cookie_policies: createSourceCookiePolicies(),
+    default_cookie_policy: createCookiePolicy(),
+    default_fields: createFieldRoles(),
+    default_naming: createNamingFlags(),
   });
   const settings = reactive<RuntimeSettings>({
     auth: { username: "", password_configured: false },
@@ -393,6 +407,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_fields: createSourceFields(),
     source_title_cleaning: createSourceTitleCleaning(),
     source_cookie_policies: createSourceCookiePolicies(),
+    default_cookie_policy: createCookiePolicy(),
+    default_fields: createFieldRoles(),
+    default_naming: createNamingFlags(),
     download_locations: [],
     source_location_roots: {},
     ytdlp_cookies: createCookiesMap(),
@@ -423,6 +440,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_fields: createSourceFields(),
     source_title_cleaning: createSourceTitleCleaning(),
     source_cookie_policies: createSourceCookiePolicies(),
+    default_cookie_policy: createCookiePolicy(),
+    default_fields: createFieldRoles(),
+    default_naming: createNamingFlags(),
   });
   const learnedFormatsDraft = reactive<LearnedFormats>({});
   // A source keeps a list of jars, so uploads stack and deletes name one jar.
@@ -431,7 +451,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   const pendingFormatLearns = reactive<Record<string, PendingFormatLearn>>({});
 
   const settingsOpen = ref(false);
-  const settingsSection = ref<SettingsSection>("downloads");
+  const settingsSection = ref<SettingsSection>("locations");
   const lastFocusedTrigger = ref<HTMLElement | null>(null);
   const settingsDraftTouched = ref(false);
   const accountDraftTouched = ref(false);
@@ -553,6 +573,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         ),
         profiles,
       ),
+      default_cookie_policy: createCookiePolicy(source.default_cookie_policy),
+      default_fields: createFieldRoles(source.default_fields),
+      default_naming: createNamingFlags(source.default_naming),
     };
   }
 
@@ -653,6 +676,18 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         ),
         profiles,
       ),
+      default_cookie_policy: createCookiePolicy({
+        ...defaults.default_cookie_policy,
+        ...settings.default_cookie_policy,
+      }),
+      default_fields: createFieldRoles({
+        ...defaults.default_fields,
+        ...settings.default_fields,
+      }),
+      default_naming: createNamingFlags({
+        ...defaults.default_naming,
+        ...settings.default_naming,
+      }),
     };
   }
 
@@ -683,6 +718,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         source_fields: settingsDraft.source_fields,
         source_title_cleaning: settingsDraft.source_title_cleaning,
         source_cookie_policies: settingsDraft.source_cookie_policies,
+        default_cookie_policy: settingsDraft.default_cookie_policy,
+        default_fields: settingsDraft.default_fields,
+        default_naming: settingsDraft.default_naming,
       }),
     );
   }
@@ -882,6 +920,18 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       data.cookie_policy_defaults || {},
     );
 
+    const defaultCookiePolicy = createCookiePolicy(data.default_cookie_policy || {});
+    replaceCookiePolicy(defaults.default_cookie_policy, defaultCookiePolicy);
+    replaceCookiePolicy(settings.default_cookie_policy, defaultCookiePolicy);
+
+    const defaultFields = createFieldRoles(data.default_fields || {});
+    Object.assign(defaults.default_fields, defaultFields);
+    Object.assign(settings.default_fields, defaultFields);
+
+    const defaultNaming = createNamingFlags(data.default_naming || {});
+    replaceRecord(defaults.default_naming, defaultNaming);
+    replaceRecord(settings.default_naming, defaultNaming);
+
     settings.field_defaults = createFieldRoles(
       data.field_defaults || {},
     );
@@ -1043,6 +1093,20 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       settingsDraft.source_cookie_policies,
       previous.source_cookie_policies,
       server.source_cookie_policies,
+    );
+    mergeCleanObjectProps(
+      settingsDraft.default_cookie_policy,
+      previous.default_cookie_policy,
+      server.default_cookie_policy,
+    );
+    for (const role of FIELD_ROLE_KEYS) {
+      if (!sameJson(settingsDraft.default_fields[role], previous.default_fields[role])) continue;
+      settingsDraft.default_fields[role] = cloneJson(server.default_fields[role] || []);
+    }
+    mergeCleanObjectProps(
+      settingsDraft.default_naming,
+      previous.default_naming,
+      server.default_naming,
     );
   }
 
@@ -1282,6 +1346,12 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       settingsDraft.source_cookie_policies,
       normalized.source_cookie_policies,
     );
+    replaceCookiePolicy(
+      settingsDraft.default_cookie_policy,
+      normalized.default_cookie_policy,
+    );
+    Object.assign(settingsDraft.default_fields, normalized.default_fields);
+    replaceRecord(settingsDraft.default_naming, normalized.default_naming);
   }
 
   function copySettingsToDraft(): void {
@@ -1305,9 +1375,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       settingsManagedSourceProfiles(sourceProfiles.value).find((profile) => profile.key)?.key || "settings";
     const focusTargets: Record<SettingsSection, string> = {
       account: "accountUsernameInput",
-      downloads: "",
+      defaults: "",
+      locations: "",
       cookies: "",
-      quality: "defaultQualityMode",
       format: "formatLearnInput",
       fields: `${firstSource}FieldsProbeInput`,
       scraper: `${firstSource}ScraperProbeInput`,
@@ -1322,7 +1392,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
 
   function openSettings(
     event?: Event,
-    section: SettingsSection = "downloads",
+    section: SettingsSection = "locations",
   ): void {
     lastFocusedTrigger.value =
       event?.currentTarget instanceof HTMLElement

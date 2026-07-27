@@ -482,6 +482,17 @@ def _scan_field_roles_map() -> dict[str, dict[str, list[str]]]:
         return {}
 
 
+def _scan_field_defaults() -> dict[str, list[str]]:
+    # The configured global field order a source without its own settings falls back to.
+    try:
+        from backend.app.domains.settings import get_effective_field_defaults
+
+        defaults = get_effective_field_defaults()
+        return defaults if isinstance(defaults, dict) else dict(FIELD_DEFAULTS)
+    except Exception:
+        return dict(FIELD_DEFAULTS)
+
+
 def _scan_probe_metadata(url: str, *, with_cookies: bool = False) -> dict[str, str]:
     # Seam over the field probe: lazy import dodges a cycle and tests stub this to stay offline.
     try:
@@ -787,6 +798,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
     slug_tokens_map = _scan_slug_tokens_map()
     templates = _TemplateResolver(*_scan_template_map(), token_role_map, slug_tokens_map)
     field_roles_map = _scan_field_roles_map()
+    field_defaults_map = _scan_field_defaults()
     learned = load_learned_formats()
     learned_before = learned
     learned = _seed_learned_from_history(learned, records)
@@ -857,7 +869,7 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         else:
             # Manually-placed file with no resolved creator yet: probe in the configured order.
             role = _creator_role_for_templates(folder_template, filename_template, source_roles)
-            order = (field_roles_map.get(source_key) or {}).get(role) or FIELD_DEFAULTS.get(role, [])
+            order = (field_roles_map.get(source_key) or {}).get(role) or field_defaults_map.get(role, [])
             scraper_backed_role = _template_role_has_scraper_rule(
                 folder_template,
                 filename_template,

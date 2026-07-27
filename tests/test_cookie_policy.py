@@ -72,6 +72,38 @@ def test_saving_settings_takes_effect_without_a_restart(tmp_path, monkeypatch):
     assert cookie_policy_for_source("tiktok") == DEFAULT_COOKIE_POLICY
 
 
+def test_configured_defaults_apply_to_every_source(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+    cfg = {"downloadLocations": []}
+    profiles = [{"key": "instagram", "label": "Instagram", "hosts": ["instagram.com"]}]
+
+    persist_settings(
+        cfg,
+        {},
+        None,
+        profiles,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        {"instagram": {"limit": 4}},
+        raw_default_cookie_policy={"limit": 9, "delay": 1.5},
+    )
+
+    # A source with nothing of its own follows the configured defaults.
+    tiktok = cookie_policy_for_source("tiktok")
+    assert tiktok.limit == 9
+    assert tiktok.delay == 1.5
+    assert tiktok.cooldown == DEFAULT_COOKIE_POLICY.cooldown
+    # A source override wins per field; the rest still come from the defaults.
+    instagram = cookie_policy_for_source("instagram")
+    assert instagram.limit == 4
+    assert instagram.delay == 1.5
+
+
 def test_resolved_policies_are_cached_between_lookups(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
     reads = []

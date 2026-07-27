@@ -20,13 +20,20 @@ from backend.app.domains.downloads.workers.completion_values import (
     _looks_like_opaque_identifier,
     _same_creator_value,
 )
-from backend.app.domains.settings import get_effective_fields, is_scraper_field
+from backend.app.domains.settings import get_effective_field_defaults, get_effective_fields, is_scraper_field
+
+
+def _nickname_default_fields() -> tuple[str, ...] | list[str]:
+    try:
+        return get_effective_field_defaults().get("nickname") or ()
+    except Exception:
+        return FIELD_DEFAULTS.get("nickname") or ()
 
 
 def _metadata_nickname(metadata: dict[str, str], username_hint: str = "") -> str:
     username_hint = _clean_creator_candidate(username_hint)
     fallback = ""
-    for key in FIELD_DEFAULTS.get("nickname") or ():
+    for key in _nickname_default_fields():
         value = _clean_creator_candidate(str(metadata.get(key) or ""))
         if not value or _looks_like_opaque_identifier(value):
             continue

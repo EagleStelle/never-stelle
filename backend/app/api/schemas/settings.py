@@ -17,6 +17,10 @@ class SettingsPayload(BaseModel):
     source_fields: dict[str, Any] = Field(default_factory=dict)
     source_title_cleaning: dict[str, Any] = Field(default_factory=dict)
     source_cookie_policies: dict[str, Any] = Field(default_factory=dict)
+    # Global defaults every source inherits until it overrides them.
+    default_cookie_policy: dict[str, Any] = Field(default_factory=dict)
+    default_fields: dict[str, Any] = Field(default_factory=dict)
+    default_naming: dict[str, Any] = Field(default_factory=dict)
 
 
 class ScrapeTestPayload(BaseModel):

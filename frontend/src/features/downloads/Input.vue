@@ -30,7 +30,10 @@ const props = defineProps<{
 
 // Only codecs the chosen container can play back (Auto always fits); prevents VP9-in-MP4.
 const videoCodecItems = computed(() =>
-  videoCodecOptionsForContainer(props.qualityOptions, props.quality.video_container),
+  videoCodecOptionsForContainer(
+    props.qualityOptions,
+    props.quality.video_container,
+  ),
 );
 
 const emit = defineEmits<{
@@ -40,7 +43,13 @@ const emit = defineEmits<{
 }>();
 
 function update(patch: Partial<QualitySelection>): void {
-  emit("update:quality", createQualitySelection({ ...props.quality, ...patch }, props.qualityOptions));
+  emit(
+    "update:quality",
+    createQualitySelection(
+      { ...props.quality, ...patch },
+      props.qualityOptions,
+    ),
+  );
 }
 
 const pasteFromClipboard = async () => {
@@ -55,7 +64,10 @@ const pasteFromClipboard = async () => {
 
 <template>
   <section aria-label="Add download">
-    <form class="flex flex-col-reverse lg:flex-col gap-2 w-full" @submit.prevent="emit('addDownload')">
+    <form
+      class="flex flex-col-reverse lg:flex-col gap-2 w-full"
+      @submit.prevent="emit('addDownload')"
+    >
       <div class="flex items-center gap-2 w-full">
         <Input
           class="flex-1 min-w-0"
@@ -68,7 +80,10 @@ const pasteFromClipboard = async () => {
           required
         >
           <template #icon>
-            <IconLink class="w-5 h-5 text-white in-[.light-mode]:text-black" aria-hidden="true" />
+            <IconLink
+              class="w-5 h-5 text-white in-[.light-mode]:text-black"
+              aria-hidden="true"
+            />
           </template>
           <template #action>
             <button
@@ -97,12 +112,18 @@ const pasteFromClipboard = async () => {
         </Button>
       </div>
 
-      <div class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-start gap-2 w-full py-1">
+      <div
+        class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-start gap-2 w-full py-1"
+      >
         <div class="flex items-center gap-2 shrink-0">
           <SegmentedControl
             v-if="qualityOptions.video.length"
             :model-value="quality.mode"
-            @update:model-value="(val) => { if (val) update({ mode: val as 'video' | 'audio' }); }"
+            @update:model-value="
+              (val) => {
+                if (val) update({ mode: val as 'video' | 'audio' });
+              }
+            "
             aria-label="Media type"
             class="shrink-0"
           >
@@ -149,6 +170,19 @@ const pasteFromClipboard = async () => {
 
           <template v-else-if="quality.mode === 'audio'">
             <Combobox
+              v-if="
+                qualityOptions.audio_bitrates.length &&
+                !isLosslessAudioFormat(quality.audio_format)
+              "
+              :model-value="quality.audio_bitrate"
+              :items="qualityOptions.audio_bitrates"
+              @update:model-value="(val) => update({ audio_bitrate: val })"
+              class="shrink-0"
+              placeholder="Bitrate..."
+              empty-text="No bitrates."
+              aria-label="Audio bitrate"
+            />
+            <Combobox
               v-if="qualityOptions.audio_formats.length"
               :model-value="quality.audio_format"
               :items="qualityOptions.audio_formats"
@@ -157,16 +191,6 @@ const pasteFromClipboard = async () => {
               placeholder="Format..."
               empty-text="No formats."
               aria-label="Audio format"
-            />
-            <Combobox
-              v-if="qualityOptions.audio_bitrates.length && !isLosslessAudioFormat(quality.audio_format)"
-              :model-value="quality.audio_bitrate"
-              :items="qualityOptions.audio_bitrates"
-              @update:model-value="(val) => update({ audio_bitrate: val })"
-              class="shrink-0"
-              placeholder="Bitrate..."
-              empty-text="No bitrates."
-              aria-label="Audio bitrate"
             />
           </template>
         </div>

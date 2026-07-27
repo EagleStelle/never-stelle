@@ -2,7 +2,7 @@ import type { Component } from "vue";
 import IconAccount from "~icons/material-symbols/admin-panel-settings";
 import IconCookie from "~icons/material-symbols/cookie";
 import IconFolder from "~icons/material-symbols/folder";
-import IconQuality from "~icons/material-symbols/high-quality";
+import IconDefaults from "~icons/material-symbols/tune";
 import IconFields from "~icons/material-symbols/badge";
 import IconFormat from "~icons/material-symbols/pattern";
 import IconNaming from "~icons/material-symbols/text-format";
@@ -14,7 +14,7 @@ import type { SettingsSection } from "@/types";
 import Account from "@/features/settings/sections/Settings/Account.vue";
 import Cookies from "@/features/settings/sections/Settings/Cookies.vue";
 import Locations from "@/features/settings/sections/Settings/Locations.vue";
-import Quality from "@/features/settings/sections/Settings/Quality.vue";
+import Defaults from "@/features/settings/sections/Settings/Defaults.vue";
 import Templates from "@/features/settings/sections/Metadata/Templates.vue";
 import Fields from "@/features/settings/sections/Metadata/Fields.vue";
 import Format from "@/features/settings/sections/Metadata/Format.vue";
@@ -47,8 +47,18 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     focusId: () => "accountUsernameInput",
     requiresSources: false,
   },
+  // Global fallbacks for every pane that also takes per-source overrides, so they read
+  // before the panes that override them.
   {
-    key: "downloads",
+    key: "defaults",
+    label: "Defaults",
+    group: "Settings",
+    icon: IconDefaults,
+    component: Defaults,
+    requiresSources: false,
+  },
+  {
+    key: "locations",
     label: "Locations",
     group: "Settings",
     icon: IconFolder,
@@ -62,14 +72,6 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     icon: IconCookie,
     component: Cookies,
     requiresSources: true,
-  },
-  {
-    key: "quality",
-    label: "Quality",
-    group: "Settings",
-    icon: IconQuality,
-    component: Quality,
-    requiresSources: false,
   },
   {
     key: "format",

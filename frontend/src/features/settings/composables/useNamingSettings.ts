@@ -11,6 +11,8 @@ import type {
 const DEFAULT_MAX_CHARS = 100;
 const TITLE_MAX_CHARS_KEY = "max_chars";
 const STEM_MAX_CHARS_KEY = "stem_max_chars";
+// The Defaults pane edits the global flags; every other pane passes a source key.
+export const GLOBAL_NAMING_KEY = "";
 // Served by the backend, but a source can be edited before the settings response lands.
 const FALLBACK_TITLE_LENGTH_RULE: TitleCleaningRule = {
   key: "shorten",
@@ -18,7 +20,8 @@ const FALLBACK_TITLE_LENGTH_RULE: TitleCleaningRule = {
   default: false,
 };
 
-// Per-source title cleaning and filename styling.
+// Title cleaning and filename styling. Pass a source key, or GLOBAL_NAMING_KEY to edit
+// the global defaults every source falls back to.
 export function useNamingSettings(
   settingsDraft: SavedSettings,
   settings: RuntimeSettings,
@@ -40,15 +43,40 @@ export function useNamingSettings(
     () => settings.naming_choices || [],
   );
 
+  function isGlobal(key: string): boolean {
+    return key === GLOBAL_NAMING_KEY;
+  }
+
   function flags(key: string): Record<string, NamingFlagValue> {
+    if (isGlobal(key)) return settingsDraft.default_naming;
     if (!settingsDraft.source_title_cleaning[key])
       settingsDraft.source_title_cleaning[key] = {};
     return settingsDraft.source_title_cleaning[key];
   }
 
+  // What an unset flag resolves to: the built-in for the global pane, the configured
+  // global default for a source.
+  function inherited(
+    key: string,
+    flagKey: string,
+    builtin: NamingFlagValue,
+  ): NamingFlagValue {
+    if (isGlobal(key)) return builtin;
+    const stored = settingsDraft.default_naming[flagKey];
+    return stored === undefined ? builtin : stored;
+  }
+
   function ruleEnabled(key: string, rule: TitleCleaningRule): boolean {
     const stored = flags(key)[rule.key];
-    return typeof stored === "boolean" ? stored : rule.default;
+    if (typeof stored === "boolean") return stored;
+    return Boolean(inherited(key, rule.key, rule.default));
+  }
+
+  // Writing back the inherited value clears the override, so the flag keeps following it.
+  function setFlag(key: string, flagKey: string, value: NamingFlagValue, builtin: NamingFlagValue): void {
+    const source = flags(key);
+    if (value === inherited(key, flagKey, builtin)) delete source[flagKey];
+    else source[flagKey] = value;
   }
 
   function setRule(
@@ -56,27 +84,42 @@ export function useNamingSettings(
     rule: TitleCleaningRule,
     enabled: boolean,
   ): void {
-    flags(key)[rule.key] = enabled;
+    setFlag(key, rule.key, enabled, rule.default);
   }
 
-  function positiveInteger(value: NamingFlagValue): number {
+  function integerValue(
+    value: NamingFlagValue | undefined,
+    allowZero = false,
+  ): number | null {
     const parsed = Math.floor(Number(value));
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    if (!Number.isFinite(parsed)) return null;
+    if (parsed > 0 || (allowZero && parsed === 0)) return parsed;
+    return null;
   }
 
-  function numberFlag(key: string, flagKey: string, fallback: number): number {
-    return positiveInteger(flags(key)[flagKey]) || fallback;
+  function numberFlag(
+    key: string,
+    flagKey: string,
+    builtin: number,
+    allowZero = false,
+  ): number {
+    const stored = integerValue(flags(key)[flagKey], allowZero);
+    if (stored !== null) return stored;
+    const fallback = integerValue(inherited(key, flagKey, builtin), allowZero);
+    return fallback === null ? builtin : fallback;
   }
 
   function setNumberFlag(
     key: string,
     flagKey: string,
     value: NamingFlagValue,
+    builtin: number,
+    allowZero = false,
     clearWhenUnset = false,
   ): void {
     const source = flags(key);
-    const parsed = positiveInteger(value);
-    if (parsed > 0) source[flagKey] = parsed;
+    const parsed = integerValue(value, allowZero);
+    if (parsed !== null) setFlag(key, flagKey, parsed, builtin);
     else if (clearWhenUnset) delete source[flagKey];
   }
 
@@ -85,26 +128,26 @@ export function useNamingSettings(
   }
 
   function setMaxChars(key: string, value: number): void {
-    setNumberFlag(key, TITLE_MAX_CHARS_KEY, value);
+    setNumberFlag(key, TITLE_MAX_CHARS_KEY, value, DEFAULT_MAX_CHARS);
   }
 
   // 0 means no whole-stem cap, unlike max_chars which always has a default.
   function stemMaxChars(key: string): number {
-    return numberFlag(key, STEM_MAX_CHARS_KEY, 0);
+    return numberFlag(key, STEM_MAX_CHARS_KEY, 0, true);
   }
 
   function setStemMaxChars(key: string, value: number): void {
-    setNumberFlag(key, STEM_MAX_CHARS_KEY, value, true);
+    setNumberFlag(key, STEM_MAX_CHARS_KEY, value, 0, true, true);
   }
 
   function choiceValue(key: string, choice: NamingChoice): string {
     const stored = flags(key)[choice.key];
-    return typeof stored === "string" && stored ? stored : choice.default;
+    if (typeof stored === "string" && stored) return stored;
+    return String(inherited(key, choice.key, choice.default) || choice.default);
   }
 
   function setChoice(key: string, choice: NamingChoice, value: string): void {
-    if (value === choice.default) delete flags(key)[choice.key];
-    else flags(key)[choice.key] = value;
+    setFlag(key, choice.key, value, choice.default);
   }
 
   return {

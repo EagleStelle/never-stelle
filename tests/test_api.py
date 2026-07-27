@@ -459,3 +459,41 @@ def test_settings_put_round_trips_per_source_cookie_policies(tmp_path, monkeypat
         "cooldown": 900.0,
         "wait": 300.0,
     }
+
+
+def test_settings_put_round_trips_global_defaults(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+
+    response = client.put(
+        "/api/settings",
+        json={
+            "site_locations": {},
+            "source_profiles": [{"key": "youtube", "label": "YouTube", "hosts": ["youtube.com"]}],
+            "default_cookie_policy": {"limit": "9", "window": "", "junk": 1},
+            "default_fields": {"username": ["channel", "channel", "uploader!"], "title": []},
+            "default_naming": {
+                "case": "lowercase",
+                "strip_hashtags": True,
+                "max_chars": 40,
+                "stem_max_chars": 20,
+            },
+            "source_fields": {"youtube": {"username": ["channel", "uploader"], "nickname": ["channel"]}},
+            "source_title_cleaning": {
+                "youtube": {"case": "lowercase", "separator": "dash", "stem_max_chars": 0}
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    # Blank and unknown fields are dropped; only real overrides persist.
+    assert body["default_cookie_policy"] == {"limit": 9}
+    assert body["default_fields"]["username"] == ["channel", "uploader"]
+    assert body["default_fields"]["title"] == []
+    # strip_hashtags already defaults to true, so only the real changes are stored.
+    assert body["default_naming"] == {"case": "lowercase", "max_chars": 40, "stem_max_chars": 20}
+    assert body["source_fields"] == {"youtube": {"nickname": ["channel"]}}
+    # The source matches the new default casing, so it inherits instead of pinning it.
+    assert body["source_title_cleaning"] == {"youtube": {"separator": "dash", "stem_max_chars": 0}}
+    # The built-ins stay reported as-is; they are what the defaults fall back to.
+    assert body["cookie_policy_defaults"]["limit"] == 20

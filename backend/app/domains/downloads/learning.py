@@ -6,6 +6,7 @@ from backend.app.core.sources import normalize_source_key
 from backend.app.domains.settings import (
     get_source_profile_for_url,
     load_saved_settings_file,
+    normalize_default_fields,
     normalize_source_fields,
     save_saved_settings_file,
 )
@@ -30,9 +31,17 @@ def _resolved_field_source_key(
         return ""
 
 
-def _normalized_field_roles_for_key(source_key: str, field_roles: Any) -> dict[str, list[str]]:
+def _field_defaults(payload: dict[str, Any]) -> dict[str, list[str]]:
+    return normalize_default_fields(payload.get("default_fields"))
+
+
+def _normalized_field_roles_for_key(
+    source_key: str,
+    field_roles: Any,
+    defaults: Any = None,
+) -> dict[str, list[str]]:
     key = normalize_source_key(source_key)
-    return normalize_source_fields({key: field_roles}).get(key, {})
+    return normalize_source_fields({key: field_roles}, defaults).get(key, {})
 
 
 def get_learned_fields(source_url: str = "", source_key: str = "") -> dict[str, list[str]]:
@@ -40,7 +49,8 @@ def get_learned_fields(source_url: str = "", source_key: str = "") -> dict[str, 
     key = _resolved_field_source_key(source_url, source_key, payload)
     if not key:
         return {}
-    return normalize_source_fields(payload.get("source_fields")).get(key, {})
+    defaults = _field_defaults(payload)
+    return normalize_source_fields(payload.get("source_fields"), defaults).get(key, {})
 
 
 def has_learned_fields(source_url: str = "", source_key: str = "") -> bool:
@@ -104,17 +114,22 @@ def save_missing_learned_fields(
     if not key:
         return {}
 
-    learned = _normalized_field_roles_for_key(key, field_roles)
+    defaults = _field_defaults(payload)
+    learned = _normalized_field_roles_for_key(key, field_roles, defaults)
     if not learned:
         return {}
 
-    mapping = normalize_source_fields(payload.get("source_fields"))
+    mapping = normalize_source_fields(payload.get("source_fields"), defaults)
     existing = mapping.get(key, {})
     updated = _append_missing_field_roles(existing, learned) if existing else learned
+    updated = _normalized_field_roles_for_key(key, updated, defaults)
     if existing == updated:
         return existing
 
-    mapping[key] = updated
+    if updated:
+        mapping[key] = updated
+    else:
+        mapping.pop(key, None)
     payload["source_fields"] = mapping
     save_saved_settings_file(payload)
     return updated
@@ -140,19 +155,24 @@ def save_learned_fields(
     if not key:
         return {}
 
-    learned = _normalized_field_roles_for_key(key, field_roles)
+    defaults = _field_defaults(payload)
+    learned = _normalized_field_roles_for_key(key, field_roles, defaults)
     if not learned:
         return {}
-    mapping = normalize_source_fields(payload.get("source_fields"))
+    mapping = normalize_source_fields(payload.get("source_fields"), defaults)
     existing = mapping.get(key, {})
     if existing and only_when_missing:
         return existing
 
     updated = _merge_field_roles(existing, learned) if merge else learned
+    updated = _normalized_field_roles_for_key(key, updated, defaults)
     if existing == updated:
         return existing
 
-    mapping[key] = updated
+    if updated:
+        mapping[key] = updated
+    else:
+        mapping.pop(key, None)
     payload["source_fields"] = mapping
     save_saved_settings_file(payload)
     return updated

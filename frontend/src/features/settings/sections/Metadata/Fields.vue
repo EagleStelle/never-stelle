@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  FIELD_ROLE_DEFS,
   useFieldsSettings,
   type FieldRole,
 } from "@/features/settings/composables/useFieldsSettings";
@@ -27,12 +28,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-
-const ROLES: { key: FieldRole; label: string }[] = [
-  { key: "username", label: "Username" },
-  { key: "nickname", label: "Nickname" },
-  { key: "title", label: "Title" },
-];
 
 const {
   settings,
@@ -216,7 +211,7 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
 
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3 mt-3">
             <div
-              v-for="role in ROLES"
+              v-for="role in FIELD_ROLE_DEFS"
               :key="role.key"
               class="flex flex-col gap-2"
             >

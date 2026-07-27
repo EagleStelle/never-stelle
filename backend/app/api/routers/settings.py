@@ -60,6 +60,9 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
         payload.source_title_cleaning,
         payload.source_slug_tokens,
         payload.source_cookie_policies,
+        payload.default_cookie_policy,
+        payload.default_fields,
+        payload.default_naming,
     )
     return build_settings_response(cfg, saved)
 

@@ -18,7 +18,9 @@ from backend.app.domains.downloads.learning import (
 from backend.app.domains.settings import (
     BUILTIN_FILENAME_TEMPLATE,
     BUILTIN_FOLDER_TEMPLATE,
+    get_effective_field_defaults,
     get_effective_fields,
+    get_effective_naming_defaults,
     get_effective_template_settings,
     get_effective_title_cleaning,
     get_source_field_defaults,
@@ -305,16 +307,51 @@ def test_normalize_source_fields_dedupes_and_keeps_brackets():
     assert result == {"youtube": {"username": ["uploader_id", "username", "user[name]", "scraper[artist_name]"]}}
 
 
-def test_normalize_source_title_cleaning_fills_defaults_and_skips_empty():
+def test_normalize_source_fields_drops_roles_matching_global_defaults():
+    result = normalize_source_fields(
+        {
+            "youtube": {
+                "username": ["channel", "uploader"],
+                "nickname": ["channel"],
+            }
+        },
+        {"username": ["channel", "uploader"]},
+    )
+
+    assert result == {"youtube": {"nickname": ["channel"]}}
+
+
+def test_normalize_source_title_cleaning_keeps_overrides_and_skips_empty():
     result = normalize_source_title_cleaning(
-        {"YouTube": {"strip_hashtags": False, "max_chars": 20}, "untouched": {}}
+        {"YouTube": {"strip_hashtags": False, "max_chars": 20, "strip_metrics": True}, "untouched": {}}
     )
     assert "untouched" not in result
     flags = result["youtube"]
     assert flags["strip_hashtags"] is False
-    assert flags["strip_handle_at"] is True  # unspecified -> rule default
-    assert flags["strip_metrics"] is True  # unspecified -> rule default
     assert flags["max_chars"] == 20
+    # Flags matching the default are dropped so the source keeps following it.
+    assert "strip_handle_at" not in flags
+    assert "strip_metrics" not in flags
+
+
+def test_normalize_source_title_cleaning_measures_against_configured_defaults():
+    defaults = get_effective_naming_defaults({"default_naming": {"strip_hashtags": False, "case": "lowercase"}})
+    result = normalize_source_title_cleaning(
+        {
+            "youtube": {"strip_hashtags": False, "case": "uppercase"},
+            "tiktok": {"strip_hashtags": True},
+        },
+        defaults,
+    )
+    # Same as the configured default -> inherited, not stored.
+    assert result == {"youtube": {"case": "uppercase"}, "tiktok": {"strip_hashtags": True}}
+
+
+def test_source_title_cleaning_can_disable_global_stem_cap():
+    defaults = get_effective_naming_defaults({"default_naming": {"stem_max_chars": 20}})
+    result = normalize_source_title_cleaning({"youtube": {"stem_max_chars": 0}}, defaults)
+
+    assert result == {"youtube": {"stem_max_chars": 0}}
 
 
 def test_get_effective_fields_resolves_per_source(monkeypatch):
@@ -326,6 +363,26 @@ def test_get_effective_fields_resolves_per_source(monkeypatch):
     monkeypatch.setattr(fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
     assert get_effective_fields("https://youtube.com/x") == {"username": ["channel"]}
     assert get_effective_fields("") == {}
+
+
+def test_get_effective_fields_inherits_configured_global_defaults_per_role(monkeypatch):
+    monkeypatch.setattr(
+        fields_module,
+        "load_saved_settings_file",
+        lambda: {
+            "default_fields": {
+                "username": ["channel", "uploader"],
+                "nickname": ["channel"],
+            },
+            "source_fields": {"youtube": {"username": ["uploader_id"]}},
+        },
+    )
+    monkeypatch.setattr(fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
+
+    assert get_effective_fields("https://youtube.com/x") == {
+        "username": ["uploader_id"],
+        "nickname": ["channel"],
+    }
 
 
 def test_get_effective_fields_leads_both_roles_with_creator_scraper_token(monkeypatch):
@@ -484,6 +541,25 @@ def test_save_learned_fields_ignores_url_creator_hint(monkeypatch):
 
     assert result == {"username": ["uploader_id", "uploader", "channel"]}
     assert saved[-1]["source_fields"] == {"tiktok": result}
+
+
+def test_save_learned_fields_drops_roles_matching_global_defaults(monkeypatch):
+    import backend.app.domains.downloads.learning as learning_mod
+
+    payload = {"default_fields": {"username": ["uploader_id"]}}
+    saved: list[dict] = []
+    monkeypatch.setattr(learning_mod, "load_saved_settings_file", lambda: payload)
+    monkeypatch.setattr(learning_mod, "save_saved_settings_file", lambda data: saved.append(dict(data)))
+
+    result = save_learned_fields(
+        "",
+        "youtube",
+        {"username": ["uploader_id"], "nickname": ["channel"]},
+        only_when_missing=False,
+    )
+
+    assert result == {"nickname": ["channel"]}
+    assert saved[-1]["source_fields"] == {"youtube": result}
 
 
 def test_learned_field_roles_merges_without_clobbering_existing(monkeypatch):
@@ -667,7 +743,41 @@ def test_get_effective_title_cleaning_resolves_per_source(monkeypatch):
     monkeypatch.setattr(fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
     flags = get_effective_title_cleaning("https://youtube.com/x")
     assert flags["strip_hashtags"] is False
-    assert get_effective_title_cleaning("") == {}
+    # No source to resolve: the global defaults, with nothing configured, are the built-ins.
+    assert get_effective_title_cleaning("") == get_effective_naming_defaults({})
+
+
+def test_get_effective_title_cleaning_falls_back_to_configured_defaults(monkeypatch):
+    monkeypatch.setattr(
+        fields_module,
+        "load_saved_settings_file",
+        lambda: {
+            "default_naming": {"strip_hashtags": False, "case": "lowercase"},
+            "source_title_cleaning": {"youtube": {"case": "uppercase"}},
+        },
+    )
+    monkeypatch.setattr(fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "youtube"})
+    flags = get_effective_title_cleaning("https://youtube.com/x")
+    assert flags["case"] == "uppercase"  # source override wins
+    assert flags["strip_hashtags"] is False  # inherited from the global default
+    assert flags["strip_metrics"] is True  # untouched built-in
+
+    monkeypatch.setattr(fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
+    unconfigured = get_effective_title_cleaning("https://tiktok.com/x")
+    assert unconfigured["case"] == "lowercase"
+    assert unconfigured["strip_hashtags"] is False
+
+
+def test_get_effective_field_defaults_prefers_configured_order(monkeypatch):
+    from backend.app.domains.downloads.constants import field_defaults
+
+    assert get_effective_field_defaults({}) == field_defaults()
+    configured = get_effective_field_defaults(
+        {"default_fields": {"username": ["channel", "uploader", "scraper[artist]"]}}
+    )
+    # Scraper fields are per-source, so they never enter the global order.
+    assert configured["username"] == ["channel", "uploader"]
+    assert configured["title"] == field_defaults()["title"]
 
 
 def test_normalize_template_blank_falls_back():

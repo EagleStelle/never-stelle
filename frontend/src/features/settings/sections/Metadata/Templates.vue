@@ -51,11 +51,23 @@ function getFilenameInputId(siteKey: string, format: string): string {
   return `${siteKey}-filename-template${cleanFmt}`;
 }
 
+// Unset, a format follows the global template from the Defaults pane.
+function defaultFolderTemplate(): string {
+  return settingsDraft.template_settings.folder_template || "{{username}}";
+}
+
+function defaultFilenameTemplate(): string {
+  return (
+    settingsDraft.template_settings.filename_template ||
+    "{{username}} - {{title}} [{{id}}]"
+  );
+}
+
 // Ref getters/setters for folder and filename templates
 function getFolderTemplate(siteKey: string, format: string): string {
   return (
     settingsDraft.source_templates[siteKey]?.[format]?.folder_template ??
-    "{{username}}"
+    defaultFolderTemplate()
   );
 }
 
@@ -67,7 +79,7 @@ function setFolderTemplate(siteKey: string, format: string, val: string): void {
 function getFilenameTemplate(siteKey: string, format: string): string {
   return (
     settingsDraft.source_templates[siteKey]?.[format]?.filename_template ??
-    "{{username}} - {{title}} [{{id}}]"
+    defaultFilenameTemplate()
   );
 }
 
@@ -87,8 +99,8 @@ function ensureFormatInitialized(siteKey: string, format: string): void {
   }
   if (!settingsDraft.source_templates[siteKey][format]) {
     settingsDraft.source_templates[siteKey][format] = {
-      folder_template: "{{username}}",
-      filename_template: "{{username}} - {{title}} [{{id}}]",
+      folder_template: defaultFolderTemplate(),
+      filename_template: defaultFilenameTemplate(),
     };
   }
 }
@@ -203,7 +215,7 @@ function insert(siteKey: string, format: string, token: string): void {
                   <Input
                     :id="getFolderInputId(site.key, template)"
                     :model-value="getFolderTemplate(site.key, template)"
-                    placeholder="{{username}}"
+                    :placeholder="defaultFolderTemplate()"
                     @focus="recordFocus(getFolderInputId(site.key, template))"
                     @update:model-value="
                       (v) => setFolderTemplate(site.key, template, String(v))
@@ -218,7 +230,7 @@ function insert(siteKey: string, format: string, token: string): void {
                   <Input
                     :id="getFilenameInputId(site.key, template)"
                     :model-value="getFilenameTemplate(site.key, template)"
-                    placeholder="{{username}} - {{title}} [{{id}}]"
+                    :placeholder="defaultFilenameTemplate()"
                     @focus="recordFocus(getFilenameInputId(site.key, template))"
                     @update:model-value="
                       (v) => setFilenameTemplate(site.key, template, String(v))

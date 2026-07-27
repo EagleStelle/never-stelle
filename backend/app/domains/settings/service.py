@@ -5,10 +5,18 @@ from typing import Any
 
 from backend.app.core.config import get_site_default_locations, load_app_config, normalize_download_locations
 
-from .cookie_policy import cookie_policy_defaults, get_effective_cookie_policies, normalize_source_cookie_policies
+from .cookie_policy import (
+    builtin_cookie_policy_defaults,
+    get_effective_cookie_policies,
+    normalize_default_cookie_policy,
+    normalize_source_cookie_policies,
+)
 from .cookies import get_ytdlp_cookies_status
 from .fields import (
+    get_effective_naming_defaults,
     get_source_field_defaults,
+    normalize_default_fields,
+    normalize_default_naming,
     normalize_source_fields,
     normalize_source_title_cleaning,
     saved_fields,
@@ -37,6 +45,8 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
     source_profiles = get_effective_source_profiles(cfg, payload)
     token_roles = get_effective_token_roles(payload)
     template_settings = normalize_template_settings(payload.get("template_settings"))
+    naming_defaults = get_effective_naming_defaults(payload)
+    default_fields = normalize_default_fields(payload.get("default_fields"))
     return {
         "source_profiles": source_profiles,
         "site_locations": normalize_source_location_selection(
@@ -56,9 +66,15 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
         "source_scrape_rules": get_effective_scrape_rules(payload),
         "source_token_roles": token_roles,
         "source_slug_tokens": get_effective_slug_tokens(payload),
-        "source_fields": saved_fields(payload),
-        "source_title_cleaning": normalize_source_title_cleaning(payload.get("source_title_cleaning")),
+        "source_fields": saved_fields(payload, default_fields),
+        "source_title_cleaning": normalize_source_title_cleaning(
+            payload.get("source_title_cleaning"), naming_defaults
+        ),
         "source_cookie_policies": get_effective_cookie_policies(payload),
+        # Global defaults every source inherits until it overrides them.
+        "default_cookie_policy": normalize_default_cookie_policy(payload.get("default_cookie_policy")),
+        "default_fields": default_fields,
+        "default_naming": normalize_default_naming(payload.get("default_naming")),
     }
 
 
@@ -75,6 +91,9 @@ def persist_settings(
     raw_title_cleaning: Any = None,
     raw_slug_tokens: Any = None,
     raw_cookie_policies: Any = None,
+    raw_default_cookie_policy: Any = None,
+    raw_default_fields: Any = None,
+    raw_default_naming: Any = None,
 ) -> dict[str, Any]:
     from backend.app.domains.downloads.constants import normalize_quality_selection
 
@@ -110,6 +129,20 @@ def persist_settings(
     )
     raw_field_payload = raw_fields if raw_fields is not None else existing.get("source_fields")
     template_settings = normalize_template_settings(raw_template_settings)
+    default_cookie_policy = normalize_default_cookie_policy(
+        raw_default_cookie_policy
+        if raw_default_cookie_policy is not None
+        else existing.get("default_cookie_policy")
+    )
+    default_fields = normalize_default_fields(
+        raw_default_fields if raw_default_fields is not None else existing.get("default_fields")
+    )
+    default_naming = normalize_default_naming(
+        raw_default_naming if raw_default_naming is not None else existing.get("default_naming")
+    )
+    # Per-source naming is stored against the defaults saved in this same write, so a
+    # source only keeps the flags it really overrides.
+    naming_defaults = get_effective_naming_defaults({"default_naming": default_naming})
     existing.update(
         {
             "source_profiles": managed_profiles,
@@ -127,15 +160,19 @@ def persist_settings(
             "source_scrape_rules": normalized_scrape_rules,
             "source_token_roles": normalized_token_roles,
             "source_slug_tokens": normalized_slug_tokens,
-            "source_fields": normalize_source_fields(raw_field_payload),
+            "source_fields": normalize_source_fields(raw_field_payload, default_fields),
             "source_title_cleaning": normalize_source_title_cleaning(
-                raw_title_cleaning if raw_title_cleaning is not None else existing.get("source_title_cleaning")
+                raw_title_cleaning if raw_title_cleaning is not None else existing.get("source_title_cleaning"),
+                naming_defaults,
             ),
             "source_cookie_policies": normalize_source_cookie_policies(
                 raw_cookie_policies
                 if raw_cookie_policies is not None
                 else existing.get("source_cookie_policies")
             ),
+            "default_cookie_policy": default_cookie_policy,
+            "default_fields": default_fields,
+            "default_naming": default_naming,
         }
     )
     save_saved_settings_file(existing)
@@ -183,7 +220,11 @@ def build_settings_response(
         "source_field_defaults": get_source_field_defaults(saved.get("source_profiles")),
         "source_title_cleaning": saved.get("source_title_cleaning", {}),
         "source_cookie_policies": saved.get("source_cookie_policies", get_effective_cookie_policies()),
-        "cookie_policy_defaults": cookie_policy_defaults(),
+        "default_cookie_policy": saved.get("default_cookie_policy", {}),
+        "default_fields": saved.get("default_fields", normalize_default_fields({})),
+        "default_naming": saved.get("default_naming", {}),
+        # Built-ins: what the defaults above fall back to, and what the UI offers as a reset.
+        "cookie_policy_defaults": builtin_cookie_policy_defaults(),
         "field_defaults": field_defaults(),
         "title_cleaning_rules": title_cleaning_rules(),
         "naming_choices": naming_choices(),

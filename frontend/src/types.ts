@@ -11,9 +11,9 @@ export type ViewMode = "grid" | "table";
 export type MediaMode = "video" | "audio";
 export type SettingsSection =
   | "account"
-  | "downloads"
+  | "defaults"
+  | "locations"
   | "cookies"
-  | "quality"
   | "format"
   | "fields"
   | "scraper"
@@ -202,12 +202,17 @@ export type CookiesMap = Record<string, CookiesStatus>;
 
 export type CookiePolicyField = "limit" | "window" | "delay" | "cooldown" | "wait";
 
-// Only the fields a source overrides; the rest fall back to cookie_policy_defaults.
+// Only the fields a source overrides; the rest fall back to the global cookie default,
+// then to cookie_policy_defaults.
 export type CookiePolicy = Partial<Record<CookiePolicyField, number>>;
 
 export type SourceCookiePolicies = Record<string, CookiePolicy>;
 
 export type CookiePolicyDefaults = Record<CookiePolicyField, number>;
+
+// Global naming defaults: the same flag shape as one source's overrides, applied
+// wherever a source has not overridden the flag itself.
+export type NamingDefaults = Record<string, NamingFlagValue>;
 
 export interface AuthSettings {
   username: string;
@@ -233,6 +238,11 @@ export interface SavedSettings {
   source_fields: SourceFields;
   source_title_cleaning: SourceTitleCleaning;
   source_cookie_policies: SourceCookiePolicies;
+  // Global defaults a source inherits until it overrides them. Empty entries mean
+  // "keep the built-in", so the built-ins stay the single source of truth.
+  default_cookie_policy: CookiePolicy;
+  default_fields: FieldRoles;
+  default_naming: NamingDefaults;
 }
 
 export interface SettingsDraft extends SavedSettings {
@@ -282,6 +292,9 @@ export interface UiConfigResponse {
   ytdlp_cookies?: Record<string, Partial<CookiesStatus>>;
   source_cookie_policies?: Record<string, CookiePolicy>;
   cookie_policy_defaults?: Partial<CookiePolicyDefaults>;
+  default_cookie_policy?: CookiePolicy;
+  default_fields?: Partial<FieldRoles>;
+  default_naming?: NamingDefaults;
   default_quality?: Partial<QualitySelection>;
   quality_options?: Partial<QualityOptions>;
   template_tokens?: TemplateToken[];

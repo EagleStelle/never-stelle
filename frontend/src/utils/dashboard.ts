@@ -591,20 +591,25 @@ export function createSourceFields(
   return out;
 }
 
-// Numeric caps; 0 or invalid means "unset", so the key is dropped and the server default applies.
+// Numeric caps. max_chars is positive-only; stem_max_chars may be 0 to turn the cap off.
 const NAMING_NUMBER_KEYS = new Set(["max_chars", "stem_max_chars"]);
 
 // Keep only user-set flags; untouched sources stay empty so the server applies rule defaults.
 // Choices arrive as strings and must survive verbatim — coercing them to Boolean would
 // collapse every option to `true`.
-function createTitleCleaning(
+export function createNamingFlags(
   source: Record<string, NamingFlagValue> = {},
 ): Record<string, NamingFlagValue> {
   const out: Record<string, NamingFlagValue> = {};
   for (const [key, value] of Object.entries(source || {})) {
     if (NAMING_NUMBER_KEYS.has(key)) {
       const parsed = Math.floor(Number(value));
-      if (Number.isFinite(parsed) && parsed > 0) out[key] = parsed;
+      if (
+        Number.isFinite(parsed) &&
+        (key === "stem_max_chars" ? parsed >= 0 : parsed > 0)
+      ) {
+        out[key] = parsed;
+      }
     } else if (typeof value === "string") {
       const trimmed = value.trim();
       if (trimmed) out[key] = trimmed;
@@ -621,10 +626,10 @@ export function createSourceTitleCleaning(
 ): SourceTitleCleaning {
   const out: SourceTitleCleaning = {};
   for (const profile of profiles)
-    out[profile.key] = createTitleCleaning(source[profile.key] || {});
+    out[profile.key] = createNamingFlags(source[profile.key] || {});
   for (const [key, value] of Object.entries(source)) {
     const normalizedKey = normalizeSourceKey(key);
-    if (normalizedKey) out[normalizedKey] = createTitleCleaning(value);
+    if (normalizedKey) out[normalizedKey] = createNamingFlags(value);
   }
   return out;
 }
@@ -715,9 +720,9 @@ export function isSettingsSection(
 ): value is SettingsSection {
   return (
     value === "account" ||
-    value === "downloads" ||
+    value === "locations" ||
     value === "cookies" ||
-    value === "quality" ||
+    value === "defaults" ||
     value === "format" ||
     value === "templates" ||
     value === "naming" ||

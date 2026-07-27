@@ -19,7 +19,14 @@ import {
   scraperTokenFromField,
 } from "@/utils/dashboard";
 
-export type FieldRole = "username" | "nickname" | "title";
+export const FIELD_ROLE_KEYS = ["username", "nickname", "title"] as const;
+export type FieldRole = (typeof FIELD_ROLE_KEYS)[number];
+
+export const FIELD_ROLE_DEFS: { key: FieldRole; label: string }[] = [
+  { key: "username", label: "Username" },
+  { key: "nickname", label: "Nickname" },
+  { key: "title", label: "Title" },
+];
 
 export interface FieldListItem {
   key: string;
@@ -69,22 +76,15 @@ export function useFieldsSettings(
     { immediate: true },
   );
 
-  const defaults = computed<FieldRoles>(() => ({
-    username: settings.field_defaults?.username || [],
-    nickname: settings.field_defaults?.nickname || [],
-    title: settings.field_defaults?.title || [],
-  }));
+  const globalDefaults = computed<FieldRoles>(() =>
+    createFieldRoles(settingsDraft.default_fields || {}),
+  );
 
   function fieldRoles(key: string): FieldRoles {
     if (!settingsDraft.source_fields[key]) {
       settingsDraft.source_fields[key] = { username: [], nickname: [], title: [] };
     }
     return settingsDraft.source_fields[key];
-  }
-
-  function sourceHasSavedFields(key: string): boolean {
-    const roles = settings.source_fields[key];
-    return Boolean(roles?.username?.length || roles?.nickname?.length || roles?.title?.length);
   }
 
   function sourceHasSavedFormats(key: string): boolean {
@@ -113,9 +113,8 @@ export function useFieldsSettings(
 
   function roleDefaultList(key: string, role: FieldRole): string[] {
     if (sourceFormatsClearedInDraft(key)) return [];
-    if (sourceHasSavedFields(key)) {
-      return settings.source_fields[key]?.[role] || [];
-    }
+    const globalDefault = globalDefaults.value[role] || [];
+    if (globalDefault.length) return globalDefault;
     const learned = settings.source_field_defaults[key]?.[role] || [];
     if (learned.length) return learned;
     return [];
@@ -210,10 +209,7 @@ export function useFieldsSettings(
 
   function commit(key: string, role: FieldRole, list: string[]): void {
     const normalized = withAssignedScraperFields(key, role, list);
-    fieldRoles(key)[role] =
-      sameAsDefault(key, role, normalized) && !sourceHasSavedFields(key)
-        ? []
-        : normalized;
+    fieldRoles(key)[role] = sameAsDefault(key, role, normalized) ? [] : normalized;
   }
 
   function addField(key: string, role: FieldRole, raw: string): void {
@@ -246,9 +242,7 @@ export function useFieldsSettings(
   }
 
   function resetRole(key: string, role: FieldRole): void {
-    fieldRoles(key)[role] = sourceHasSavedFields(key)
-      ? [...roleDefaultList(key, role)]
-      : [];
+    fieldRoles(key)[role] = [];
   }
 
   function isConfigured(key: string, role: FieldRole): boolean {
@@ -304,7 +298,7 @@ export function useFieldsSettings(
       const targetKey = response.source_key || key;
       if (learned.username.length > 0 || learned.nickname.length > 0 || learned.title.length > 0) {
         const draftRoles = fieldRoles(targetKey);
-        for (const role of ["username", "nickname", "title"] as const) {
+        for (const role of FIELD_ROLE_KEYS) {
           draftRoles[role] = mergeLearnedFields(
             targetKey,
             role,

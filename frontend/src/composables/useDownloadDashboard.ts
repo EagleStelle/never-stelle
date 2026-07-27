@@ -45,9 +45,9 @@ import { mediaKindForTask } from "@/utils/task";
 // Settings overlay rides in a ?settings=<slug> query param, not its own path.
 const SETTINGS_SLUG_BY_SECTION: Record<SettingsSection, string> = {
   account: "account",
-  downloads: "locations",
+  defaults: "defaults",
+  locations: "locations",
   cookies: "cookies",
-  quality: "quality",
   format: "format",
   fields: "fields",
   scraper: "scraper",
@@ -63,8 +63,13 @@ const SETTINGS_SECTION_BY_SLUG = Object.fromEntries(
   ]),
 ) as Record<string, SettingsSection>;
 
+const LEGACY_SETTINGS_SECTION_BY_SLUG: Record<string, SettingsSection> = {
+  downloads: "locations",
+  quality: "defaults",
+};
+
 function settingsSectionFromSlug(slug: string): SettingsSection {
-  return SETTINGS_SECTION_BY_SLUG[slug] || "downloads";
+  return SETTINGS_SECTION_BY_SLUG[slug] || LEGACY_SETTINGS_SECTION_BY_SLUG[slug] || "locations";
 }
 
 function sourceInitials(label: string): string {

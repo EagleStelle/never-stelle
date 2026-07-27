@@ -538,14 +538,64 @@ def _positive_int(value: Any) -> int:
     return parsed if parsed > 0 else 0
 
 
-def normalize_title_cleaning(raw: Any) -> dict[str, Any]:
-    # Fill each flag from raw or its rule default; None/non-dict yields the all-default set.
-    source = raw if isinstance(raw, dict) else {}
-    out: dict[str, Any] = {key: bool(source.get(key, rule["default"])) for key, rule in TITLE_CLEANING_RULES.items()}
-    out["max_chars"] = _positive_int(source.get("max_chars")) or TITLE_MAX_CHARS_DEFAULT
-    out["stem_max_chars"] = _positive_int(source.get("stem_max_chars")) or STEM_MAX_CHARS_DEFAULT
+def _nonnegative_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = int(text)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def builtin_naming_defaults() -> dict[str, Any]:
+    """Every naming flag at its built-in value, before any configured default applies."""
+    out: dict[str, Any] = {key: bool(rule["default"]) for key, rule in TITLE_CLEANING_RULES.items()}
+    out["max_chars"] = TITLE_MAX_CHARS_DEFAULT
+    out["stem_max_chars"] = STEM_MAX_CHARS_DEFAULT
     for key, choice in NAMING_CHOICES.items():
-        value = str(source.get(key) or "").strip().lower()
+        out[key] = str(choice["default"])
+    return out
+
+
+def normalize_title_cleaning(raw: Any, defaults: Any = None) -> dict[str, Any]:
+    # Fill each flag from raw or the matching default; None/non-dict yields the all-default set.
+    # `defaults` carries the configured global defaults; without it the built-ins apply.
+    source = raw if isinstance(raw, dict) else {}
+    base = defaults if isinstance(defaults, dict) else {}
+    builtin = builtin_naming_defaults()
+
+    def fallback(key: str) -> Any:
+        return base.get(key, builtin[key])
+
+    out: dict[str, Any] = {key: bool(source.get(key, fallback(key))) for key in TITLE_CLEANING_RULES}
+    # max_chars is always positive; stem_max_chars may be 0 to turn the whole-stem cap off.
+    out["max_chars"] = (
+        _positive_int(source.get("max_chars"))
+        or _positive_int(fallback("max_chars"))
+        or TITLE_MAX_CHARS_DEFAULT
+    )
+    stem_max_chars = (
+        _nonnegative_int(source.get("stem_max_chars"))
+        if "stem_max_chars" in source
+        else _nonnegative_int(fallback("stem_max_chars"))
+    )
+    out["stem_max_chars"] = STEM_MAX_CHARS_DEFAULT if stem_max_chars is None else stem_max_chars
+    for key, choice in NAMING_CHOICES.items():
         allowed = {str(option["value"]) for option in choice["options"]}
+        value = str(source.get(key) or "").strip().lower()
+        if value not in allowed:
+            value = str(fallback(key) or "").strip().lower()
         out[key] = value if value in allowed else str(choice["default"])
     return out
+
+
+def normalize_naming_overrides(raw: Any, defaults: Any = None) -> dict[str, Any]:
+    """Only the flags that differ from the defaults, so unset ones keep inheriting."""
+    source = raw if isinstance(raw, dict) else {}
+    base = normalize_title_cleaning(defaults if isinstance(defaults, dict) else {})
+    resolved = normalize_title_cleaning(source, base)
+    return {key: value for key, value in resolved.items() if value != base.get(key)}

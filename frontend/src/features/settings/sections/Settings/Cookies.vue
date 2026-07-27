@@ -5,7 +5,6 @@ import IconTrash from "~icons/material-symbols/delete";
 import IconUpload from "~icons/material-symbols/upload";
 
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -21,6 +20,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import type { CookieFile, CookiePolicyField } from "@/types";
+import { COOKIE_POLICY_FIELDS } from "@/features/settings/cookiePolicy";
 import { useSettingsContext } from "@/features/settings/context";
 
 const {
@@ -34,52 +34,30 @@ const {
   markSettingsDraftDirty,
 } = useSettingsContext();
 
-// Left blank, a field keeps the built-in default shown as its placeholder.
-const POLICY_FIELDS: Array<{
-  key: CookiePolicyField;
-  label: string;
-  help: string;
-  min: string;
-}> = [
-  {
-    key: "limit",
-    label: "Use limit",
-    help: "How many times one cookies file can be used before it rests.",
-    min: "1",
-  },
-  {
-    key: "window",
-    label: "Reset after",
-    help: "Seconds before the use limit starts over.",
-    min: "1",
-  },
-  {
-    key: "delay",
-    label: "Pause",
-    help: "Seconds to wait before using the same cookies file again.",
-    min: "0",
-  },
-  {
-    key: "cooldown",
-    label: "Blocked rest",
-    help: "Seconds to rest a cookies file after the site blocks it.",
-    min: "0",
-  },
-  {
-    key: "wait",
-    label: "Max wait",
-    help: "How long a download waits for an available cookies file.",
-    min: "0",
-  },
-];
+const policyEdits = reactive<Record<string, string>>({});
 
-function policyValue(key: string, field: CookiePolicyField): string {
-  const value = settingsDraft.source_cookie_policies[key]?.[field];
-  return value === undefined || value === null ? "" : String(value);
+function editKey(key: string, field: CookiePolicyField): string {
+  return `${key}:${field}`;
 }
 
-function policyPlaceholder(field: CookiePolicyField): string {
-  return String(settings.cookie_policy_defaults[field]);
+// A source with no override of its own follows the global default from the Defaults
+// pane, which itself falls back to the built-in.
+function policyInherited(field: CookiePolicyField): number {
+  const configured = settingsDraft.default_cookie_policy[field];
+  return Number(
+    configured === undefined || configured === null
+      ? settings.cookie_policy_defaults[field]
+      : configured,
+  );
+}
+
+function policyValue(key: string, field: CookiePolicyField): string {
+  const editing = policyEdits[editKey(key, field)];
+  if (editing !== undefined) return editing;
+  const value = settingsDraft.source_cookie_policies[key]?.[field];
+  return String(
+    value === undefined || value === null ? policyInherited(field) : value,
+  );
 }
 
 function setPolicyValue(key: string, field: CookiePolicyField, raw: string | number): void {
@@ -89,14 +67,19 @@ function setPolicyValue(key: string, field: CookiePolicyField, raw: string | num
   // Read back through the reactive proxy so the edit below is tracked.
   const entry = settingsDraft.source_cookie_policies[key];
   const text = String(raw ?? "").trim();
-  if (!text) {
+  policyEdits[editKey(key, field)] = text;
+  const parsed = Number(text);
+  if (!text || (Number.isFinite(parsed) && parsed === policyInherited(field))) {
     delete entry[field];
   } else {
-    const parsed = Number(text);
     if (!Number.isFinite(parsed)) return;
     entry[field] = parsed;
   }
   markSettingsDraftDirty("cookies");
+}
+
+function endPolicyEdit(key: string, field: CookiePolicyField): void {
+  delete policyEdits[editKey(key, field)];
 }
 
 // Open items in the multiple-select accordion.
@@ -188,7 +171,7 @@ function isDropTarget(key: string, index: number): boolean {
           <div class="flex flex-col gap-4">
             <div class="flex flex-col gap-3 w-full">
               <div
-                v-for="field in POLICY_FIELDS"
+                v-for="field in COOKIE_POLICY_FIELDS"
                 :key="field.key"
                 class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 w-full"
               >
@@ -217,9 +200,10 @@ function isDropTarget(key: string, index: number): boolean {
                     data-settings-system
                     type="number"
                     :min="field.min"
-                    :placeholder="policyPlaceholder(field.key)"
+                    :placeholder="String(policyInherited(field.key))"
                     :model-value="policyValue(site.key, field.key)"
                     class="w-full"
+                    @blur="endPolicyEdit(site.key, field.key)"
                     @update:model-value="
                       (value: string | number) => setPolicyValue(site.key, field.key, value)
                     "
