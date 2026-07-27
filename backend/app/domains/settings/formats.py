@@ -59,7 +59,11 @@ def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
 
 def set_learned_format_templates(source_key: str, templates: Any) -> dict[str, Any]:
     """Reorder or delete a source's learned URL templates."""
-    from backend.app.domains.downloads.store import load_learned_formats, save_learned_formats
+    from backend.app.domains.downloads.store import (
+        forget_seeded_downloads,
+        load_learned_formats,
+        save_learned_formats,
+    )
 
     key = normalize_source_key(source_key)
     if not key:
@@ -82,6 +86,9 @@ def set_learned_format_templates(source_key: str, templates: Any) -> dict[str, A
     else:
         updated.pop(key, None)
     save_learned_formats(updated)
+    # The user just edited or deleted learned templates by hand. What was folded in
+    # from history no longer describes the saved state, so the next scan rebuilds it.
+    forget_seeded_downloads()
     if not ordered:
         payload = load_saved_settings_file()
         field_roles = normalize_source_fields(payload.get("source_fields"))

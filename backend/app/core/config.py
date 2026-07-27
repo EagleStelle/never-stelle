@@ -12,6 +12,7 @@ from typing import Any
 
 import yaml
 
+from backend.app.core.resolution import resolved
 from backend.app.core.sources import merge_source_profiles, normalize_source_key
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -118,37 +119,87 @@ def discover_volume_roots() -> list[str]:
 
 
 # Recursively walking the media tree is expensive on a NAS; the location list
-# barely changes, so cache it briefly instead of rebuilding it on every request.
+# barely changes, so it is cached and refreshed off the caller's thread. A caller
+# never pays for the walk: it gets the last result while a single background
+# thread rebuilds it, so a request or a download never blocks on the filesystem.
 _VOLUME_LOCATIONS_TTL_SECONDS = 30.0
+# Location pickers only need folders a user would actually target; an unbounded
+# descent into a deep library costs seconds and offers nothing extra.
+_VOLUME_LOCATIONS_MAX_DEPTH = 4
+_VOLUME_LOCATIONS_MAX_ENTRIES = 5000
 _volume_locations_lock = threading.Lock()
 _volume_locations_cache: tuple[float, list[str]] | None = None
+_volume_locations_refreshing = False
+
+
+def _walk_location_dirs(root: Path, out: list[str], budget: int) -> int:
+    """Breadth-first directory walk bounded by depth and total entries."""
+    frontier = [(root, 0)]
+    while frontier and budget > 0:
+        current, depth = frontier.pop(0)
+        if depth >= _VOLUME_LOCATIONS_MAX_DEPTH:
+            continue
+        try:
+            with os.scandir(current) as entries:
+                children = sorted(
+                    (entry.path for entry in entries if entry.is_dir(follow_symlinks=False)),
+                )
+        except OSError:
+            continue
+        for child in children:
+            if budget <= 0:
+                break
+            out.append(child)
+            budget -= 1
+            frontier.append((Path(child), depth + 1))
+    return budget
 
 
 def _scan_volume_locations() -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
+    budget = _VOLUME_LOCATIONS_MAX_ENTRIES
     for root_value in discover_volume_roots():
         root = Path(root_value)
-        try:
-            candidates = [root]
-            candidates.extend(sorted((child for child in root.rglob("*") if child.is_dir()), key=str))
-        except Exception:
-            candidates = [root]
-        for candidate in candidates:
-            value = str(candidate)
+        found: list[str] = [str(root)]
+        budget = _walk_location_dirs(root, found, budget)
+        for value in found:
             if value not in seen:
                 seen.add(value)
                 out.append(value)
     return out
 
 
+def _refresh_volume_locations() -> None:
+    global _volume_locations_cache, _volume_locations_refreshing
+    try:
+        result = _scan_volume_locations()
+    except Exception:
+        result = []
+    with _volume_locations_lock:
+        if result or _volume_locations_cache is None:
+            _volume_locations_cache = (time.monotonic(), result)
+        else:
+            _volume_locations_cache = (time.monotonic(), _volume_locations_cache[1])
+        _volume_locations_refreshing = False
+
+
 def discover_volume_locations() -> list[str]:
-    global _volume_locations_cache
+    global _volume_locations_cache, _volume_locations_refreshing
     now = time.monotonic()
     with _volume_locations_lock:
         cached = _volume_locations_cache
-        if cached is not None and now - cached[0] < _VOLUME_LOCATIONS_TTL_SECONDS:
+        if cached is not None:
+            stale = now - cached[0] >= _VOLUME_LOCATIONS_TTL_SECONDS
+            if stale and not _volume_locations_refreshing:
+                _volume_locations_refreshing = True
+                threading.Thread(
+                    target=_refresh_volume_locations, name="never-stelle-locations", daemon=True
+                ).start()
+            # Serve the known list either way; a stale folder list is never worth
+            # stalling a caller on a recursive filesystem walk.
             return list(cached[1])
+    # First call in the process: nothing to serve yet, so walk inline once.
     result = _scan_volume_locations()
     with _volume_locations_lock:
         _volume_locations_cache = (now, result)
@@ -193,7 +244,7 @@ def is_allowed_location(path: str) -> bool:
     return bool(normalize_allowed_location(path))
 
 
-def load_app_config() -> dict[str, Any]:
+def _read_app_config() -> dict[str, Any]:
     file_cfg: dict[str, Any] = {}
     if APP_CONFIG_PATH.exists():
         try:
@@ -206,6 +257,17 @@ def load_app_config() -> dict[str, Any]:
     if discovered_locations:
         cfg["downloadLocations"] = discovered_locations
     return cfg
+
+
+# Scope key for the resolved app config, so callers can recognize the object they
+# were handed as the one this operation already resolved.
+APP_CONFIG_KEY = "core.app_config"
+
+
+def load_app_config() -> dict[str, Any]:
+    # Parsing the YAML is cheap once but not fifty times per request; the config
+    # cannot change mid-operation, so resolve it once per scope.
+    return resolved(APP_CONFIG_KEY, _read_app_config)
 
 
 def get_default_general_location(cfg: dict[str, Any]) -> str:

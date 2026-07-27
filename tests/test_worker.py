@@ -192,3 +192,106 @@ def test_run_engine_attempts_rests_a_cookie_that_came_back_rate_limited(monkeypa
 
     assert rc == 1
     assert lease.banned is True
+
+
+class _FakeProcess:
+    def __init__(self, lines):
+        self.stdout = iter(lines)
+
+    def wait(self):
+        return 0
+
+    def poll(self):
+        return 0
+
+    def kill(self):
+        return None
+
+
+def _stream_progress(monkeypatch, lines, clock_step: float):
+    """Run the streaming loop over ``lines`` with a virtual clock, returning the writes."""
+    import backend.app.domains.downloads.workers.runner as runner_module
+    from backend.app.domains.downloads.engine import engine_by_name
+
+    now = {"t": 0.0}
+
+    def paced():
+        for line in lines:
+            now["t"] += clock_step
+            yield line
+
+    writes: list[dict] = []
+    monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *a, **k: _FakeProcess(paced()))
+    monkeypatch.setattr(runner_module.time, "monotonic", lambda: now["t"])
+    monkeypatch.setattr(runner_module, "load_task", lambda task_id: {})
+    monkeypatch.setattr(runner_module, "update_task", lambda task_id, **updates: writes.append(updates))
+    monkeypatch.setattr(runner_module, "_register_process", lambda task_id, process: None)
+    monkeypatch.setattr(runner_module, "_unregister_process", lambda task_id: None)
+
+    rc, dest, paths = runner_module._run_engine_to_task(engine_by_name("ytdlp"), "task", ["yt-dlp"])
+    return writes, rc, dest
+
+
+def test_progress_writes_are_coalesced_over_a_long_download(monkeypatch):
+    # A 10-minute transfer emitting a progress line every 100ms must not turn into
+    # a task-store write per line, nor one every half second for its whole length.
+    lines = [f"[download]  {index / 60:5.1f}% of 4.20GiB at 12.00MiB/s\n" for index in range(6000)]
+
+    writes, rc, _ = _stream_progress(monkeypatch, lines, clock_step=0.1)
+
+    assert rc == 0
+    assert len(writes) < 300
+    assert any("progress_pct" in update for update in writes)
+
+
+def test_progress_writes_stay_responsive_on_a_short_download(monkeypatch):
+    # The bar still moves promptly early on: a few seconds of download flushes near
+    # the floor interval rather than the widened one.
+    lines = [f"[download]  {index * 10:5.1f}% of 4.20MiB at 1.00MiB/s\n" for index in range(10)]
+
+    writes, _, _ = _stream_progress(monkeypatch, lines, clock_step=0.6)
+
+    assert len([update for update in writes if "progress_pct" in update]) >= 6
+
+
+def test_a_stalled_transfer_only_writes_at_the_log_cadence(monkeypatch):
+    # A stall repeats the same percentage: the bar has nothing to say, so the row is
+    # rewritten on the slow log-tail cadence rather than on the progress interval.
+    lines = ["[download]  42.0% of 4.20GiB at 0.00MiB/s\n"] * 200
+
+    writes, _, _ = _stream_progress(monkeypatch, lines, clock_step=0.5)
+
+    # 200 lines over 100 simulated seconds: roughly one write per five seconds.
+    assert len(writes) <= 25
+    assert all("last_log_lines" in update for update in writes[1:])
+
+
+def test_a_new_output_path_flushes_immediately(monkeypatch):
+    lines = [
+        "[download]  10.0% of 4.20GiB at 12.00MiB/s\n",
+        "[download] Destination: /media/x/clip [abc].mp4\n",
+    ]
+
+    writes, _, dest = _stream_progress(monkeypatch, lines, clock_step=0.01)
+
+    assert dest.endswith("clip [abc].mp4")
+    assert any(update.get("resolved_filename") == "clip [abc].mp4" for update in writes)
+
+
+def test_the_log_tail_is_persisted_when_the_run_ends(monkeypatch):
+    # The tail is what a failure report and path recovery read back, so the final
+    # write must carry it even though progress flushes no longer do.
+    lines = [f"[download]  {index:5.1f}% of 4.20GiB at 12.00MiB/s\n" for index in range(40)]
+
+    writes, _, _ = _stream_progress(monkeypatch, lines, clock_step=0.01)
+
+    assert "last_log_lines" in writes[-1]
+    assert writes[-1]["last_log_lines"][-1].startswith("[download]")
+    assert len(writes[-1]["last_log_lines"]) <= 30
+
+
+def test_ytdlp_command_does_not_request_verbose_output():
+    cmd = build_ytdlp_command("https://youtu.be/abc", "/usr/bin", "/out/%(title)s.%(ext)s")
+
+    assert "--verbose" not in cmd
+    assert "--newline" in cmd

@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from backend.app.core.paths import path_key as _path_key
 from backend.app.domains.downloads.constants import CREATOR_FIELDS, TEMPLATE_RE
 from backend.app.domains.downloads.naming import filename_template_fields
 from backend.app.domains.downloads.scan import parse_filename_media_id
@@ -12,7 +13,6 @@ from backend.app.domains.downloads.workers.completion_values import (
     _clean_creator_candidate,
     _field_value,
 )
-from backend.app.domains.downloads.workers.pathing import _path_key
 from backend.app.domains.settings import has_cookies_for_source, has_cookies_for_url
 
 

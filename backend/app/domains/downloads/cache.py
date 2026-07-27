@@ -4,12 +4,7 @@ import os
 from collections.abc import Iterable
 from pathlib import Path
 
-
-def _path_key(path: Path) -> str:
-    try:
-        return os.path.normcase(str(path.resolve(strict=False)))
-    except OSError:
-        return os.path.normcase(str(path))
+from backend.app.core.paths import path_key as _path_key
 
 
 def _unique_existing_files(paths: Iterable[Path | str]) -> list[Path]:

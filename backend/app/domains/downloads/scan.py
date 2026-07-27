@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,12 +10,15 @@ from typing import Any
 from urllib.parse import unquote
 
 from backend.app.core.config import discover_volume_roots
+from backend.app.core.pacing import CpuPacer
+from backend.app.core.paths import path_key as _path_key
+from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
 from backend.app.db.database import utc_now
 from backend.app.domains.settings import is_scraper_field, scraper_token_from_field
 
-from .constants import CREATOR_FIELDS, FIELD_DEFAULTS, TEMPLATE_RE
-from .files import is_media_file, recover_task_path
+from .constants import CREATOR_FIELDS, FIELD_DEFAULTS, MEDIA_EXTENSIONS, TEMPLATE_RE
+from .files import recover_task_path
 from .formats import (
     conflicts_with_source,
     guess_sources,
@@ -32,11 +36,17 @@ from .store import (
     load_history,
     load_learned_formats,
     load_task_store,
+    mark_downloads_seeded,
     remove_history_record,
     remove_task_record,
-    save_history_entry_row,
+    resolution_revision,
+    save_history_entry_rows,
     save_learned_formats,
+    seeded_download_ids,
 )
+
+_scan_lock = threading.Lock()
+_HISTORY_WRITE_BATCH = 200
 
 FILENAME_ID_RE = re.compile(r"^(.*) \[([A-Za-z0-9_-]+)\](?:_\d+)?$")
 UNRECOVERABLE_MEDIA_IDS = {"", "na", "n-a", "n/a", "none", "null", "unknown"}
@@ -154,13 +164,6 @@ def _match_template(pattern: re.Pattern[str] | None, text: str) -> dict[str, str
     return {}
 
 
-def _path_key(path: Path | str) -> str:
-    try:
-        return os.path.normcase(str(Path(path).resolve(strict=False)))
-    except Exception:
-        return os.path.normcase(str(path))
-
-
 def parse_filename_media_id(filename: str | Path) -> tuple[str, str]:
     """Return ``(media_id, title)`` from a ``Title [id].ext`` filename."""
     path = Path(str(filename))
@@ -219,20 +222,40 @@ def _iter_scan_roots(roots: Iterable[str | Path] | None) -> list[Path]:
     return out
 
 
-def _iter_media_files(roots: Iterable[Path]) -> Iterable[tuple[Path, Path]]:
+def _iter_media_files(roots: Iterable[Path]) -> Iterable[tuple[Path, Path, os.stat_result | None]]:
+    """Walk the media roots, yielding ``(root, path, stat)`` for media files only.
+
+    scandir rather than rglob: the extension is checked against the directory
+    entry's name before anything touches the filesystem, so a non-media file costs
+    a string compare instead of a stat. The entry's stat comes back from the same
+    directory enumeration, which the caller needs anyway to decide whether the file
+    changed since the last scan.
+    """
     seen: set[str] = set()
     for root in roots:
-        try:
-            paths = root.rglob("*")
-        except Exception:
-            continue
-        for path in paths:
-            key = _path_key(path)
-            if key in seen:
+        pending = [str(root)]
+        while pending:
+            folder = pending.pop()
+            try:
+                with os.scandir(folder) as entries:
+                    listing = list(entries)
+            except OSError:
                 continue
-            seen.add(key)
-            if is_media_file(path):
-                yield root, path
+            for entry in listing:
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        pending.append(entry.path)
+                        continue
+                    if os.path.splitext(entry.name)[1].lower() not in MEDIA_EXTENSIONS:
+                        continue
+                    stat_result = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                key = _path_key(entry.path)
+                if key in seen:
+                    continue
+                seen.add(key)
+                yield root, Path(entry.path), stat_result
 
 
 def _folder_base(root: Path, path: Path, source_folders: set[str]) -> Path:
@@ -276,10 +299,12 @@ def _completed_records() -> dict[str, dict[str, Any]]:
     return records
 
 
-def _drop_missing_records(records: dict[str, dict[str, Any]]) -> tuple[int, int]:
+def _drop_missing_records(records: dict[str, dict[str, Any]], pacer: CpuPacer | None = None) -> tuple[int, int]:
     checked = 0
     missing = 0
     for task_id, payload in list(records.items()):
+        if pacer is not None:
+            pacer.tick()
         task = dict(payload)
         if task.get("status") == "completed":
             resolved_path, _, _ = recover_task_path(task_id, task)
@@ -313,6 +338,32 @@ def _known_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], set[str]
 
 def _is_disk_record(task_id: str, payload: dict[str, Any]) -> bool:
     return str(task_id).startswith("disk:") or payload.get("task_type") == "disk"
+
+
+def _file_signature(stat_result: os.stat_result | None, resolution_revision: str) -> str:
+    """What a resolved disk row was derived from: the file plus the rules used.
+
+    A rescan re-resolves a file only when one of these moved. The file half is
+    mtime and size, the same pair a media server compares against its library
+    index; the rules half covers learning and settings improving, which is the
+    reason a rescan was re-resolving everything in the first place.
+    """
+    if stat_result is None:
+        return ""
+    return f"{int(stat_result.st_mtime_ns)}:{int(stat_result.st_size)}:{resolution_revision}"
+
+
+def _disk_signature_index(records: dict[str, dict[str, Any]]) -> dict[str, tuple[str, str]]:
+    """Map every already-resolved disk file to ``(signature, media_id)``."""
+    index: dict[str, tuple[str, str]] = {}
+    for task_id, payload in records.items():
+        if not _is_disk_record(task_id, payload):
+            continue
+        path = _payload_path(payload)
+        signature = str(payload.get("scan_signature") or "")
+        if path and signature:
+            index[_path_key(path)] = (signature, _payload_media_id(payload))
+    return index
 
 
 def _disk_derived_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], set[str]]:
@@ -349,15 +400,7 @@ def _prune_disk_shadows(records: dict[str, dict[str, Any]], real_media_ids: set[
 
 
 def _scan_location_map() -> dict[str, dict[str, str]]:
-    # Lazy import so a settings failure degrades to id-only inference, not a crash.
-    try:
-        from backend.app.core.config import load_app_config
-        from backend.app.domains.settings import get_effective_saved_settings
-
-        locations = get_effective_saved_settings(load_app_config()).get("site_locations")
-        return locations if isinstance(locations, dict) else {}
-    except Exception:
-        return {}
+    return _scan_settings_section("site_locations")
 
 
 def _iter_source_locations(locations: dict[str, dict[str, str]]) -> Iterable[tuple[str, str, str]]:
@@ -378,26 +421,45 @@ def _source_folder_keys(locations: dict[str, dict[str, str]]) -> set[str]:
     return {_path_key(folder) for _, _, folder in _iter_source_locations(locations)}
 
 
+def _scan_settings_section(section: str) -> dict[str, Any]:
+    """One section of the effective settings, or ``{}`` when settings are unreadable.
+
+    The lazy import dodges an import cycle and lets a settings failure degrade the
+    scan to id-only inference instead of crashing it. The scope resolves the
+    settings once, so pulling six sections costs one build.
+    """
+    try:
+        from backend.app.domains.settings import get_effective_saved_settings
+
+        value = get_effective_saved_settings().get(section)
+    except Exception:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _scan_source_profiles() -> list[dict[str, Any]]:
+    try:
+        from backend.app.domains.settings import get_effective_source_profiles
+
+        return get_effective_source_profiles()
+    except Exception:
+        return []
+
+
 def _scan_template_map() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
-    # Lazy import so a settings failure degrades to the builtin default templates.
     try:
         from backend.app.core.config import load_app_config
         from backend.app.domains.settings import (
-            get_effective_saved_settings,
-            get_effective_source_profiles,
             normalize_source_template_selection,
             normalize_template_settings,
         )
 
-        cfg = load_app_config()
-        effective = get_effective_saved_settings(cfg)
-        base = normalize_template_settings(effective.get("template_settings"))
-        token_roles = effective.get("source_token_roles")
+        base = normalize_template_settings(_scan_settings_section("template_settings"))
         per_source = normalize_source_template_selection(
-            effective.get("source_templates"),
-            cfg,
-            get_effective_source_profiles(cfg),
-            token_roles if isinstance(token_roles, dict) else {},
+            _scan_settings_section("source_templates"),
+            load_app_config(),
+            _scan_source_profiles(),
+            _scan_settings_section("source_token_roles"),
         )
         return base, per_source
     except Exception:
@@ -405,50 +467,31 @@ def _scan_template_map() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
 
 
 def _scan_token_role_map() -> dict[str, dict[str, str]]:
-    try:
-        from backend.app.core.config import load_app_config
-        from backend.app.domains.settings import get_effective_saved_settings
-
-        roles = get_effective_saved_settings(load_app_config()).get("source_token_roles")
-        return roles if isinstance(roles, dict) else {}
-    except Exception:
-        return {}
+    return _scan_settings_section("source_token_roles")
 
 
 def _scan_scrape_rule_tokens() -> dict[str, set[str]]:
-    try:
-        from backend.app.core.config import load_app_config
-        from backend.app.domains.settings import get_effective_saved_settings
-
-        rules_map = get_effective_saved_settings(load_app_config()).get("source_scrape_rules")
-        out: dict[str, set[str]] = {}
-        if isinstance(rules_map, dict):
-            for raw_key, platform in rules_map.items():
-                key = normalize_source_key(raw_key)
-                tokens = {
-                    str(rule.get("token") or "").strip().lower()
-                    for rule in (platform.get("rules") if isinstance(platform, dict) else []) or []
-                    if isinstance(rule, dict) and str(rule.get("token") or "").strip()
-                }
-                if key and tokens:
-                    out[key] = tokens
-        return out
-    except Exception:
-        return {}
+    out: dict[str, set[str]] = {}
+    for raw_key, platform in _scan_settings_section("source_scrape_rules").items():
+        key = normalize_source_key(raw_key)
+        tokens = {
+            str(rule.get("token") or "").strip().lower()
+            for rule in (platform.get("rules") if isinstance(platform, dict) else []) or []
+            if isinstance(rule, dict) and str(rule.get("token") or "").strip()
+        }
+        if key and tokens:
+            out[key] = tokens
+    return out
 
 
 def _scan_slug_tokens_map() -> dict[str, list[dict[str, str]]]:
     # Per-source {part, token} URL-part rules the user configured; used to capture named
     # URL parts from filenames and reconstruct links generically (no platform logic).
     try:
-        from backend.app.core.config import load_app_config
         from backend.app.domains.downloads.enrich import active_slug_rules_for_key
         from backend.app.domains.downloads.store import load_learned_formats
-        from backend.app.domains.settings import get_effective_saved_settings
 
-        slug_map = get_effective_saved_settings(load_app_config()).get("source_slug_tokens")
-        if not isinstance(slug_map, dict):
-            slug_map = {}
+        slug_map = _scan_settings_section("source_slug_tokens")
         keys = set(slug_map.keys()) | set(load_learned_formats().keys())
         return {key: active_slug_rules_for_key(slug_map, key) for key in keys}
     except Exception:
@@ -456,27 +499,15 @@ def _scan_slug_tokens_map() -> dict[str, list[dict[str, str]]]:
 
 
 def _scan_source_profile_keys() -> set[str]:
-    try:
-        from backend.app.core.config import load_app_config
-        from backend.app.domains.settings import get_effective_source_profiles
-
-        return {
-            key
-            for profile in get_effective_source_profiles(load_app_config())
-            if (key := normalize_source_key(profile.get("key")))
-        }
-    except Exception:
-        return set()
+    return {key for profile in _scan_source_profiles() if (key := normalize_source_key(profile.get("key")))}
 
 
 def _scan_field_roles_map() -> dict[str, dict[str, list[str]]]:
     # Per-source creator-field priority: user settings first, then learned URL defaults.
     try:
-        from backend.app.core.config import load_app_config
-        from backend.app.domains.settings import get_effective_source_fields_map, get_effective_source_profiles
+        from backend.app.domains.settings import get_effective_source_fields_map
 
-        cfg = load_app_config()
-        fields = get_effective_source_fields_map(get_effective_source_profiles(cfg))
+        fields = get_effective_source_fields_map(_scan_source_profiles())
         return fields if isinstance(fields, dict) else {}
     except Exception:
         return {}
@@ -720,27 +751,49 @@ def _source_from_path(path: Path, location_index: list[tuple[str, str, str]]) ->
 
 
 def _source_from_named_folder(root: Path, path: Path, source_keys: set[str]) -> str:
+    # `source_keys` is already the resolved candidate set. It used to be re-derived
+    # here per file, which reloaded the config and re-decoded the whole history for
+    # every media file on disk.
     try:
         relative_parts = path.parent.relative_to(root).parts
     except ValueError:
         relative_parts = path.parent.parts
-    candidates = source_keys | _scan_source_profile_keys() | _COMMON_SOURCE_FOLDER_KEYS
     for part in relative_parts:
         key = normalize_source_key(part)
-        if key in candidates:
+        if key in source_keys:
             return key
     return ""
 
 
-def _seed_learned_from_history(learned: dict[str, Any], records: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """Recover route templates from real past downloads (never disk reconstructions)."""
-    for task_id, payload in records.items():
-        if str(task_id).startswith("disk:") or payload.get("task_type") == "disk":
-            continue
+def _seed_learned_from_history(
+    learned: dict[str, Any], records: dict[str, dict[str, Any]], pacer: CpuPacer | None = None
+) -> dict[str, Any]:
+    """Recover route templates from real past downloads (never disk reconstructions).
+
+    Analyzing a URL is the most expensive thing a scan does, and learning is
+    cumulative and already persisted, so each download is folded in exactly once.
+    A scan reads only the downloads that appeared since the last one; a library
+    whose history has not grown does no URL analysis at all.
+    """
+    already_seeded = seeded_download_ids()
+    pending = [
+        (task_id, payload)
+        for task_id, payload in records.items()
+        if not _is_disk_record(task_id, payload) and task_id not in already_seeded
+    ]
+    if not pending:
+        return learned
+
+    seeded: list[str] = []
+    for task_id, payload in pending:
+        if pacer is not None:
+            pacer.tick()
         source_url = str(payload.get("source_url") or "").strip()
         media_id = _payload_media_id(payload)
         if source_url and media_id:
             learned = update_learned_formats_with_download(learned, source_url, media_id)
+        seeded.append(task_id)
+    mark_downloads_seeded(seeded)
     return learned
 
 
@@ -763,9 +816,10 @@ def infer_disk_source(
     return "", True, candidates, ""
 
 
-def _completed_at_from_file(path: Path) -> str:
+def _completed_at_from_file(path: Path, stat_result: os.stat_result | None = None) -> str:
     try:
-        return datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat()
+        mtime = (stat_result or path.stat()).st_mtime
+        return datetime.fromtimestamp(mtime, UTC).isoformat()
     except Exception:
         return utc_now()
 
@@ -782,9 +836,23 @@ def _parse_media_fields(path: Path, filename_pattern: re.Pattern[str] | None) ->
 
 
 def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, int]:
-    """Reconcile completed history with media files already present on disk."""
+    """Reconcile completed history with media files already present on disk.
+
+    Runs one at a time: overlapping scans walk the same tree and rewrite the same
+    rows, so a second caller waits and then sees the first scan's result rather
+    than doubling the load.
+    """
+    with _scan_lock:
+        # One settings snapshot for the whole scan. The scan writes a history row per
+        # file it resolves, and any settings derivation keyed on stored activity would
+        # otherwise be invalidated by the scan's own writes, once per file.
+        with resolution_scope(), CpuPacer() as pacer:
+            return _scan_media_library(roots, pacer)
+
+
+def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> dict[str, int]:
     records = _completed_records()
-    checked, missing = _drop_missing_records(records)
+    checked, missing = _drop_missing_records(records, pacer)
     real_media_ids = _real_download_media_ids(records)
     _prune_disk_shadows(records, real_media_ids)
     known_paths, known_media_ids = _known_media(records)
@@ -801,13 +869,39 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
     field_defaults_map = _scan_field_defaults()
     learned = load_learned_formats()
     learned_before = learned
-    learned = _seed_learned_from_history(learned, records)
+    learned = _seed_learned_from_history(learned, records, pacer)
+    # Persist seeding before anything is resolved, so the revision stamped on each
+    # row is the one the next scan will compute. Saving afterwards made every row
+    # this pass wrote look stale on the very next pass. The file loop only reads
+    # `learned`, so there is nothing later to write.
+    if learned != learned_before:
+        save_learned_formats(learned)
+
+    # Folder names that may identify a platform, resolved once instead of per file.
+    named_folder_keys = source_profile_keys | _COMMON_SOURCE_FOLDER_KEYS
+    # Index of what each disk file resolved from last time. A rescan compares the
+    # file and the rules against it and re-resolves only what actually moved,
+    # instead of rebuilding every disk entry from scratch on every pass.
+    disk_index = _disk_signature_index(records)
+    revision = resolution_revision()
 
     added = 0
+    unchanged = 0
     resolved_this_run: set[str] = set()
-    for root, path in _iter_media_files(_iter_scan_roots(roots)):
+    pending_rows: list[tuple[str, dict[str, Any]]] = []
+    for root, path, stat_result in _iter_media_files(_iter_scan_roots(roots)):
+        pacer.tick()
         path_key = _path_key(path)
         if path_key in known_paths and path_key not in disk_paths:
+            continue
+        signature = _file_signature(stat_result, revision)
+        cached = disk_index.get(path_key)
+        if cached and signature and cached[0] == signature:
+            # Same bytes, same rules: the row on file is still the right answer.
+            unchanged += 1
+            resolved_this_run.add(cached[1])
+            known_paths.add(path_key)
+            known_media_ids.add(cached[1])
             continue
         media_id, title = _parse_media_fields(path, templates.base_filename)
         if not media_id or media_id in resolved_this_run:
@@ -819,11 +913,8 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         resolved_this_run.add(media_id)
 
         task_id = f"disk:{media_id}"
-        try:
-            file_size = path.stat().st_size
-        except Exception:
-            file_size = 0
-        source_hint = _source_from_named_folder(root, path, source_profile_keys)
+        file_size = int(stat_result.st_size) if stat_result else 0
+        source_hint = _source_from_named_folder(root, path, named_folder_keys)
         source_key, source_pending, source_candidates, folder_format = infer_disk_source(
             path, media_id, location_index, learned, source_hint
         )
@@ -902,31 +993,38 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
             media_id=media_id,
             source_key=source_key,
         )
-        save_history_entry_row(
-            task_id,
-            {
-                "task_id": task_id,
-                "media_id": media_id,
-                "source_url": source_url,
-                "task_type": "disk",
-                "source_key": source_key,
-                "source_pending": source_pending,
-                "source_candidates": source_candidates,
-                "resolved_folder": str(path.parent),
-                "resolved_filename": display_filename,
-                "resolved_full_path": str(path),
-                "title": title,
-                "template_settings": template_settings,
-                "artist": creator,
-                "file_size": file_size,
-                "completed_at": _completed_at_from_file(path),
-            },
+        pending_rows.append(
+            (
+                task_id,
+                {
+                    "task_id": task_id,
+                    "media_id": media_id,
+                    "source_url": source_url,
+                    "task_type": "disk",
+                    "source_key": source_key,
+                    "source_pending": source_pending,
+                    "source_candidates": source_candidates,
+                    "resolved_folder": str(path.parent),
+                    "resolved_filename": display_filename,
+                    "resolved_full_path": str(path),
+                    "title": title,
+                    "template_settings": template_settings,
+                    "artist": creator,
+                    "file_size": file_size,
+                    "completed_at": _completed_at_from_file(path, stat_result),
+                    "scan_signature": signature,
+                },
+            )
         )
+        # One commit per resolved file made the scan cost scale with fsyncs; a batch
+        # keeps the write amortized while still landing rows as the scan progresses.
+        if len(pending_rows) >= _HISTORY_WRITE_BATCH:
+            save_history_entry_rows(pending_rows)
+            pending_rows = []
         if path_key not in disk_paths and media_id not in disk_media_ids:
             added += 1
         known_paths.add(path_key)
         known_media_ids.add(media_id)
 
-    if learned != learned_before:
-        save_learned_formats(learned)
-    return {"checked": checked, "missing": missing, "added": added}
+    save_history_entry_rows(pending_rows)
+    return {"checked": checked, "missing": missing, "added": added, "unchanged": unchanged}

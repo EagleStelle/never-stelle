@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Iterable
 from typing import Any
 
 from backend.app.core.sources import normalize_source_key
@@ -116,6 +118,50 @@ def _save_format_rows(connection: Any, payload: dict[str, Any]) -> None:
                 now,
             ),
         )
+
+
+def learned_formats_revision() -> str:
+    """Marker of what learning would resolve differently, ignoring bookkeeping.
+
+    Deliberately excludes ``samples`` and ``updated_at``: a scan re-learns from
+    history every pass, which bumps both without changing a single answer. Keying a
+    rescan on those would mark every file stale on every run. Only the columns that
+    steer reconstruction are hashed.
+    """
+    with transaction() as connection:
+        rows = connection.execute(
+            "SELECT source_key, host, templates, url_field_roles, id_min, id_max, id_classes"
+            " FROM learned_formats ORDER BY source_key"
+        ).fetchall()
+    digest = hashlib.blake2b(digest_size=16)
+    for row in rows:
+        digest.update("\x1f".join(str(value) for value in tuple(row)).encode("utf-8", "replace"))
+        digest.update(b"\x1e")
+    return digest.hexdigest()
+
+
+def seeded_download_ids() -> set[str]:
+    """Downloads already folded into the learned formats."""
+    with transaction() as connection:
+        rows = connection.execute("SELECT task_id FROM seeded_downloads").fetchall()
+    return {str(row["task_id"]) for row in rows}
+
+
+def mark_downloads_seeded(task_ids: Iterable[str]) -> None:
+    now = utc_now()
+    rows = [(str(task_id), now) for task_id in task_ids]
+    if not rows:
+        return
+    with transaction() as connection:
+        connection.executemany(
+            "INSERT OR REPLACE INTO seeded_downloads (task_id, seeded_at) VALUES (?, ?)", rows
+        )
+
+
+def clear_seeded_downloads() -> None:
+    """Forget what was seeded, so learning is rebuilt from history on the next scan."""
+    with transaction() as connection:
+        connection.execute("DELETE FROM seeded_downloads")
 
 
 def load_learned_formats_payload() -> dict[str, Any]:

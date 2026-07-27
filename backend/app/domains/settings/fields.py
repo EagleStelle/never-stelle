@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from backend.app.core.resolution import resolved
 from backend.app.core.sources import normalize_source_key
 
 from . import storage
@@ -208,6 +209,12 @@ def _with_assigned_scraper_fields(
 
 
 def get_effective_fields(source_url: str = "") -> dict[str, list[str]]:
+    # Resolved per output item during a download and per file during a scan; the
+    # answer only depends on the URL and the saved settings, so cache it per scope.
+    return resolved(f"settings.fields:{source_url}", lambda: _effective_fields(source_url))
+
+
+def _effective_fields(source_url: str = "") -> dict[str, list[str]]:
     payload = load_saved_settings_file()
     if not source_url:
         return {}
@@ -225,6 +232,10 @@ def get_effective_fields(source_url: str = "") -> dict[str, list[str]]:
 
 
 def get_effective_title_cleaning(source_url: str = "") -> dict[str, Any]:
+    return resolved(f"settings.cleaning:{source_url}", lambda: _effective_title_cleaning(source_url))
+
+
+def _effective_title_cleaning(source_url: str = "") -> dict[str, Any]:
     from backend.app.domains.downloads.constants import normalize_title_cleaning
 
     payload = load_saved_settings_file()

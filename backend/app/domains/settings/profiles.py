@@ -4,7 +4,8 @@ import threading
 from collections.abc import Iterable
 from typing import Any
 
-from backend.app.core.config import get_config_source_profiles, load_app_config
+from backend.app.core.config import APP_CONFIG_KEY, get_config_source_profiles, load_app_config
+from backend.app.core.resolution import is_scoped, resolved
 from backend.app.core.sources import (
     favicon_url_for_host,
     host_from_url,
@@ -15,10 +16,10 @@ from backend.app.core.sources import (
     source_profile_for_url,
     source_profile_settings_managed,
 )
-from backend.app.db.repositories import activity_revision, load_history_payload, load_task_store_payload
+from backend.app.db.repositories import load_history_payload, load_task_store_payload, source_activity_revision
 from backend.app.integrations.swaratelle import client as swaratelle
 
-from .storage import load_saved_settings_file, save_saved_settings_file
+from .storage import SAVED_SETTINGS_KEY, load_saved_settings_file, save_saved_settings_file
 
 _activity_cache_lock = threading.RLock()
 _activity_cache: tuple[tuple[Any, ...], list[dict[str, Any]]] | None = None
@@ -57,10 +58,14 @@ def _config_fingerprint(config_profiles: list[dict[str, Any]]) -> tuple[Any, ...
 
 
 def _activity_source_profiles(config_profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    # Profiles inferred from downloaded URLs. Cached against a cheap DB revision
-    # so repeated resolutions in one request skip re-decoding the whole store.
+    # Profiles inferred from downloaded URLs. Cached against a source-only DB
+    # revision: a running download rewrites its row twice a second, and keying on
+    # a generic "anything changed" fingerprint made every poll re-decode the whole
+    # task and history tables. Which sources exist only changes when rows appear,
+    # disappear, or get re-keyed.
     global _activity_cache
-    signature = (activity_revision(), _config_fingerprint(config_profiles))
+    revision = resolved("settings.activity_revision", source_activity_revision)
+    signature = (revision, _config_fingerprint(config_profiles))
     with _activity_cache_lock:
         if _activity_cache is not None and _activity_cache[0] == signature:
             return _activity_cache[1]
@@ -86,6 +91,20 @@ def _activity_source_profiles(config_profiles: list[dict[str, Any]]) -> list[dic
 
 
 def get_effective_source_profiles(
+    cfg: dict[str, Any] | None = None,
+    payload: dict[str, Any] | None = None,
+    extra_keys: Iterable[str] | None = None,
+) -> list[dict[str, Any]]:
+    # Resolved per output item during a download and per file during a scan. Callers
+    # pass the config and settings payload they already hold, so the memo applies
+    # whenever those are the objects this operation resolved. `extra_keys` widens the
+    # result, so it always rebuilds.
+    if not extra_keys and is_scoped(APP_CONFIG_KEY, cfg) and is_scoped(SAVED_SETTINGS_KEY, payload):
+        return resolved("settings.source_profiles", _effective_source_profiles)
+    return _effective_source_profiles(cfg, payload, extra_keys)
+
+
+def _effective_source_profiles(
     cfg: dict[str, Any] | None = None,
     payload: dict[str, Any] | None = None,
     extra_keys: Iterable[str] | None = None,

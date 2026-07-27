@@ -1,19 +1,11 @@
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from typing import Any
 
 from backend.app.domains.downloads.constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
 from backend.app.domains.downloads.engine import Engine
-
-
-def _path_key(path: Path | str) -> str:
-    try:
-        return os.path.normcase(str(Path(path).resolve(strict=False)))
-    except Exception:
-        return os.path.normcase(str(path))
 
 
 def _unique_sibling_path(path: Path) -> Path:

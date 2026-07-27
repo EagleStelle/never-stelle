@@ -64,6 +64,14 @@ CREATE TABLE IF NOT EXISTS learned_formats (
 
 CREATE INDEX IF NOT EXISTS idx_learned_formats_host ON learned_formats(host);
 
+-- Which past downloads have already been folded into learned_formats. Learning is
+-- cumulative and already persisted, so re-teaching the same download on every scan
+-- is pure duplicated work; this records what is done so a scan only reads what is new.
+CREATE TABLE IF NOT EXISTS seeded_downloads (
+    task_id TEXT PRIMARY KEY,
+    seeded_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS source_cookies (
     id TEXT PRIMARY KEY,
     source_key TEXT NOT NULL DEFAULT '',

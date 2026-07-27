@@ -5,7 +5,12 @@ import time
 from typing import Any
 
 from backend.app.core.config import max_concurrent_downloads
-from backend.app.domains.downloads.store import claim_pending_task, load_task_store, update_task
+from backend.app.domains.downloads.store import (
+    claim_pending_task,
+    fail_running_task_records,
+    next_pending_task,
+    pending_task_count,
+)
 from backend.app.domains.downloads.workers.execution import run_task
 
 _worker_lock = threading.Lock()
@@ -15,22 +20,18 @@ _active_worker_count = 0
 
 def recover_orphaned_tasks() -> None:
     # A fresh process owns no downloads, so any "running" row is crash debris.
-    for task_id, task in list((load_task_store().get("tasks") or {}).items()):
-        if task.get("status") == "running":
-            update_task(task_id, status="failed", error="Download interrupted by shutdown.")
+    fail_running_task_records("Download interrupted by shutdown.")
 
 
 def _next_pending_task() -> tuple[str | None, dict[str, Any] | None]:
-    for task_id, task in (load_task_store().get("tasks") or {}).items():
-        if task.get("status") == "pending":
-            return task_id, task
-    return None, None
+    # Picked by SQL: the worker loop runs this per task, and decoding every row in
+    # the store to find one pending entry made queue drain cost scale with history.
+    claimed = next_pending_task()
+    return claimed if claimed else (None, None)
 
 
 def _pending_count() -> int:
-    return sum(
-        1 for task in (load_task_store().get("tasks") or {}).values() if task.get("status") == "pending"
-    )
+    return pending_task_count()
 
 
 def ensure_worker() -> None:

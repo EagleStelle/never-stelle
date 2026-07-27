@@ -3,7 +3,13 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from backend.app.core.config import get_site_default_locations, load_app_config, normalize_download_locations
+from backend.app.core.config import (
+    APP_CONFIG_KEY,
+    get_site_default_locations,
+    load_app_config,
+    normalize_download_locations,
+)
+from backend.app.core.resolution import is_scoped, resolved
 
 from .cookie_policy import (
     builtin_cookie_policy_defaults,
@@ -38,6 +44,16 @@ from .tokens import get_effective_token_roles, normalize_source_token_roles
 
 
 def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    # Rebuilding this normalizes every settings section at once, and almost every
+    # caller hands back the config it just loaded rather than omitting it, so the
+    # memo has to recognize that config as the scoped one. Keying only on the
+    # no-argument form left queueing a batch of URLs rebuilding this twice per URL.
+    if is_scoped(APP_CONFIG_KEY, cfg):
+        return resolved("settings.effective", _effective_saved_settings)
+    return _effective_saved_settings(cfg)
+
+
+def _effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     from backend.app.domains.downloads.constants import normalize_quality_selection
 
     cfg = cfg or load_app_config()

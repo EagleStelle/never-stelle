@@ -103,21 +103,60 @@ def load_history_page(
     ]
 
 
-def activity_revision() -> tuple[int, str, int, str]:
-    """Cheap fingerprint of tasks + history that changes on every write.
+def source_activity_revision() -> tuple[int | str, ...]:
+    """Fingerprint of the source mix only, blind to progress churn.
 
-    Lets callers cache activity-derived data without re-decoding whole tables;
-    row counts plus latest timestamps flip whenever anything is added, updated,
-    or removed.
+    A fingerprint that tracked "anything changed" moved on every progress write,
+    which made anything keyed on it recompute twice a second for a whole download. Source
+    profiles depend only on which URLs and source keys exist, so this counts rows
+    and distinct values and deliberately carries no timestamp: a running download
+    rewrites its own row constantly without changing any of these. Every column
+    read is indexed and no payload is decoded, so the probe stays sub-millisecond
+    as history grows.
     """
+    query = (
+        "SELECT COUNT(*), COUNT(DISTINCT source_key),"
+        " COALESCE(MIN(source_key), ''), COALESCE(MAX(source_key), '') FROM {table}"
+    )
     with transaction() as connection:
-        tasks = connection.execute(
-            "SELECT COUNT(*), COALESCE(MAX(updated_at), '') FROM download_tasks"
+        tasks = connection.execute(query.format(table="download_tasks")).fetchone()
+        history = connection.execute(query.format(table="download_history")).fetchone()
+    return (
+        int(tasks[0]),
+        int(tasks[1]),
+        str(tasks[2]),
+        str(tasks[3]),
+        int(history[0]),
+        int(history[1]),
+        str(history[2]),
+        str(history[3]),
+    )
+
+
+def load_task_payload(task_id: str) -> dict[str, Any]:
+    """One task row by id. Replaces decoding the whole store to read a single task."""
+    with transaction() as connection:
+        row = connection.execute("SELECT payload FROM download_tasks WHERE id = ?", (str(task_id),)).fetchone()
+    payload = _decode(row["payload"] if row else None, {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def next_pending_task_payload() -> tuple[str, dict[str, Any]] | None:
+    """The oldest queued task, chosen by SQL rather than by scanning every row."""
+    with transaction() as connection:
+        row = connection.execute(
+            "SELECT id, payload FROM download_tasks WHERE status = 'pending' ORDER BY created_at, id LIMIT 1"
         ).fetchone()
-        history = connection.execute(
-            "SELECT COUNT(*), COALESCE(MAX(updated_at), '') FROM download_history"
-        ).fetchone()
-    return (int(tasks[0]), str(tasks[1]), int(history[0]), str(history[1]))
+    if not row:
+        return None
+    payload = _decode(row["payload"], {})
+    return str(row["id"]), payload if isinstance(payload, dict) else {}
+
+
+def count_pending_tasks() -> int:
+    with transaction() as connection:
+        row = connection.execute("SELECT COUNT(*) FROM download_tasks WHERE status = 'pending'").fetchone()
+    return int(row[0] or 0)
 
 
 def merge_task_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -240,6 +279,60 @@ def save_history_row(task_id: str, payload: dict[str, Any]) -> None:
                 now,
             ),
         )
+
+
+def save_history_rows(rows: list[tuple[str, dict[str, Any]]]) -> None:
+    """Upsert many completed-download records in one transaction.
+
+    A library scan writes a row per file; one commit per row makes the scan cost
+    scale with fsyncs rather than with work, so batches share a transaction.
+    """
+    if not rows:
+        return
+    now = utc_now()
+    prepared = []
+    for task_id, raw_payload in rows:
+        payload = raw_payload if isinstance(raw_payload, dict) else {}
+        source_url = str(payload.get("source_url") or "")
+        prepared.append(
+            (
+                str(task_id),
+                source_url,
+                _payload_source_key(payload, source_url),
+                _encode(payload),
+                str(payload.get("completed_at") or now),
+                now,
+            )
+        )
+    with transaction() as connection:
+        connection.executemany(
+            """
+            INSERT OR REPLACE INTO download_history (
+                task_id, source_url, source_key, payload, completed_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            prepared,
+        )
+
+
+def fail_running_tasks(error: str) -> int:
+    """Mark every ``running`` row failed in one pass, for crash recovery at boot."""
+    now = utc_now()
+    with transaction() as connection:
+        rows = connection.execute("SELECT id, payload FROM download_tasks WHERE status = 'running'").fetchall()
+        updates = []
+        for row in rows:
+            payload = _decode(row["payload"], {})
+            payload = payload if isinstance(payload, dict) else {}
+            payload.update({"status": "failed", "error": error})
+            updates.append((_encode(payload), now, str(row["id"])))
+        if updates:
+            connection.executemany(
+                "UPDATE download_tasks SET status = 'failed', payload = ?, updated_at = ? WHERE id = ?",
+                updates,
+            )
+    return len(updates)
 
 
 def delete_history_row(task_id: str) -> None:

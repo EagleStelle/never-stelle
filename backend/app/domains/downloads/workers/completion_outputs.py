@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from backend.app.core.paths import path_key as _path_key
 from backend.app.domains.downloads.constants import CREATOR_FIELDS, TEMPLATE_RE, quality_label
 from backend.app.domains.downloads.engine import Engine
 from backend.app.domains.downloads.files import (
@@ -31,7 +32,6 @@ from backend.app.domains.downloads.workers.completion_values import (
 )
 from backend.app.domains.downloads.workers.pathing import (
     _media_kind,
-    _path_key,
     _preferred_output_path,
     _rename_path,
     _unique_sibling_path,

@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.app.api.deps import require_authenticated_session
 from backend.app.api.routers import api_router
 from backend.app.core.config import FRONTEND_DIR
+from backend.app.core.resolution import resolution_scope
 from backend.app.runtime.lifespan import lifespan
 
 API_TITLE = "Never Stelle API"
@@ -32,10 +33,21 @@ def create_app() -> FastAPI:
     if assets_dir.exists():
         application.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
+    register_resolution_scope(application)
     register_exception_handlers(application)
     register_docs_routes(application)
     register_frontend_routes(application)
     return application
+
+
+def register_resolution_scope(application: FastAPI) -> None:
+    @application.middleware("http")
+    async def resolution_scope_middleware(request: Request, call_next: Any) -> Any:
+        # Config, saved settings and source profiles are rebuilt by nearly every
+        # helper a handler touches. They cannot change mid-request, so one scope
+        # per request collapses that into a single resolution each.
+        with resolution_scope():
+            return await call_next(request)
 
 
 def register_exception_handlers(application: FastAPI) -> None:

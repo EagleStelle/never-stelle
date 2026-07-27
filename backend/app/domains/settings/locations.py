@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import get_default_site_location, get_site_default_locations, normalize_allowed_location
+from backend.app.core.paths import real_path_key as _path_key
 from backend.app.core.sources import normalize_source_key
 
 from .profiles import get_effective_source_profiles, settings_managed_profiles
@@ -16,14 +16,6 @@ def _learned_templates(source_key: str) -> list[str]:
     from backend.app.domains.downloads.store import load_learned_formats
 
     return learned_templates_for(load_learned_formats(), source_key)
-
-
-def _path_key(value: str) -> str:
-    try:
-        path = Path(value).resolve(strict=False)
-    except Exception:
-        path = Path(value)
-    return os.path.normcase(os.path.normpath(str(path)))
 
 
 def _is_same_or_child_path(candidate: str, parent: str) -> bool:

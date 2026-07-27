@@ -7,6 +7,8 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
+from backend.app.core.paths import path_key as _path_key
+from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
 from backend.app.domains.downloads.cache import drop_file_cache
 from backend.app.domains.downloads.constants import normalize_quality_selection
@@ -16,7 +18,7 @@ from backend.app.domains.downloads.formats import media_id_from_url
 from backend.app.domains.downloads.history import save_history_entry
 from backend.app.domains.downloads.naming import detect_ffmpeg_location, filename_template_fields
 from backend.app.domains.downloads.scan import parse_filename_media_id
-from backend.app.domains.downloads.store import load_learned_formats, load_task_store, remove_task_record, update_task
+from backend.app.domains.downloads.store import load_learned_formats, load_task, remove_task_record, update_task
 from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
 from backend.app.domains.downloads.workers.completion import (
     _attempt_output_paths,
@@ -45,7 +47,7 @@ from backend.app.domains.downloads.workers.completion import (
     _role_token_value,
     _template_folder_text,
 )
-from backend.app.domains.downloads.workers.pathing import _fallback_excluded_extensions, _path_key
+from backend.app.domains.downloads.workers.pathing import _fallback_excluded_extensions
 from backend.app.domains.downloads.workers.processes import _cancel_pending, _clear_cancel
 from backend.app.domains.downloads.workers.runner import _run_engine_to_task
 from backend.app.domains.settings import (
@@ -115,15 +117,13 @@ def _combined_failure_detail(failures: list[str]) -> str:
 
 
 def _append_task_log(task_id: str, message: str) -> None:
-    current = (load_task_store().get("tasks") or {}).get(task_id, {})
-    log_lines = list(current.get("last_log_lines") or [])
+    log_lines = list(load_task(task_id).get("last_log_lines") or [])
     log_lines.append(message)
     update_task(task_id, last_log_lines=log_lines[-30:])
 
 
 def _task_log_tail(task_id: str) -> str:
-    current = (load_task_store().get("tasks") or {}).get(task_id, {})
-    return " ".join(str(line) for line in (current.get("last_log_lines") or []))
+    return " ".join(str(line) for line in (load_task(task_id).get("last_log_lines") or []))
 
 
 def _run_engine_attempts(
@@ -196,6 +196,14 @@ def _task_template_settings(task: dict[str, Any]) -> dict[str, str] | None:
 
 
 def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
+    # One resolution scope for the whole download: config, saved settings, source
+    # profiles and per-source field rules are otherwise rebuilt for every output
+    # item, which made a large gallery cost more in settings lookups than in I/O.
+    with resolution_scope():
+        _run_task(task_id, task, mark_running=mark_running)
+
+
+def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
     from backend.app.domains.downloads.enrich import resolve_scraped_tokens, resolve_slug_tokens
 
     source_url = canonicalize_source_url(str(task.get("source_url") or ""))
@@ -317,7 +325,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             if rc == 0:
                 break
 
-            failed_task = (load_task_store().get("tasks") or {}).get(task_id, {})
+            failed_task = load_task(task_id)
             failure_details.append(_failure_detail(engine, rc, failed_task))
             if index + 1 < len(candidates) and _should_try_next_engine(rc, failed_task, last_dest, emitted_paths):
                 _append_task_log(
@@ -332,7 +340,7 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
             remove_task_record(task_id)
             return
 
-        current_task = (load_task_store().get("tasks") or {}).get(task_id, {})
+        current_task = load_task(task_id)
         if rc == 0 or output_records:
             filename_template = _filename_template(template_settings)
             metadata_by_path = _read_metadata_sidecar(metadata_sidecar)

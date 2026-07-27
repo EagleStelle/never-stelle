@@ -18,10 +18,11 @@ def scan_media() -> dict[str, int]:
     try:
         local = scan_media_library()
         external = swaratelle.scan_media_library()
+        # "unchanged" is what the incremental pass skipped: files whose bytes and
+        # resolution rules both matched the row already on file.
         return {
-            "checked": int(local.get("checked", 0)) + int(external.get("checked", 0)),
-            "missing": int(local.get("missing", 0)) + int(external.get("missing", 0)),
-            "added": int(local.get("added", 0)) + int(external.get("added", 0)),
+            key: int(local.get(key, 0)) + int(external.get(key, 0))
+            for key in ("checked", "missing", "added", "unchanged")
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
