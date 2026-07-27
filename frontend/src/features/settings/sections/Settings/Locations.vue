@@ -107,21 +107,23 @@ function locationItems(
           <div
             v-for="format in formatsFor(site.key)"
             :key="format"
-            class="flex flex-col gap-1.5"
+            class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
           >
-            <Label>
+            <Label class="sm:w-48 sm:shrink-0 break-all wrap-anywhere">
               {{ displayUrlTemplate(format) }}
             </Label>
-            <Combobox
-              :model-value="location(site.key, format)"
-              :items="locationItems(site.key, format)"
-              @update:model-value="
-                (val) => setLocation(site.key, format, val)
-              "
-              layout="fill"
-              placeholder="Choose a save path"
-              empty-text="No locations."
-            />
+            <div class="w-full sm:flex-auto">
+              <Combobox
+                :model-value="location(site.key, format)"
+                :items="locationItems(site.key, format)"
+                @update:model-value="
+                  (val) => setLocation(site.key, format, val)
+                "
+                layout="fill"
+                placeholder="Choose a save path"
+                empty-text="No locations."
+              />
+            </div>
           </div>
         </div>
       </AccordionContent>

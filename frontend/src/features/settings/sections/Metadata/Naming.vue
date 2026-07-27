@@ -61,7 +61,7 @@ function onChoice(
       </AccordionTrigger>
 
       <AccordionContent>
-        <div class="flex flex-col gap-6 pt-2">
+        <div class="flex flex-col gap-[0.85rem]">
           <FieldSet>
             <FieldLegend class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
               Title
@@ -107,7 +107,7 @@ function onChoice(
             </FieldGroup>
           </FieldSet>
 
-          <FieldSet>
+          <FieldSet class="mt-3">
             <FieldLegend class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
               Filename
             </FieldLegend>

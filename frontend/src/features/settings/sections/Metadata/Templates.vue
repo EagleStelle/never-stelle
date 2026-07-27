@@ -197,33 +197,35 @@ function insert(siteKey: string, format: string, token: string): void {
               </CardTitle>
             </CardHeader>
             <CardContent class="flex flex-col gap-3">
-              <label class="flex flex-col gap-1.5">
-                <Label>Folder</Label>
-                <Input
-                  :id="getFolderInputId(site.key, template)"
-                  :model-value="getFolderTemplate(site.key, template)"
-                  input-class="font-mono"
-                  placeholder="{{username}}"
-                  @focus="recordFocus(getFolderInputId(site.key, template))"
-                  @update:model-value="
-                    (v) => setFolderTemplate(site.key, template, String(v))
-                  "
-                />
-              </label>
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <Label class="sm:w-40 sm:shrink-0">Folder</Label>
+                <div class="w-full sm:flex-auto">
+                  <Input
+                    :id="getFolderInputId(site.key, template)"
+                    :model-value="getFolderTemplate(site.key, template)"
+                    placeholder="{{username}}"
+                    @focus="recordFocus(getFolderInputId(site.key, template))"
+                    @update:model-value="
+                      (v) => setFolderTemplate(site.key, template, String(v))
+                    "
+                  />
+                </div>
+              </div>
 
-              <label class="flex flex-col gap-1.5">
-                <Label>Filename</Label>
-                <Input
-                  :id="getFilenameInputId(site.key, template)"
-                  :model-value="getFilenameTemplate(site.key, template)"
-                  input-class="font-mono"
-                  placeholder="{{username}} - {{title}} [{{id}}]"
-                  @focus="recordFocus(getFilenameInputId(site.key, template))"
-                  @update:model-value="
-                    (v) => setFilenameTemplate(site.key, template, String(v))
-                  "
-                />
-              </label>
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <Label class="sm:w-40 sm:shrink-0">Filename</Label>
+                <div class="w-full sm:flex-auto">
+                  <Input
+                    :id="getFilenameInputId(site.key, template)"
+                    :model-value="getFilenameTemplate(site.key, template)"
+                    placeholder="{{username}} - {{title}} [{{id}}]"
+                    @focus="recordFocus(getFilenameInputId(site.key, template))"
+                    @update:model-value="
+                      (v) => setFilenameTemplate(site.key, template, String(v))
+                    "
+                  />
+                </div>
+              </div>
             </CardContent>
             <CardFooter
               v-if="baseTokens.length || customTokensFor(site.key).length"

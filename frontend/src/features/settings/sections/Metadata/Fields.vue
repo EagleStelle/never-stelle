@@ -130,9 +130,9 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
       </AccordionTrigger>
       <AccordionContent>
         <div class="flex flex-col gap-[0.85rem]">
-          <div class="flex flex-col gap-1.5">
-            <Label>Probe URL</Label>
-            <div class="flex items-center gap-2 w-full">
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <Label class="sm:w-40 sm:shrink-0">Probe URL</Label>
+            <div class="flex items-center gap-2 w-full sm:flex-auto">
               <Input
                 :id="`${site.key}FieldsProbeInput`"
                 v-model="probes[site.key].url"
@@ -214,7 +214,7 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
             </TableBody>
           </Table>
 
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3 mt-3">
             <div
               v-for="role in ROLES"
               :key="role.key"

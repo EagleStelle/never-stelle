@@ -230,7 +230,7 @@ const { height: statusBarHeight } = useElementSize(
           </div>
 
           <!-- Scrollable Content -->
-          <div class="flex-1 flex flex-col p-4">
+          <div class="flex-1 flex flex-col p-4 pb-36 lg:pb-4">
             <DownloadPanel
               v-if="['downloads', 'history'].includes(activePage)"
               :error-message="activePage === 'history' ? historyError : tasksErrorMessage"

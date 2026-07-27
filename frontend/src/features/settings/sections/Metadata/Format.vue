@@ -111,11 +111,9 @@ function isDropTarget(key: string, index: number): boolean {
       <Input
         id="formatLearnInput"
         v-model="link"
-        data-settings-system
         type="text"
         inputmode="url"
         placeholder="Paste a link"
-        class="flex-1"
         @keydown.enter.prevent="submit"
       />
       <Button

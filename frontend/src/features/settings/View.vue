@@ -171,7 +171,7 @@ function markActivePaneDirty(event: Event): void {
     :show-close="false"
     description="Configure download locations, cookies, and naming templates."
     overlay-class="settings-overlay fixed inset-0 z-60 bg-black/50 backdrop-blur-sm"
-    content-class="settings-content fixed left-1/2 top-1/2 z-70 flex w-[min(980px,96vw)] h-[min(700px,92vh)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none sm:flex-row"
+    content-class="settings-content fixed inset-0 z-70 flex w-full h-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none border-0 bg-primary focus:outline-none sm:left-1/2 sm:top-1/2 sm:right-auto sm:bottom-auto sm:w-[min(980px,96vw)] sm:h-[min(700px,92vh)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-(--glass-border) sm:flex-row"
   >
     <TabsRoot
       v-model="sectionModel"
@@ -252,7 +252,7 @@ function markActivePaneDirty(event: Event): void {
     <!-- Confirmation Dialog Overlay -->
     <div
       v-if="confirmCloseOpen"
-      class="absolute inset-0 z-80 flex items-center justify-center bg-black/60 backdrop-blur-md transition-all duration-300 rounded-2xl"
+      class="absolute inset-0 z-80 flex items-center justify-center bg-black/60 backdrop-blur-md transition-all duration-300 rounded-none sm:rounded-2xl"
     >
       <div
         class="glass-chrome flex w-[min(400px,90vw)] flex-col gap-4 rounded-xl border border-(--glass-border) bg-primary p-6 shadow-2xl"

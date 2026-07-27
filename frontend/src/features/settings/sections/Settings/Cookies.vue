@@ -186,13 +186,13 @@ function isDropTarget(key: string, index: number): boolean {
 
         <AccordionContent>
           <div class="flex flex-col gap-4">
-            <div class="flex flex-wrap gap-3">
+            <div class="flex flex-col gap-3 w-full">
               <div
                 v-for="field in POLICY_FIELDS"
                 :key="field.key"
-                class="flex flex-col gap-1.5"
+                class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 w-full"
               >
-                <div class="flex items-center gap-1.5">
+                <div class="flex items-center gap-1.5 sm:w-40 sm:shrink-0">
                   <Label :for="`${site.key}Cookie${field.key}`">
                     {{ field.label }}
                   </Label>
@@ -206,23 +206,25 @@ function isDropTarget(key: string, index: number): boolean {
                         i
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="top" align="start">
+                    <TooltipContent side="top">
                       {{ field.help }}
                     </TooltipContent>
                   </Tooltip>
                 </div>
-                <Input
-                  :id="`${site.key}Cookie${field.key}`"
-                  data-settings-system
-                  type="number"
-                  :min="field.min"
-                  :placeholder="policyPlaceholder(field.key)"
-                  :model-value="policyValue(site.key, field.key)"
-                  class="w-32"
-                  @update:model-value="
-                    (value: string | number) => setPolicyValue(site.key, field.key, value)
-                  "
-                />
+                <div class="w-full sm:flex-auto">
+                  <Input
+                    :id="`${site.key}Cookie${field.key}`"
+                    data-settings-system
+                    type="number"
+                    :min="field.min"
+                    :placeholder="policyPlaceholder(field.key)"
+                    :model-value="policyValue(site.key, field.key)"
+                    class="w-full"
+                    @update:model-value="
+                      (value: string | number) => setPolicyValue(site.key, field.key, value)
+                    "
+                  />
+                </div>
               </div>
             </div>
 
@@ -235,61 +237,62 @@ function isDropTarget(key: string, index: number): boolean {
               @change="onCookieFile(site.key, $event)"
             />
 
-            <Card v-if="!cookiesFor(site.key).length" class="px-6">
-              <p class="text-[0.8125rem] text-muted-foreground">
-                No cookies file yet.
-              </p>
-            </Card>
-
-            <ul v-else class="flex flex-col gap-1">
-              <li
-                v-for="(cookie, index) in cookiesFor(site.key)"
-                :key="cookie.id"
-                draggable="true"
-                class="flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors cursor-grab active:cursor-grabbing"
-                :class="[
-                  isDragging(site.key, index) ? 'opacity-40' : '',
-                  isDropTarget(site.key, index) ? 'bg-accent/15' : '',
-                ]"
-                @dragstart="onDragStart(site.key, index, $event)"
-                @dragover.prevent="onDragOver(site.key, index)"
-                @drop.prevent="onDrop(site.key, index)"
-                @dragend="resetDrag"
-              >
-                <IconDrag class="w-4 h-4 shrink-0 opacity-50" aria-hidden="true" />
-                <span
-                  class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere"
+            <div class="flex flex-col gap-1.5 mt-3">
+              <Label>Cookie Pool</Label>
+              <ul class="flex flex-col gap-1">
+                <li
+                  v-for="(cookie, index) in cookiesFor(site.key)"
+                  :key="cookie.id"
+                  draggable="true"
+                  class="flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors cursor-grab active:cursor-grabbing"
+                  :class="[
+                    isDragging(site.key, index) ? 'opacity-40' : '',
+                    isDropTarget(site.key, index) ? 'bg-accent/15' : '',
+                  ]"
+                  @dragstart="onDragStart(site.key, index, $event)"
+                  @dragover.prevent="onDragOver(site.key, index)"
+                  @drop.prevent="onDrop(site.key, index)"
+                  @dragend="resetDrag"
                 >
-                  {{ cookie.filename }}
-                </span>
-                <Button
-                  variant="danger"
-                  type="button"
-                  class="shrink-0"
-                  title="Delete cookies file"
-                  aria-label="Delete cookies file"
-                  @click="deleteCookie(site.key, cookie.id)"
-                >
-                  <template #icon>
-                    <IconTrash class="w-4 h-4" aria-hidden="true" />
-                  </template>
-                </Button>
-              </li>
-            </ul>
-
-            <Button
-              variant="soft"
-              type="button"
-              class="self-start"
-              :title="`Upload ${site.label} cookie`"
-              :aria-label="`Upload ${site.label} cookie`"
-              @click="openPicker(site.key)"
-            >
-              <template #icon>
-                <IconUpload class="w-4 h-4" aria-hidden="true" />
-              </template>
-              Upload cookie
-            </Button>
+                  <IconDrag class="w-4 h-4 shrink-0 opacity-50" aria-hidden="true" />
+                  <span
+                    class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere"
+                  >
+                    {{ cookie.filename }}
+                  </span>
+                  <Button
+                    variant="danger"
+                    type="button"
+                    class="shrink-0"
+                    title="Delete cookies file"
+                    aria-label="Delete cookies file"
+                    @click="deleteCookie(site.key, cookie.id)"
+                  >
+                    <template #icon>
+                      <IconTrash class="w-4 h-4" aria-hidden="true" />
+                    </template>
+                  </Button>
+                </li>
+                <li class="flex items-center gap-1.5 rounded-md px-1 py-1">
+                  <IconUpload class="w-4 h-4 shrink-0 opacity-50" aria-hidden="true" />
+                  <span class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere">
+                    Upload cookie
+                  </span>
+                  <Button
+                    variant="primary"
+                    type="button"
+                    class="shrink-0"
+                    :title="`Upload ${site.label} cookie`"
+                    :aria-label="`Upload ${site.label} cookie`"
+                    @click="openPicker(site.key)"
+                  >
+                    <template #icon>
+                      <IconUpload class="w-4 h-4" aria-hidden="true" />
+                    </template>
+                  </Button>
+                </li>
+              </ul>
+            </div>
           </div>
         </AccordionContent>
       </AccordionItem>

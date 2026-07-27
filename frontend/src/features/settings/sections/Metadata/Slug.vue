@@ -15,8 +15,8 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  CardDescription,
 } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import type { LearnedSegment, TokenRole } from "@/types";
 import { useSlugTokens } from "@/features/settings/composables/useSlugTokens";
 import { useSettingsContext } from "@/features/settings/context";
@@ -102,65 +102,73 @@ function roleDisabled(
         </Card>
 
         <div v-else class="flex flex-col gap-[0.85rem]">
-          <Label
+          <Card
             v-for="template in learnedFormat(site.key)?.templates || []"
             :key="template"
           >
-            {{ displayTemplate(site.key, template) }}
-          </Label>
-
-          <Card v-if="!selectableSegments(site.key).length" class="px-6">
-            <p class="text-[0.8125rem] text-muted-foreground">
-              This platform has no configurable parts yet.
-            </p>
-          </Card>
-
-          <Card
-            v-for="segment in selectableSegments(site.key)"
-            :key="segment.part"
-          >
             <CardHeader>
               <CardTitle class="font-mono text-sm leading-snug">
-                {{ segmentLabel(site.key, segment) }}
+                {{ displayTemplate(site.key, template) }}
               </CardTitle>
-              <CardDescription class="font-mono text-xs">
-                {{ segment.part }}
-              </CardDescription>
             </CardHeader>
 
-            <CardContent class="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <label class="flex flex-col gap-1.5">
-                <Label>Token</Label>
-                <Input
-                  :model-value="tokenForPart(site.key, segment.part, segment)"
-                  aria-label="Token name"
-                  input-class="font-mono"
-                  @update:model-value="
-                    (v) =>
-                      setTokenName(site.key, segment.part, String(v), segment)
-                  "
-                />
-              </label>
+            <CardContent class="flex flex-col gap-4">
+              <p
+                v-if="!selectableSegments(site.key).length"
+                class="text-[0.8125rem] text-muted-foreground"
+              >
+                This platform has no configurable parts yet.
+              </p>
 
-              <div class="flex flex-col gap-1.5">
-                <Label>Role</Label>
-                <SegmentedControl
-                  :model-value="roleValue(site.key, segment)"
-                  class="flex-wrap h-auto min-h-9"
-                  @update:model-value="
-                    (value) => updateRole(site.key, segment, value)
-                  "
-                >
-                  <SegmentedControlItem
-                    v-for="role in ROLE_ITEMS"
-                    :key="role.key"
-                    :value="role.key"
-                    :disabled="roleDisabled(site.key, segment, role.key)"
-                  >
-                    {{ role.label }}
-                  </SegmentedControlItem>
-                </SegmentedControl>
-              </div>
+              <template
+                v-for="(segment, i) in selectableSegments(site.key)"
+                :key="segment.part"
+              >
+                <Separator v-if="i > 0" class="my-2" />
+
+                <div class="flex flex-col gap-3">
+                  <span class="font-mono text-sm font-semibold">
+                    {{ segmentLabel(site.key, segment) }}
+                  </span>
+
+                  <div class="flex flex-col gap-3">
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                      <Label class="sm:w-16 sm:shrink-0">Token</Label>
+                      <div class="w-full sm:flex-auto">
+                        <Input
+                          :model-value="tokenForPart(site.key, segment.part, segment)"
+                          aria-label="Token name"
+                          @update:model-value="
+                            (v) =>
+                              setTokenName(site.key, segment.part, String(v), segment)
+                          "
+                        />
+                      </div>
+                    </div>
+
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                      <Label class="sm:w-16 sm:shrink-0">Role</Label>
+                      <div class="w-full sm:flex-auto">
+                        <SegmentedControl
+                          :model-value="roleValue(site.key, segment)"
+                          @update:model-value="
+                            (value) => updateRole(site.key, segment, value)
+                          "
+                        >
+                          <SegmentedControlItem
+                            v-for="role in ROLE_ITEMS"
+                            :key="role.key"
+                            :value="role.key"
+                            :disabled="roleDisabled(site.key, segment, role.key)"
+                          >
+                            {{ role.label }}
+                          </SegmentedControlItem>
+                        </SegmentedControl>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
             </CardContent>
           </Card>
         </div>
