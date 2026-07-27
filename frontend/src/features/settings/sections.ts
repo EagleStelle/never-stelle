@@ -1,7 +1,6 @@
 import type { Component } from "vue";
 import IconAccount from "~icons/material-symbols/admin-panel-settings";
 import IconCookie from "~icons/material-symbols/cookie";
-import IconDescription from "~icons/material-symbols/description";
 import IconFolder from "~icons/material-symbols/folder";
 import IconQuality from "~icons/material-symbols/high-quality";
 import IconFields from "~icons/material-symbols/badge";
@@ -62,8 +61,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     group: "Settings",
     icon: IconCookie,
     component: Cookies,
-    focusId: (source) => `${source}CookiesInput`,
-    requiresSources: false,
+    requiresSources: true,
   },
   {
     key: "quality",

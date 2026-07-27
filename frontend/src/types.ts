@@ -186,14 +186,28 @@ export interface QualityOptions {
   audio_bitrates: QualityPreset[];
 }
 
-export interface CookiesStatus {
-  configured: boolean;
-  source: "uploaded" | "none" | string;
+export interface CookieFile {
+  id: string;
   filename: string;
   uploaded_at: string;
 }
 
+export interface CookiesStatus {
+  configured: boolean;
+  count: number;
+  cookies: CookieFile[];
+}
+
 export type CookiesMap = Record<string, CookiesStatus>;
+
+export type CookiePolicyField = "limit" | "window" | "delay" | "cooldown" | "wait";
+
+// Only the fields a source overrides; the rest fall back to cookie_policy_defaults.
+export type CookiePolicy = Partial<Record<CookiePolicyField, number>>;
+
+export type SourceCookiePolicies = Record<string, CookiePolicy>;
+
+export type CookiePolicyDefaults = Record<CookiePolicyField, number>;
 
 export interface AuthSettings {
   username: string;
@@ -218,6 +232,7 @@ export interface SavedSettings {
   source_slug_tokens: SourceSlugTokens;
   source_fields: SourceFields;
   source_title_cleaning: SourceTitleCleaning;
+  source_cookie_policies: SourceCookiePolicies;
 }
 
 export interface SettingsDraft extends SavedSettings {
@@ -234,6 +249,7 @@ export interface RuntimeSettings extends SavedSettings {
   download_locations: string[];
   source_location_roots: SourceLocationRoots;
   ytdlp_cookies: CookiesMap;
+  cookie_policy_defaults: CookiePolicyDefaults;
   quality_options: QualityOptions;
   template_tokens: TemplateToken[];
   field_defaults: FieldRoles;
@@ -264,6 +280,8 @@ export interface UiConfigResponse {
   title_cleaning_rules?: TitleCleaningRule[];
   naming_choices?: NamingChoice[];
   ytdlp_cookies?: Record<string, Partial<CookiesStatus>>;
+  source_cookie_policies?: Record<string, CookiePolicy>;
+  cookie_policy_defaults?: Partial<CookiePolicyDefaults>;
   default_quality?: Partial<QualitySelection>;
   quality_options?: Partial<QualityOptions>;
   template_tokens?: TemplateToken[];

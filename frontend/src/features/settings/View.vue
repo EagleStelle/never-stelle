@@ -37,6 +37,7 @@ const props = defineProps<{
     sourceKey: string,
     templates: string[],
   ) => Promise<void>;
+  reorderCookies: (sourceKey: string, cookieIds: string[]) => Promise<void>;
   hasUnsavedChanges: boolean;
   markSettingsDraftDirty: (section?: SettingsSection) => void;
   saveSettingsDraft: () => Promise<void>;
@@ -45,8 +46,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   connectCookies: [platform: string, file?: File];
-  connectCookiesSource: [source: string, file?: File];
-  removeCookies: [platform: string];
+  removeCookies: [platform: string, cookieId: string];
   "update:open": [open: boolean];
   "update:section": [section: SettingsSection];
 }>();
@@ -84,14 +84,13 @@ provideSettingsContext({
   cookieStatuses: computed(() => props.cookieStatuses),
   editableSourceProfiles,
   connectCookies: (platform, file) => emit("connectCookies", platform, file),
-  connectCookiesSource: (source, file) =>
-    emit("connectCookiesSource", source, file),
-  removeCookies: (platform) => emit("removeCookies", platform),
+  removeCookies: (platform, cookieId) => emit("removeCookies", platform, cookieId),
   learnFormat: (url) => props.learnFormat(url),
   probeFields: (url, sourceKey) =>
     props.probeFields(url, sourceKey),
   reorderFormatTemplates: (sourceKey, templates) =>
     props.reorderFormatTemplates(sourceKey, templates),
+  reorderCookies: (sourceKey, cookieIds) => props.reorderCookies(sourceKey, cookieIds),
   markSettingsDraftDirty: (section) =>
     props.markSettingsDraftDirty(section || props.section),
   saveSettingsDraft: () => props.saveSettingsDraft(),

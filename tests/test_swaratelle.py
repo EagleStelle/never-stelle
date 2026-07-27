@@ -207,7 +207,7 @@ def test_iwara_is_not_exposed_as_never_stelle_settings(monkeypatch: pytest.Monke
     monkeypatch.setenv("SWARATELLE_URL", "http://swaratelle:8842")
     monkeypatch.setattr(settings_profiles_module, "_activity_source_profiles", lambda config_profiles: [])
     monkeypatch.setattr(settings_module, "load_saved_settings_file", lambda: {})
-    monkeypatch.setattr(settings_cookies_module, "get_file_blob_metadata", lambda key: None)
+    monkeypatch.setattr(settings_cookies_module, "list_source_cookies", lambda source_key: [])
 
     settings = settings_module.get_effective_saved_settings({"downloadLocations": ["/media"]})
 

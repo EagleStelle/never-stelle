@@ -20,6 +20,7 @@
 - Browse, paginate, and search completed download history.
 - Reconcile history against files on disk.
 - Customize output with folder and filename templates.
+- Rotate any number of cookie files per source, spreading requests across them under per-source rate limits, and retry the whole list when one stops working.
 - Protect the app with session-based login and in-app account management.
 
 ## Docker
@@ -163,7 +164,7 @@ The container path stays `/media/youtube`, so history entries remain valid. Skip
 | API layer       | `backend/app/api`                            | FastAPI                                                        | Defines focused routers, request schemas, session dependencies, JSON responses, history pagination, and scans.           |
 | Domains         | `backend/app/domains`                        | Python                                                         | Groups app behavior by business area: auth, downloads, library scans, and settings.                                      |
 | Integrations    | `backend/app/integrations`                   | HTTPX                                                          | Contains external service clients such as Swaratelle for Iwara/Oreno3D delegation.                                       |
-| Persistence     | `backend/app/db`                             | SQLite                                                         | Stores settings, task queue rows, history records, learned URL formats, and uploaded cookie blobs.                       |
+| Persistence     | `backend/app/db`                             | SQLite                                                         | Stores settings, task queue rows, history records, learned URL formats, and uploaded cookie files.                       |
 | Frontend app    | `frontend/src`                               | Vue 3, TypeScript, TanStack Query, shadcn-vue, Tailwind CSS v4 | Provides the Downloads, History, and Settings screens, a same-origin API client, polling, and mutations.                 |
 | Tests           | `tests`, `.github/workflows`                 | pytest, Ruff, Vite build                                       | Covers domains, API routes, persistence, and reconciliation; CI also builds the frontend on every push and pull request. |
 
@@ -191,8 +192,10 @@ The app authenticates with a session cookie set by `POST /api/auth/login`. All r
 | `POST`   | `/api/settings/probe-fields`                             | Probes and saves creator field priorities.                  |
 | `POST`   | `/api/settings/learn-format`                             | Learns a URL format from a pasted source link.              |
 | `PUT`    | `/api/settings/formats/{source_key}`                     | Reorders or deletes learned URL templates.                  |
-| `PUT`    | `/api/settings/cookies/{source_key}`                     | Uploads a cookie file for a source.                         |
-| `DELETE` | `/api/settings/cookies/{source_key}`                     | Removes uploaded cookies for a source.                      |
+| `POST`   | `/api/settings/cookies/{source_key}`                     | Adds a cookie file to a source's rotation.                  |
+| `PUT`    | `/api/settings/cookies/{source_key}/order`               | Reorders a source's cookie files.                           |
+| `DELETE` | `/api/settings/cookies/{source_key}/{cookie_id}`         | Removes one cookie file from a source.                      |
+| `DELETE` | `/api/settings/cookies/{source_key}`                     | Removes every cookie file for a source.                     |
 | `DELETE` | `/api/downloads/{id}`                                    | Removes a pending task.                                     |
 | `POST`   | `/api/downloads/{id}/cancel`                             | Cancels a running task.                                     |
 | `POST`   | `/api/downloads/{id}/retry`                              | Retries a failed task.                                      |

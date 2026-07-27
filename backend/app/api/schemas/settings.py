@@ -16,6 +16,7 @@ class SettingsPayload(BaseModel):
     source_slug_tokens: dict[str, Any] = Field(default_factory=dict)
     source_fields: dict[str, Any] = Field(default_factory=dict)
     source_title_cleaning: dict[str, Any] = Field(default_factory=dict)
+    source_cookie_policies: dict[str, Any] = Field(default_factory=dict)
 
 
 class ScrapeTestPayload(BaseModel):
@@ -35,4 +36,8 @@ class LearnFormatPayload(BaseModel):
 
 class FormatTemplatesPayload(BaseModel):
     templates: list[str] = Field(default_factory=list)
+
+
+class CookieOrderPayload(BaseModel):
+    cookie_ids: list[str] = Field(default_factory=list)
 

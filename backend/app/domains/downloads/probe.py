@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Iterator
+from contextlib import closing
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
 
 from backend.app.core.sources import normalize_source_key, source_key_from_url
 from backend.app.domains.settings import (
+    cookie_rotation,
     detect_cookie_source,
-    find_cookies_file_for_source,
-    find_cookies_file_for_url,
+    has_cookies_for_source,
+    looks_rate_limited,
 )
 
 from .constants import (
@@ -49,15 +52,21 @@ def _resolved_probe_source_key(url: str, source_key: str = "") -> str:
     return keys[0] if keys else source_key_from_url(url)
 
 
-def _probe_cookies_file(url: str, source_key: str = "") -> str:
+def _probe_cookie_source(url: str, source_key: str = "") -> str:
     for key in _probe_cookie_source_keys(url, source_key):
-        cookies_file = find_cookies_file_for_source(key)
-        if cookies_file:
-            return cookies_file
-    try:
-        return find_cookies_file_for_url(url)
-    except Exception:
-        return ""
+        try:
+            if has_cookies_for_source(key):
+                return key
+        except Exception:
+            continue
+    return ""
+
+
+def _probe_cookie_rotation(url: str, source_key: str = "") -> Iterator[Any]:
+    """Every jar the source has, one at a time, until the caller finds one that works."""
+    key = _probe_cookie_source(url, source_key)
+    if key:
+        yield from cookie_rotation(key)
 
 
 def _strip_playlist_param(url: str) -> str:
@@ -98,18 +107,28 @@ def _flat_playlist(url: str) -> dict[str, Any]:
         "--remote-components",
         "ejs:github",
     ]
-    cookies_file = _probe_cookies_file(url)
-    if cookies_file:
-        cmd.extend(["--cookies", cookies_file])
-    cmd.extend(["--playlist-end", str(_MAX_ENTRIES), url])
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=_PROBE_TIMEOUT_SECONDS,
-    )
+
+    def _exec(cookies_file: str) -> subprocess.CompletedProcess[str]:
+        extra = ["--cookies", cookies_file] if cookies_file else []
+        return subprocess.run(
+            cmd + extra + ["--playlist-end", str(_MAX_ENTRIES), url],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=_PROBE_TIMEOUT_SECONDS,
+        )
+
+    # Anonymous read first; cookies are only borrowed when the public listing fails.
+    result = _exec("")
+    if result.returncode != 0:
+        with closing(_probe_cookie_rotation(url)) as rotation:
+            for lease in rotation:
+                retry = _exec(lease.path)
+                if retry.returncode == 0:
+                    result = retry
+                    break
+                lease.banned = looks_rate_limited(retry.stderr or retry.stdout)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip().splitlines()
         # Rejected link is client input: ValueError -> route maps to 400, not 502.
@@ -248,8 +267,6 @@ def _ytdlp_dump(
         "--remote-components",
         "ejs:github",
     ]
-    cookies_file = _probe_cookies_file(url, cookie_source_key) if with_cookies else ""
-
     def _exec(extra_args: list[str]) -> tuple[dict[str, Any] | None, str]:
         try:
             result = subprocess.run(
@@ -272,12 +289,17 @@ def _ytdlp_dump(
         except json.JSONDecodeError:
             return None, ""
 
-    if cookies_file:
-        res, err = _exec(["--cookies", cookies_file])
-        if res is not None:
-            return res, ""
-        return _exec([])
-    return _exec([])
+    info, error = _exec([])
+    if info is not None or not with_cookies:
+        return info, error
+    with closing(_probe_cookie_rotation(url, cookie_source_key)) as rotation:
+        for lease in rotation:
+            info, cookie_error = _exec(["--cookies", lease.path])
+            if info is not None:
+                return info, ""
+            lease.banned = looks_rate_limited(cookie_error)
+            error = cookie_error or error
+    return None, error
 
 
 def _gallerydl_richest_metadata(node: Any) -> dict[str, Any]:
@@ -296,7 +318,7 @@ def _gallerydl_richest_metadata(node: Any) -> dict[str, Any]:
 
 def _gallerydl_dump(url: str, *, with_cookies: bool = True, cookie_source_key: str = "") -> dict[str, Any] | None:
     cmd = ["gallery-dl", "-j", "-o", _GALLERYDL_TIKTOK_NO_AUDIO_OPTION]
-    cookies_file = _probe_cookies_file(url, cookie_source_key) if with_cookies else ""
+    errors: list[str] = []
 
     def _exec(extra_args: list[str]) -> dict[str, Any] | None:
         try:
@@ -311,6 +333,7 @@ def _gallerydl_dump(url: str, *, with_cookies: bool = True, cookie_source_key: s
         except (OSError, subprocess.SubprocessError):
             return None
         if result.returncode != 0:
+            errors.append(result.stderr or result.stdout or "")
             return None
         try:
             data = json.loads(result.stdout or "[]")
@@ -319,12 +342,17 @@ def _gallerydl_dump(url: str, *, with_cookies: bool = True, cookie_source_key: s
         metadata = _gallerydl_richest_metadata(data)
         return metadata or None
 
-    if cookies_file:
-        res = _exec(["--cookies", cookies_file])
-        if res is not None:
-            return res
-        return _exec([])
-    return _exec([])
+    metadata = _exec([])
+    if metadata is not None or not with_cookies:
+        return metadata
+    with closing(_probe_cookie_rotation(url, cookie_source_key)) as rotation:
+        for lease in rotation:
+            errors.clear()
+            metadata = _exec(["--cookies", lease.path])
+            if metadata is not None:
+                return metadata
+            lease.banned = looks_rate_limited(" ".join(errors))
+    return None
 
 
 def probe_metadata(source_url: str, *, with_cookies: bool = True, cookie_source_key: str = "") -> dict[str, str]:
@@ -385,7 +413,7 @@ def probe_fields(source_url: str, source_key: str = "") -> dict[str, Any]:
     errors: list[str] = []
     for with_cookies in (False, True):
         if with_cookies:
-            if _candidate_field_count(probed) or not _probe_cookies_file(url, resolved_key):
+            if _candidate_field_count(probed) or not _probe_cookie_source(url, resolved_key):
                 break
         attempt_probed, attempt_errors = _probe_field_metadata(
             url,

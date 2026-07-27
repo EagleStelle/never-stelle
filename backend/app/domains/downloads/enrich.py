@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import http.cookiejar
 import re
+from contextlib import closing
 from typing import Any
 
 import httpx
 
 from backend.app.core.sources import normalize_source_key
 from backend.app.domains.settings import (
-    find_cookies_file_for_source,
-    find_cookies_file_for_url,
+    cookie_rotation,
+    detect_cookie_source,
     scraper_token_from_field,
 )
 
@@ -244,26 +245,28 @@ def fetch_html(url: str, cookie_source_key: str = "") -> str:
     except Exception:
         pass
 
-    # Attempt 2: Fallback with cookies if available
-    cookies_file = (
-        find_cookies_file_for_source(cookie_source_key) if cookie_source_key else find_cookies_file_for_url(url)
-    )
-    jar = _load_cookie_jar(cookies_file)
-    if jar:
-        try:
-            response = httpx.get(
-                url,
-                follow_redirects=True,
-                timeout=_FETCH_TIMEOUT_SECONDS,
-                headers=headers,
-                cookies=httpx.Cookies(jar),
-            )
+    # Attempt 2: walk the source's jars until one returns the page
+    source_key = cookie_source_key or detect_cookie_source(url)
+    with closing(cookie_rotation(source_key)) as rotation:
+        for lease in rotation:
+            jar = _load_cookie_jar(lease.path)
+            if not jar:
+                continue
+            try:
+                response = httpx.get(
+                    url,
+                    follow_redirects=True,
+                    timeout=_FETCH_TIMEOUT_SECONDS,
+                    headers=headers,
+                    cookies=httpx.Cookies(jar),
+                )
+            except Exception:
+                continue
             if response.status_code < 400:
                 content_type = response.headers.get("content-type", "").lower()
                 if not content_type or "html" in content_type or "xml" in content_type:
                     return response.text
-        except Exception:
-            pass
+            lease.banned = response.status_code in {403, 429}
 
     return ""
 

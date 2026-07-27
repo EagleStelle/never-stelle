@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import tempfile
 import time
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -48,15 +49,16 @@ from backend.app.domains.downloads.workers.pathing import _fallback_excluded_ext
 from backend.app.domains.downloads.workers.processes import _cancel_pending, _clear_cancel
 from backend.app.domains.downloads.workers.runner import _run_engine_to_task
 from backend.app.domains.settings import (
+    cookie_rotation,
     detect_cookie_source,
     get_effective_fields,
     get_effective_title_cleaning,
     has_cookies_for_source,
-    has_cookies_for_url,
     is_scraper_field,
     load_scrape_rules,
     load_slug_tokens,
     load_token_roles,
+    looks_rate_limited,
 )
 
 # Log markers meaning the backend has no extractor or no downloadable media
@@ -119,6 +121,11 @@ def _append_task_log(task_id: str, message: str) -> None:
     update_task(task_id, last_log_lines=log_lines[-30:])
 
 
+def _task_log_tail(task_id: str) -> str:
+    current = (load_task_store().get("tasks") or {}).get(task_id, {})
+    return " ".join(str(line) for line in (current.get("last_log_lines") or []))
+
+
 def _run_engine_attempts(
     engine: Engine,
     task_id: str,
@@ -133,31 +140,48 @@ def _run_engine_attempts(
     excluded_extensions: set[str] | None = None,
     quality: dict[str, str] | None = None,
 ) -> tuple[int, str, list[str]]:
-    # Anonymous first; fallback to authenticated when a cookie jar exists.
-    has_cookies = has_cookies_for_source(cookie_source_key) or has_cookies_for_url(source_url)
-    attempts = [False, True] if has_cookies else [False]
-    rc = 1
-    last_dest = ""
-    emitted_paths: list[str] = []
-    for with_cookies in attempts:
-        if with_cookies:
-            _append_task_log(task_id, "[never-stelle] Attempting download with cookies...")
-            update_task(task_id, progress_pct=0)
+    def _attempt(cookies_file: str) -> tuple[int, str, list[str]]:
         cmd = engine.build_command(
             source_url,
             output_dir=output_dir,
             ffmpeg_location=ffmpeg_location,
             output_template=output_template,
-            with_cookies=with_cookies,
-            cookie_source_key=cookie_source_key,
+            cookies_file=cookies_file,
             creator_sidecar=creator_sidecar,
             metadata_sidecar=metadata_sidecar,
             excluded_extensions=excluded_extensions,
             quality=quality,
         )
-        rc, last_dest, emitted_paths = _run_engine_to_task(engine, task_id, cmd, total_items=total_items)
-        if rc == 0 or _has_output_media(last_dest, emitted_paths) or _cancel_pending(task_id):
-            break
+        return _run_engine_to_task(engine, task_id, cmd, total_items=total_items)
+
+    # Anonymous first: a cookie is only spent when the public path actually fails.
+    rc, last_dest, emitted_paths = _attempt("")
+    if rc == 0 or _has_output_media(last_dest, emitted_paths) or _cancel_pending(task_id):
+        return rc, last_dest, emitted_paths
+    if not has_cookies_for_source(cookie_source_key):
+        return rc, last_dest, emitted_paths
+
+    # Walk the source's jars until one works. The rotation hands out the coldest jar
+    # first, so parallel tasks spread over the list instead of queueing on entry one.
+    tried = 0
+    with closing(cookie_rotation(cookie_source_key)) as rotation:
+        for lease in rotation:
+            tried += 1
+            _append_task_log(task_id, f"[never-stelle] Attempting download with cookies ({lease.filename})...")
+            update_task(task_id, progress_pct=0)
+            rc, last_dest, emitted_paths = _attempt(lease.path)
+            if rc == 0 or _has_output_media(last_dest, emitted_paths) or _cancel_pending(task_id):
+                return rc, last_dest, emitted_paths
+            lease.banned = looks_rate_limited(_task_log_tail(task_id))
+            _append_task_log(
+                task_id,
+                f"[never-stelle] {lease.filename} did not work; trying the next cookies file...",
+            )
+    if not tried:
+        _append_task_log(
+            task_id,
+            "[never-stelle] Every cookies file for this source is resting; skipped the signed-in attempt.",
+        )
     return rc, last_dest, emitted_paths
 
 
@@ -258,15 +282,11 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
                     source_url, output_dir, template_settings, quality, extra_tokens
                 )
             excluded_extensions = _fallback_excluded_extensions(engine, output_records)
+            # Counting is a courtesy pass for the progress bar, never worth a cookie.
             total_items = (
                 0
                 if engine.emits_progress
-                else engine.count_items(
-                    source_url,
-                    with_cookies=has_cookies_for_source(cookie_source_key) or has_cookies_for_url(source_url),
-                    cookie_source_key=cookie_source_key,
-                    excluded_extensions=excluded_extensions,
-                )
+                else engine.count_items(source_url, excluded_extensions=excluded_extensions)
             )
 
             started_at = time.time()

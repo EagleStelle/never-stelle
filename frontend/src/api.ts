@@ -138,28 +138,38 @@ export function setFormatTemplates(sourceKey: string, templates: string[]): Prom
   );
 }
 
-export function uploadPlatformCookies(platform: string, file: File, source = ""): Promise<UiConfigResponse> {
+export function uploadPlatformCookies(platform: string, file: File): Promise<UiConfigResponse> {
   const formData = new FormData();
   formData.append("file", file);
-  if (source) formData.append("source", source);
-  const target = source ? platform || "source" : platform.trim();
+  const target = platform.trim();
   if (!target) return Promise.reject(new Error("Choose a source first."));
   return jsonRequest<UiConfigResponse>(
     `/api/settings/cookies/${encodeURIComponent(target)}`,
     {
-      method: "PUT",
+      method: "POST",
       body: formData,
     },
     "Could not connect cookies.",
   );
 }
 
-export function deletePlatformCookies(platform: string): Promise<UiConfigResponse> {
+export function reorderPlatformCookies(platform: string, cookieIds: string[]): Promise<UiConfigResponse> {
   return jsonRequest<UiConfigResponse>(
-    `/api/settings/cookies/${encodeURIComponent(platform)}`,
-    { method: "DELETE" },
-    "Could not remove cookies.",
+    `/api/settings/cookies/${encodeURIComponent(platform)}/order`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cookie_ids: cookieIds }),
+    },
+    "Could not reorder cookies.",
   );
+}
+
+export function deletePlatformCookies(platform: string, cookieId = ""): Promise<UiConfigResponse> {
+  const path = cookieId
+    ? `/api/settings/cookies/${encodeURIComponent(platform)}/${encodeURIComponent(cookieId)}`
+    : `/api/settings/cookies/${encodeURIComponent(platform)}`;
+  return jsonRequest<UiConfigResponse>(path, { method: "DELETE" }, "Could not remove cookies.");
 }
 
 export function getTasks(): Promise<TasksResponse> {

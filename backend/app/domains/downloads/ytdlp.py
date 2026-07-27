@@ -5,8 +5,6 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.domains.settings import (
-    find_cookies_file_for_source,
-    find_cookies_file_for_url,
     get_effective_fields,
     get_effective_template_settings,
     get_effective_title_cleaning,
@@ -177,8 +175,7 @@ def build_ytdlp_command(
     ffmpeg_location: str,
     output_template: str,
     *,
-    with_cookies: bool = False,
-    cookie_source_key: str = "",
+    cookies_file: str = "",
     creator_sidecar: str = "",
     metadata_sidecar: str = "",
     quality: dict[str, str] | None = None,
@@ -250,30 +247,24 @@ def build_ytdlp_command(
             ]
         )
         cmd.extend(["--print-to-file", f"after_move:{item_template}", metadata_sidecar])
-    if with_cookies:
-        cookies_file = (
-            find_cookies_file_for_source(cookie_source_key)
-            if cookie_source_key
-            else find_cookies_file_for_url(source_url)
+    if cookies_file:
+        cmd.extend(
+            [
+                "--cookies",
+                cookies_file,
+                "--sleep-requests",
+                "1",
+                "--min-sleep-interval",
+                "2",
+                "--max-sleep-interval",
+                "6",
+                "--retries",
+                "5",
+                "--fragment-retries",
+                "5",
+                "--retry-sleep",
+                "linear=1::2",
+            ]
         )
-        if cookies_file:
-            cmd.extend(
-                [
-                    "--cookies",
-                    cookies_file,
-                    "--sleep-requests",
-                    "1",
-                    "--min-sleep-interval",
-                    "2",
-                    "--max-sleep-interval",
-                    "6",
-                    "--retries",
-                    "5",
-                    "--fragment-retries",
-                    "5",
-                    "--retry-sleep",
-                    "linear=1::2",
-                ]
-            )
     cmd.extend(["--output", output_template, source_url])
     return cmd

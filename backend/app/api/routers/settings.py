@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from backend.app.api.deps import require_authenticated_session
 from backend.app.api.schemas.settings import (
+    CookieOrderPayload,
     FormatTemplatesPayload,
     LearnFormatPayload,
     ProbeFieldsPayload,
@@ -16,11 +17,12 @@ from backend.app.core.config import load_app_config
 from backend.app.domains.settings import (
     add_source_and_learn_format,
     build_settings_response,
+    clear_ytdlp_cookie,
     clear_ytdlp_cookies_upload,
     detect_cookie_source,
-    ensure_source_profile_for_url,
     get_effective_saved_settings,
     persist_settings,
+    reorder_ytdlp_cookies,
     save_ytdlp_cookies_upload,
     set_learned_format_templates,
 )
@@ -57,6 +59,7 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
         payload.source_fields,
         payload.source_title_cleaning,
         payload.source_slug_tokens,
+        payload.source_cookie_policies,
     )
     return build_settings_response(cfg, saved)
 
@@ -145,19 +148,36 @@ def set_format_templates(source_key: str, payload: FormatTemplatesPayload) -> di
     return _settings_response()
 
 
-@router.put("/cookies/{source_key}")
+@router.post("/cookies/{source_key}")
 async def upload_cookies(
     source_key: str,
     file: UploadFile = File(...),
-    source: str = Form(""),
 ) -> dict[str, Any]:
-    target = ensure_source_profile_for_url(source) if source.strip() else source_key
+    """Add one more jar to a source's rotation pool."""
     try:
-        await save_ytdlp_cookies_upload(file, target)
+        await save_ytdlp_cookies_upload(file, source_key)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return _settings_response()
+
+
+@router.put("/cookies/{source_key}/order")
+def reorder_cookies(source_key: str, payload: CookieOrderPayload) -> dict[str, Any]:
+    try:
+        reorder_ytdlp_cookies(source_key, payload.cookie_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _settings_response()
+
+
+@router.delete("/cookies/{source_key}/{cookie_id}")
+def delete_cookie(source_key: str, cookie_id: str) -> dict[str, Any]:
+    try:
+        clear_ytdlp_cookie(source_key, cookie_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _settings_response()
 
 

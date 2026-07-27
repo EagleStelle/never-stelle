@@ -12,3 +12,8 @@ def load_saved_settings_file() -> dict[str, Any]:
 
 def save_saved_settings_file(payload: dict[str, Any]) -> None:
     save_settings_payload(payload if isinstance(payload, dict) else {})
+    # Sole settings write path, so cached derivations can trust their entries
+    # until this fires instead of re-reading the row per use.
+    from .cookie_policy import invalidate_cookie_policies
+
+    invalidate_cookie_policies()

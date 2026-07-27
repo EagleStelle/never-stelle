@@ -107,16 +107,20 @@ def resolve_redirect_url(source_url: str) -> str:
     if resolved and resolved != url:
         return resolved
 
-    # Attempt 2: Resolve redirect with cookies if available
-    from backend.app.domains.downloads.enrich import _load_cookie_jar
-    from backend.app.domains.settings import find_cookies_file_for_url
+    # Attempt 2: walk the source's cookie jars until one expands the link
+    from contextlib import closing
 
-    cookies_file = find_cookies_file_for_url(url)
-    jar = _load_cookie_jar(cookies_file) if cookies_file else None
-    if jar:
-        resolved = _resolve_redirect_request(url, jar=jar)
-        if resolved and resolved != url:
-            return resolved
+    from backend.app.domains.downloads.enrich import _load_cookie_jar
+    from backend.app.domains.settings import cookie_rotation, detect_cookie_source
+
+    with closing(cookie_rotation(detect_cookie_source(url))) as rotation:
+        for lease in rotation:
+            jar = _load_cookie_jar(lease.path)
+            if not jar:
+                continue
+            resolved = _resolve_redirect_request(url, jar=jar)
+            if resolved and resolved != url:
+                return resolved
 
     return source_url
 

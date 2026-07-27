@@ -827,26 +827,19 @@ def test_ytdlp_command_includes_js_runtimes_universally():
     assert "--remote-components" in cmd
 
 
-def test_downloader_commands_use_resolved_source_cookie(monkeypatch):
-    monkeypatch.setattr(ytdlp, "find_cookies_file_for_source", lambda source_key: f"/cookies/{source_key}.txt")
-    monkeypatch.setattr(gallerydl, "find_cookies_file_for_source", lambda source_key: f"/cookies/{source_key}.txt")
-    monkeypatch.setattr(ytdlp, "find_cookies_file_for_url", lambda source_url: "")
-    monkeypatch.setattr(gallerydl, "find_cookies_file_for_url", lambda source_url: "")
-
+def test_downloader_commands_use_the_leased_cookie_file():
     ytdlp_cmd = ytdlp.build_ytdlp_command(
         "https://twitter.com/DohaVT/status/1",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
-        with_cookies=True,
-        cookie_source_key="twitter",
+        cookies_file="/cookies/twitter-2.txt",
     )
     gallery_cmd = gallerydl.build_gallerydl_command(
         "https://twitter.com/DohaVT/status/1",
         "/media/twitter",
         f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
-        with_cookies=True,
-        cookie_source_key="twitter",
+        cookies_file="/cookies/twitter-2.txt",
     )
 
-    assert ytdlp_cmd[ytdlp_cmd.index("--cookies") + 1] == "/cookies/twitter.txt"
-    assert gallery_cmd[gallery_cmd.index("--cookies") + 1] == "/cookies/twitter.txt"
+    assert ytdlp_cmd[ytdlp_cmd.index("--cookies") + 1] == "/cookies/twitter-2.txt"
+    assert gallery_cmd[gallery_cmd.index("--cookies") + 1] == "/cookies/twitter-2.txt"

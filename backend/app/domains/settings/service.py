@@ -5,6 +5,7 @@ from typing import Any
 
 from backend.app.core.config import get_site_default_locations, load_app_config, normalize_download_locations
 
+from .cookie_policy import cookie_policy_defaults, get_effective_cookie_policies, normalize_source_cookie_policies
 from .cookies import get_ytdlp_cookies_status
 from .fields import (
     get_source_field_defaults,
@@ -57,6 +58,7 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
         "source_slug_tokens": get_effective_slug_tokens(payload),
         "source_fields": saved_fields(payload),
         "source_title_cleaning": normalize_source_title_cleaning(payload.get("source_title_cleaning")),
+        "source_cookie_policies": get_effective_cookie_policies(payload),
     }
 
 
@@ -72,6 +74,7 @@ def persist_settings(
     raw_fields: Any = None,
     raw_title_cleaning: Any = None,
     raw_slug_tokens: Any = None,
+    raw_cookie_policies: Any = None,
 ) -> dict[str, Any]:
     from backend.app.domains.downloads.constants import normalize_quality_selection
 
@@ -128,6 +131,11 @@ def persist_settings(
             "source_title_cleaning": normalize_source_title_cleaning(
                 raw_title_cleaning if raw_title_cleaning is not None else existing.get("source_title_cleaning")
             ),
+            "source_cookie_policies": normalize_source_cookie_policies(
+                raw_cookie_policies
+                if raw_cookie_policies is not None
+                else existing.get("source_cookie_policies")
+            ),
         }
     )
     save_saved_settings_file(existing)
@@ -174,6 +182,8 @@ def build_settings_response(
         "source_fields": saved.get("source_fields", {}),
         "source_field_defaults": get_source_field_defaults(saved.get("source_profiles")),
         "source_title_cleaning": saved.get("source_title_cleaning", {}),
+        "source_cookie_policies": saved.get("source_cookie_policies", get_effective_cookie_policies()),
+        "cookie_policy_defaults": cookie_policy_defaults(),
         "field_defaults": field_defaults(),
         "title_cleaning_rules": title_cleaning_rules(),
         "naming_choices": naming_choices(),

@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.domains.settings import (
-    find_cookies_file_for_source,
-    find_cookies_file_for_url,
     get_effective_fields,
     get_effective_template_settings,
     get_effective_title_cleaning,
@@ -139,8 +137,7 @@ def _directory_segments(folder: str) -> list[str]:
 def _gallerydl_list_urls(
     source_url: str,
     *,
-    with_cookies: bool = False,
-    cookie_source_key: str = "",
+    cookies_file: str = "",
     excluded_extensions: set[str] | None = None,
 ) -> list[str]:
     # `-g` lists file URLs without downloading; callers use it only for counts.
@@ -148,14 +145,8 @@ def _gallerydl_list_urls(
     filter_expr = _excluded_extension_filter(excluded_extensions)
     if filter_expr:
         cmd.extend(["--filter", filter_expr])
-    if with_cookies:
-        cookies_file = (
-            find_cookies_file_for_source(cookie_source_key)
-            if cookie_source_key
-            else find_cookies_file_for_url(source_url)
-        )
-        if cookies_file:
-            cmd.extend(["--cookies", cookies_file])
+    if cookies_file:
+        cmd.extend(["--cookies", cookies_file])
     cmd.append(source_url)
     try:
         result = subprocess.run(
@@ -176,14 +167,12 @@ def _gallerydl_list_urls(
 def count_gallerydl_items(
     source_url: str,
     *,
-    with_cookies: bool = False,
-    cookie_source_key: str = "",
+    cookies_file: str = "",
     excluded_extensions: set[str] | None = None,
 ) -> int:
     urls = _gallerydl_list_urls(
         source_url,
-        with_cookies=with_cookies,
-        cookie_source_key=cookie_source_key,
+        cookies_file=cookies_file,
         excluded_extensions=excluded_extensions,
     )
     return min(len(urls), _MAX_COUNT)
@@ -275,8 +264,7 @@ def build_gallerydl_command(
     output_dir: str,
     output_template: str,
     *,
-    with_cookies: bool = False,
-    cookie_source_key: str = "",
+    cookies_file: str = "",
     metadata_sidecar: str = "",
     excluded_extensions: set[str] | None = None,
     quality: dict[str, str] | None = None,
@@ -300,28 +288,22 @@ def build_gallerydl_command(
     filter_expr = _excluded_extension_filter(excluded_extensions)
     if filter_expr:
         cmd.extend(["--filter", filter_expr])
-    if with_cookies:
-        cookies_file = (
-            find_cookies_file_for_source(cookie_source_key)
-            if cookie_source_key
-            else find_cookies_file_for_url(source_url)
+    if cookies_file:
+        normalized_cookies = cookies_file.replace("\\", "/")
+        cmd.extend(
+            [
+                "--cookies",
+                cookies_file,
+                "--sleep-request",
+                "2",
+                "--retries",
+                "5",
+                "-o",
+                f"downloader.ytdl.raw-options.cookies={normalized_cookies}",
+                "-o",
+                f"extractor.ytdl.raw-options.cookies={normalized_cookies}",
+            ]
         )
-        if cookies_file:
-            normalized_cookies = cookies_file.replace("\\", "/")
-            cmd.extend(
-                [
-                    "--cookies",
-                    cookies_file,
-                    "--sleep-request",
-                    "2",
-                    "--retries",
-                    "5",
-                    "-o",
-                    f"downloader.ytdl.raw-options.cookies={normalized_cookies}",
-                    "-o",
-                    f"extractor.ytdl.raw-options.cookies={normalized_cookies}",
-                ]
-            )
     cmd.append(source_url)
     return cmd
 

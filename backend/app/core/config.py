@@ -93,6 +93,9 @@ SITE_KEYS: tuple[str, ...] = ()
 SITE_LABELS = {"all": "All"}
 
 
+_MAX_WORKER_POOL_SIZE = 16
+
+
 def max_concurrent_downloads(default: int = 3) -> int:
     # Worker-pool size: parallel downloads. Env-overridable, clamped 1..16.
     raw = str(os.environ.get("NEVER_STELLE_MAX_CONCURRENT") or "").strip()
@@ -100,7 +103,7 @@ def max_concurrent_downloads(default: int = 3) -> int:
         value = int(raw)
     except ValueError:
         return default
-    return max(1, min(value, 16))
+    return max(1, min(value, _MAX_WORKER_POOL_SIZE))
 
 
 def discover_volume_roots() -> list[str]:

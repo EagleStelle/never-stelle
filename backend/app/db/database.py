@@ -64,14 +64,17 @@ CREATE TABLE IF NOT EXISTS learned_formats (
 
 CREATE INDEX IF NOT EXISTS idx_learned_formats_host ON learned_formats(host);
 
-CREATE TABLE IF NOT EXISTS cookie_blobs (
-    key TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS source_cookies (
+    id TEXT PRIMARY KEY,
+    source_key TEXT NOT NULL DEFAULT '',
     filename TEXT NOT NULL DEFAULT '',
-    content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    position INTEGER NOT NULL DEFAULT 0,
     content BLOB NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_source_cookies_source_key ON source_cookies(source_key);
 """
 
 

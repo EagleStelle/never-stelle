@@ -225,7 +225,6 @@ def test_gallerydl_dump_uses_tiktok_no_audio_probe_option(monkeypatch):
         return Result()
 
     monkeypatch.setattr(probe_module.subprocess, "run", fake_run)
-    monkeypatch.setattr(probe_module, "find_cookies_file_for_url", lambda url: "")
 
     assert probe_module._gallerydl_dump("https://www.tiktok.com/@bob/photo/1") == {
         "author": {"uniqueId": "bob"}
@@ -233,22 +232,39 @@ def test_gallerydl_dump_uses_tiktok_no_audio_probe_option(monkeypatch):
     assert captured["cmd"][:4] == ["gallery-dl", "-j", "-o", "extractor.tiktok.audio=false"]
 
 
-def test_ytdlp_dump_prefers_cookie_probe_when_cookie_file_exists(monkeypatch):
+def _stub_rotation(monkeypatch, paths, source_key="instagram"):
+    """Hand the probe a fixed list of jars, in order, like the real rotation does."""
+    from backend.app.domains.settings import CookieLease
+
+    leases = [
+        CookieLease(cookie_id=f"jar-{index}", source_key=source_key, path=path, filename=f"jar{index}.txt")
+        for index, path in enumerate(paths, start=1)
+    ]
+
+    def fake_rotation(url, key=""):
+        yield from leases
+
+    monkeypatch.setattr(probe_module, "has_cookies_for_source", lambda key: key == source_key)
+    monkeypatch.setattr(probe_module, "_probe_cookie_rotation", fake_rotation)
+    return leases
+
+
+def test_ytdlp_dump_falls_back_to_a_leased_cookie_after_anonymous_fails(monkeypatch):
     calls: list[list[str]] = []
 
     def fake_run(cmd, **kwargs):
         calls.append(cmd)
+        anonymous = "--cookies" not in cmd
 
         class Result:
-            returncode = 0
-            stdout = '{"id": "abc123", "uploader": "Cookie Creator"}\n'
-            stderr = ""
+            returncode = 1 if anonymous else 0
+            stdout = "" if anonymous else '{"id": "abc123", "uploader": "Cookie Creator"}\n'
+            stderr = "HTTP Error 429: Too Many Requests" if anonymous else ""
 
         return Result()
 
     monkeypatch.setattr(probe_module.subprocess, "run", fake_run)
-    monkeypatch.setattr(probe_module, "find_cookies_file_for_source", lambda source_key: "/tmp/instagram.txt")
-    monkeypatch.setattr(probe_module, "find_cookies_file_for_url", lambda url: "")
+    (lease,) = _stub_rotation(monkeypatch, ["/tmp/instagram-jar1.txt"])
 
     info, error = probe_module._ytdlp_dump(
         "https://www.instagram.com/reel/abc123/",
@@ -257,24 +273,49 @@ def test_ytdlp_dump_prefers_cookie_probe_when_cookie_file_exists(monkeypatch):
 
     assert error == ""
     assert info == {"id": "abc123", "uploader": "Cookie Creator"}
-    assert calls and calls[0][-3:] == ["--cookies", "/tmp/instagram.txt", "https://www.instagram.com/reel/abc123/"]
+    assert "--cookies" not in calls[0]
+    assert calls[1][-3:] == ["--cookies", "/tmp/instagram-jar1.txt", "https://www.instagram.com/reel/abc123/"]
+    assert lease.banned is False
 
 
-def test_gallerydl_dump_prefers_cookie_probe_when_cookie_file_exists(monkeypatch):
-    calls: list[list[str]] = []
-
+def test_ytdlp_dump_marks_the_leased_cookie_banned_on_a_rate_limit(monkeypatch):
     def fake_run(cmd, **kwargs):
-        calls.append(cmd)
-
         class Result:
-            returncode = 0
-            stdout = '[[2, {"id": "abc123", "username": "cookie.creator"}]]'
+            returncode = 1
+            stdout = ""
+            stderr = "HTTP Error 429: Too Many Requests"
 
         return Result()
 
     monkeypatch.setattr(probe_module.subprocess, "run", fake_run)
-    monkeypatch.setattr(probe_module, "find_cookies_file_for_source", lambda source_key: "/tmp/instagram.txt")
-    monkeypatch.setattr(probe_module, "find_cookies_file_for_url", lambda url: "")
+    leases = _stub_rotation(monkeypatch, ["/tmp/jar1.txt", "/tmp/jar2.txt", "/tmp/jar3.txt"])
+
+    info, _ = probe_module._ytdlp_dump(
+        "https://www.instagram.com/reel/abc123/",
+        cookie_source_key="instagram",
+    )
+
+    assert info is None
+    # Every jar in the list is tried, and each blocked one is marked for a rest.
+    assert [lease.banned for lease in leases] == [True, True, True]
+
+
+def test_gallerydl_dump_falls_back_to_a_leased_cookie_after_anonymous_fails(monkeypatch):
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        anonymous = "--cookies" not in cmd
+
+        class Result:
+            returncode = 1 if anonymous else 0
+            stdout = "" if anonymous else '[[2, {"id": "abc123", "username": "cookie.creator"}]]'
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(probe_module.subprocess, "run", fake_run)
+    _stub_rotation(monkeypatch, ["/tmp/instagram-jar1.txt"])
 
     metadata = probe_module._gallerydl_dump(
         "https://www.instagram.com/reel/abc123/",
@@ -282,22 +323,22 @@ def test_gallerydl_dump_prefers_cookie_probe_when_cookie_file_exists(monkeypatch
     )
 
     assert metadata == {"id": "abc123", "username": "cookie.creator"}
-    assert calls and calls[0][-3:] == ["--cookies", "/tmp/instagram.txt", "https://www.instagram.com/reel/abc123/"]
+    assert "--cookies" not in calls[0]
+    assert calls[1][-3:] == ["--cookies", "/tmp/instagram-jar1.txt", "https://www.instagram.com/reel/abc123/"]
 
 
-def test_probe_cookies_file_uses_profile_resolved_source(monkeypatch):
+def test_probe_cookie_source_uses_profile_resolved_source(monkeypatch):
     checked: list[str] = []
 
-    def fake_find_source(source_key):
+    def fake_has_cookies(source_key):
         checked.append(source_key)
-        return "/tmp/profile-cookies.txt" if source_key == "saved-profile" else ""
+        return source_key == "saved-profile"
 
     monkeypatch.setattr(probe_module, "detect_cookie_source", lambda url: "saved-profile")
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "domain-stem")
-    monkeypatch.setattr(probe_module, "find_cookies_file_for_source", fake_find_source)
-    monkeypatch.setattr(probe_module, "find_cookies_file_for_url", lambda url: "")
+    monkeypatch.setattr(probe_module, "has_cookies_for_source", fake_has_cookies)
 
-    assert probe_module._probe_cookies_file("https://cdn.example.test/post/abc123") == "/tmp/profile-cookies.txt"
+    assert probe_module._probe_cookie_source("https://cdn.example.test/post/abc123") == "saved-profile"
     assert checked == ["saved-profile"]
 
 
@@ -306,19 +347,14 @@ def test_probe_fields_uses_profile_cookie_source_when_source_key_is_blank(monkey
 
     def fake_ytdlp_dump(url, **kwargs):
         calls.append(dict(kwargs))
-        cookies_file = probe_module._probe_cookies_file(url, str(kwargs.get("cookie_source_key") or ""))
-        if kwargs.get("with_cookies") and cookies_file:
+        cookie_source = probe_module._probe_cookie_source(url, str(kwargs.get("cookie_source_key") or ""))
+        if kwargs.get("with_cookies") and cookie_source:
             return {"id": "abc123", "uploader": "Cookie Creator"}, ""
         return {}, ""
 
     monkeypatch.setattr(probe_module, "detect_cookie_source", lambda url: "saved-profile")
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "domain-stem")
-    monkeypatch.setattr(
-        probe_module,
-        "find_cookies_file_for_source",
-        lambda source_key: "/tmp/profile-cookies.txt" if source_key == "saved-profile" else "",
-    )
-    monkeypatch.setattr(probe_module, "find_cookies_file_for_url", lambda url: "")
+    monkeypatch.setattr(probe_module, "has_cookies_for_source", lambda key: key == "saved-profile")
     monkeypatch.setattr(probe_module, "_ytdlp_dump", fake_ytdlp_dump)
     monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
 
@@ -342,7 +378,7 @@ def test_probe_fields_does_not_use_cookies_when_anonymous_has_field_roles(monkey
 
     monkeypatch.setattr(
         probe_module,
-        "_probe_cookies_file",
+        "_probe_cookie_source",
         lambda url, source_key="": (_ for _ in ()).throw(
             AssertionError("cookies should not be checked after anonymous fields")
         ),

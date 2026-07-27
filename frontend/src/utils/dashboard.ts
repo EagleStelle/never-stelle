@@ -1,7 +1,11 @@
 import { DEFAULT_SOURCE_PROFILES } from "@/ui";
 import {
   PAGE_KEYS,
+  type CookiePolicy,
+  type CookiePolicyDefaults,
+  type CookiePolicyField,
   type CookiesStatus,
+  type SourceCookiePolicies,
   type MediaFilter,
   type MediaMode,
   type MenuKey,
@@ -625,14 +629,70 @@ export function createSourceTitleCleaning(
   return out;
 }
 
+const COOKIE_POLICY_FIELDS: CookiePolicyField[] = [
+  "limit",
+  "window",
+  "delay",
+  "cooldown",
+  "wait",
+];
+
+export const BUILTIN_COOKIE_POLICY_DEFAULTS: CookiePolicyDefaults = {
+  limit: 20,
+  window: 300,
+  delay: 5,
+  cooldown: 900,
+  wait: 300,
+};
+
+export function createCookiePolicy(source: CookiePolicy = {}): CookiePolicy {
+  // Blank fields stay absent so the source keeps inheriting the default.
+  const out: CookiePolicy = {};
+  for (const field of COOKIE_POLICY_FIELDS) {
+    const value = Number(source?.[field]);
+    if (source?.[field] !== undefined && source?.[field] !== null && Number.isFinite(value)) {
+      out[field] = value;
+    }
+  }
+  return out;
+}
+
+export function createSourceCookiePolicies(
+  source: Record<string, CookiePolicy> = {},
+  profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
+): SourceCookiePolicies {
+  const out: SourceCookiePolicies = {};
+  for (const profile of profiles) out[profile.key] = createCookiePolicy(source[profile.key] || {});
+  for (const [key, value] of Object.entries(source)) {
+    const normalizedKey = normalizeSourceKey(key);
+    if (normalizedKey) out[normalizedKey] = createCookiePolicy(value);
+  }
+  return out;
+}
+
+export function createCookiePolicyDefaults(
+  source: Partial<CookiePolicyDefaults> = {},
+): CookiePolicyDefaults {
+  const out = { ...BUILTIN_COOKIE_POLICY_DEFAULTS };
+  for (const field of COOKIE_POLICY_FIELDS) {
+    const value = Number(source?.[field]);
+    if (Number.isFinite(value)) out[field] = value;
+  }
+  return out;
+}
+
 export function createCookiesStatus(
   source: Partial<CookiesStatus> = {},
 ): CookiesStatus {
+  const cookies = (source.cookies || []).map((cookie) => ({
+    id: String(cookie?.id || ""),
+    filename: String(cookie?.filename || "cookies.txt"),
+    uploaded_at: String(cookie?.uploaded_at || ""),
+  }));
   return {
-    configured: Boolean(source.configured),
-    source: source.source || "none",
-    filename: source.filename || "",
-    uploaded_at: source.uploaded_at || "",
+    configured: cookies.length > 0,
+    count: cookies.length,
+    cookies,
   };
 }
 

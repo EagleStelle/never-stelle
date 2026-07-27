@@ -8,13 +8,16 @@ import {
   probeFields as probeFieldsRequest,
   saveSettings,
   setFormatTemplates,
+  reorderPlatformCookies,
   uploadPlatformCookies,
 } from "@/api";
 import { useAuth } from "@/composables/useAuth";
 import { DEFAULT_SOURCE_PROFILES, UI_CONFIG_QUERY_KEY } from "@/ui";
 import type {
+  CookiePolicy,
   CookiesMap,
   CookiesStatus,
+  SourceCookiePolicies,
   FieldRoles,
   LearnedFormats,
   ProbeFieldsResponse,
@@ -33,7 +36,9 @@ import type {
   UiConfigResponse,
 } from "@/types";
 import {
+  createCookiePolicyDefaults,
   createCookiesStatus,
+  createSourceCookiePolicies,
   createQualityOptions,
   createFieldRoles,
   createQualitySelection,
@@ -143,6 +148,31 @@ interface PendingFormatLearn {
   url: string;
   sourceKey: string;
   template: string;
+}
+
+interface PendingCookieUpload {
+  id: string;
+  file: File;
+}
+
+const PENDING_COOKIE_PREFIX = "pending:";
+let pendingCookieSeq = 0;
+
+function cookieUploadStamp(): string {
+  // Mirrors the backend rename: UTC `<date> <time>`, dashes instead of colons.
+  return new Date().toISOString().slice(0, 19).replace("T", " ").replace(/:/g, "-");
+}
+
+function nextCookieFilename(sourceKey: string, taken: Set<string>): string {
+  const stem = `${cookieUploadStamp()} ${normalizeSourceKey(sourceKey)}`.trim() || "cookies";
+  let candidate = `${stem}.txt`;
+  let suffix = 2;
+  while (taken.has(candidate)) {
+    candidate = `${stem} (${suffix}).txt`;
+    suffix += 1;
+  }
+  taken.add(candidate);
+  return candidate;
 }
 
 const ID_TOKEN = "{id}";
@@ -348,6 +378,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_slug_tokens: createSourceSlugTokens(),
     source_fields: createSourceFields(),
     source_title_cleaning: createSourceTitleCleaning(),
+    source_cookie_policies: createSourceCookiePolicies(),
   });
   const settings = reactive<RuntimeSettings>({
     auth: { username: "", password_configured: false },
@@ -361,9 +392,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_slug_tokens: createSourceSlugTokens(),
     source_fields: createSourceFields(),
     source_title_cleaning: createSourceTitleCleaning(),
+    source_cookie_policies: createSourceCookiePolicies(),
     download_locations: [],
     source_location_roots: {},
     ytdlp_cookies: createCookiesMap(),
+    cookie_policy_defaults: createCookiePolicyDefaults(),
     quality_options: createQualityOptions(),
     template_tokens: [],
     field_defaults: { username: [], nickname: [], title: [] },
@@ -389,15 +422,12 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_slug_tokens: createSourceSlugTokens(),
     source_fields: createSourceFields(),
     source_title_cleaning: createSourceTitleCleaning(),
+    source_cookie_policies: createSourceCookiePolicies(),
   });
   const learnedFormatsDraft = reactive<LearnedFormats>({});
-  const pendingCookieUploads = reactive<
-    Record<string, { platform: string; file: File }>
-  >({});
-  const pendingCookieSourceUploads = reactive<
-    Record<string, { source: string; file: File }>
-  >({});
-  const pendingCookieDeletes = reactive<Record<string, boolean>>({});
+  // A source keeps a list of jars, so uploads stack and deletes name one jar.
+  const pendingCookieUploads = reactive<Record<string, PendingCookieUpload[]>>({});
+  const pendingCookieDeletes = reactive<Record<string, string[]>>({});
   const pendingFormatLearns = reactive<Record<string, PendingFormatLearn>>({});
 
   const settingsOpen = ref(false);
@@ -417,18 +447,16 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   });
   const saveSettingsMutation = useMutation({ mutationFn: saveSettings });
   const uploadCookiesMutation = useMutation({
-    mutationFn: ({
-      platform,
-      file,
-      source,
-    }: {
-      platform: string;
-      file: File;
-      source?: string;
-    }) => uploadPlatformCookies(platform, file, source),
+    mutationFn: ({ platform, file }: { platform: string; file: File }) =>
+      uploadPlatformCookies(platform, file),
   });
   const deleteCookiesMutation = useMutation({
-    mutationFn: (platform: string) => deletePlatformCookies(platform),
+    mutationFn: ({ platform, cookieId }: { platform: string; cookieId: string }) =>
+      deletePlatformCookies(platform, cookieId),
+  });
+  const reorderCookiesMutation = useMutation({
+    mutationFn: ({ platform, cookieIds }: { platform: string; cookieIds: string[] }) =>
+      reorderPlatformCookies(platform, cookieIds),
   });
   const learnFormatMutation = useMutation({
     mutationFn: (url: string) => learnPlatformFormat(url),
@@ -448,21 +476,24 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   const savedSettings = computed<SavedSettings>(() => getSavedSettings());
   const cookieStatuses = computed<CookiesMap>(() => {
     const statuses = createCookiesMap(settings.ytdlp_cookies, sourceProfiles.value);
-    for (const key of Object.keys(pendingCookieDeletes)) {
-      statuses[key] = createCookiesStatus();
-    }
-    for (const [key, item] of Object.entries(pendingCookieUploads)) {
+    for (const [key, ids] of Object.entries(pendingCookieDeletes)) {
+      const removed = new Set(ids);
       statuses[key] = createCookiesStatus({
-        configured: true,
-        source: "pending",
-        filename: item.file.name || "cookies.txt",
+        cookies: (statuses[key]?.cookies || []).filter((cookie) => !removed.has(cookie.id)),
       });
     }
-    for (const [key, item] of Object.entries(pendingCookieSourceUploads)) {
+    for (const [key, uploads] of Object.entries(pendingCookieUploads)) {
+      const existing = statuses[key]?.cookies || [];
+      const taken = new Set(existing.map((cookie) => cookie.filename));
       statuses[key] = createCookiesStatus({
-        configured: true,
-        source: "pending",
-        filename: item.file.name || "cookies.txt",
+        cookies: [
+          ...existing,
+          ...uploads.map((upload) => ({
+            id: upload.id,
+            filename: nextCookieFilename(key, taken),
+            uploaded_at: "",
+          })),
+        ],
       });
     }
     return statuses;
@@ -511,6 +542,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       source_title_cleaning: createSourceTitleCleaning(
         recordForProfiles(
           source.source_title_cleaning as SourceTitleCleaning,
+          profiles,
+        ),
+        profiles,
+      ),
+      source_cookie_policies: createSourceCookiePolicies(
+        recordForProfiles(
+          source.source_cookie_policies as SourceCookiePolicies,
           profiles,
         ),
         profiles,
@@ -605,6 +643,16 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         ),
         profiles,
       ),
+      source_cookie_policies: createSourceCookiePolicies(
+        recordForProfiles(
+          {
+            ...defaults.source_cookie_policies,
+            ...settings.source_cookie_policies,
+          },
+          profiles,
+        ),
+        profiles,
+      ),
     };
   }
 
@@ -634,6 +682,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         source_slug_tokens: settingsDraft.source_slug_tokens,
         source_fields: settingsDraft.source_fields,
         source_title_cleaning: settingsDraft.source_title_cleaning,
+        source_cookie_policies: settingsDraft.source_cookie_policies,
       }),
     );
   }
@@ -653,18 +702,14 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
 
   function hasPendingCookieChanges(): boolean {
     return Boolean(
-      Object.keys(pendingCookieUploads).length ||
-        Object.keys(pendingCookieSourceUploads).length ||
-        Object.keys(pendingCookieDeletes).length,
+      Object.values(pendingCookieUploads).some((uploads) => uploads.length) ||
+        Object.values(pendingCookieDeletes).some((ids) => ids.length),
     );
   }
 
   function clearCookieDraft(): void {
     for (const key of Object.keys(pendingCookieUploads)) {
       delete pendingCookieUploads[key];
-    }
-    for (const key of Object.keys(pendingCookieSourceUploads)) {
-      delete pendingCookieSourceUploads[key];
     }
     for (const key of Object.keys(pendingCookieDeletes)) {
       delete pendingCookieDeletes[key];
@@ -827,6 +872,16 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     replaceRecord(defaults.source_title_cleaning, titleCleaning);
     replaceRecord(settings.source_title_cleaning, titleCleaning);
 
+    const cookiePolicies = createSourceCookiePolicies(
+      recordForProfiles(data.source_cookie_policies || {}, managedProfiles),
+      managedProfiles,
+    );
+    replaceRecord(defaults.source_cookie_policies, cookiePolicies);
+    replaceRecord(settings.source_cookie_policies, cookiePolicies);
+    settings.cookie_policy_defaults = createCookiePolicyDefaults(
+      data.cookie_policy_defaults || {},
+    );
+
     settings.field_defaults = createFieldRoles(
       data.field_defaults || {},
     );
@@ -984,6 +1039,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       previous.source_title_cleaning,
       server.source_title_cleaning,
     );
+    mergeCleanRecordEntries(
+      settingsDraft.source_cookie_policies,
+      previous.source_cookie_policies,
+      server.source_cookie_policies,
+    );
   }
 
   function mergeCleanFormatsFromServer(
@@ -1047,7 +1107,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     const key = normalizeSourceKey(sourceKey);
     if (!key || learnedFormatsDraft[key]?.templates?.length) return;
     if (Object.values(pendingFormatLearns).some((item) => item.sourceKey === key)) return;
-    if (pendingCookieUploads[key] || pendingCookieSourceUploads[key]) return;
+    if (pendingCookieUploads[key]?.length) return;
     const saved = mergeSourceProfiles(DEFAULT_SOURCE_PROFILES, settings.source_profiles).some(
       (profile) => normalizeSourceKey(profile.key) === key,
     );
@@ -1218,6 +1278,10 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       settingsDraft.source_title_cleaning,
       normalized.source_title_cleaning,
     );
+    replaceRecord(
+      settingsDraft.source_cookie_policies,
+      normalized.source_cookie_policies,
+    );
   }
 
   function copySettingsToDraft(): void {
@@ -1242,7 +1306,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     const focusTargets: Record<SettingsSection, string> = {
       account: "accountUsernameInput",
       downloads: "",
-      cookies: `${firstSource}CookiesInput`,
+      cookies: "",
       quality: "defaultQualityMode",
       format: "formatLearnInput",
       fields: `${firstSource}FieldsProbeInput`,
@@ -1379,21 +1443,18 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
 
   async function persistCookieDraft(): Promise<void> {
     let latest: UiConfigResponse | null = null;
-    for (const key of Object.keys(pendingCookieDeletes)) {
-      latest = await deleteCookiesMutation.mutateAsync(key);
+    for (const [key, ids] of Object.entries(pendingCookieDeletes)) {
+      for (const cookieId of ids) {
+        latest = await deleteCookiesMutation.mutateAsync({ platform: key, cookieId });
+      }
     }
-    for (const item of Object.values(pendingCookieUploads)) {
-      latest = await uploadCookiesMutation.mutateAsync({
-        platform: item.platform,
-        file: item.file,
-      });
-    }
-    for (const item of Object.values(pendingCookieSourceUploads)) {
-      latest = await uploadCookiesMutation.mutateAsync({
-        platform: "source",
-        file: item.file,
-        source: item.source,
-      });
+    for (const [key, uploads] of Object.entries(pendingCookieUploads)) {
+      for (const upload of uploads) {
+        latest = await uploadCookiesMutation.mutateAsync({
+          platform: key,
+          file: upload.file,
+        });
+      }
     }
     clearCookieDraft();
     if (latest) {
@@ -1453,6 +1514,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     toast("Settings saved.");
   }
 
+  function queueCookieUpload(key: string, file: File): void {
+    pendingCookieSeq += 1;
+    const uploads = pendingCookieUploads[key] || [];
+    uploads.push({ id: `${PENDING_COOKIE_PREFIX}${pendingCookieSeq}`, file });
+    pendingCookieUploads[key] = uploads;
+  }
+
   async function connectCookies(platform: string, file?: File): Promise<void> {
     if (!file) {
       toast("Choose a cookies file first.", "error");
@@ -1463,42 +1531,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       toast("Choose a source first.", "error");
       return;
     }
-    pendingCookieUploads[key] = { platform: key, file };
-    delete pendingCookieSourceUploads[key];
-    delete pendingCookieDeletes[key];
-  }
-
-  async function connectCookiesForSource(
-    source: string,
-    file?: File,
-  ): Promise<void> {
-    if (!source.trim()) {
-      toast("Paste a link or domain first.", "error");
-      return;
-    }
-    if (!file) {
-      toast("Choose a cookies file first.", "error");
-      return;
-    }
-    const normalizedSource = source.trim();
-    const profiles = mergeSourceProfiles(
-      DEFAULT_SOURCE_PROFILES,
-      settings.source_profiles,
-      settingsDraft.source_profiles,
-    );
-    const profile = sourceProfileFromUrlDraft(normalizedSource, profiles);
-    if (!profile) {
-      toast("Paste a valid link or domain first.", "error");
-      return;
-    }
-    ensureDraftSourceProfile(profile);
-    const key = profile.key;
-    pendingCookieSourceUploads[key] = {
-      source: normalizedSource,
-      file,
-    };
-    delete pendingCookieUploads[key];
-    delete pendingCookieDeletes[key];
+    queueCookieUpload(key, file);
   }
 
   async function learnFormat(url: string): Promise<string> {
@@ -1573,21 +1606,40 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     return response;
   }
 
-  async function removeCookies(platform: string): Promise<void> {
+  async function removeCookies(platform: string, cookieId: string): Promise<void> {
+    const key = normalizeSourceKey(platform);
+    if (!key || !cookieId) return;
+    if (cookieId.startsWith(PENDING_COOKIE_PREFIX)) {
+      pendingCookieUploads[key] = (pendingCookieUploads[key] || []).filter(
+        (upload) => upload.id !== cookieId,
+      );
+      if (!pendingCookieUploads[key].length) delete pendingCookieUploads[key];
+      removeDraftOnlySourceIfEmpty(key);
+      return;
+    }
+    const deletes = pendingCookieDeletes[key] || [];
+    if (deletes.includes(cookieId)) return;
+    deletes.push(cookieId);
+    pendingCookieDeletes[key] = deletes;
+  }
+
+  async function reorderCookies(platform: string, cookieIds: string[]): Promise<void> {
     const key = normalizeSourceKey(platform);
     if (!key) return;
-    if (pendingCookieUploads[key]) {
-      delete pendingCookieUploads[key];
-      removeDraftOnlySourceIfEmpty(key);
-      return;
+    const saved = settings.ytdlp_cookies?.[key]?.cookies || [];
+    const known = new Set(saved.map((cookie) => cookie.id));
+    const ordered = cookieIds.filter(
+      (cookieId, index) => known.has(cookieId) && cookieIds.indexOf(cookieId) === index,
+    );
+    if (!ordered.length) return;
+    try {
+      // Order is the rotation's tie-breaker, so it is saved as soon as it is dragged.
+      syncSavedServerConfig(
+        await reorderCookiesMutation.mutateAsync({ platform: key, cookieIds: ordered }),
+      );
+    } catch (error) {
+      toast(errorMessage(error, "Could not reorder cookies."), "error");
     }
-    if (pendingCookieSourceUploads[key]) {
-      delete pendingCookieSourceUploads[key];
-      removeDraftOnlySourceIfEmpty(key);
-      return;
-    }
-    if (!cookieStatuses.value[key]?.configured) return;
-    pendingCookieDeletes[key] = true;
   }
 
   const draftSeeded = ref(false);
@@ -1618,8 +1670,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   return {
     closeSettings,
     connectCookies,
-    connectCookiesForSource,
     cookieStatuses,
+    reorderCookies,
     learnFormat,
     probeFields,
     reorderFormatTemplates,

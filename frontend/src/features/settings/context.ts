@@ -20,8 +20,9 @@ export interface SettingsContext {
   cookieStatuses: ComputedRef<CookiesMap>;
   editableSourceProfiles: ComputedRef<SourceProfile[]>;
   connectCookies: (platform: string, file?: File) => void;
-  connectCookiesSource: (source: string, file?: File) => void;
-  removeCookies: (platform: string) => void;
+  removeCookies: (platform: string, cookieId: string) => void;
+  // Reorder a source's cookie jars; the list is the order the rotation starts from.
+  reorderCookies: (sourceKey: string, cookieIds: string[]) => Promise<void>;
   // Stage a link's format in the accordion; Save performs the backend learn.
   learnFormat: (url: string) => Promise<string>;
   // Probe metadata fields. Successful learned fields are saved server-side.

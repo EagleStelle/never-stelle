@@ -1,8 +1,10 @@
-from backend.app.db.repositories.blobs import (
-    delete_file_blob,
-    get_file_blob,
-    get_file_blob_metadata,
-    save_file_blob,
+from backend.app.db.repositories.cookies import (
+    add_source_cookie,
+    delete_source_cookie,
+    delete_source_cookies,
+    get_source_cookie,
+    list_source_cookies,
+    reorder_source_cookies,
 )
 from backend.app.db.repositories.downloads import (
     activity_revision,
@@ -24,15 +26,17 @@ from backend.app.db.repositories.settings import load_settings_payload, save_set
 
 __all__ = [
     "activity_revision",
+    "add_source_cookie",
     "claim_pending_task_payload",
     "count_active_by_source",
     "count_history_by_source",
-    "delete_file_blob",
     "delete_history_row",
+    "delete_source_cookie",
+    "delete_source_cookies",
     "delete_task_row",
     "delete_task_row_if_status",
-    "get_file_blob",
-    "get_file_blob_metadata",
+    "get_source_cookie",
+    "list_source_cookies",
     "load_active_task_store_payload",
     "load_history_page",
     "load_history_payload",
@@ -40,7 +44,7 @@ __all__ = [
     "load_settings_payload",
     "load_task_store_payload",
     "merge_task_payload",
-    "save_file_blob",
+    "reorder_source_cookies",
     "save_history_row",
     "save_learned_formats_payload",
     "save_settings_payload",

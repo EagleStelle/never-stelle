@@ -23,8 +23,8 @@ def test_fresh_schema_uses_current_table_names(tmp_path, monkeypatch):
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
         }
 
-    assert {"app_settings", "download_tasks", "download_history", "learned_formats", "cookie_blobs"} <= tables
-    assert {"settings", "queue", "history", "formats", "cookies"}.isdisjoint(tables)
+    assert {"app_settings", "download_tasks", "download_history", "learned_formats", "source_cookies"} <= tables
+    assert {"settings", "queue", "history", "formats", "cookies", "cookie_blobs"}.isdisjoint(tables)
 
 
 def test_settings_payload_roundtrips_through_app_settings(tmp_path, monkeypatch):

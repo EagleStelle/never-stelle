@@ -42,7 +42,6 @@ const {
   clearPending,
   confirmPlaylistSelection,
   connectCookies,
-  connectCookiesForSource,
   cookieStatuses,
   learnFormat,
   probeFields,
@@ -68,6 +67,7 @@ const {
   playlistOpen,
   playlistTitle,
   removeCookies,
+  reorderCookies,
   removeTask,
   retryTask,
   refreshHistory,
@@ -363,12 +363,12 @@ const { height: statusBarHeight } = useElementSize(
       :learn-format="learnFormat"
       :probe-fields="probeFields"
       :reorder-format-templates="reorderFormatTemplates"
+      :reorder-cookies="reorderCookies"
       :has-unsaved-changes="hasUnsavedChanges"
       :mark-settings-draft-dirty="markSettingsDraftDirty"
       :save-settings-draft="saveSettingsDraft"
       :copy-settings-to-draft="copySettingsToDraft"
       @connect-cookies="connectCookies"
-      @connect-cookies-source="connectCookiesForSource"
       @remove-cookies="removeCookies"
     />
 

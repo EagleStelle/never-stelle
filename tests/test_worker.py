@@ -59,26 +59,26 @@ def test_build_ytdlp_command_omits_print_without_sidecar():
     assert "--print-to-file" not in cmd
 
 
-def test_run_engine_attempts_tries_anonymous_first_then_cookies(monkeypatch):
-    import backend.app.domains.downloads.workers.execution as worker_module
-    import backend.app.domains.downloads.ytdlp as ytdlp_module
-    from backend.app.domains.downloads.engine import YtdlpEngine
+def _stub_worker_cookie_rotation(monkeypatch, worker_module, paths=("/tmp/cookies-jar1.txt",)):
+    from backend.app.domains.settings import CookieLease
 
-    attempts_seen = []
+    leases = [
+        CookieLease(cookie_id=f"jar-{index}", source_key="youtube", path=path, filename=f"jar{index}.txt")
+        for index, path in enumerate(paths, start=1)
+    ]
 
-    def fake_run_engine(engine, task_id, cmd, total_items=0):
-        with_cookies = "--cookies" in cmd
-        attempts_seen.append(with_cookies)
-        if not with_cookies:
-            # Simulate anonymous attempt failure (e.g. age restricted)
-            return 1, "", []
-        return 0, "/tmp/out.mp4", ["/tmp/out.mp4"]
+    def fake_rotation(source_key, **kwargs):
+        yield from leases
 
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: True)
-    monkeypatch.setattr(ytdlp_module, "find_cookies_file_for_source", lambda source_key: "/tmp/cookies.txt")
-    monkeypatch.setattr(worker_module, "_run_engine_to_task", fake_run_engine)
+    monkeypatch.setattr(worker_module, "cookie_rotation", fake_rotation)
+    return leases
 
-    rc, _, _ = worker_module._run_engine_attempts(
+
+def _run_attempts(worker_module):
+    from backend.app.domains.downloads.engine import YtdlpEngine
+
+    return worker_module._run_engine_attempts(
         YtdlpEngine(),
         "task-123",
         "https://www.youtube.com/watch?v=abc123age",
@@ -91,5 +91,104 @@ def test_run_engine_attempts_tries_anonymous_first_then_cookies(monkeypatch):
         0,
     )
 
+
+def test_run_engine_attempts_tries_anonymous_first_then_a_leased_cookie(monkeypatch):
+    import backend.app.domains.downloads.workers.execution as worker_module
+
+    attempts_seen = []
+
+    def fake_run_engine(engine, task_id, cmd, total_items=0):
+        with_cookies = "--cookies" in cmd
+        attempts_seen.append(with_cookies)
+        if not with_cookies:
+            # Simulate anonymous attempt failure (e.g. age restricted)
+            return 1, "", []
+        assert cmd[cmd.index("--cookies") + 1] == "/tmp/cookies-jar1.txt"
+        return 0, "/tmp/out.mp4", ["/tmp/out.mp4"]
+
+    (lease,) = _stub_worker_cookie_rotation(monkeypatch, worker_module)
+    monkeypatch.setattr(worker_module, "_run_engine_to_task", fake_run_engine)
+    monkeypatch.setattr(worker_module, "_append_task_log", lambda task_id, message: None)
+    monkeypatch.setattr(worker_module, "update_task", lambda task_id, **kwargs: {})
+
+    rc, _, _ = _run_attempts(worker_module)
+
     assert rc == 0
     assert attempts_seen == [False, True]
+    assert lease.banned is False
+
+
+def test_run_engine_attempts_spends_no_cookie_when_anonymous_succeeds(monkeypatch):
+    import backend.app.domains.downloads.workers.execution as worker_module
+
+    leased = []
+
+    def fake_run_engine(engine, task_id, cmd, total_items=0):
+        assert "--cookies" not in cmd
+        return 0, "/tmp/out.mp4", ["/tmp/out.mp4"]
+
+    def fail_rotation(source_key, **kwargs):
+        leased.append(source_key)
+        raise AssertionError("no cookie should be leased after an anonymous success")
+
+    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: True)
+    monkeypatch.setattr(worker_module, "cookie_rotation", fail_rotation)
+    monkeypatch.setattr(worker_module, "_run_engine_to_task", fake_run_engine)
+
+    rc, _, _ = _run_attempts(worker_module)
+
+    assert rc == 0
+    assert leased == []
+
+
+def test_run_engine_attempts_retries_every_cookie_until_one_works(monkeypatch):
+    import backend.app.domains.downloads.workers.execution as worker_module
+
+    used: list[str] = []
+
+    def fake_run_engine(engine, task_id, cmd, total_items=0):
+        if "--cookies" not in cmd:
+            return 1, "", []
+        cookies_file = cmd[cmd.index("--cookies") + 1]
+        used.append(cookies_file)
+        # Only the third jar in the list still has a working session.
+        if cookies_file == "/tmp/jar3.txt":
+            return 0, "/tmp/out.mp4", ["/tmp/out.mp4"]
+        return 1, "", []
+
+    leases = _stub_worker_cookie_rotation(
+        monkeypatch, worker_module, ["/tmp/jar1.txt", "/tmp/jar2.txt", "/tmp/jar3.txt"]
+    )
+    monkeypatch.setattr(worker_module, "_run_engine_to_task", fake_run_engine)
+    monkeypatch.setattr(worker_module, "_append_task_log", lambda task_id, message: None)
+    monkeypatch.setattr(worker_module, "update_task", lambda task_id, **kwargs: {})
+    monkeypatch.setattr(
+        worker_module, "_task_log_tail", lambda task_id: "ERROR: HTTP Error 429: Too Many Requests"
+    )
+
+    rc, _, _ = _run_attempts(worker_module)
+
+    assert rc == 0
+    assert used == ["/tmp/jar1.txt", "/tmp/jar2.txt", "/tmp/jar3.txt"]
+    # The two that failed on a rate limit rest; the one that worked does not.
+    assert [lease.banned for lease in leases] == [True, True, False]
+
+
+def test_run_engine_attempts_rests_a_cookie_that_came_back_rate_limited(monkeypatch):
+    import backend.app.domains.downloads.workers.execution as worker_module
+
+    def fake_run_engine(engine, task_id, cmd, total_items=0):
+        return 1, "", []
+
+    (lease,) = _stub_worker_cookie_rotation(monkeypatch, worker_module)
+    monkeypatch.setattr(worker_module, "_run_engine_to_task", fake_run_engine)
+    monkeypatch.setattr(worker_module, "_append_task_log", lambda task_id, message: None)
+    monkeypatch.setattr(worker_module, "update_task", lambda task_id, **kwargs: {})
+    monkeypatch.setattr(
+        worker_module, "_task_log_tail", lambda task_id: "ERROR: HTTP Error 429: Too Many Requests"
+    )
+
+    rc, _, _ = _run_attempts(worker_module)
+
+    assert rc == 1
+    assert lease.banned is True

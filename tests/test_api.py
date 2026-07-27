@@ -365,3 +365,97 @@ def test_local_task_file_route_supports_byte_ranges(tmp_path, monkeypatch):
     assert response.headers["content-range"] == "bytes 2-4/6"
     assert response.headers["content-length"] == "3"
     assert (2, 3) in advised
+
+
+def test_cookies_endpoint_stacks_multiple_jars_on_one_source(tmp_path, monkeypatch):
+    import re
+
+    login(tmp_path, monkeypatch)
+    jar = b"# Netscape HTTP Cookie File\n"
+    stamp = r"\d{4}-\d{2}-\d{2} \d{2}-\d{2}-\d{2}"
+
+    profile = client.put(
+        "/api/settings",
+        json={
+            "site_locations": {},
+            "source_profiles": [
+                {"key": "instagram", "label": "Instagram", "hosts": ["instagram.com"]},
+            ],
+        },
+    )
+    assert profile.status_code == 200
+
+    created = client.post(
+        "/api/settings/cookies/instagram",
+        files={"file": ("whatever-the-browser-called-it.txt", jar, "text/plain")},
+    )
+    assert created.status_code == 200
+
+    added = client.post(
+        "/api/settings/cookies/instagram",
+        files={"file": ("another-name.txt", jar + b"second\n", "text/plain")},
+    )
+    assert added.status_code == 200
+    status = added.json()["ytdlp_cookies"]["instagram"]
+    assert status["configured"] is True
+    assert status["count"] == 2
+    # Uploads are renamed to the upload date and time plus the source, not the
+    # browser's name. Both land in the same second unless the clock rolls over,
+    # in which case the second name carries a later stamp instead of a suffix.
+    names = [entry["filename"] for entry in status["cookies"]]
+    assert re.fullmatch(rf"{stamp} instagram\.txt", names[0])
+    assert re.fullmatch(rf"{stamp} instagram( \(2\))?\.txt", names[1])
+    assert names[0] != names[1]
+
+    ids = [entry["id"] for entry in status["cookies"]]
+    reordered = client.put(
+        "/api/settings/cookies/instagram/order",
+        json={"cookie_ids": [ids[1], ids[0]]},
+    )
+    assert reordered.status_code == 200
+    assert [
+        entry["id"] for entry in reordered.json()["ytdlp_cookies"]["instagram"]["cookies"]
+    ] == [ids[1], ids[0]]
+
+    removed = client.delete(f"/api/settings/cookies/instagram/{ids[0]}")
+    assert removed.status_code == 200
+    assert [
+        entry["id"] for entry in removed.json()["ytdlp_cookies"]["instagram"]["cookies"]
+    ] == [ids[1]]
+
+    cleared = client.delete("/api/settings/cookies/instagram")
+    assert cleared.status_code == 200
+    assert cleared.json()["ytdlp_cookies"]["instagram"] == {
+        "configured": False,
+        "count": 0,
+        "cookies": [],
+    }
+
+
+def test_settings_put_round_trips_per_source_cookie_policies(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+
+    response = client.put(
+        "/api/settings",
+        json={
+            "site_locations": {},
+            "source_profiles": [{"key": "instagram", "label": "Instagram", "hosts": ["instagram.com"]}],
+            "source_cookie_policies": {
+                "instagram": {"limit": "6", "window": 120, "delay": "", "junk": 1},
+                # Nothing configured, so the source keeps every default.
+                "twitter": {},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    # Blank and unknown fields are dropped; only real overrides persist.
+    assert body["source_cookie_policies"] == {"instagram": {"limit": 6, "window": 120.0}}
+    assert body["cookie_policy_defaults"] == {
+        "limit": 20,
+        "window": 300.0,
+        "delay": 5.0,
+        "cooldown": 900.0,
+        "wait": 300.0,
+    }
