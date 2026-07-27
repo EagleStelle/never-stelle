@@ -228,7 +228,11 @@ def get_default_site_location(cfg: dict[str, Any], site: str) -> str:
         if normalized_profile_default:
             return normalized_profile_default
     base = get_default_general_location(cfg)
-    return f"{base.rstrip('/')}/{site}" if base else ""
+    if not base:
+        return ""
+    if "\\" in base or ":" in base:
+        return str(Path(base) / site)
+    return f"{base.rstrip('/')}/{site}"
 
 
 def get_site_default_locations(cfg: dict[str, Any], source_keys: Iterable[str] | None = None) -> dict[str, str]:

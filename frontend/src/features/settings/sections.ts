@@ -54,7 +54,6 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     group: "Settings",
     icon: IconFolder,
     component: Locations,
-    focusId: (source) => `${source}LocationInput`,
     requiresSources: true,
   },
   {

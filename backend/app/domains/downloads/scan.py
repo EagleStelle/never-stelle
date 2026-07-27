@@ -348,7 +348,7 @@ def _prune_disk_shadows(records: dict[str, dict[str, Any]], real_media_ids: set[
             records.pop(task_id, None)
 
 
-def _scan_location_map() -> dict[str, str]:
+def _scan_location_map() -> dict[str, dict[str, str]]:
     # Lazy import so a settings failure degrades to id-only inference, not a crash.
     try:
         from backend.app.core.config import load_app_config
@@ -360,9 +360,22 @@ def _scan_location_map() -> dict[str, str]:
         return {}
 
 
-def _source_folder_keys(locations: dict[str, str]) -> set[str]:
+def _iter_source_locations(locations: dict[str, dict[str, str]]) -> Iterable[tuple[str, str, str]]:
+    # Flatten the per-source, per-format map into (source_key, format_template, folder) rows.
+    for raw_key, formats in (locations or {}).items():
+        key = normalize_source_key(raw_key)
+        if not key:
+            continue
+        if not isinstance(formats, dict):
+            continue
+        for format_template, folder in formats.items():
+            if str(folder or "").strip():
+                yield key, str(format_template or ""), str(folder)
+
+
+def _source_folder_keys(locations: dict[str, dict[str, str]]) -> set[str]:
     # Platform folders (site locations) are never a creator; used to skip them.
-    return {_path_key(folder) for folder in (locations or {}).values() if str(folder or "").strip()}
+    return {_path_key(folder) for _, _, folder in _iter_source_locations(locations)}
 
 
 def _scan_template_map() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
@@ -384,7 +397,6 @@ def _scan_template_map() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
             effective.get("source_templates"),
             cfg,
             get_effective_source_profiles(cfg),
-            base,
             token_roles if isinstance(token_roles, dict) else {},
         )
         return base, per_source
@@ -639,11 +651,16 @@ class _TemplateResolver:
     def slug_rules_for(self, source_key: str) -> list[dict[str, str]]:
         return self._slug_tokens.get(normalize_source_key(source_key)) or []
 
-    def all_formats_for(self, source_key: str) -> list[str]:
+    def all_formats_for(self, source_key: str, preferred: str = "") -> list[str]:
         templates_dict = self._per_source.get(source_key) or {}
         if not templates_dict:
             return [""]
-        return list(templates_dict.keys())
+        formats = list(templates_dict.keys())
+        # The format that owns the file's folder is the strongest hint; try it first.
+        if preferred in formats:
+            formats.remove(preferred)
+            formats.insert(0, preferred)
+        return formats
 
     def for_source_format(
         self, source_key: str, format_template: str = ""
@@ -666,23 +683,30 @@ class _TemplateResolver:
         settings = templates_dict.get(format_template) or self._base
         return str(settings.get("folder_template") or ""), str(settings.get("filename_template") or "")
 
-def _source_location_index(locations: dict[str, str]) -> list[tuple[str, str]]:
-    # Only folders owned by exactly one resolved source carry a usable signal.
+def _source_location_index(locations: dict[str, dict[str, str]]) -> list[tuple[str, str, str]]:
+    # Only folders owned by exactly one resolved source carry a usable signal; two formats of
+    # the same source may share a folder, and then only the source half stays unambiguous.
     owners: dict[str, set[str]] = {}
-    for raw_key, folder in (locations or {}).items():
-        key = normalize_source_key(raw_key)
-        if not key or not str(folder or "").strip():
-            continue
-        owners.setdefault(_path_key(folder), set()).add(key)
-    return [(folder, next(iter(keys))) for folder, keys in owners.items() if len(keys) == 1]
+    formats: dict[str, set[str]] = {}
+    for key, format_template, folder in _iter_source_locations(locations):
+        folder_key = _path_key(folder)
+        owners.setdefault(folder_key, set()).add(key)
+        formats.setdefault(folder_key, set()).add(format_template)
+    return [
+        (folder, next(iter(keys)), next(iter(formats[folder])) if len(formats[folder]) == 1 else "")
+        for folder, keys in owners.items()
+        if len(keys) == 1
+    ]
 
 
-def _source_from_path(path: Path, location_index: list[tuple[str, str]]) -> str:
+def _source_from_path(path: Path, location_index: list[tuple[str, str, str]]) -> tuple[str, str]:
+    """The source key and format template owning the folder this file sits in."""
     path_key = _path_key(path)
-    for folder, key in location_index:
+    for folder, key, format_template in location_index:
         if path_key == folder or path_key.startswith(f"{folder}{os.sep}"):
-            return key
-    return ""
+            return key, format_template
+    return "", ""
+
 
 def _source_from_named_folder(root: Path, path: Path, source_keys: set[str]) -> str:
     try:
@@ -712,18 +736,20 @@ def _seed_learned_from_history(learned: dict[str, Any], records: dict[str, dict[
 def infer_disk_source(
     path: Path,
     media_id: str,
-    location_index: list[tuple[str, str]],
+    location_index: list[tuple[str, str, str]],
     learned: dict[str, Any],
     source_hint: str = "",
-) -> tuple[str, bool, list[str]]:
+) -> tuple[str, bool, list[str], str]:
     # Confidence order: folder, then a single learned id match, else pending for the user.
-    from_path = _source_from_path(path, location_index) or (normalize_source_key(source_hint) if source_hint else "")
+    # The trailing value is the format template of the owning folder, "" when unknown.
+    from_path, format_template = _source_from_path(path, location_index)
+    from_path = from_path or (normalize_source_key(source_hint) if source_hint else "")
     if from_path and not conflicts_with_source(learned, from_path, media_id):
-        return from_path, False, []
+        return from_path, False, [], format_template
     candidates = guess_sources(learned, media_id)
     if len(candidates) == 1:
-        return normalize_source_key(candidates[0]), False, candidates
-    return "", True, candidates
+        return normalize_source_key(candidates[0]), False, candidates, ""
+    return "", True, candidates, ""
 
 
 def _completed_at_from_file(path: Path) -> str:
@@ -786,15 +812,16 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
         except Exception:
             file_size = 0
         source_hint = _source_from_named_folder(root, path, source_profile_keys)
-        source_key, source_pending, source_candidates = infer_disk_source(
+        source_key, source_pending, source_candidates, folder_format = infer_disk_source(
             path, media_id, location_index, learned, source_hint
         )
-        # Try to find a matching template for the disk file among all formats configured
+        # Try to find a matching template for the disk file among all formats configured,
+        # starting with the format that owns the folder the file was found in.
         best_match = None
         best_fields = None
         matched_fmt = ""
-        
-        for fmt in templates.all_formats_for(source_key):
+
+        for fmt in templates.all_formats_for(source_key, folder_format):
             folder_pat, filename_pat = templates.for_source_format(source_key, fmt)
             fields = _match_template(filename_pat, path.stem)
             if fields:

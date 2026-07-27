@@ -22,7 +22,7 @@ export function useTokenRoles(settingsDraft: SavedSettings) {
     return false;
   }
 
-  function migrateTemplateToken(key: string, token: string, role: TokenRole): void {
+  function applyTemplateTokenRole(key: string, token: string, role: TokenRole): void {
     const normalized = normalizeTokenName(token);
     if (!normalized || role === "ignore" || role === "creator" || normalized === role) return;
     const formats = settingsDraft.source_templates[key];
@@ -67,7 +67,7 @@ export function useTokenRoles(settingsDraft: SavedSettings) {
     }
     settingsDraft.source_token_roles[key] = roles;
     if (previousRole !== role) removeFieldMarker(key, normalized, previousRole);
-    migrateTemplateToken(key, token, role);
+    applyTemplateTokenRole(key, token, role);
   }
 
   return {

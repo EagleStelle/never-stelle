@@ -248,7 +248,7 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
         source_key="example",
         source_profile={"key": "example", "label": "Example"},
         source_profiles=[{"key": "example", "label": "Example", "hosts": []}],
-        site_locations={"example": str(tmp_path)},
+        site_locations={"example": {"https://example.com/{id}": str(tmp_path)}},
         output_dir=str(tmp_path),
         template_settings={"folder_template": "{{username}}", "filename_template": "{{title}}"},
     )
@@ -2568,14 +2568,18 @@ def test_infer_disk_source_vetoes_folder_then_uses_learned_guess(tmp_path: Path)
     folder.mkdir()
     media_file = folder / "DOHA - DOHA - Squishy cheeks [2073635724684054528].mp4"
     media_file.write_bytes(b"video")
-    index = scan_module._source_location_index({"youtube": str(folder)})
+    index = scan_module._source_location_index(
+        {"youtube": {"https://www.youtube.com/watch?v={id}": str(folder)}}
+    )
 
-    source_key, pending, _ = scan_module.infer_disk_source(
+    source_key, pending, _, format_template = scan_module.infer_disk_source(
         media_file, "2073635724684054528", index, _learned_youtube_twitter()
     )
 
     assert source_key == "twitter"
     assert pending is False
+    # The folder's format is only a hint for its own source; a vetoed folder drops it.
+    assert format_template == ""
 
 
 def test_guess_sources_tolerates_base64url_separators():
@@ -2603,7 +2607,7 @@ def test_infer_disk_source_ambiguous_when_multiple_learned_match(tmp_path: Path)
     learned = learn_download({}, "https://twitter.com/A/status/2073635724684054528", "2073635724684054528")
     learned = learn_download(learned, "https://www.tiktok.com/@a/video/7123456789012345678", "7123456789012345678")
 
-    source_key, pending, candidates = scan_module.infer_disk_source(
+    source_key, pending, candidates, _ = scan_module.infer_disk_source(
         media_file, "1111111111111111111", [], learned
     )
 
@@ -2617,15 +2621,81 @@ def test_infer_disk_source_prefers_configured_folder(tmp_path: Path):
     folder.mkdir()
     media_file = folder / "Clip [dQw4w9WgXcQ].mp4"
     media_file.write_bytes(b"video")
-    index = scan_module._source_location_index({"youtube": str(folder)})
+    index = scan_module._source_location_index(
+        {"youtube": {"https://www.youtube.com/watch?v={id}": str(folder)}}
+    )
 
-    source_key, pending, candidates = scan_module.infer_disk_source(
+    source_key, pending, candidates, _ = scan_module.infer_disk_source(
         media_file, "dQw4w9WgXcQ", index, _learned_youtube_twitter()
     )
 
     assert source_key == "youtube"
     assert pending is False
     assert candidates == []
+
+
+def test_infer_disk_source_reports_the_folder_format(tmp_path: Path):
+    shorts = tmp_path / "yt-shorts"
+    shorts.mkdir()
+    media_file = shorts / "Clip [dQw4w9WgXcQ].mp4"
+    media_file.write_bytes(b"video")
+    index = scan_module._source_location_index(
+        {
+            "youtube": {
+                "https://www.youtube.com/watch?v={id}": str(tmp_path / "yt"),
+                "https://www.youtube.com/shorts/{id}": str(shorts),
+            }
+        }
+    )
+
+    source_key, _, _, format_template = scan_module.infer_disk_source(
+        media_file, "dQw4w9WgXcQ", index, _learned_youtube_twitter()
+    )
+
+    assert source_key == "youtube"
+    assert format_template == "https://www.youtube.com/shorts/{id}"
+
+
+def test_source_location_index_keeps_one_source_sharing_a_folder(tmp_path: Path):
+    shared = str(tmp_path / "yt")
+    index = scan_module._source_location_index(
+        {
+            "youtube": {
+                "https://www.youtube.com/watch?v={id}": shared,
+                "https://www.youtube.com/shorts/{id}": shared,
+            }
+        }
+    )
+
+    # One source, two formats: the source is still unambiguous, the format is not.
+    assert [(key, fmt) for _, key, fmt in index] == [("youtube", "")]
+
+
+def test_source_location_index_drops_a_folder_two_sources_share(tmp_path: Path):
+    shared = str(tmp_path / "shared")
+    index = scan_module._source_location_index(
+        {
+            "youtube": {"https://www.youtube.com/watch?v={id}": shared},
+            "twitter": {"https://twitter.com/{creator}/status/{id}": shared},
+        }
+    )
+
+    assert index == []
+
+
+def test_source_folder_keys_covers_every_format_folder(tmp_path: Path):
+    watch = tmp_path / "yt"
+    shorts = tmp_path / "yt-shorts"
+    keys = scan_module._source_folder_keys(
+        {
+            "youtube": {
+                "https://www.youtube.com/watch?v={id}": str(watch),
+                "https://www.youtube.com/shorts/{id}": str(shorts),
+            }
+        }
+    )
+
+    assert keys == {scan_module._path_key(watch), scan_module._path_key(shorts)}
 
 
 def test_scan_media_library_creator_from_filename_in_platform_folder(
@@ -2640,7 +2710,7 @@ def test_scan_media_library_creator_from_filename_in_platform_folder(
     saved: dict[str, dict] = {}
     monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
-    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"youtube": str(platform_dir)})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: _scan_locations("youtube", platform_dir))
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
     monkeypatch.setattr(
         scan_module,
@@ -2653,6 +2723,62 @@ def test_scan_media_library_creator_from_filename_in_platform_folder(
     scan_module.scan_media_library([media_root])
 
     assert saved["disk:abc123"]["artist"] == "Cool Channel"
+
+
+def test_scan_media_library_prefers_the_format_owning_the_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media_root = tmp_path / "media"
+    watch_dir = media_root / "youtube"
+    shorts_dir = media_root / "youtube-shorts"
+    watch_dir.mkdir(parents=True)
+    shorts_dir.mkdir(parents=True)
+    media_file = shorts_dir / "Cool Channel - Soft Light [abc123].mp4"
+    media_file.write_bytes(b"video")
+
+    watch_format = "https://www.youtube.com/watch?v={id}"
+    shorts_format = "https://www.youtube.com/shorts/{id}"
+    # Both filename templates match this name; only the shorts one splits off the creator.
+    per_source = {
+        "youtube": {
+            watch_format: {"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"},
+            shorts_format: {
+                "folder_template": "{{username}}",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
+            },
+        }
+    }
+
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_location_map",
+        lambda: {"youtube": {watch_format: str(watch_dir), shorts_format: str(shorts_dir)}},
+    )
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_template_map",
+        lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, per_source),
+    )
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
+    monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, with_cookies=False: {})
+    monkeypatch.setattr(
+        scan_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    scan_module.scan_media_library([media_root])
+
+    entry = saved["disk:abc123"]
+    assert entry["source_key"] == "youtube"
+    assert entry["template_settings"] == per_source["youtube"][shorts_format]
+    assert entry["title"] == "Soft Light"
+    assert entry["artist"] == "Cool Channel"
 
 
 def test_scan_media_library_creator_from_folder_template(
@@ -2668,7 +2794,7 @@ def test_scan_media_library_creator_from_folder_template(
     saved: dict[str, dict] = {}
     monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
-    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"youtube": str(platform_dir)})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: _scan_locations("youtube", platform_dir))
     monkeypatch.setattr(
         scan_module,
         "_scan_template_map",
@@ -2701,13 +2827,24 @@ def test_scan_media_library_creator_from_role_token(
     saved: dict[str, dict] = {}
     monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
-    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"rule34video": str(platform_dir)})
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_location_map",
+        lambda: _scan_locations("rule34video", platform_dir, "https://rule34video.com/video/{id}"),
+    )
     monkeypatch.setattr(
         scan_module,
         "_scan_template_map",
         lambda: (
             {"folder_template": "", "filename_template": "{{artist}} - {{title}} [{{id}}]"},
-            {"rule34video": {"folder_template": "", "filename_template": "{{artist}} - {{title}} [{{id}}]"}},
+            {
+                "rule34video": {
+                    "https://rule34video.com/video/{id}": {
+                        "folder_template": "",
+                        "filename_template": "{{artist}} - {{title}} [{{id}}]",
+                    }
+                }
+            },
         ),
     )
     monkeypatch.setattr(scan_module, "_scan_token_role_map", lambda: {"rule34video": {"artist": "username"}})
@@ -2837,7 +2974,14 @@ def test_scan_media_library_reconstructs_url_part_from_filename_template(
         "_scan_template_map",
         lambda: (
             {"folder_template": "", "filename_template": "{{slug}}_{{quality}} [{{id}}]"},
-            {"rule34video": {"folder_template": "", "filename_template": "{{slug}}_{{quality}} [{{id}}]"}},
+            {
+                "rule34video": {
+                    "https://rule34video.com/video/{id}/cocolia-rand-sutekimeppou": {
+                        "folder_template": "",
+                        "filename_template": "{{slug}}_{{quality}} [{{id}}]",
+                    }
+                }
+            },
         ),
     )
     # The user mapped path segment 2 to a custom URL-part token named "slug"; capture + reconstruct.
@@ -2863,10 +3007,14 @@ def test_scan_media_library_reconstructs_url_part_from_filename_template(
     assert entry["source_url"] == "https://rule34video.com/video/3238394/wsds-minus8"
 
 
+def _scan_locations(source_key: str, folder: Path, format_template: str = "https://www.youtube.com/watch?v={id}"):
+    return {source_key: {format_template: str(folder)}}
+
+
 def _patch_scan_common(monkeypatch: pytest.MonkeyPatch, saved: dict[str, dict], platform_dir: Path) -> None:
     monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
-    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"youtube": str(platform_dir)})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: _scan_locations("youtube", platform_dir))
     monkeypatch.setattr(
         scan_module,
         "save_history_entry_row",
@@ -2932,7 +3080,11 @@ def test_scan_reconstructs_creator_route_when_probe_matches_url_creator(
     saved: dict[str, dict] = {}
     monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
-    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"tiktok": str(platform_dir)})
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_location_map",
+        lambda: _scan_locations("tiktok", platform_dir, "https://www.tiktok.com/@{creator}/video/{id}"),
+    )
     monkeypatch.setattr(scan_module, "_scan_source_profile_keys", lambda: {"tiktok"})
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
     monkeypatch.setattr(
@@ -2975,7 +3127,11 @@ def test_scan_skips_creator_route_when_probe_field_mismatches_url_creator(
     saved: dict[str, dict] = {}
     monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
-    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"tiktok": str(platform_dir)})
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_location_map",
+        lambda: _scan_locations("tiktok", platform_dir, "https://www.tiktok.com/@{creator}/video/{id}"),
+    )
     monkeypatch.setattr(scan_module, "_scan_source_profile_keys", lambda: {"tiktok"})
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
     monkeypatch.setattr(
@@ -3129,7 +3285,7 @@ def test_scan_skips_probe_when_creator_already_resolved(tmp_path: Path, monkeypa
     saved: dict[str, dict] = {}
     monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {"disk:abc123": prior}})
-    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: {"youtube": str(platform_dir)})
+    monkeypatch.setattr(scan_module, "_scan_location_map", lambda: _scan_locations("youtube", platform_dir))
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
     monkeypatch.setattr(
         scan_module,

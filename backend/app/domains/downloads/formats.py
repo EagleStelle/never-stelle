@@ -831,6 +831,28 @@ def _shape_matches_template(template: str, shape: str) -> bool:
     return True
 
 
+def learned_templates_for(learned: dict[str, Any], source_key: str) -> list[str]:
+    """The learned URL templates of one source, in their configured order."""
+    return _entry_templates(learned.get(normalize_source_key(source_key)) or {})
+
+
+def select_for_format(mapping: Any, format_template: str) -> Any:
+    """The entry a format-keyed per-source setting holds for one learned template.
+
+    Callers key their settings by the learned template string (source_templates,
+    site_locations); this looks the matched template up through ``_canonical_shape`` so a
+    stored ``{username}`` key still matches a ``{creator}``-shaped template. Returns None
+    when the source has nothing configured for that format, so callers apply their own default.
+    """
+    if not isinstance(mapping, dict) or not mapping:
+        return None
+    canonical = _canonical_shape(format_template)
+    for fmt, value in mapping.items():
+        if _canonical_shape(fmt) == canonical:
+            return value
+    return None
+
+
 def match_template(learned: dict[str, Any], source_key: str, source_url: str, media_id: str = "") -> str:
     """The learned template a real URL belongs to, or "" when none matches.
 

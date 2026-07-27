@@ -21,7 +21,10 @@ from backend.app.domains.settings.fields import (
     scraper_token_from_field,
 )
 from backend.app.domains.settings.formats import add_source_and_learn_format, set_learned_format_templates
-from backend.app.domains.settings.locations import normalize_source_location_selection
+from backend.app.domains.settings.locations import (
+    normalize_source_location_selection,
+    resolve_source_location,
+)
 from backend.app.domains.settings.profiles import (
     ensure_source_profile_for_url,
     get_effective_source_profiles,
@@ -97,6 +100,7 @@ __all__ = [
     "normalize_token_name",
     "persist_settings",
     "require_settings_managed_source",
+    "resolve_source_location",
     "save_saved_settings_file",
     "save_ytdlp_cookies_upload",
     "scraper_field",

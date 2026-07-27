@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class SettingsPayload(BaseModel):
-    site_locations: dict[str, str] = Field(default_factory=dict)
+    site_locations: dict[str, dict[str, str]] = Field(default_factory=dict)
     template_settings: dict[str, str] = Field(default_factory=dict)
     source_profiles: list[dict[str, Any]] | dict[str, Any] = Field(default_factory=list)
     source_templates: dict[str, Any] = Field(default_factory=dict)

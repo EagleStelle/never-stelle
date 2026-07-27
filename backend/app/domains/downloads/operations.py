@@ -36,7 +36,7 @@ from .worker import ensure_worker, has_active_process, request_cancel
 
 def queue_task(
     source_url: str,
-    site_locations: dict[str, str] | None = None,
+    site_locations: dict[str, dict[str, str]] | None = None,
     template_settings: dict[str, str] | None = None,
     source_profiles: list[dict[str, Any]] | dict[str, Any] | None = None,
     source_templates: dict[str, Any] | None = None,

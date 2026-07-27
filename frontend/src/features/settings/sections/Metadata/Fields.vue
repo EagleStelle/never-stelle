@@ -131,7 +131,7 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
       <AccordionContent>
         <div class="flex flex-col gap-[0.85rem]">
           <div class="flex flex-col gap-1.5">
-            <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Probe URL</Label>
+            <Label>Probe URL</Label>
             <div class="flex items-center gap-2 w-full">
               <Input
                 :id="`${site.key}FieldsProbeInput`"
@@ -221,7 +221,7 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
               class="flex flex-col gap-2"
             >
               <div class="flex items-center justify-between gap-2 min-h-6">
-                <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ role.label }}</Label>
+                <Label>{{ role.label }}</Label>
                 <button
                   v-if="isConfigured(site.key, role.key)"
                   type="button"

@@ -14,6 +14,7 @@ from backend.app.domains.settings import (
     normalize_source_location_selection,
     normalize_source_template_selection,
     normalize_template_settings,
+    resolve_source_location,
 )
 
 
@@ -22,7 +23,7 @@ class ResolvedTaskSettings:
     source_key: str
     source_profile: dict[str, Any]
     source_profiles: list[dict[str, Any]]
-    site_locations: dict[str, str]
+    site_locations: dict[str, dict[str, str]]
     output_dir: str
     template_settings: dict[str, str]
 
@@ -30,7 +31,7 @@ class ResolvedTaskSettings:
 def resolve_task_settings(
     source_url: str,
     *,
-    site_locations: Any = None,
+    site_locations: dict[str, dict[str, str]] | None = None,
     template_settings: Any = None,
     source_profiles: Any = None,
     source_templates: Any = None,
@@ -48,12 +49,8 @@ def resolve_task_settings(
     if not any(normalize_source_key(profile.get("key")) == source_key for profile in profiles):
         profiles.append(source_profile)
 
-    selected_locations = normalize_source_location_selection(
-        site_locations if site_locations is not None else effective.get("site_locations"),
-        cfg,
-        profiles,
-    )
-    output_dir = selected_locations.get(source_key) or ""
+    raw_locations = site_locations if site_locations is not None else effective.get("site_locations")
+    selected_locations = normalize_source_location_selection(raw_locations, cfg, profiles)
 
     base_template = normalize_template_settings(
         template_settings if template_settings is not None else effective.get("template_settings")
@@ -62,29 +59,20 @@ def resolve_task_settings(
         source_templates if source_templates is not None else effective.get("source_templates"),
         cfg,
         profiles,
-        base_template,
         effective.get("source_token_roles"),
     )
-    
-    platform_templates = selected_templates.get(source_key) or {}
-    
-    from backend.app.domains.downloads.formats import _canonical_shape, match_template
+
+    from backend.app.domains.downloads.formats import match_template, select_for_format
     from backend.app.domains.downloads.store import load_learned_formats
-    
-    learned = load_learned_formats()
-    matched = match_template(learned, source_key, source_url)
-    canonical_matched = _canonical_shape(matched)
-    
-    matched_template = None
-    for fmt, settings_dict in platform_templates.items():
-        if _canonical_shape(fmt) == canonical_matched:
-            matched_template = settings_dict
-            break
-            
-    if matched_template is None:
-        matched_template = base_template
-        
-    selected_template = normalize_template_settings(matched_template)
+
+    # One format match drives both the folder and the naming templates for this link.
+    matched = match_template(load_learned_formats(), source_key, source_url)
+    output_dir = resolve_source_location(selected_locations, cfg, source_key, matched)
+
+    matched_template = select_for_format(selected_templates.get(source_key), matched)
+    selected_template = normalize_template_settings(
+        matched_template if matched_template is not None else base_template
+    )
 
     return ResolvedTaskSettings(
         source_key=source_key,

@@ -90,6 +90,75 @@ def test_settings_put_accepts_format_keyed_source_templates(tmp_path, monkeypatc
     }
 
 
+def test_settings_put_accepts_format_keyed_site_locations(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    import backend.app.domains.downloads.store as store_module
+    from backend.app.core.config import MEDIA_DIR
+
+    status_format = "https://twitter.com/{creator}/status/{id}"
+    photo_format = "https://twitter.com/{creator}/status/{id}/photo/{var}"
+    monkeypatch.setattr(
+        store_module,
+        "load_learned_formats",
+        lambda: {"twitter": {"templates": [status_format, photo_format], "segments": []}},
+    )
+    photos_dir = str(MEDIA_DIR / "twitter" / "photos")
+
+    response = client.put(
+        "/api/settings",
+        json={
+            "site_locations": {"twitter": {photo_format: photos_dir}},
+            "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
+        },
+    )
+
+    assert response.status_code == 200
+    locations = response.json()["source_default_locations"]["twitter"]
+    assert locations[photo_format] == photos_dir
+    # The untouched format keeps the <media>/<source_key> default.
+    assert locations[status_format] == str(MEDIA_DIR / "twitter")
+
+
+def test_settings_put_rescopes_site_location_to_source_root(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    import backend.app.domains.downloads.store as store_module
+    from backend.app.core.config import MEDIA_DIR
+
+    status_format = "https://twitter.com/{creator}/status/{id}"
+    monkeypatch.setattr(
+        store_module,
+        "load_learned_formats",
+        lambda: {"twitter": {"templates": [status_format], "segments": []}},
+    )
+
+    response = client.put(
+        "/api/settings",
+        json={
+            "site_locations": {"twitter": {status_format: str(MEDIA_DIR / "instagram")}},
+            "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source_default_locations"]["twitter"][status_format] == str(MEDIA_DIR / "twitter")
+    assert body["source_location_roots"]["twitter"] == str(MEDIA_DIR / "twitter")
+
+
+def test_settings_put_rejects_flat_site_locations(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+
+    response = client.put(
+        "/api/settings",
+        json={
+            "site_locations": {"twitter": "/media/twitter"},
+            "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_add_task_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
     format_template = "https://twitter.com/{creator}/status/{id}"

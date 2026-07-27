@@ -101,7 +101,7 @@ const {
       <AccordionContent>
         <div class="flex flex-col gap-[0.85rem]">
           <div class="flex flex-col gap-1.5">
-            <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Probe URL</Label>
+            <Label>Probe URL</Label>
             <div class="flex items-center gap-2 w-full">
               <Input
                 :id="`${site.key}ScraperProbeInput`"
@@ -201,7 +201,7 @@ const {
             :key="template"
             class="flex flex-col gap-2"
           >
-            <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider wrap-anywhere">
+            <Label>
               {{ displayUrlTemplate(template) }}
             </Label>
 
@@ -224,7 +224,7 @@ const {
 
               <CardContent class="grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <label class="flex flex-col gap-1.5">
-                  <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Token</Label>
+                  <Label>Token</Label>
                   <Input
                     :model-value="rule.token"
                     aria-label="Token name"
@@ -236,7 +236,7 @@ const {
                 </label>
 
                 <label class="flex flex-col gap-1.5">
-                  <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Label</Label>
+                  <Label>Label</Label>
                   <Input
                     v-model="rule.match_label"
                     aria-label="Label to anchor on"
@@ -244,7 +244,7 @@ const {
                 </label>
 
                 <label class="flex flex-col gap-1.5">
-                  <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Selector</Label>
+                  <Label>Selector</Label>
                   <Input
                     v-model="rule.selector"
                     aria-label="CSS selector"
@@ -253,7 +253,7 @@ const {
                 </label>
 
                 <label class="flex flex-col gap-1.5">
-                  <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Attribute</Label>
+                  <Label>Attribute</Label>
                   <Combobox
                     :model-value="rule.attr"
                     :items="SCRAPE_ATTR_ITEMS"
@@ -264,7 +264,7 @@ const {
                 </label>
 
                 <label class="flex flex-col gap-1.5 lg:col-span-2">
-                  <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">XPath (Optional)</Label>
+                  <Label>XPath (Optional)</Label>
                   <Textarea
                     v-model="rule.xpath"
                     aria-label="XPath"
@@ -273,7 +273,7 @@ const {
                 </label>
 
                 <div class="flex flex-col gap-1.5 lg:col-span-2">
-                  <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Role</Label>
+                  <Label>Role</Label>
                   <SegmentedControl
                     :model-value="
                       tokenRole(site.key, rule.token || `var${index}`)

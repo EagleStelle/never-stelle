@@ -15,6 +15,7 @@ import {
   type ScrapeRule,
   type SettingsSection,
   type SourceFields,
+  type SourceLocationRoots,
   type SourceLocations,
   type SourceProfile,
   type SlugToken,
@@ -165,15 +166,38 @@ export function mergeSourceProfiles(
   return [...merged.values()];
 }
 
+// Folders are keyed by source, then by that source's learned URL format.
+function formatLocations(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, string> = {};
+  for (const [format, value] of Object.entries(raw as Record<string, unknown>)) {
+    out[format] = String(value || "");
+  }
+  return out;
+}
+
 export function createSourceLocations(
-  source: Partial<SourceLocations> = {},
+  source: Record<string, unknown> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
 ): SourceLocations {
   const out: SourceLocations = {};
-  for (const profile of profiles) out[profile.key] = source[profile.key] || "";
+  for (const profile of profiles) out[profile.key] = formatLocations(source[profile.key]);
   for (const [key, value] of Object.entries(source)) {
     const normalizedKey = normalizeSourceKey(key);
-    if (normalizedKey) out[normalizedKey] = String(value || "");
+    if (normalizedKey && !out[normalizedKey]) out[normalizedKey] = formatLocations(value);
+  }
+  return out;
+}
+
+export function createSourceLocationRoots(
+  source: Record<string, unknown> = {},
+  profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
+): SourceLocationRoots {
+  const out: SourceLocationRoots = {};
+  for (const profile of profiles) out[profile.key] = String(source[profile.key] || "");
+  for (const [key, value] of Object.entries(source)) {
+    const normalizedKey = normalizeSourceKey(key);
+    if (normalizedKey && !out[normalizedKey]) out[normalizedKey] = String(value || "");
   }
   return out;
 }
@@ -347,7 +371,7 @@ export function createSourceTemplates(
   for (const profile of profiles) {
     out[profile.key] = {};
     const rawVal = source[profile.key];
-    if (rawVal && typeof rawVal === "object" && !("folder_template" in rawVal || "filename_template" in rawVal)) {
+    if (rawVal && typeof rawVal === "object") {
       for (const [fmt, settings_dict] of Object.entries(rawVal)) {
         if (settings_dict && typeof settings_dict === "object") {
           out[profile.key][fmt] = createTemplateSettings(settings_dict);
@@ -359,7 +383,7 @@ export function createSourceTemplates(
     const normalizedKey = normalizeSourceKey(key);
     if (normalizedKey && !out[normalizedKey]) {
       out[normalizedKey] = {};
-      if (rawVal && typeof rawVal === "object" && !("folder_template" in rawVal || "filename_template" in rawVal)) {
+      if (rawVal && typeof rawVal === "object") {
         for (const [fmt, settings_dict] of Object.entries(rawVal)) {
           if (settings_dict && typeof settings_dict === "object") {
             out[normalizedKey][fmt] = createTemplateSettings(settings_dict);

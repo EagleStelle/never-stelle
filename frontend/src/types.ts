@@ -22,7 +22,9 @@ export type SettingsSection =
   | "naming";
 export type ToastType = "success" | "error";
 
-export type SourceLocations = Record<string, string>;
+// Download folder per source, keyed by the source's learned URL format.
+export type SourceLocations = Record<string, Record<string, string>>;
+export type SourceLocationRoots = Record<string, string>;
 
 export interface TemplateSettings {
   folder_template: string;
@@ -31,7 +33,7 @@ export interface TemplateSettings {
 
 export type SourceTemplatesPayload = Record<
   string,
-  Partial<TemplateSettings> | Record<string, Partial<TemplateSettings>>
+  Record<string, Partial<TemplateSettings>>
 >;
 
 export interface SourceProfile {
@@ -230,6 +232,7 @@ export interface TemplateToken {
 export interface RuntimeSettings extends SavedSettings {
   auth: AuthSettings;
   download_locations: string[];
+  source_location_roots: SourceLocationRoots;
   ytdlp_cookies: CookiesMap;
   quality_options: QualityOptions;
   template_tokens: TemplateToken[];
@@ -246,6 +249,7 @@ export interface UiConfigResponse {
   source_profiles?: Array<Partial<SourceProfile>>;
   source_default_locations?: SourceLocations;
   site_default_locations?: SourceLocations;
+  source_location_roots?: SourceLocationRoots;
   template_settings?: Partial<TemplateSettings>;
   source_templates?: SourceTemplatesPayload;
   source_scrape_rules?: Record<string, Partial<PlatformScrapeRules>>;

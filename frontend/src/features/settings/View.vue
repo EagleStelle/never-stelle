@@ -174,14 +174,6 @@ function markActivePaneDirty(event: Event): void {
     overlay-class="settings-overlay fixed inset-0 z-60 bg-black/50 backdrop-blur-sm"
     content-class="settings-content fixed left-1/2 top-1/2 z-70 flex w-[min(980px,96vw)] h-[min(700px,92vh)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none sm:flex-row"
   >
-    <datalist id="downloadLocationSuggestions">
-      <option
-        v-for="location in settings.download_locations"
-        :key="location"
-        :value="location"
-      ></option>
-    </datalist>
-
     <TabsRoot
       v-model="sectionModel"
       class="flex min-h-0 flex-1 flex-col sm:flex-row"

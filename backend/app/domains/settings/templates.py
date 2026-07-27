@@ -30,7 +30,7 @@ def _template_role_replacements(token_roles: dict[str, str] | None) -> dict[str,
     }
 
 
-def _migrate_template_tokens(template: str, token_roles: dict[str, str] | None = None) -> str:
+def _apply_template_role_tokens(template: str, token_roles: dict[str, str] | None = None) -> str:
     replacements = _template_role_replacements(token_roles)
     if not replacements:
         return str(template or "").strip()
@@ -42,14 +42,14 @@ def _migrate_template_tokens(template: str, token_roles: dict[str, str] | None =
     return re.sub(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}", replace, str(template or "").strip())
 
 
-def migrate_template_settings_tokens(
+def apply_template_role_tokens(
     template_settings: dict[str, str] | None,
     token_roles: dict[str, str] | None = None,
 ) -> dict[str, str]:
     settings = normalize_template_settings(template_settings or {})
     return {
-        "folder_template": _migrate_template_tokens(settings["folder_template"], token_roles),
-        "filename_template": _migrate_template_tokens(settings["filename_template"], token_roles),
+        "folder_template": _apply_template_role_tokens(settings["folder_template"], token_roles),
+        "filename_template": _apply_template_role_tokens(settings["filename_template"], token_roles),
     }
 
 
@@ -57,7 +57,6 @@ def normalize_source_template_selection(
     raw: Any,
     cfg: dict[str, Any],
     source_profiles: list[dict[str, Any]] | None = None,
-    default_template: dict[str, str] | None = None,
     token_roles: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, dict[str, dict[str, str]]]:
     source = raw if isinstance(raw, dict) else {}
@@ -75,7 +74,7 @@ def normalize_source_template_selection(
             for format_template, val in raw_val.items():
                 if isinstance(val, dict):
                     normalized = normalize_template_settings(val)
-                    out[key][format_template] = migrate_template_settings_tokens(
+                    out[key][format_template] = apply_template_role_tokens(
                         normalized, (token_roles or {}).get(key)
                     )
     return out
@@ -93,26 +92,12 @@ def get_effective_template_settings(source_url: str = "") -> dict[str, str]:
         payload.get("source_templates"),
         cfg,
         get_effective_source_profiles(cfg, payload, [profile["key"]]),
-        base,
         token_roles,
     )
 
-    platform_templates = source_templates.get(profile["key"]) or {}
-
-    from backend.app.domains.downloads.formats import _canonical_shape, match_template
+    from backend.app.domains.downloads.formats import match_template, select_for_format
     from backend.app.domains.downloads.store import load_learned_formats
 
-    learned = load_learned_formats()
-    matched = match_template(learned, profile["key"], source_url)
-    canonical_matched = _canonical_shape(matched)
-
-    matched_template = None
-    for fmt, settings_dict in platform_templates.items():
-        if _canonical_shape(fmt) == canonical_matched:
-            matched_template = settings_dict
-            break
-
-    if matched_template is None:
-        matched_template = base
-
-    return normalize_template_settings(matched_template)
+    matched = match_template(load_learned_formats(), profile["key"], source_url)
+    matched_template = select_for_format(source_templates.get(profile["key"]), matched)
+    return normalize_template_settings(matched_template if matched_template is not None else base)

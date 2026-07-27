@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from backend.app.core.config import load_app_config, normalize_download_locations
+from backend.app.core.config import get_site_default_locations, load_app_config, normalize_download_locations
 
 from .cookies import get_ytdlp_cookies_status
 from .fields import (
@@ -48,7 +48,6 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
             payload.get("source_templates"),
             cfg,
             source_profiles,
-            template_settings,
             token_roles,
         ),
         "default_quality": normalize_quality_selection(payload.get("default_quality")),
@@ -117,7 +116,6 @@ def persist_settings(
                 raw_source_templates,
                 cfg,
                 managed_profiles,
-                template_settings,
                 normalized_token_roles,
             ),
             "default_quality": normalize_quality_selection(
@@ -152,12 +150,17 @@ def build_settings_response(
 
     cfg = cfg or load_app_config()
     saved = saved or get_effective_saved_settings(cfg)
+    source_profiles = saved.get("source_profiles", get_effective_source_profiles(cfg))
     return {
         "auth": auth_public_payload(),
         "download_locations": normalize_download_locations(cfg),
-        "source_profiles": saved.get("source_profiles", get_effective_source_profiles(cfg)),
+        "source_profiles": source_profiles,
         "source_default_locations": saved.get("site_locations", {}),
         "site_default_locations": saved.get("site_locations", {}),
+        "source_location_roots": get_site_default_locations(
+            cfg,
+            [profile.get("key") for profile in source_profiles if isinstance(profile, dict)],
+        ),
         "template_settings": saved.get("template_settings", normalize_template_settings({})),
         "source_templates": saved.get("source_templates", {}),
         "default_quality": saved.get("default_quality", default_quality_selection()),

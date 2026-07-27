@@ -198,7 +198,7 @@ function insert(siteKey: string, format: string, token: string): void {
             </CardHeader>
             <CardContent class="flex flex-col gap-3">
               <label class="flex flex-col gap-1.5">
-                <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Folder</Label>
+                <Label>Folder</Label>
                 <Input
                   :id="getFolderInputId(site.key, template)"
                   :model-value="getFolderTemplate(site.key, template)"
@@ -212,7 +212,7 @@ function insert(siteKey: string, format: string, token: string): void {
               </label>
 
               <label class="flex flex-col gap-1.5">
-                <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filename</Label>
+                <Label>Filename</Label>
                 <Input
                   :id="getFilenameInputId(site.key, template)"
                   :model-value="getFilenameTemplate(site.key, template)"

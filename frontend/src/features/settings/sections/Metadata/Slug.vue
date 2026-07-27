@@ -105,7 +105,6 @@ function roleDisabled(
           <Label
             v-for="template in learnedFormat(site.key)?.templates || []"
             :key="template"
-            class="text-xs font-semibold text-muted-foreground uppercase tracking-wider wrap-anywhere"
           >
             {{ displayTemplate(site.key, template) }}
           </Label>
@@ -131,7 +130,7 @@ function roleDisabled(
 
             <CardContent class="grid grid-cols-1 gap-3 lg:grid-cols-2">
               <label class="flex flex-col gap-1.5">
-                <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Token</Label>
+                <Label>Token</Label>
                 <Input
                   :model-value="tokenForPart(site.key, segment.part, segment)"
                   aria-label="Token name"
@@ -144,7 +143,7 @@ function roleDisabled(
               </label>
 
               <div class="flex flex-col gap-1.5">
-                <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Role</Label>
+                <Label>Role</Label>
                 <SegmentedControl
                   :model-value="roleValue(site.key, segment)"
                   class="flex-wrap h-auto min-h-9"

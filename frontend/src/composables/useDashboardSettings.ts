@@ -38,6 +38,7 @@ import {
   createFieldRoles,
   createQualitySelection,
   createSourceFields,
+  createSourceLocationRoots,
   createSourceLocations,
   createSourceProfile,
   createSourceScrapeRules,
@@ -361,6 +362,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_fields: createSourceFields(),
     source_title_cleaning: createSourceTitleCleaning(),
     download_locations: [],
+    source_location_roots: {},
     ytdlp_cookies: createCookiesMap(),
     quality_options: createQualityOptions(),
     template_tokens: [],
@@ -859,6 +861,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       ? data.download_locations
       : [];
     replaceRecord(
+      settings.source_location_roots,
+      createSourceLocationRoots(
+        data.source_location_roots || {},
+        managedProfiles,
+      ),
+    );
+    replaceRecord(
       settings.ytdlp_cookies,
       createCookiesMap(
         recordForProfiles(data.ytdlp_cookies || {}, managedProfiles),
@@ -1232,7 +1241,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       settingsManagedSourceProfiles(sourceProfiles.value).find((profile) => profile.key)?.key || "settings";
     const focusTargets: Record<SettingsSection, string> = {
       account: "accountUsernameInput",
-      downloads: `${firstSource}LocationInput`,
+      downloads: "",
       cookies: `${firstSource}CookiesInput`,
       quality: "defaultQualityMode",
       format: "formatLearnInput",
@@ -1410,6 +1419,15 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       await persistAccountDraft();
     }
 
+    if (shouldSaveFormats) {
+      try {
+        await persistFormatDraft();
+      } catch (error) {
+        toast(errorMessage(error, "Could not update formats."), "error");
+        throw error;
+      }
+    }
+
     if (shouldSaveSettings) {
       const payload = normalizeSavedPayload(settingsDraft);
       try {
@@ -1419,15 +1437,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         clearSettingsDraftDirty();
       } catch (error) {
         toast(errorMessage(error, "Could not save settings."), "error");
-        throw error;
-      }
-    }
-
-    if (shouldSaveFormats) {
-      try {
-        await persistFormatDraft();
-      } catch (error) {
-        toast(errorMessage(error, "Could not update formats."), "error");
         throw error;
       }
     }
