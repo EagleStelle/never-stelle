@@ -204,9 +204,12 @@ def _payload_media_id(payload: dict[str, Any]) -> str:
     return media_id or media_id_from_url(str(payload.get("source_url") or ""))
 
 
-def _path_exists(path: Path) -> bool:
+def _path_exists(path: str | Path) -> bool:
     try:
-        return path.exists()
+        os.stat(path)
+        return True
+    except (FileNotFoundError, NotADirectoryError):
+        return False
     except OSError:
         return True
 
@@ -227,8 +230,8 @@ def _iter_scan_roots(roots: Iterable[str | Path] | None) -> list[Path]:
     return out
 
 
-def _iter_media_files(roots: Iterable[Path]) -> Iterable[tuple[Path, Path, os.stat_result | None]]:
-    """Walk the media roots, yielding ``(root, path, stat)`` for media files only.
+def _iter_media_files(roots: Iterable[Path]) -> Iterable[tuple[Path, Path, os.stat_result | None, str]]:
+    """Walk the media roots, yielding ``(root, path, stat, key)`` for media files only.
 
     scandir rather than rglob: the extension is checked against the directory
     entry's name before anything touches the filesystem, so a non-media file costs
@@ -251,16 +254,19 @@ def _iter_media_files(roots: Iterable[Path]) -> Iterable[tuple[Path, Path, os.st
                     if entry.is_dir(follow_symlinks=False):
                         pending.append(entry.path)
                         continue
-                    if os.path.splitext(entry.name)[1].lower() not in MEDIA_EXTENSIONS:
-                        continue
-                    stat_result = entry.stat(follow_symlinks=False)
                 except OSError:
                     continue
+                if os.path.splitext(entry.name)[1].lower() not in MEDIA_EXTENSIONS:
+                    continue
+                try:
+                    stat_result = entry.stat(follow_symlinks=False)
+                except OSError:
+                    stat_result = None
                 key = _path_key(entry.path)
                 if key in seen:
                     continue
                 seen.add(key)
-                yield root, Path(entry.path), stat_result
+                yield root, Path(entry.path), stat_result, key
 
 
 def _folder_base(root: Path, path: Path, source_folders: set[str]) -> Path:
@@ -304,22 +310,37 @@ def _completed_records() -> dict[str, dict[str, Any]]:
     return records
 
 
-def _drop_missing_records(records: dict[str, dict[str, Any]], pacer: CpuPacer | None = None) -> tuple[int, int]:
+def _drop_missing_records(
+    records: dict[str, dict[str, Any]],
+    seen_paths: set[str],
+    pacer: CpuPacer | None = None,
+) -> tuple[int, int]:
     checked = 0
     missing = 0
     for task_id, payload in list(records.items()):
         if pacer is not None:
             pacer.tick()
         task = dict(payload)
+        path = _payload_path_string(task)
+        if path and _path_key(path) in seen_paths:
+            checked += 1
+            continue
         if task.get("status") == "completed":
-            resolved_path, _, _ = recover_task_path(task_id, task)
-            path = Path(resolved_path) if resolved_path else _payload_path(task)
-        else:
-            path = _payload_path(task)
+            resolved_path, resolved_folder, resolved_filename = recover_task_path(task_id, task)
+            if resolved_path:
+                task.update(
+                    {
+                        "resolved_full_path": resolved_path,
+                        "resolved_folder": resolved_folder,
+                        "resolved_filename": resolved_filename,
+                    }
+                )
+                records[task_id] = task
+                path = resolved_path
         if not path:
             continue
         checked += 1
-        if _path_exists(path):
+        if _path_key(path) in seen_paths or _path_exists(path):
             continue
         remove_task_record(task_id)
         remove_history_record(task_id)
@@ -857,7 +878,14 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
 
 def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> dict[str, int]:
     records = _completed_records()
-    checked, missing = _drop_missing_records(records, pacer)
+    walked_media: list[tuple[Path, Path, os.stat_result | None, str]] = []
+    seen_paths: set[str] = set()
+    for root, path, stat_result, path_key in _iter_media_files(_iter_scan_roots(roots)):
+        pacer.tick()
+        walked_media.append((root, path, stat_result, path_key))
+        seen_paths.add(path_key)
+
+    checked, missing = _drop_missing_records(records, seen_paths, pacer)
     real_media_ids = _real_download_media_ids(records)
     _prune_disk_shadows(records, real_media_ids)
     known_paths, known_media_ids = _known_media(records)
@@ -894,9 +922,8 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
     unchanged = 0
     resolved_this_run: set[str] = set()
     pending_rows: list[tuple[str, dict[str, Any]]] = []
-    for root, path, stat_result in _iter_media_files(_iter_scan_roots(roots)):
+    for root, path, stat_result, path_key in walked_media:
         pacer.tick()
-        path_key = _path_key(path)
         if path_key in known_paths and path_key not in disk_paths:
             continue
         signature = _file_signature(stat_result, revision)

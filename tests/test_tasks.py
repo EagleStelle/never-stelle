@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import backend.app.domains.downloads.files as files_module
 import backend.app.domains.downloads.gallerydl as gallerydl_module
 import backend.app.domains.downloads.history as history_module
 import backend.app.domains.downloads.operations as operations_module
@@ -236,6 +237,15 @@ def test_is_media_file(tmp_path: Path):
     assert is_media_file(audio) is True
     assert is_media_file(bad) is False
     assert is_media_file(tmp_path / "missing.mp4") is False
+
+
+def test_is_media_file_handles_oserror(monkeypatch: pytest.MonkeyPatch):
+    def fail_is_file(_path):
+        raise OSError("blocked")
+
+    monkeypatch.setattr(Path, "is_file", fail_is_file)
+
+    assert is_media_file(Path("clip.mp4")) is False
 
 
 def test_parse_filename_media_id_uses_last_bracketed_id():
@@ -3331,6 +3341,172 @@ def test_scan_media_library_removes_missing_completed_rows(tmp_path: Path, monke
     assert removed_history == ["task-1"]
 
 
+def test_scan_media_library_unreadable_subtree_keeps_records(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media_root = tmp_path / "media"
+    locked = media_root / "locked"
+    locked.mkdir(parents=True)
+    media_file = locked / "Creator - Clip [abc123].mp4"
+    media_file.write_bytes(b"video")
+    removed: list[str] = []
+    real_scandir = scan_module.os.scandir
+
+    def flaky_scandir(folder):
+        if scan_module._path_key(folder) == scan_module._path_key(locked):
+            raise OSError("blocked")
+        return real_scandir(folder)
+
+    monkeypatch.setattr(scan_module.os, "scandir", flaky_scandir)
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(
+        scan_module,
+        "load_history",
+        lambda: {
+            "entries": {
+                "disk:abc123": {
+                    "task_type": "disk",
+                    "media_id": "abc123",
+                    "resolved_full_path": str(media_file),
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: None)
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: removed.append(task_id))
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: removed.append(task_id))
+
+    result = scan_module.scan_media_library([media_root])
+
+    assert result == {"checked": 1, "missing": 0, "added": 0, "unchanged": 0}
+    assert removed == []
+
+
+def test_scan_media_library_keeps_non_media_history_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    document = tmp_path / "notes.txt"
+    document.write_text("keep me", encoding="utf-8")
+    removed: list[str] = []
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(
+        scan_module,
+        "load_history",
+        lambda: {
+            "entries": {
+                "disk:notes": {
+                    "task_type": "disk",
+                    "media_id": "notes",
+                    "resolved_full_path": str(document),
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: None)
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: removed.append(task_id))
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: removed.append(task_id))
+
+    result = scan_module.scan_media_library([tmp_path])
+
+    assert result == {"checked": 1, "missing": 0, "added": 0, "unchanged": 0}
+    assert removed == []
+
+
+def test_scan_media_library_keeps_history_file_outside_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    outside = tmp_path / "outside [abc123].mp4"
+    outside.write_bytes(b"video")
+    removed: list[str] = []
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(
+        scan_module,
+        "load_history",
+        lambda: {
+            "entries": {
+                "disk:abc123": {
+                    "task_type": "disk",
+                    "media_id": "abc123",
+                    "resolved_full_path": str(outside),
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: None)
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: removed.append(task_id))
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: removed.append(task_id))
+
+    result = scan_module.scan_media_library([media_root])
+
+    assert result == {"checked": 1, "missing": 0, "added": 0, "unchanged": 0}
+    assert removed == []
+
+
+def test_scan_media_library_healthy_scan_skips_fallback_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media_file = tmp_path / "Creator - Clip [abc123].mp4"
+    media_file.write_bytes(b"video")
+    fallback_checks = 0
+
+    def counting_exists(path):
+        nonlocal fallback_checks
+        fallback_checks += 1
+        return True
+
+    monkeypatch.setattr(scan_module, "_path_exists", counting_exists)
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(
+        scan_module,
+        "load_history",
+        lambda: {
+            "entries": {
+                "disk:abc123": {
+                    "task_type": "disk",
+                    "media_id": "abc123",
+                    "resolved_full_path": str(media_file),
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: None)
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+
+    result = scan_module.scan_media_library([tmp_path])
+
+    assert result["checked"] == 1
+    assert result["missing"] == 0
+    assert fallback_checks == 0
+
+
+def test_scan_media_library_recovers_stale_completed_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    media_file = media_root / "Creator - Clip [abc123].mp4"
+    media_file.write_bytes(b"video")
+    stale_file = tmp_path / "missing [abc123].mp4"
+    persisted: dict[str, str] = {}
+    removed: list[str] = []
+    task = {
+        "status": "completed",
+        "media_id": "abc123",
+        "resolved_full_path": str(stale_file),
+        "last_log_lines": [f'[download] Destination: "{media_file}"'],
+    }
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {"task-1": dict(task)}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
+    monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: None)
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: removed.append(task_id))
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: removed.append(task_id))
+    monkeypatch.setattr(files_module, "update_task", lambda task_id, **updates: persisted.update(updates))
+
+    result = scan_module.scan_media_library([media_root])
+
+    assert result["checked"] == 1
+    assert result["missing"] == 0
+    assert persisted == {
+        "resolved_full_path": str(media_file),
+        "resolved_folder": str(media_root),
+        "resolved_filename": media_file.name,
+    }
+    assert removed == []
+
+
 def test_count_tasks_and_by_menu():
     tasks = [
         {"status": "pending", "source_key": "youtube"},
@@ -3696,7 +3872,7 @@ def test_seeded_learning_is_not_reanalyzed_when_nothing_changed(
         return real_update(learned, source_url, media_id)
 
     monkeypatch.setattr(scan_module, "update_learned_formats_with_download", counting_update)
-    monkeypatch.setattr(scan_module, "_drop_missing_records", lambda records, pacer=None: (0, 0))
+    monkeypatch.setattr(scan_module, "_drop_missing_records", lambda records, seen_paths, pacer=None: (0, 0))
 
     scan_module.scan_media_library([media_root])
     first_pass = len(analyzed)
@@ -3716,7 +3892,7 @@ def test_seeded_learning_reads_only_the_download_that_was_added(
         "gallerydl:1": {"source_url": "https://example.test/@creator/video/1", "media_id": "1"},
     }
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": dict(history)})
-    monkeypatch.setattr(scan_module, "_drop_missing_records", lambda records, pacer=None: (0, 0))
+    monkeypatch.setattr(scan_module, "_drop_missing_records", lambda records, seen_paths, pacer=None: (0, 0))
 
     analyzed: list[str] = []
     real_update = scan_module.update_learned_formats_with_download

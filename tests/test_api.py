@@ -3,6 +3,8 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 import backend.app.db.database as database_module
+import backend.app.domains.downloads.scan as scan_module
+from backend.app.db import repositories
 from backend.app.domains.downloads import cache as cache_module
 from backend.app.domains.downloads import operations as operations_module
 from backend.app.integrations.swaratelle import client as swaratelle
@@ -53,6 +55,42 @@ def test_probe_empty_url_is_client_error(tmp_path, monkeypatch):
     response = client.post("/api/downloads/probe", json={"url": "   "})
     assert response.status_code == 400
     assert response.json()["error"] == "Paste a URL first."
+
+
+def test_library_scan_returns_ok_when_subtree_scandir_fails(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    media_root = tmp_path / "media"
+    locked = media_root / "locked"
+    locked.mkdir(parents=True)
+    media_file = locked / "Creator - Clip [abc123].mp4"
+    media_file.write_bytes(b"video")
+    repositories.save_history_row(
+        "disk:abc123",
+        {
+            "task_type": "disk",
+            "media_id": "abc123",
+            "resolved_full_path": str(media_file),
+        },
+    )
+    real_scandir = scan_module.os.scandir
+
+    def flaky_scandir(folder):
+        if scan_module._path_key(folder) == scan_module._path_key(locked):
+            raise OSError("blocked")
+        return real_scandir(folder)
+
+    monkeypatch.setattr(scan_module, "discover_volume_roots", lambda: [str(media_root)])
+    monkeypatch.setattr(scan_module.os, "scandir", flaky_scandir)
+    monkeypatch.setattr(
+        swaratelle,
+        "scan_media_library",
+        lambda: {"checked": 0, "missing": 0, "added": 0, "unchanged": 0},
+    )
+
+    response = client.post("/api/library/scan")
+
+    assert response.status_code == 200
+    assert response.json() == {"checked": 1, "missing": 0, "added": 0, "unchanged": 0}
 
 
 def test_settings_put_accepts_format_keyed_source_templates(tmp_path, monkeypatch):

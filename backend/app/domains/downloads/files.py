@@ -25,7 +25,12 @@ def extract_downloaded_path(line: str) -> str:
 
 
 def is_media_file(path: Path) -> bool:
-    return path.is_file() and path.suffix.lower() in MEDIA_EXTENSIONS
+    if path.suffix.lower() not in MEDIA_EXTENSIONS:
+        return False
+    try:
+        return path.is_file()
+    except OSError:
+        return False
 
 
 def find_newest_media_file(root: Path, started_at: float) -> Path | None:
