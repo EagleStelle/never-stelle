@@ -3,12 +3,12 @@ from __future__ import annotations
 import tempfile
 import uuid
 import zipfile
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import is_allowed_location, load_app_config
 from backend.app.core.sources import normalize_source_key
+from backend.app.core.time import utc_now
 from backend.app.domains.settings import get_effective_saved_settings
 from backend.app.integrations.swaratelle import client as swaratelle
 
@@ -82,6 +82,7 @@ def queue_task(
     engine = select_engine(source_url)
     task_id = f"{engine.id_prefix}:{uuid.uuid4().hex[:12]}"
     output_template = engine.build_output_template(source_url, output_dir, resolved_settings.template_settings, quality)
+    now = utc_now()
     task = {
         "engine": engine.name,
         "source_url": source_url,
@@ -96,11 +97,11 @@ def queue_task(
         "resolved_filename": "",
         "resolved_full_path": "",
         "preview_warning": "",
-        "created_at": datetime.now(UTC).isoformat(),
+        "created_at": now,
         "error": "",
         "last_log_lines": [],
     }
-    update_task(task_id, **task)
+    task = update_task(task_id, **task)
     ensure_worker()
     return [task_to_api(task_id, task)], False
 

@@ -5,7 +5,8 @@ from collections.abc import Iterable
 from typing import Any
 
 from backend.app.core.sources import normalize_source_key
-from backend.app.db.database import transaction, utc_now
+from backend.app.core.time import utc_now
+from backend.app.db.database import transaction
 from backend.app.db.repositories.utils import _decode, _encode
 
 

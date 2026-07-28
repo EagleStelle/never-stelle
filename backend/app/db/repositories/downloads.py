@@ -4,7 +4,8 @@ from typing import Any
 
 from backend.app.core.coercion import safe_int
 from backend.app.core.paths import path_key
-from backend.app.db.database import transaction, utc_now
+from backend.app.core.time import utc_now
+from backend.app.db.database import transaction
 from backend.app.db.repositories.utils import (
     _decode,
     _encode,
@@ -38,6 +39,7 @@ _TASK_COLUMNS = (
     "folder_template",
     "filename_template",
     "created_at",
+    "updated_at",
     "encoding",
     "last_log_lines",
 )
@@ -63,7 +65,8 @@ _HISTORY_COLUMNS = (
     "scan_revision",
     "folder_template",
     "filename_template",
-    "completed_at",
+    "created_at",
+    "updated_at",
     "encoding",
 )
 _HISTORY_SELECT = ", ".join(_HISTORY_COLUMNS)
@@ -123,6 +126,7 @@ def _task_payload_from_row(row: Any) -> dict[str, Any]:
             "folder_template": str(row["folder_template"] or ""),
             "filename_template": str(row["filename_template"] or ""),
             "created_at": str(row["created_at"] or ""),
+            "updated_at": str(row["updated_at"] or ""),
             "last_log_lines": _json_list(row["last_log_lines"]),
         }
     )
@@ -149,7 +153,8 @@ def _history_payload_from_row(row: Any) -> dict[str, Any]:
             "scan_revision": str(row["scan_revision"] or ""),
             "folder_template": str(row["folder_template"] or ""),
             "filename_template": str(row["filename_template"] or ""),
-            "completed_at": str(row["completed_at"] or ""),
+            "created_at": str(row["created_at"] or ""),
+            "updated_at": str(row["updated_at"] or ""),
         }
     )
     return payload
@@ -176,6 +181,7 @@ def _task_row_values(task_id: str, payload: dict[str, Any], now: str) -> tuple[A
         _text(payload, "folder_template"),
         _text(payload, "filename_template"),
         str(payload.get("created_at") or now),
+        str(payload.get("updated_at") or now),
         _encode(_compact_encoding(payload, _TASK_STORAGE_KEYS)),
         _encode(list(payload.get("last_log_lines") or [])),
     )
@@ -200,7 +206,8 @@ def _history_row_values(task_id: str, payload: dict[str, Any], now: str) -> tupl
         _text(payload, "scan_revision"),
         _text(payload, "folder_template"),
         _text(payload, "filename_template"),
-        str(payload.get("completed_at") or now),
+        str(payload.get("created_at") or now),
+        str(payload.get("updated_at") or now),
         _encode(_compact_encoding(payload, _HISTORY_STORAGE_KEYS)),
     )
 
@@ -262,9 +269,9 @@ def load_history_page(
         clauses.append("source_key = ?")
         params.append(source_key)
     if cursor:
-        completed_at, row_id = str(cursor[0] or ""), str(cursor[-1] or "")
-        clauses.append("(completed_at < ? OR (completed_at = ? AND id < ?))")
-        params.extend([completed_at, completed_at, row_id])
+        created_at, row_id = str(cursor[0] or ""), str(cursor[-1] or "")
+        clauses.append("(created_at < ? OR (created_at = ? AND id < ?))")
+        params.extend([created_at, created_at, row_id])
     term = search.strip().lower()
     if term:
         like = f"%{_like_escape(term)}%"
@@ -284,7 +291,7 @@ def load_history_page(
         rows = connection.execute(
             f"""
             SELECT {_HISTORY_SELECT} FROM download_history {where}
-            ORDER BY completed_at DESC, id DESC
+            ORDER BY created_at DESC, id DESC
             LIMIT ?
             """,
             (*params, limit),
@@ -293,7 +300,7 @@ def load_history_page(
         (
             str(row["id"]),
             _history_payload_from_row(row),
-            str(row["completed_at"] or ""),
+            str(row["created_at"] or ""),
         )
         for row in rows
     ]
@@ -374,6 +381,7 @@ def merge_task_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         ).fetchone()
         payload = _task_payload_from_row(row)
         payload.update(updates if isinstance(updates, dict) else {})
+        payload["updated_at"] = now
         _upsert_task(connection, task_id, payload, now)
     return payload
 
@@ -391,6 +399,7 @@ def claim_pending_task_payload(task_id: str) -> dict[str, Any] | None:
             return None
         payload = _task_payload_from_row(row)
         payload.update({"status": "running", "progress_pct": 0, "error": "", "last_log_lines": []})
+        payload["updated_at"] = now
         _upsert_task(connection, task_id, payload, now)
     return payload
 
@@ -419,7 +428,7 @@ def delete_task_row_if_status(task_id: str, statuses: set[str]) -> bool:
 def load_history_payload() -> dict[str, Any]:
     with transaction() as connection:
         rows = connection.execute(
-            f"SELECT {_HISTORY_SELECT} FROM download_history ORDER BY completed_at DESC, id DESC"
+            f"SELECT {_HISTORY_SELECT} FROM download_history ORDER BY created_at DESC, id DESC"
         ).fetchall()
     return {"entries": {row["id"]: _history_payload_from_row(row) for row in rows}}
 
@@ -443,7 +452,7 @@ def load_history_entries_by_media_id(media_id: str) -> list[tuple[str, dict[str,
                 f"""
                 SELECT {_HISTORY_SELECT} FROM download_history
                 WHERE media_id = ?
-                ORDER BY completed_at DESC, id DESC
+                ORDER BY created_at DESC, id DESC
                 """,
                 (value,),
             ).fetchall()
@@ -453,12 +462,12 @@ def load_history_entries_by_media_id(media_id: str) -> list[tuple[str, dict[str,
             f"""
             SELECT {_HISTORY_SELECT} FROM download_history
             WHERE media_id = '' AND resolved_filename LIKE ? ESCAPE '\\'
-            ORDER BY completed_at DESC, id DESC
+            ORDER BY created_at DESC, id DESC
             """,
             (f"%[{_like_escape(value)}]%",),
         ).fetchall()
         rows.extend(row for row in filename_rows if str(row["id"]) not in seen_ids)
-        rows.sort(key=lambda row: (str(row["completed_at"] or ""), str(row["id"] or "")), reverse=True)
+        rows.sort(key=lambda row: (str(row["created_at"] or ""), str(row["id"] or "")), reverse=True)
     return [(str(row["id"]), _history_payload_from_row(row)) for row in rows]
 
 
@@ -491,7 +500,14 @@ def save_history_rows(rows: list[tuple[str, dict[str, Any]]]) -> None:
         return
     now = utc_now()
     prepared = [
-        _history_row_values(str(task_id), raw_payload if isinstance(raw_payload, dict) else {}, now)
+        _history_row_values(
+            str(task_id),
+            {
+                **(raw_payload if isinstance(raw_payload, dict) else {}),
+                "updated_at": now,
+            },
+            now,
+        )
         for task_id, raw_payload in rows
     ]
     with transaction() as connection:
@@ -500,10 +516,11 @@ def save_history_rows(rows: list[tuple[str, dict[str, Any]]]) -> None:
 
 def fail_running_tasks(error: str) -> int:
     """Mark every ``running`` row failed in one pass, for crash recovery at boot."""
+    now = utc_now()
     with transaction() as connection:
         cursor = connection.execute(
-            "UPDATE download_tasks SET status = 'failed', error = ? WHERE status = 'running'",
-            (str(error),),
+            "UPDATE download_tasks SET status = 'failed', error = ?, updated_at = ? WHERE status = 'running'",
+            (str(error), now),
         )
     return int(cursor.rowcount or 0)
 

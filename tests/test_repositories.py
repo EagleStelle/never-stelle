@@ -52,10 +52,12 @@ def test_download_tables_use_real_task_and_history_columns(tmp_path, monkeypatch
         "resolved_full_path",
         "folder_template",
         "filename_template",
+        "created_at",
+        "updated_at",
         "encoding",
         "last_log_lines",
     } <= task_columns
-    assert {"payload", "updated_at"}.isdisjoint(task_columns)
+    assert {"payload"}.isdisjoint(task_columns)
     assert {
         "id",
         "creator",
@@ -66,9 +68,11 @@ def test_download_tables_use_real_task_and_history_columns(tmp_path, monkeypatch
         "file_size",
         "scan_mtime_ns",
         "scan_revision",
+        "created_at",
+        "updated_at",
         "encoding",
     } <= history_columns
-    assert {"task_id", "payload", "updated_at"}.isdisjoint(history_columns)
+    assert {"task_id", "payload", "completed_at"}.isdisjoint(history_columns)
 
 
 def test_template_column_helpers_trim_symmetrically():
@@ -147,7 +151,7 @@ def _seed_history(monkeypatch, tmp_path):
                 "resolved_filename": "Comet [1].mp4",
                 "resolved_folder": "Hoshimachi",
                 "media_id": "1",
-                "completed_at": "2026-07-10T00:00:00+00:00",
+                "created_at": "2026-07-10T00:00:00+00:00",
             },
         ),
         (
@@ -159,7 +163,7 @@ def _seed_history(monkeypatch, tmp_path):
                 "resolved_filename": "Shark Dance [2].mp4",
                 "resolved_folder": "Gura",
                 "media_id": "2",
-                "completed_at": "2026-07-09T00:00:00+00:00",
+                "created_at": "2026-07-09T00:00:00+00:00",
             },
         ),
     ]
@@ -188,7 +192,7 @@ def test_load_history_page_search_treats_like_wildcards_literally(tmp_path, monk
             "source_key": "example",
             "title": "Progress 50% done",
             "resolved_filename": "clip_a [1].mp4",
-            "completed_at": "2026-07-10T00:00:00+00:00",
+            "created_at": "2026-07-10T00:00:00+00:00",
         },
     )
     repositories.save_history_row(
@@ -197,7 +201,7 @@ def test_load_history_page_search_treats_like_wildcards_literally(tmp_path, monk
             "source_key": "example",
             "title": "Progress 500 done",
             "resolved_filename": "clipxa [2].mp4",
-            "completed_at": "2026-07-09T00:00:00+00:00",
+            "created_at": "2026-07-09T00:00:00+00:00",
         },
     )
 
@@ -253,6 +257,58 @@ def test_source_activity_revision_ignores_progress_writes(tmp_path, monkeypatch)
     repositories.merge_task_payload("t1", {"progress_pct": 87})
 
     assert repositories.source_activity_revision() == before
+
+
+def test_task_updated_at_is_repository_managed(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+    ticks = iter(
+        [
+            "2026-07-10T00:00:00+00:00",
+            "2026-07-10T00:01:00+00:00",
+        ]
+    )
+    monkeypatch.setattr(downloads_repository_module, "utc_now", lambda: next(ticks))
+
+    first = repositories.merge_task_payload(
+        "t1",
+        {
+            "source_url": "https://example.test/a/1",
+            "created_at": "2026-07-01T00:00:00+00:00",
+            "updated_at": "caller-value",
+        },
+    )
+    second = repositories.merge_task_payload("t1", {"progress_pct": 25})
+
+    assert first["created_at"] == "2026-07-01T00:00:00+00:00"
+    assert first["updated_at"] == "2026-07-10T00:00:00+00:00"
+    assert second["created_at"] == "2026-07-01T00:00:00+00:00"
+    assert second["updated_at"] == "2026-07-10T00:01:00+00:00"
+
+
+def test_history_created_at_orders_while_updated_at_is_repository_managed(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(downloads_repository_module, "utc_now", lambda: "2026-07-28T00:00:00+00:00")
+
+    repositories.save_history_row(
+        "old-but-edited",
+        {
+            "source_key": "example",
+            "created_at": "2026-07-01T00:00:00+00:00",
+            "updated_at": "caller-value",
+        },
+    )
+    repositories.save_history_row(
+        "newer",
+        {
+            "source_key": "example",
+            "created_at": "2026-07-20T00:00:00+00:00",
+        },
+    )
+
+    entries = repositories.load_history_payload()["entries"]
+    assert entries["old-but-edited"]["created_at"] == "2026-07-01T00:00:00+00:00"
+    assert entries["old-but-edited"]["updated_at"] == "2026-07-28T00:00:00+00:00"
+    assert [task_id for task_id, *_ in repositories.load_history_page(30)] == ["newer", "old-but-edited"]
 
 
 def test_task_payload_roundtrips_through_real_columns(tmp_path, monkeypatch):
@@ -427,7 +483,7 @@ def test_history_payload_roundtrips_through_real_columns(tmp_path, monkeypatch):
             "filename_template": "{{title}} [{{id}}]",
             "source_pending": True,
             "source_candidates": ["example"],
-            "completed_at": "2026-07-10T00:00:00+00:00",
+            "created_at": "2026-07-10T00:00:00+00:00",
             "file_size": 4096,
             "scan_mtime_ns": 123456,
             "scan_revision": "rules-rev",
@@ -504,7 +560,7 @@ def test_history_source_page_uses_source_order_index(tmp_path, monkeypatch):
                 {
                     "source_url": f"https://example.test/p/{index}",
                     "source_key": "example" if index % 2 else "other",
-                    "completed_at": f"2026-07-{(index % 28) + 1:02d}T00:00:00+00:00",
+                    "created_at": f"2026-07-{(index % 28) + 1:02d}T00:00:00+00:00",
                 },
             )
             for index in range(40)
@@ -517,7 +573,7 @@ def test_history_source_page_uses_source_order_index(tmp_path, monkeypatch):
             EXPLAIN QUERY PLAN
             SELECT id FROM download_history
             WHERE source_key = ?
-            ORDER BY completed_at DESC, id DESC
+            ORDER BY created_at DESC, id DESC
             LIMIT 10
             """,
             ("example",),
@@ -589,7 +645,7 @@ def test_history_media_lookup_falls_back_to_filename_id_column(tmp_path, monkeyp
             "engine": "disk",
             "media_id": "",
             "resolved_filename": "Creator - Clip [K1-BVtsHrOY].mp4",
-            "completed_at": "2026-07-10T00:00:00+00:00",
+            "created_at": "2026-07-10T00:00:00+00:00",
         },
     )
 
@@ -610,7 +666,7 @@ def test_history_source_lookup_matches_filename_media_id_through_real_sql(tmp_pa
             "engine": "disk",
             "media_id": "",
             "resolved_filename": "wsds-minus8_source [3238394].mp4",
-            "completed_at": "2026-07-10T00:00:00+00:00",
+            "created_at": "2026-07-10T00:00:00+00:00",
         },
     )
 

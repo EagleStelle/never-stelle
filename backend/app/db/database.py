@@ -4,7 +4,6 @@ import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 
 from backend.app.core.config import DATABASE_PATH
@@ -40,6 +39,7 @@ CREATE TABLE IF NOT EXISTS download_tasks (
     folder_template     TEXT NOT NULL DEFAULT '',
     filename_template   TEXT NOT NULL DEFAULT '',
     created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
     encoding            TEXT NOT NULL DEFAULT '{}',
     last_log_lines      TEXT NOT NULL DEFAULT '[]'
 );
@@ -64,14 +64,15 @@ CREATE TABLE IF NOT EXISTS download_history (
     scan_revision       TEXT    NOT NULL DEFAULT '',
     folder_template     TEXT    NOT NULL DEFAULT '',
     filename_template   TEXT    NOT NULL DEFAULT '',
-    completed_at        TEXT    NOT NULL,
+    created_at          TEXT    NOT NULL,
+    updated_at          TEXT    NOT NULL,
     encoding            TEXT    NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX IF NOT EXISTS idx_history_order
-    ON download_history(completed_at DESC, id DESC);
+    ON download_history(created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_history_source_order
-    ON download_history(source_key, completed_at DESC, id DESC);
+    ON download_history(source_key, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_history_path
     ON download_history(resolved_path_key);
 CREATE INDEX IF NOT EXISTS idx_history_media_id
@@ -112,11 +113,6 @@ CREATE TABLE IF NOT EXISTS source_cookies (
 
 CREATE INDEX IF NOT EXISTS idx_source_cookies_source_key ON source_cookies(source_key);
 """
-
-
-def utc_now() -> str:
-    return datetime.now(UTC).isoformat()
-
 
 def database_path() -> Path:
     return DATABASE_PATH

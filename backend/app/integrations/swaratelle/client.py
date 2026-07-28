@@ -333,7 +333,12 @@ def _filename(item: dict[str, Any], resolved_path: str) -> str:
     return Path(resolved_path).name if resolved_path else ""
 
 
-def record_to_task(item: dict[str, Any], *, fallback_status: str = "pending") -> dict[str, Any]:
+def record_to_task(
+    item: dict[str, Any],
+    *,
+    fallback_status: str = "pending",
+    history_record: bool = False,
+) -> dict[str, Any]:
     source_url = _source_url(item)
     record_id = _record_id(item, source_url)
     status = _status(item, fallback_status)
@@ -343,6 +348,9 @@ def record_to_task(item: dict[str, Any], *, fallback_status: str = "pending") ->
     if not resolved_folder and resolved_path:
         resolved_folder = str(Path(resolved_path).parent)
     error = _text(item, "error", "error_message", "errorMessage", "message") if status == "failed" else ""
+    queued_at = _text(item, "created_at", "createdAt", "queued_at", "queuedAt")
+    finished_at = _text(item, "completed_at", "completedAt", "finished_at", "finishedAt", "updated_at", "updatedAt")
+    updated_at = _text(item, "updated_at", "updatedAt", "completed_at", "completedAt", "finished_at", "finishedAt")
 
     return {
         "vid": f"{BACKEND_NAME}:{record_id}",
@@ -370,8 +378,8 @@ def record_to_task(item: dict[str, Any], *, fallback_status: str = "pending") ->
         "quality": {},
         "external": True,
         "external_backend": BACKEND_NAME,
-        "created_at": _text(item, "created_at", "createdAt", "queued_at", "queuedAt"),
-        "completed_at": _text(item, "completed_at", "completedAt", "finished_at", "finishedAt", "updated_at"),
+        "created_at": (finished_at or queued_at) if history_record else queued_at,
+        "updated_at": updated_at or finished_at or queued_at,
     }
 
 
@@ -491,7 +499,7 @@ def history_cursor_for_task(task: dict[str, Any]) -> str:
     if not video_id:
         return ""
     try:
-        updated_at = int(float(str(task.get("completed_at") or task.get("updated_at") or "")))
+        updated_at = int(float(str(task.get("updated_at") or task.get("created_at") or "")))
     except Exception:
         return ""
     payload = json.dumps({"updated_at": updated_at, "video_id": video_id}, separators=(",", ":"))
@@ -513,7 +521,10 @@ def fetch_history_page(cursor: str = "", limit: int = 50, search: str = "", *, q
             return {"entries": []}
         raise
     page_limit = max(1, int(limit))
-    entries = [record_to_task(item, fallback_status="completed") for item in _extract_items(payload)]
+    entries = [
+        record_to_task(item, fallback_status="completed", history_record=True)
+        for item in _extract_items(payload)
+    ]
     entries = [entry for entry in entries if entry["status"] == "completed"]
     entries = entries[:page_limit]
     result: dict[str, Any] = {"entries": entries}

@@ -3,13 +3,13 @@ from __future__ import annotations
 import tempfile
 import threading
 import uuid
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import UploadFile
 
 from backend.app.core.sources import normalize_source_key
+from backend.app.core.time import utc_now_datetime
 from backend.app.db.repositories import (
     add_source_cookie,
     delete_source_cookie,
@@ -119,7 +119,7 @@ def _stored_cookie_filename(source_key: str) -> str:
     """Uploads are renamed to ``<date> <time> <source>.txt``; the browser's name is dropped."""
     # Same-day uploads are common, so the clock disambiguates them. Dashes, not
     # colons, keep the name usable as a filename on Windows.
-    stem = f"{datetime.now(UTC).strftime('%Y-%m-%d %H-%M-%S')} {source_key}".strip()
+    stem = f"{utc_now_datetime().strftime('%Y-%m-%d %H-%M-%S')} {source_key}".strip()
     taken = {entry["filename"] for entry in list_cookies_for_source(source_key)}
     candidate = f"{stem}.txt"
     suffix = 2

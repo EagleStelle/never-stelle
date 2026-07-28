@@ -103,7 +103,7 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
         "external": bool(task.get("external")),
         "external_backend": str(task.get("external_backend") or ""),
         "created_at": str(task.get("created_at") or ""),
-        "completed_at": str(task.get("completed_at") or ""),
+        "updated_at": str(task.get("updated_at") or ""),
     }
 
 
@@ -129,7 +129,7 @@ def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "external": entry.get("external", False),
         "external_backend": entry.get("external_backend", ""),
         "created_at": entry.get("created_at", ""),
-        "completed_at": entry.get("completed_at", ""),
+        "updated_at": entry.get("updated_at", ""),
     }
     return task_to_api(task_id, task, resolve_files=False)
 
@@ -182,15 +182,15 @@ def _decode_local_history_cursor(cursor: str) -> tuple[str, str] | None:
     payload = _decode_cursor_payload(cursor)
     if not payload:
         return None
-    completed_at = str(payload.get("completed_at") or "")
+    created_at = str(payload.get("created_at") or "")
     row_id = str(payload.get("id") or "")
-    if not (completed_at and row_id):
+    if not (created_at and row_id):
         raise ValueError("History cursor is invalid.")
-    return (completed_at, row_id)
+    return (created_at, row_id)
 
 
 def _local_history_cursor_for_row(row: HistoryRow) -> str:
-    return _encode_cursor_payload({"completed_at": row[2], "id": row[0]})
+    return _encode_cursor_payload({"created_at": row[2], "id": row[0]})
 
 
 def _decode_combined_history_cursor(cursor: str) -> tuple[str, str]:
@@ -227,15 +227,15 @@ def _sort_timestamp(value: Any) -> float:
 
 
 def _history_sort_key(task: dict[str, Any]) -> tuple[float, str]:
-    completed_at = str(task.get("completed_at") or task.get("created_at") or "")
-    return (_sort_timestamp(completed_at), str(task.get("vid") or ""))
+    created_at = str(task.get("created_at") or "")
+    return (_sort_timestamp(created_at), str(task.get("vid") or ""))
 
 
 def _local_history_candidates(cursor: str, limit: int, search: str) -> list[HistoryCandidate]:
     rows = load_history_entries_page(limit + 1, _decode_local_history_cursor(cursor), "", search)
     candidates: list[HistoryCandidate] = []
     for row in rows:
-        task_id, entry, completed_at = row
+        task_id, entry, _created_at = row
         task = history_to_api(task_id, entry)
         candidates.append(
             (

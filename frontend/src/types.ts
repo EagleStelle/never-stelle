@@ -330,7 +330,7 @@ export interface TaskItem {
   external?: boolean;
   external_backend?: string;
   created_at?: string;
-  completed_at?: string;
+  updated_at?: string;
 }
 
 export interface TaskCounts {

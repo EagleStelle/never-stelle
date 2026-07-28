@@ -15,7 +15,7 @@ from backend.app.core.pacing import CpuPacer
 from backend.app.core.paths import path_key as _path_key
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
-from backend.app.db.database import utc_now
+from backend.app.core.time import utc_now
 from backend.app.domains.settings import is_scraper_field, scraper_token_from_field
 
 from .constants import CREATOR_FIELDS, FIELD_DEFAULTS, MEDIA_EXTENSIONS, TEMPLATE_RE
@@ -851,7 +851,7 @@ def infer_disk_source(
     return "", True, candidates, ""
 
 
-def _completed_at_from_file(path: Path, stat_result: os.stat_result | None = None) -> str:
+def _history_created_at_from_file(path: Path, stat_result: os.stat_result | None = None) -> str:
     try:
         mtime = (stat_result or path.stat()).st_mtime
         return datetime.fromtimestamp(mtime, UTC).isoformat()
@@ -1052,7 +1052,7 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
                     "filename_template": filename_template,
                     "creator": creator,
                     "file_size": file_size,
-                    "completed_at": _completed_at_from_file(path, stat_result),
+                    "created_at": _history_created_at_from_file(path, stat_result),
                     "scan_mtime_ns": signature[0],
                     "scan_revision": signature[2],
                 },

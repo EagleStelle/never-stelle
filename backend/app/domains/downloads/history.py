@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from backend.app.core.coercion import safe_int
 from backend.app.core.sources import normalize_source_key
+from backend.app.core.time import utc_now
 
 from .constants import normalize_quality_selection
 from .formats import media_id_from_url, url_dedup_key
@@ -36,6 +36,7 @@ def _stored_file_size(task: dict[str, Any]) -> int:
 def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
     source_url = str(task.get("source_url") or "")
     source_key = normalize_source_key(task.get("source_key")) or detect_source_key(source_url)
+    now = utc_now()
     save_history_entry_row(
         task_id,
         {
@@ -52,7 +53,7 @@ def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
             "filename_template": str(task.get("filename_template") or ""),
             "file_size": _stored_file_size(task),
             "quality": normalize_quality_selection(task.get("quality")),
-            "completed_at": datetime.now(UTC).isoformat(),
+            "created_at": now,
         },
     )
 

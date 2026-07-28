@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.app.db.database import transaction, utc_now
+from backend.app.core.time import utc_now
+from backend.app.db.database import transaction
 
 _METADATA_COLUMNS = "id, source_key, filename, position, length(content) AS size, created_at, updated_at"
 # List order is the user's preference order: the pool breaks ties top-first.

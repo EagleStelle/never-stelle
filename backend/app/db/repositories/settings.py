@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.app.db.database import transaction, utc_now
+from backend.app.core.time import utc_now
+from backend.app.db.database import transaction
 from backend.app.db.repositories.utils import _decode, _encode
 
 
