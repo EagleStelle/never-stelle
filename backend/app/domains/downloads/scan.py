@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
+from backend.app.core.coercion import safe_int
 from backend.app.core.config import discover_volume_roots
 from backend.app.core.pacing import CpuPacer
 from backend.app.core.paths import path_key as _path_key
@@ -363,10 +364,10 @@ def _known_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], set[str]
 
 
 def _is_disk_record(task_id: str, payload: dict[str, Any]) -> bool:
-    return str(task_id).startswith("disk:") or payload.get("task_type") == "disk"
+    return str(task_id).startswith("disk:") or payload.get("engine") == "disk"
 
 
-def _file_signature(stat_result: os.stat_result | None, resolution_revision: str) -> str:
+def _file_signature(stat_result: os.stat_result | None, revision: str) -> tuple[int, int, str]:
     """What a resolved disk row was derived from: the file plus the rules used.
 
     A rescan re-resolves a file only when one of these moved. The file half is
@@ -375,19 +376,27 @@ def _file_signature(stat_result: os.stat_result | None, resolution_revision: str
     reason a rescan was re-resolving everything in the first place.
     """
     if stat_result is None:
-        return ""
-    return f"{int(stat_result.st_mtime_ns)}:{int(stat_result.st_size)}:{resolution_revision}"
+        return (0, 0, "")
+    return (int(stat_result.st_mtime_ns), int(stat_result.st_size), revision)
 
 
-def _disk_signature_index(records: dict[str, dict[str, Any]]) -> dict[str, tuple[str, str]]:
+def _record_signature(payload: dict[str, Any]) -> tuple[int, int, str]:
+    return (
+        safe_int(payload.get("scan_mtime_ns")),
+        safe_int(payload.get("file_size")),
+        str(payload.get("scan_revision") or ""),
+    )
+
+
+def _disk_signature_index(records: dict[str, dict[str, Any]]) -> dict[str, tuple[tuple[int, int, str], str]]:
     """Map every already-resolved disk file to ``(signature, media_id)``."""
-    index: dict[str, tuple[str, str]] = {}
+    index: dict[str, tuple[tuple[int, int, str], str]] = {}
     for task_id, payload in records.items():
         if not _is_disk_record(task_id, payload):
             continue
         path = _payload_path_string(payload)
-        signature = str(payload.get("scan_signature") or "")
-        if path and signature:
+        signature = _record_signature(payload)
+        if path and signature[0] and signature[2]:
             index[_path_key(path)] = (signature, _payload_media_id(payload))
     return index
 
@@ -928,7 +937,7 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
             continue
         signature = _file_signature(stat_result, revision)
         cached = disk_index.get(path_key)
-        if cached and signature and cached[0] == signature:
+        if cached and cached[0] == signature:
             # Same bytes, same rules: the row on file is still the right answer.
             unchanged += 1
             resolved_this_run.add(cached[1])
@@ -982,7 +991,7 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
         disk_creator = _creator_for_file(root, path, source_folders, folder_pattern, filename_pattern)
         folder_template, filename_template = templates.templates_for_format(source_key, matched_fmt)
         prior = records.get(task_id) or {}
-        prior_creator = str(prior.get("artist") or "").strip()
+        prior_creator = str(prior.get("creator") or "").strip()
         if prior_creator:
             # Already resolved by a past scan or a real download: never re-probe, keep it as-is.
             creator = prior_creator
@@ -1029,10 +1038,9 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
             (
                 task_id,
                 {
-                    "task_id": task_id,
                     "media_id": media_id,
                     "source_url": source_url,
-                    "task_type": "disk",
+                    "engine": "disk",
                     "source_key": source_key,
                     "source_pending": source_pending,
                     "source_candidates": source_candidates,
@@ -1040,11 +1048,13 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
                     "resolved_filename": display_filename,
                     "resolved_full_path": str(path),
                     "title": title,
-                    "template_settings": template_settings,
-                    "artist": creator,
+                    "folder_template": folder_template,
+                    "filename_template": filename_template,
+                    "creator": creator,
                     "file_size": file_size,
                     "completed_at": _completed_at_from_file(path, stat_result),
-                    "scan_signature": signature,
+                    "scan_mtime_ns": signature[0],
+                    "scan_revision": signature[2],
                 },
             )
         )

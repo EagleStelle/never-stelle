@@ -21,33 +21,61 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 
 CREATE TABLE IF NOT EXISTS download_tasks (
-    id TEXT PRIMARY KEY,
-    source_url TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'pending',
-    source_key TEXT NOT NULL DEFAULT '',
-    progress_pct REAL NOT NULL DEFAULT 0,
-    payload TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    id                  TEXT PRIMARY KEY,
+    source_url          TEXT NOT NULL DEFAULT '',
+    source_key          TEXT NOT NULL DEFAULT '',
+    status              TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending','running','completed','failed')),
+    progress_pct        REAL NOT NULL DEFAULT 0,
+    engine              TEXT NOT NULL DEFAULT '',
+    creator             TEXT NOT NULL DEFAULT '',
+    title               TEXT NOT NULL DEFAULT '',
+    media_id            TEXT NOT NULL DEFAULT '',
+    resolved_full_path  TEXT NOT NULL DEFAULT '',
+    resolved_folder     TEXT NOT NULL DEFAULT '',
+    resolved_filename   TEXT NOT NULL DEFAULT '',
+    error               TEXT NOT NULL DEFAULT '',
+    output_dir          TEXT NOT NULL DEFAULT '',
+    output_template     TEXT NOT NULL DEFAULT '',
+    folder_template     TEXT NOT NULL DEFAULT '',
+    filename_template   TEXT NOT NULL DEFAULT '',
+    created_at          TEXT NOT NULL,
+    encoding            TEXT NOT NULL DEFAULT '{}',
+    last_log_lines      TEXT NOT NULL DEFAULT '[]'
 );
 
-CREATE INDEX IF NOT EXISTS idx_download_tasks_status ON download_tasks(status);
-CREATE INDEX IF NOT EXISTS idx_download_tasks_source_url ON download_tasks(source_url);
+CREATE INDEX IF NOT EXISTS idx_tasks_status_created
+    ON download_tasks(status, created_at, id);
 
 CREATE TABLE IF NOT EXISTS download_history (
-    task_id TEXT PRIMARY KEY,
-    source_url TEXT NOT NULL DEFAULT '',
-    source_key TEXT NOT NULL DEFAULT '',
-    payload TEXT NOT NULL,
-    completed_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    id                  TEXT PRIMARY KEY,
+    source_url          TEXT    NOT NULL DEFAULT '',
+    source_key          TEXT    NOT NULL DEFAULT '',
+    engine              TEXT    NOT NULL DEFAULT '',
+    creator             TEXT    NOT NULL DEFAULT '',
+    title               TEXT    NOT NULL DEFAULT '',
+    media_id            TEXT    NOT NULL DEFAULT '',
+    resolved_full_path  TEXT    NOT NULL DEFAULT '',
+    resolved_path_key   TEXT    NOT NULL DEFAULT '',
+    resolved_folder     TEXT    NOT NULL DEFAULT '',
+    resolved_filename   TEXT    NOT NULL DEFAULT '',
+    file_size           INTEGER NOT NULL DEFAULT 0,
+    scan_mtime_ns       INTEGER NOT NULL DEFAULT 0,
+    scan_revision       TEXT    NOT NULL DEFAULT '',
+    folder_template     TEXT    NOT NULL DEFAULT '',
+    filename_template   TEXT    NOT NULL DEFAULT '',
+    completed_at        TEXT    NOT NULL,
+    encoding            TEXT    NOT NULL DEFAULT '{}'
 );
 
-CREATE INDEX IF NOT EXISTS idx_download_history_source_url ON download_history(source_url);
-CREATE INDEX IF NOT EXISTS idx_download_history_source_key ON download_history(source_key);
-CREATE INDEX IF NOT EXISTS idx_download_history_completed_at ON download_history(completed_at);
-CREATE INDEX IF NOT EXISTS idx_download_history_order
-    ON download_history(completed_at DESC, updated_at DESC, task_id DESC);
+CREATE INDEX IF NOT EXISTS idx_history_order
+    ON download_history(completed_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_history_source_order
+    ON download_history(source_key, completed_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_history_path
+    ON download_history(resolved_path_key);
+CREATE INDEX IF NOT EXISTS idx_history_media_id
+    ON download_history(media_id);
 
 CREATE TABLE IF NOT EXISTS learned_formats (
     source_key TEXT PRIMARY KEY,
@@ -123,18 +151,6 @@ def close_database() -> None:
         _INITIALIZED = False
 
 
-def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
-    return {str(row["name"]) for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
-
-
-def _ensure_current_schema(connection: sqlite3.Connection) -> None:
-    learned_columns = _columns(connection, "learned_formats")
-    if "url_field_roles" not in learned_columns:
-        connection.execute(
-            "ALTER TABLE learned_formats ADD COLUMN url_field_roles TEXT NOT NULL DEFAULT ''"
-        )
-
-
 @contextmanager
 def transaction() -> Iterator[sqlite3.Connection]:
     initialize_database()
@@ -159,12 +175,11 @@ def initialize_database() -> None:
         connection = _shared_connection()
         try:
             connection.executescript(SCHEMA)
-            _ensure_current_schema(connection)
             connection.execute(
                 """
                 DELETE FROM download_tasks
                 WHERE status = 'completed'
-                  AND id IN (SELECT task_id FROM download_history)
+                  AND id IN (SELECT id FROM download_history)
                 """
             )
             connection.commit()

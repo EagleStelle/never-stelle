@@ -19,6 +19,7 @@ from backend.app.domains.downloads.history import save_history_entry
 from backend.app.domains.downloads.naming import detect_ffmpeg_location, filename_template_fields
 from backend.app.domains.downloads.scan import parse_filename_media_id
 from backend.app.domains.downloads.store import load_learned_formats, load_task, remove_task_record, update_task
+from backend.app.domains.downloads.templates import template_columns, template_settings_from_columns
 from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
 from backend.app.domains.downloads.workers.completion import (
     _attempt_output_paths,
@@ -191,8 +192,7 @@ def _engine_run_order(task: dict[str, Any]) -> list[Engine]:
 
 
 def _task_template_settings(task: dict[str, Any]) -> dict[str, str] | None:
-    template_settings = task.get("template_settings")
-    return template_settings if isinstance(template_settings, dict) else None
+    return template_settings_from_columns(task)
 
 
 def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
@@ -489,7 +489,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     last_log_lines=[],
                     output_dir="",
                     output_template="",
-                    template_settings=template_settings or {},
+                    **template_columns(template_settings),
                 )
                 completed_rows.append((row_task_id, completed_task))
                 _learn_source_format(item_source_url, display_filename, media_id, metadata, item_source_key)

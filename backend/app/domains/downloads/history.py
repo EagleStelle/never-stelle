@@ -4,20 +4,24 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from backend.app.core.coercion import safe_int
 from backend.app.core.sources import normalize_source_key
 
 from .constants import normalize_quality_selection
 from .formats import media_id_from_url, url_dedup_key
 from .scan import parse_filename_media_id
-from .store import load_history, load_task_store, save_history_entry_row
+from .store import (
+    load_history,
+    load_history_entries_for_media_id,
+    load_history_entry,
+    load_task_store,
+    save_history_entry_row,
+)
 from .urls import detect_source_key
 
 
 def _stored_file_size(task: dict[str, Any]) -> int:
-    try:
-        value = int(task.get("file_size") or 0)
-    except Exception:
-        value = 0
+    value = safe_int(task.get("file_size"))
     if value > 0:
         return value
     resolved_path = str(task.get("resolved_full_path") or "").strip()
@@ -35,9 +39,8 @@ def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
     save_history_entry_row(
         task_id,
         {
-            "task_id": task_id,
             "source_url": source_url,
-            "task_type": str(task.get("engine") or "gallerydl"),
+            "engine": str(task.get("engine") or "gallerydl"),
             "source_key": source_key,
             "creator": str(task.get("creator") or ""),
             "media_id": str(task.get("media_id") or ""),
@@ -45,9 +48,8 @@ def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
             "resolved_filename": str(task.get("resolved_filename") or ""),
             "resolved_full_path": str(task.get("resolved_full_path") or ""),
             "title": str(task.get("title") or ""),
-            "template_settings": (
-                task.get("template_settings") if isinstance(task.get("template_settings"), dict) else {}
-            ),
+            "folder_template": str(task.get("folder_template") or ""),
+            "filename_template": str(task.get("filename_template") or ""),
             "file_size": _stored_file_size(task),
             "quality": normalize_quality_selection(task.get("quality")),
             "completed_at": datetime.now(UTC).isoformat(),
@@ -88,15 +90,21 @@ def _source_match_keys(source_url: str, payload: dict[str, Any] | None = None) -
 def find_history_by_source(source_url: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
     # Match on the route-agnostic id so a re-download of the same post dedups regardless of route.
     normalized = _source_match_keys(source_url)
-    for task_id, entry in (load_history().get("entries") or {}).items():
+    media_id = media_id_from_url(source_url)
+    candidates = (
+        load_history_entries_for_media_id(media_id)
+        if media_id
+        else (load_history().get("entries") or {}).items()
+    )
+    for task_id, entry in candidates:
         if _source_match_keys(str(entry.get("source_url") or ""), entry) & normalized:
             return str(task_id), entry
     return None, None
 
 
 def find_history_by_id(task_id: str) -> dict[str, Any] | None:
-    entry = (load_history().get("entries") or {}).get(task_id)
-    return entry if isinstance(entry, dict) else None
+    entry = load_history_entry(task_id)
+    return entry if entry else None
 
 
 def find_active_by_source(source_url: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:

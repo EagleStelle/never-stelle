@@ -17,6 +17,7 @@ import backend.app.domains.downloads.urls as urls_module
 import backend.app.domains.downloads.workers.completion as completion_module
 import backend.app.domains.downloads.workers.completion_learning as completion_learning_module
 import backend.app.domains.downloads.workers.completion_metadata as completion_metadata_module
+import backend.app.domains.downloads.workers.completion_outputs as completion_outputs_module
 import backend.app.domains.downloads.workers.execution as worker_module
 import backend.app.domains.downloads.workers.runner as runner_module
 from backend.app.core.sources import source_label_from_key
@@ -328,7 +329,8 @@ def test_retry_task_migrates_to_gallerydl_engine(monkeypatch: pytest.MonkeyPatch
                 "engine": "ytdlp",
                 "source_url": "https://example.test/watch?v=1",
                 "output_dir": "/media/example",
-                "template_settings": {"folder_template": "", "filename_template": "{{title}} [{{id}}]"},
+                "folder_template": "",
+                "filename_template": "{{title}} [{{id}}]",
             }
         }
     }
@@ -357,7 +359,7 @@ def test_queue_task_reuses_history_regardless_of_stored_engine(
     # reused rather than re-queued, so queue_task never reaches task creation.
     source_url = "https://example.test/post/abc123"
     entry = {
-        "task_type": "ytdlp",
+        "engine": "ytdlp",
         "source_url": source_url,
         "resolved_filename": "Clip [abc123].mp4",
     }
@@ -1119,10 +1121,8 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
                 "status": "pending",
                 "output_dir": str(tmp_path),
                 "resolved_folder": str(tmp_path),
-                "template_settings": {
-                    "folder_template": "",
-                    "filename_template": "{{username}} - {{title}} [{{id}}]",
-                },
+                "folder_template": "",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
             }
         }
     }
@@ -1184,10 +1184,8 @@ def test_gallerydl_sparse_single_output_uses_probe_metadata_for_template(
                 "status": "pending",
                 "output_dir": str(tmp_path),
                 "resolved_folder": str(tmp_path),
-                "template_settings": {
-                    "folder_template": "{{username}}",
-                    "filename_template": "{{username}} - {{title}} [{{id}}]",
-                },
+                "folder_template": "{{username}}",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
             }
         }
     }
@@ -1238,7 +1236,8 @@ def test_gallerydl_sparse_single_output_uses_probe_metadata_for_template(
     assert completed["resolved_folder"] == str(clean_video.parent)
     assert completed["resolved_filename"] == clean_video.name
     assert completed["creator"] == "ChannelHandle"
-    assert saved[task_id]["template_settings"] == store["tasks"][task_id]["template_settings"]
+    assert saved[task_id]["folder_template"] == store["tasks"][task_id]["folder_template"]
+    assert saved[task_id]["filename_template"] == store["tasks"][task_id]["filename_template"]
 
 
 def test_gallerydl_cookie_probe_repairs_none_creator_and_duplicate_id_filename(
@@ -1258,10 +1257,8 @@ def test_gallerydl_cookie_probe_repairs_none_creator_and_duplicate_id_filename(
                 "status": "pending",
                 "output_dir": str(tmp_path),
                 "resolved_folder": str(tmp_path),
-                "template_settings": {
-                    "folder_template": "",
-                    "filename_template": "{{username}} - {{title}} [{{id}}]",
-                },
+                "folder_template": "",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
             }
         }
     }
@@ -1332,10 +1329,8 @@ def test_gallerydl_same_source_assets_share_one_row_and_source_id(
                 "status": "pending",
                 "output_dir": str(tmp_path),
                 "resolved_folder": str(tmp_path),
-                "template_settings": {
-                    "folder_template": "",
-                    "filename_template": "{{username}} - {{title}} [{{id}}]",
-                },
+                "folder_template": "",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
             }
         }
     }
@@ -1448,6 +1443,35 @@ def test_gallerydl_parent_group_keeps_pasted_source_url_for_child_metadata():
     )
 
 
+def test_duplicate_library_cleanup_removes_history_row_for_duplicate_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    keep = tmp_path / "Creator - Clip [abc123].mp4"
+    duplicate = tmp_path / "Old Creator - Clip [abc123].mp4"
+    keep.write_bytes(b"current")
+    duplicate.write_bytes(b"stale")
+    removed: list[str] = []
+    queried: list[str] = []
+
+    def fake_load_history_entry_for_path(path: str):
+        queried.append(path)
+        return ("disk:old-abc123", {"resolved_full_path": path}) if path == str(duplicate) else (None, None)
+
+    monkeypatch.setattr(
+        completion_outputs_module,
+        "load_history_entry_for_path",
+        fake_load_history_entry_for_path,
+    )
+    monkeypatch.setattr(completion_outputs_module, "remove_history_record", removed.append)
+
+    completion_outputs_module._cleanup_duplicate_library_media(tmp_path, "abc123", [keep])
+
+    assert queried == [str(duplicate)]
+    assert removed == ["disk:old-abc123"]
+    assert not duplicate.exists()
+    assert keep.exists()
+
+
 def test_read_metadata_sidecar_accepts_gallerydl_jsonl(tmp_path: Path):
     media_file = tmp_path / "clip.mp4"
     sidecar = tmp_path / "metadata.jsonl"
@@ -1489,10 +1513,8 @@ def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(
                 "status": "pending",
                 "output_dir": str(tmp_path),
                 "resolved_folder": str(tmp_path),
-                "template_settings": {
-                    "folder_template": "",
-                    "filename_template": "{{username}} - {{title}} [{{id}}]",
-                },
+                "folder_template": "",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
             }
         }
     }
@@ -1557,10 +1579,8 @@ def test_worker_runs_gallerydl_without_preflight(
                 "status": "pending",
                 "output_dir": str(tmp_path),
                 "resolved_folder": str(tmp_path),
-                "template_settings": {
-                    "folder_template": "",
-                    "filename_template": "{{username}} - {{title}} [{{id}}]",
-                },
+                "folder_template": "",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
             }
         }
     }
@@ -1634,10 +1654,8 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
                 "status": "pending",
                 "output_dir": str(tmp_path),
                 "resolved_folder": str(tmp_path),
-                "template_settings": {
-                    "folder_template": "",
-                    "filename_template": "{{username}} - {{title}} [{{id}}]",
-                },
+                "folder_template": "",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
             }
         }
     }
@@ -1727,10 +1745,8 @@ def test_worker_renames_display_creator_to_handle_and_template_folder(
                 "status": "pending",
                 "output_dir": str(tmp_path),
                 "resolved_folder": str(tmp_path),
-                "template_settings": {
-                    "folder_template": "{{username}}",
-                    "filename_template": "{{username}} - {{title}} [{{id}}]",
-                },
+                "folder_template": "{{username}}",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
             }
         }
     }
@@ -1826,10 +1842,8 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
                 "status": "pending",
                 "output_dir": str(tmp_path),
                 "resolved_folder": str(tmp_path),
-                "template_settings": {
-                    "folder_template": "",
-                    "filename_template": "{{username}} - {{title}} [{{id}}]",
-                },
+                "folder_template": "",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
             }
         }
     }
@@ -1926,10 +1940,8 @@ def test_task_to_api_prefers_saved_template_over_gallerydl_id_display(tmp_path: 
             "title": "Nice clip",
             "resolved_full_path": str(media_file),
             "resolved_filename": media_file.name,
-            "template_settings": {
-                "folder_template": "{{username}}",
-                "filename_template": "{{username}} - {{title}} [{{id}}]",
-            },
+            "folder_template": "{{username}}",
+            "filename_template": "{{username}} - {{title}} [{{id}}]",
         },
     )
 
@@ -1951,10 +1963,8 @@ def test_resolve_task_file_prefers_saved_template_for_gallerydl_download_name(
         "title": "Nice clip",
         "resolved_full_path": str(media_file),
         "resolved_filename": media_file.name,
-        "template_settings": {
-            "folder_template": "{{username}}",
-            "filename_template": "{{username}} - {{title}} [{{id}}]",
-        },
+        "folder_template": "{{username}}",
+        "filename_template": "{{username}} - {{title}} [{{id}}]",
     }
 
     monkeypatch.setattr(operations_module, "load_task_store", lambda: {"tasks": {"gallerydl:test": task}})
@@ -2489,7 +2499,7 @@ def test_media_id_from_url_reads_id_without_prior_knowledge():
 def test_correct_reconstructed_url_adopts_pasted_link_for_disk_entry(monkeypatch):
     saved: dict[str, dict] = {}
     monkeypatch.setattr(operations_module, "save_history_entry_row", lambda tid, p: saved.update({tid: p}))
-    entry = {"task_type": "disk", "source_url": "https://www.tiktok.com/@a/photo/7615077542189337873"}
+    entry = {"engine": "disk", "source_url": "https://www.tiktok.com/@a/photo/7615077542189337873"}
     real_url = "https://www.tiktok.com/@a/video/7615077542189337873"
 
     out = operations_module._correct_reconstructed_url("disk:7615077542189337873", entry, real_url)
@@ -2500,13 +2510,18 @@ def test_correct_reconstructed_url_adopts_pasted_link_for_disk_entry(monkeypatch
 
 def test_history_source_lookup_matches_filename_media_id_without_stored_url(monkeypatch):
     entry = {
-        "task_type": "disk",
+        "engine": "disk",
         "source_url": "",
         "source_key": "rule34video",
         "media_id": "3238394",
         "resolved_filename": "wsds-minus8_source [3238394].mp4",
     }
-    monkeypatch.setattr(history_module, "load_history", lambda: {"entries": {"disk:3238394": entry}})
+    monkeypatch.setattr(history_module, "load_history_entries_for_media_id", lambda media_id: [("disk:3238394", entry)])
+    monkeypatch.setattr(
+        history_module,
+        "load_history",
+        lambda: (_ for _ in ()).throw(AssertionError("media-id lookup should avoid full history decode")),
+    )
 
     task_id, found = history_module.find_history_by_source("https://rule34video.com/video/3238394/wsds-minus8/")
 
@@ -2518,7 +2533,7 @@ def test_correct_reconstructed_url_leaves_real_download_untouched(monkeypatch):
     saved: dict[str, dict] = {}
     monkeypatch.setattr(operations_module, "save_history_entry_row", lambda tid, p: saved.update({tid: p}))
     real_url = "https://www.tiktok.com/@a/video/7615077542189337873"
-    entry = {"task_type": "ytdlp", "source_url": real_url}
+    entry = {"engine": "ytdlp", "source_url": real_url}
 
     out = operations_module._correct_reconstructed_url("ytdlp:abc", entry, "https://www.tiktok.com/@a/photo/7615077542189337873")
 
@@ -2532,7 +2547,7 @@ def test_prune_disk_shadows_drops_disk_duplicate_of_real_download(monkeypatch):
     records = {
         "ytdlp:abc": {"source_url": "https://www.tiktok.com/@a/video/7615077542189337873", "media_id": ""},
         "disk:7615077542189337873": {
-            "task_type": "disk",
+            "engine": "disk",
             "media_id": "7615077542189337873",
             "source_url": "https://www.tiktok.com/@a/photo/7615077542189337873",
         },
@@ -2736,7 +2751,7 @@ def test_scan_media_library_creator_from_filename_in_platform_folder(
 
     scan_module.scan_media_library([media_root])
 
-    assert saved["disk:abc123"]["artist"] == "Cool Channel"
+    assert saved["disk:abc123"]["creator"] == "Cool Channel"
 
 
 def test_scan_media_library_prefers_the_format_owning_the_folder(
@@ -2790,9 +2805,12 @@ def test_scan_media_library_prefers_the_format_owning_the_folder(
 
     entry = saved["disk:abc123"]
     assert entry["source_key"] == "youtube"
-    assert entry["template_settings"] == per_source["youtube"][shorts_format]
+    assert {
+        "folder_template": entry["folder_template"],
+        "filename_template": entry["filename_template"],
+    } == per_source["youtube"][shorts_format]
     assert entry["title"] == "Soft Light"
-    assert entry["artist"] == "Cool Channel"
+    assert entry["creator"] == "Cool Channel"
 
 
 def test_scan_media_library_creator_from_folder_template(
@@ -2825,7 +2843,7 @@ def test_scan_media_library_creator_from_folder_template(
 
     scan_module.scan_media_library([media_root])
 
-    assert saved["disk:abc123"]["artist"] == "Cool Channel"
+    assert saved["disk:abc123"]["creator"] == "Cool Channel"
     assert saved["disk:abc123"]["title"] == "Soft Light"
 
 
@@ -2873,7 +2891,7 @@ def test_scan_media_library_creator_from_role_token(
 
     scan_module.scan_media_library([media_root])
 
-    assert saved["disk:abc123"]["artist"] == "Trace Artist"
+    assert saved["disk:abc123"]["creator"] == "Trace Artist"
     assert saved["disk:abc123"]["title"] == "Soft Light"
 
 
@@ -2906,7 +2924,7 @@ def test_scan_media_library_creator_empty_when_no_creator_token(
 
     scan_module.scan_media_library([media_root])
 
-    assert saved["disk:abc123"]["artist"] == ""
+    assert saved["disk:abc123"]["creator"] == ""
 
 
 def test_scan_media_library_flags_ambiguous_source_pending(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -3070,7 +3088,7 @@ def test_scan_probes_manual_file_in_configured_username_order(tmp_path: Path, mo
 
     scan_module.scan_media_library([media_root])
 
-    assert saved["disk:abc123"]["artist"] == "UCopaque123"
+    assert saved["disk:abc123"]["creator"] == "UCopaque123"
     assert saved["disk:abc123"]["source_url"] == "https://www.youtube.com/watch?v=abc123"
     assert probed == ["https://www.youtube.com/watch?v=abc123"]
 
@@ -3118,7 +3136,7 @@ def test_scan_reconstructs_creator_route_when_probe_matches_url_creator(
 
     scan_module.scan_media_library([media_root])
 
-    assert saved[f"disk:{media_id}"]["artist"] == "moli0n"
+    assert saved[f"disk:{media_id}"]["creator"] == "moli0n"
     assert saved[f"disk:{media_id}"]["source_url"] == f"https://www.tiktok.com/@moli0n/video/{media_id}"
 
 
@@ -3165,7 +3183,7 @@ def test_scan_skips_creator_route_when_probe_field_mismatches_url_creator(
 
     scan_module.scan_media_library([media_root])
 
-    assert saved[f"disk:{media_id}"]["artist"] == "wrongname"
+    assert saved[f"disk:{media_id}"]["creator"] == "wrongname"
     assert saved[f"disk:{media_id}"]["source_url"] == ""
 
 
@@ -3201,7 +3219,7 @@ def test_scan_probe_uses_nickname_order_when_folder_token_is_nickname(
 
     scan_module.scan_media_library([media_root])
 
-    assert saved["disk:abc123"]["artist"] == "Mili Display"
+    assert saved["disk:abc123"]["creator"] == "Mili Display"
 
 
 def test_scan_skips_creator_probe_for_scraper_backed_template_role(
@@ -3237,7 +3255,7 @@ def test_scan_skips_creator_probe_for_scraper_backed_template_role(
 
     scan_module.scan_media_library([media_root])
 
-    assert saved["disk:abc123"]["artist"] == "Scraped Artist"
+    assert saved["disk:abc123"]["creator"] == "Scraped Artist"
     assert saved["disk:abc123"]["source_url"] == "https://www.youtube.com/watch?v=abc123"
 
 
@@ -3275,7 +3293,7 @@ def test_scan_keeps_creator_probe_when_scraper_backed_role_is_not_top(
 
     scan_module.scan_media_library([media_root])
 
-    assert saved["disk:abc123"]["artist"] == "Probed Channel"
+    assert saved["disk:abc123"]["creator"] == "Probed Channel"
     assert probed == ["https://www.youtube.com/watch?v=abc123"]
 
 
@@ -3289,10 +3307,9 @@ def test_scan_skips_probe_when_creator_already_resolved(tmp_path: Path, monkeypa
     media_file.write_bytes(b"video")
 
     prior = {
-        "task_id": "disk:abc123",
         "media_id": "abc123",
-        "task_type": "disk",
-        "artist": "AlreadyResolved",
+        "engine": "disk",
+        "creator": "AlreadyResolved",
         "source_url": "https://www.youtube.com/watch?v=abc123",
         "resolved_full_path": str(media_file),
     }
@@ -3316,7 +3333,7 @@ def test_scan_skips_probe_when_creator_already_resolved(tmp_path: Path, monkeypa
 
     scan_module.scan_media_library([media_root])
 
-    assert saved["disk:abc123"]["artist"] == "AlreadyResolved"
+    assert saved["disk:abc123"]["creator"] == "AlreadyResolved"
     assert saved["disk:abc123"]["source_url"] == "https://www.youtube.com/watch?v=abc123"
 
 
@@ -3363,7 +3380,7 @@ def test_scan_media_library_unreadable_subtree_keeps_records(tmp_path: Path, mon
         lambda: {
             "entries": {
                 "disk:abc123": {
-                    "task_type": "disk",
+                    "engine": "disk",
                     "media_id": "abc123",
                     "resolved_full_path": str(media_file),
                 }
@@ -3391,7 +3408,7 @@ def test_scan_media_library_keeps_non_media_history_file(tmp_path: Path, monkeyp
         lambda: {
             "entries": {
                 "disk:notes": {
-                    "task_type": "disk",
+                    "engine": "disk",
                     "media_id": "notes",
                     "resolved_full_path": str(document),
                 }
@@ -3421,7 +3438,7 @@ def test_scan_media_library_keeps_history_file_outside_roots(tmp_path: Path, mon
         lambda: {
             "entries": {
                 "disk:abc123": {
-                    "task_type": "disk",
+                    "engine": "disk",
                     "media_id": "abc123",
                     "resolved_full_path": str(outside),
                 }
@@ -3456,7 +3473,7 @@ def test_scan_media_library_healthy_scan_skips_fallback_exists(tmp_path: Path, m
         lambda: {
             "entries": {
                 "disk:abc123": {
-                    "task_type": "disk",
+                    "engine": "disk",
                     "media_id": "abc123",
                     "resolved_full_path": str(media_file),
                 }
@@ -3559,7 +3576,7 @@ def test_history_preserves_completed_engine(monkeypatch: pytest.MonkeyPatch):
         },
     )
 
-    assert saved["gallerydl:abc123"]["task_type"] == "gallerydl"
+    assert saved["gallerydl:abc123"]["engine"] == "gallerydl"
     assert saved["gallerydl:abc123"]["quality"]["mode"] == "audio"
     api_task = history_to_api("gallerydl:abc123", saved["gallerydl:abc123"])
     assert api_task["task_type"] == "gallerydl"
@@ -3575,7 +3592,7 @@ def test_history_to_api_does_not_touch_filesystem(monkeypatch: pytest.MonkeyPatc
     api_task = history_to_api(
         "gallerydl:abc123",
         {
-            "task_type": "gallerydl",
+            "engine": "gallerydl",
             "source_url": "https://imgur.com/a/abc123",
             "source_key": "imgur",
             "resolved_folder": "/media/imgur",
@@ -3598,7 +3615,7 @@ def test_resolve_task_file_for_history_entry_validates_on_download(tmp_path: Pat
         operations_module,
         "find_history_by_id",
         lambda task_id: {
-            "task_type": "gallerydl",
+            "engine": "gallerydl",
             "creator": "creator",
             "source_url": "https://imgur.com/a/abc123",
             "resolved_full_path": str(media_file),

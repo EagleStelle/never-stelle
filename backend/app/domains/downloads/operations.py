@@ -30,6 +30,7 @@ from .store import (
     save_history_entry_row,
     update_task,
 )
+from .templates import template_columns, template_settings_from_columns
 from .urls import canonicalize_source_url, detect_source_key, resolve_redirect_url
 from .worker import ensure_worker, has_active_process, request_cancel
 
@@ -89,7 +90,7 @@ def queue_task(
         "progress_pct": 0,
         "output_dir": output_dir,
         "output_template": output_template,
-        "template_settings": resolved_settings.template_settings,
+        **template_columns(resolved_settings.template_settings),
         "quality": quality,
         "resolved_folder": output_dir,
         "resolved_filename": "",
@@ -106,7 +107,7 @@ def queue_task(
 
 def _correct_reconstructed_url(task_id: str, entry: dict[str, Any], source_url: str) -> dict[str, Any]:
     """A dedup hit on a disk-reconstructed record: the pasted link is authoritative, so adopt it."""
-    is_reconstructed = str(task_id).startswith("disk:") or entry.get("task_type") == "disk"
+    is_reconstructed = str(task_id).startswith("disk:") or entry.get("engine") == "disk"
     if not is_reconstructed or str(entry.get("source_url") or "") == source_url:
         return entry
     updated = dict(entry)
@@ -169,7 +170,7 @@ def retry_task(task_id: str) -> None:
     }
     output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
     if source_url and output_dir:
-        template_settings = task.get("template_settings") if isinstance(task.get("template_settings"), dict) else None
+        template_settings = template_settings_from_columns(task)
         updates["output_template"] = engine.build_output_template(
             source_url,
             output_dir,
@@ -238,7 +239,7 @@ def set_task_source(task_id: str, source_key: str) -> str:
             media_id, _ = parse_filename_media_id(str(entry.get("resolved_filename") or ""))
         # Rebuild a link now the source is known, but never clobber a real one.
         if not str(updated.get("source_url") or "").strip():
-            creator = str(updated.get("artist") or updated.get("creator") or "")
+            creator = str(updated.get("creator") or "")
             candidates = reconstruct_url_candidates(load_learned_formats(), key, media_id, creator=creator)
             updated["source_url"] = candidates[0] if candidates else ""
         save_history_entry_row(task_id, updated)
@@ -263,15 +264,16 @@ def resolve_task_file(task_id: str) -> tuple[Path, str, Path | None]:
     if not task and history_entry:
         task = {
             "status": "completed",
-            "engine": history_entry.get("task_type") or history_entry.get("engine") or "gallerydl",
-            "creator": history_entry.get("creator") or history_entry.get("artist") or "",
+            "engine": history_entry.get("engine") or "gallerydl",
+            "creator": history_entry.get("creator") or "",
             "source_url": history_entry.get("source_url", ""),
             "resolved_full_path": history_entry.get("resolved_full_path", ""),
             "resolved_filename": history_entry.get("resolved_filename", ""),
             "resolved_folder": history_entry.get("resolved_folder", ""),
             "media_id": history_entry.get("media_id", ""),
             "title": history_entry.get("title", ""),
-            "template_settings": history_entry.get("template_settings", {}),
+            "folder_template": history_entry.get("folder_template", ""),
+            "filename_template": history_entry.get("filename_template", ""),
             "quality": history_entry.get("quality", {}),
         }
     if not task:
@@ -293,7 +295,7 @@ def resolve_task_file(task_id: str) -> tuple[Path, str, Path | None]:
         parsed_media_id, _ = parse_filename_media_id(filename)
         filename = clean_template_display_filename(
             filename,
-            task.get("template_settings") if isinstance(task.get("template_settings"), dict) else None,
+            template_settings_from_columns(task),
             creator=str(task.get("creator") or ""),
             title=str(task.get("title") or ""),
             media_id=str(task.get("media_id") or "").strip() or parsed_media_id,

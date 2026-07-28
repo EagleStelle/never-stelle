@@ -22,6 +22,7 @@ from backend.app.domains.downloads.naming import (
     strip_numbered_suffix,
 )
 from backend.app.domains.downloads.scan import parse_filename_media_id
+from backend.app.domains.downloads.store import load_history_entry_for_path, remove_history_record
 from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
 from backend.app.domains.downloads.workers.completion_creators import (
     _filename_media_id,
@@ -178,10 +179,13 @@ def _cleanup_duplicate_library_media(root: Path, media_id: str, keep_paths: list
         candidate_media_id, _ = parse_filename_media_id(candidate.name)
         if candidate_media_id != media_id:
             continue
+        task_id, _ = load_history_entry_for_path(str(candidate))
         try:
             candidate.unlink(missing_ok=True)
         except OSError:
-            pass
+            continue
+        if task_id:
+            remove_history_record(task_id)
 
 def _download_groups(
     paths: list[Path],

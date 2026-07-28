@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from backend.app.core.coercion import safe_int
 from backend.app.core.sources import normalize_source_key
 from backend.app.domains.settings import get_effective_source_profiles
 from backend.app.integrations.swaratelle import client as swaratelle
@@ -22,18 +23,12 @@ from .store import (
     load_history_entries_page,
     load_task_store,
 )
+from .templates import template_settings_from_columns
 from .urls import detect_source_key
 
 
-def _safe_int(value: Any) -> int:
-    try:
-        return int(value or 0)
-    except Exception:
-        return 0
-
-
 def _file_size(resolved_path: str, fallback: Any = 0) -> int:
-    fallback_size = _safe_int(fallback)
+    fallback_size = safe_int(fallback)
     if fallback_size > 0:
         return fallback_size
     try:
@@ -67,7 +62,7 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
     parsed_media_id, _ = parse_filename_media_id(raw_filename)
     media_id = str(task.get("media_id") or "").strip() or parsed_media_id
     creator = str(task.get("creator") or "")
-    template_settings = task.get("template_settings") if isinstance(task.get("template_settings"), dict) else None
+    template_settings = template_settings_from_columns(task)
     quality = normalize_quality_selection(task.get("quality"))
     resolved_filename = (
         clean_template_display_filename(
@@ -118,17 +113,17 @@ def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "status": "completed",
         "progress_pct": 100,
         "source_key": entry.get("source_key", ""),
-        # Disk-scanned rows carry the creator as `artist` (top folder name).
-        "creator": entry.get("creator") or entry.get("artist") or "",
+        "creator": entry.get("creator") or "",
         "source_pending": entry.get("source_pending", False),
         "source_candidates": entry.get("source_candidates", []),
-        "engine": entry.get("task_type") or entry.get("engine") or "gallerydl",
+        "engine": entry.get("engine") or "gallerydl",
         "resolved_folder": entry.get("resolved_folder", ""),
         "resolved_filename": entry.get("resolved_filename", ""),
         "resolved_full_path": entry.get("resolved_full_path", ""),
         "media_id": entry.get("media_id", ""),
         "title": entry.get("title", ""),
-        "template_settings": entry.get("template_settings", {}),
+        "folder_template": entry.get("folder_template", ""),
+        "filename_template": entry.get("filename_template", ""),
         "file_size": entry.get("file_size", 0),
         "quality": entry.get("quality", {}),
         "external": entry.get("external", False),
@@ -161,8 +156,8 @@ def fetch_active_tasks() -> list[dict[str, Any]]:
     return tasks
 
 
-HistoryRow = tuple[str, dict[str, Any], str, str]
-HistoryCandidate = tuple[tuple[float, float, str], str, str, dict[str, Any]]
+HistoryRow = tuple[str, dict[str, Any], str]
+HistoryCandidate = tuple[tuple[float, str], str, str, dict[str, Any]]
 
 
 def _encode_cursor_payload(payload: dict[str, Any]) -> str:
@@ -183,20 +178,19 @@ def _decode_cursor_payload(cursor: str) -> dict[str, Any]:
     return payload
 
 
-def _decode_local_history_cursor(cursor: str) -> tuple[str, str, str] | None:
+def _decode_local_history_cursor(cursor: str) -> tuple[str, str] | None:
     payload = _decode_cursor_payload(cursor)
     if not payload:
         return None
     completed_at = str(payload.get("completed_at") or "")
-    updated_at = str(payload.get("updated_at") or "")
-    task_id = str(payload.get("task_id") or "")
-    if not (completed_at and updated_at and task_id):
+    row_id = str(payload.get("id") or "")
+    if not (completed_at and row_id):
         raise ValueError("History cursor is invalid.")
-    return (completed_at, updated_at, task_id)
+    return (completed_at, row_id)
 
 
 def _local_history_cursor_for_row(row: HistoryRow) -> str:
-    return _encode_cursor_payload({"completed_at": row[2], "updated_at": row[3], "task_id": row[0]})
+    return _encode_cursor_payload({"completed_at": row[2], "id": row[0]})
 
 
 def _decode_combined_history_cursor(cursor: str) -> tuple[str, str]:
@@ -232,21 +226,20 @@ def _sort_timestamp(value: Any) -> float:
     return parsed.timestamp()
 
 
-def _history_sort_key(task: dict[str, Any], updated_at: str = "") -> tuple[float, float, str]:
+def _history_sort_key(task: dict[str, Any]) -> tuple[float, str]:
     completed_at = str(task.get("completed_at") or task.get("created_at") or "")
-    updated = updated_at or completed_at
-    return (_sort_timestamp(completed_at), _sort_timestamp(updated), str(task.get("vid") or ""))
+    return (_sort_timestamp(completed_at), str(task.get("vid") or ""))
 
 
 def _local_history_candidates(cursor: str, limit: int, search: str) -> list[HistoryCandidate]:
     rows = load_history_entries_page(limit + 1, _decode_local_history_cursor(cursor), "", search)
     candidates: list[HistoryCandidate] = []
     for row in rows:
-        task_id, entry, completed_at, updated_at = row
+        task_id, entry, completed_at = row
         task = history_to_api(task_id, entry)
         candidates.append(
             (
-                (_sort_timestamp(completed_at), _sort_timestamp(updated_at), str(task.get("vid") or "")),
+                _history_sort_key(task),
                 "local",
                 _local_history_cursor_for_row(row),
                 task,
@@ -275,7 +268,7 @@ def _swaratelle_history_candidates(cursor: str, limit: int, search: str) -> list
 def _fetch_local_history_page(cursor: str, limit: int, source_key: str, search: str) -> dict[str, Any]:
     rows = load_history_entries_page(limit + 1, _decode_local_history_cursor(cursor), source_key, search)
     page_rows = rows[:limit]
-    entries = [history_to_api(task_id, entry) for task_id, entry, _, _ in page_rows]
+    entries = [history_to_api(task_id, entry) for task_id, entry, _ in page_rows]
     result: dict[str, Any] = {"entries": entries}
     if len(rows) > limit and page_rows:
         result["next_cursor"] = _local_history_cursor_for_row(page_rows[-1])

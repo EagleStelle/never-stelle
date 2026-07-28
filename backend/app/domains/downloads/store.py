@@ -14,6 +14,9 @@ from backend.app.db.repositories import (
     fail_running_tasks,
     learned_formats_revision,
     load_active_task_store_payload,
+    load_history_entries_by_media_id,
+    load_history_entry_by_path,
+    load_history_entry_payload,
     load_history_page,
     load_history_payload,
     load_learned_formats_payload,
@@ -60,11 +63,23 @@ def load_history() -> dict[str, Any]:
 
 def load_history_entries_page(
     limit: int,
-    cursor: tuple[str, str, str] | None = None,
+    cursor: tuple[str, str] | None = None,
     source_key: str = "",
     search: str = "",
-) -> list[tuple[str, dict[str, Any], str, str]]:
+) -> list[tuple[str, dict[str, Any], str]]:
     return load_history_page(limit, cursor, source_key, search)
+
+
+def load_history_entry(task_id: str) -> dict[str, Any]:
+    return load_history_entry_payload(task_id)
+
+
+def load_history_entries_for_media_id(media_id: str) -> list[tuple[str, dict[str, Any]]]:
+    return load_history_entries_by_media_id(media_id)
+
+
+def load_history_entry_for_path(resolved_full_path: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
+    return load_history_entry_by_path(resolved_full_path)
 
 
 def history_counts_by_source() -> dict[str, int]:
