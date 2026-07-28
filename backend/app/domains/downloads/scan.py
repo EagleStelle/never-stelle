@@ -177,24 +177,29 @@ def parse_filename_media_id(filename: str | Path) -> tuple[str, str]:
     return media_id, (match.group(1).strip() or stem)
 
 
-def _payload_path(payload: dict[str, Any]) -> Path | None:
+def _payload_path_string(payload: dict[str, Any]) -> str:
     full_path = str(payload.get("resolved_full_path") or "").strip()
     if full_path:
-        return Path(full_path)
+        return full_path
     folder = str(payload.get("resolved_folder") or "").strip()
     filename = str(payload.get("resolved_filename") or "").strip()
     if folder and filename:
-        return Path(folder) / filename
-    return None
+        return os.path.join(folder, filename)
+    return ""
+
+
+def _payload_path(payload: dict[str, Any]) -> Path | None:
+    path = _payload_path_string(payload)
+    return Path(path) if path else None
 
 
 def _payload_media_id(payload: dict[str, Any]) -> str:
     value = str(payload.get("media_id") or "").strip()
     if value and value.lower() not in UNRECOVERABLE_MEDIA_IDS:
         return value
-    path = _payload_path(payload)
     filename = str(payload.get("resolved_filename") or "").strip()
-    media_id, _ = parse_filename_media_id(filename or (path.name if path else ""))
+    path = _payload_path_string(payload) if not filename else ""
+    media_id, _ = parse_filename_media_id(filename or (os.path.basename(path) if path else ""))
     # Real downloads often leave media_id blank, but their source_url still carries the id.
     return media_id or media_id_from_url(str(payload.get("source_url") or ""))
 
@@ -327,7 +332,7 @@ def _known_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], set[str]
     paths: set[str] = set()
     media_ids: set[str] = set()
     for payload in records.values():
-        path = _payload_path(payload)
+        path = _payload_path_string(payload)
         if path:
             paths.add(_path_key(path))
         media_id = _payload_media_id(payload)
@@ -359,7 +364,7 @@ def _disk_signature_index(records: dict[str, dict[str, Any]]) -> dict[str, tuple
     for task_id, payload in records.items():
         if not _is_disk_record(task_id, payload):
             continue
-        path = _payload_path(payload)
+        path = _payload_path_string(payload)
         signature = str(payload.get("scan_signature") or "")
         if path and signature:
             index[_path_key(path)] = (signature, _payload_media_id(payload))
@@ -373,7 +378,7 @@ def _disk_derived_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], s
     for task_id, payload in records.items():
         if not _is_disk_record(task_id, payload):
             continue
-        path = _payload_path(payload)
+        path = _payload_path_string(payload)
         if path:
             paths.add(_path_key(path))
         media_id = _payload_media_id(payload)
