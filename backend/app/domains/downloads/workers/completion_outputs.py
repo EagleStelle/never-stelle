@@ -22,7 +22,11 @@ from backend.app.domains.downloads.naming import (
     strip_numbered_suffix,
 )
 from backend.app.domains.downloads.scan import parse_filename_media_id
-from backend.app.domains.downloads.store import load_history_entry_for_path, remove_history_record
+from backend.app.domains.downloads.store import (
+    load_history_entries_for_media_id,
+    load_history_entry_for_path,
+    remove_history_record,
+)
 from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
 from backend.app.domains.downloads.workers.completion_creators import (
     _filename_media_id,
@@ -163,29 +167,110 @@ def _cleanup_duplicate_library_media(root: Path, media_id: str, keep_paths: list
     media_id = str(media_id or "").strip()
     if not media_id or not root.exists():
         return
-    keep_keys = {_path_key(path) for path in keep_paths if is_media_file(path)}
-    keep_kinds = {_media_kind(path) for path in keep_paths if is_media_file(path)}
+    keep_files = _unique_media_files(keep_paths)
+    keep_keys = {_path_key(path) for path in keep_files}
+    keep_kinds = {_media_kind(path) for path in keep_files}
     if not keep_keys or not keep_kinds:
         return
-    try:
-        candidates = list(root.rglob("*"))
-    except OSError:
-        return
-    for candidate in candidates:
-        if not is_media_file(candidate) or _path_key(candidate) in keep_keys:
-            continue
-        if _media_kind(candidate) not in keep_kinds:
-            continue
-        candidate_media_id, _ = parse_filename_media_id(candidate.name)
-        if candidate_media_id != media_id:
-            continue
+    seen: set[str] = set()
+    for task_id, candidate in _history_duplicate_candidates(root, media_id, keep_keys, keep_kinds):
+        _remove_duplicate_candidate(candidate, seen, task_id)
+    for candidate in _sibling_duplicate_candidates(root, media_id, keep_files, keep_keys, keep_kinds):
         task_id, _ = load_history_entry_for_path(str(candidate))
+        _remove_duplicate_candidate(candidate, seen, task_id or "")
+
+
+def _unique_media_files(paths: list[Path]) -> list[Path]:
+    out: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        if not is_media_file(path):
+            continue
+        key = _path_key(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(path)
+    return out
+
+
+def _path_inside_root(path: Path, root: Path) -> bool:
+    try:
+        resolved_path = path.resolve(strict=False)
+        resolved_root = root.resolve(strict=False)
+    except OSError:
+        return False
+    return resolved_path == resolved_root or resolved_root in resolved_path.parents
+
+
+def _candidate_matches_duplicate(
+    path: Path,
+    root: Path,
+    media_id: str,
+    keep_keys: set[str],
+    keep_kinds: set[str],
+    stored_media_id: str = "",
+) -> bool:
+    if _path_key(path) in keep_keys or _media_kind(path) not in keep_kinds:
+        return False
+    if not _path_inside_root(path, root) or not is_media_file(path):
+        return False
+    candidate_media_id = str(stored_media_id or "").strip() or parse_filename_media_id(path.name)[0]
+    return candidate_media_id == media_id
+
+
+def _history_duplicate_candidates(
+    root: Path,
+    media_id: str,
+    keep_keys: set[str],
+    keep_kinds: set[str],
+) -> list[tuple[str, Path]]:
+    candidates: list[tuple[str, Path]] = []
+    for task_id, entry in load_history_entries_for_media_id(media_id):
+        path = Path(str(entry.get("resolved_full_path") or ""))
+        stored_media_id = str(entry.get("media_id") or "")
+        if _candidate_matches_duplicate(path, root, media_id, keep_keys, keep_kinds, stored_media_id):
+            candidates.append((str(task_id), path))
+    return candidates
+
+
+def _sibling_duplicate_candidates(
+    root: Path,
+    media_id: str,
+    keep_paths: list[Path],
+    keep_keys: set[str],
+    keep_kinds: set[str],
+) -> list[Path]:
+    candidates: list[Path] = []
+    seen_parents: set[str] = set()
+    for keep_path in keep_paths:
+        parent = keep_path.parent
+        parent_key = _path_key(parent)
+        if parent_key in seen_parents or not _path_inside_root(parent, root):
+            continue
+        seen_parents.add(parent_key)
         try:
-            candidate.unlink(missing_ok=True)
+            siblings = list(parent.iterdir())
         except OSError:
             continue
-        if task_id:
-            remove_history_record(task_id)
+        for candidate in siblings:
+            if _candidate_matches_duplicate(candidate, root, media_id, keep_keys, keep_kinds):
+                candidates.append(candidate)
+    return candidates
+
+
+def _remove_duplicate_candidate(path: Path, seen: set[str], task_id: str = "") -> None:
+    key = _path_key(path)
+    if key in seen:
+        return
+    seen.add(key)
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        return
+    if task_id:
+        remove_history_record(task_id)
+
 
 def _download_groups(
     paths: list[Path],

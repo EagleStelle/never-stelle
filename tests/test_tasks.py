@@ -1462,11 +1462,50 @@ def test_duplicate_library_cleanup_removes_history_row_for_duplicate_path(
         "load_history_entry_for_path",
         fake_load_history_entry_for_path,
     )
+    monkeypatch.setattr(completion_outputs_module, "load_history_entries_for_media_id", lambda media_id: [])
     monkeypatch.setattr(completion_outputs_module, "remove_history_record", removed.append)
 
     completion_outputs_module._cleanup_duplicate_library_media(tmp_path, "abc123", [keep])
 
     assert queried == [str(duplicate)]
+    assert removed == ["disk:old-abc123"]
+    assert not duplicate.exists()
+    assert keep.exists()
+
+
+def test_duplicate_library_cleanup_uses_history_index_for_different_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    keep = tmp_path / "new" / "Creator - Clip [abc123].mp4"
+    duplicate = tmp_path / "old" / "Old Creator - Clip [abc123].mp4"
+    keep.parent.mkdir()
+    duplicate.parent.mkdir()
+    keep.write_bytes(b"current")
+    duplicate.write_bytes(b"stale")
+    removed: list[str] = []
+
+    monkeypatch.setattr(
+        completion_outputs_module,
+        "load_history_entries_for_media_id",
+        lambda media_id: [
+            (
+                "disk:old-abc123",
+                {
+                    "media_id": media_id,
+                    "resolved_full_path": str(duplicate),
+                },
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        completion_outputs_module,
+        "load_history_entry_for_path",
+        lambda path: (_ for _ in ()).throw(AssertionError("sibling fallback should not be used")),
+    )
+    monkeypatch.setattr(completion_outputs_module, "remove_history_record", removed.append)
+
+    completion_outputs_module._cleanup_duplicate_library_media(tmp_path, "abc123", [keep])
+
     assert removed == ["disk:old-abc123"]
     assert not duplicate.exists()
     assert keep.exists()
@@ -1718,7 +1757,7 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
     assert not ytdlp_video.exists()
     assert not gallery_video.exists()
     assert not gallery_image.exists()
-    assert not stale_wrong_video.exists()
+    assert stale_wrong_video.exists()
     assert completed["status"] == "completed"
     assert completed["engine"] == "gallerydl"
     assert completed["creator"] == "love.rizzzz"
