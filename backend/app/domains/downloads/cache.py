@@ -6,6 +6,8 @@ from pathlib import Path
 
 from backend.app.core.paths import path_key as _path_key
 
+_TRUTHY = {"1", "true", "yes", "on"}
+
 
 def _unique_existing_files(paths: Iterable[Path | str]) -> list[Path]:
     out: list[Path] = []
@@ -37,7 +39,11 @@ def drop_file_cache(paths: Iterable[Path | str]) -> None:
     if not _has_dontneed_advice():
         return
 
-    sync_file = getattr(os, "fdatasync", None) or getattr(os, "fsync", None)
+    sync_file = (
+        (getattr(os, "fdatasync", None) or getattr(os, "fsync", None))
+        if _sync_before_drop()
+        else None
+    )
     for path in _unique_existing_files(paths):
         try:
             with path.open("rb") as handle:
@@ -53,6 +59,10 @@ def drop_file_cache(paths: Iterable[Path | str]) -> None:
 
 def _has_dontneed_advice() -> bool:
     return getattr(os, "posix_fadvise", None) is not None and getattr(os, "POSIX_FADV_DONTNEED", None) is not None
+
+
+def _sync_before_drop() -> bool:
+    return str(os.environ.get("NEVER_STELLE_DROP_CACHE_SYNC") or "").strip().lower() in _TRUTHY
 
 
 def drop_file_cache_fd(fd: int, offset: int = 0, length: int = 0) -> None:

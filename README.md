@@ -40,6 +40,7 @@ services:
       NEVER_STELLE_PASSWORD: "change-this-password"
       NEVER_STELLE_MAX_CONCURRENT: "3"
       NEVER_STELLE_COOKIE_SECURE: "false"
+      NEVER_STELLE_DROP_CACHE_SYNC: "false"
       # Optional: enable Iwara/Oreno3D delegation through Swaratelle.
       # SWARATELLE_URL: "http://swaratelle:8842"
       # SWARATELLE_API_TOKEN: "change-this-token"
@@ -112,14 +113,15 @@ Runtime files live under `.local/`: SQLite database, Vue build output, temporary
 
 Never Stelle is configured with environment variables. Set them inline in Docker Compose or pass them to the Windows launcher. Seed credentials only apply on first run, before any account exists; change them afterward in **Settings > Account**.
 
-| Variable                      |    Default     | Description                                                                   |
-| ----------------------------- | :------------: | ----------------------------------------------------------------------------- |
-| `NEVER_STELLE_USERNAME`       |     `root`     | Username seeded for the first-run account.                                    |
-| `NEVER_STELLE_PASSWORD`       | `never-stelle` | Password seeded for the first-run account. Set a strong value.                |
-| `NEVER_STELLE_MAX_CONCURRENT` |      `3`       | Maximum concurrent Never Stelle downloads.                                    |
-| `NEVER_STELLE_COOKIE_SECURE`  |    `false`     | Set `true` to mark the session cookie `Secure` when served over HTTPS.        |
-| `SWARATELLE_URL`              |       ``       | Optional Swaratelle base URL, for example `http://swaratelle:8842`.           |
-| `SWARATELLE_API_TOKEN`        |       ``       | Optional token Never Stelle sends to Swaratelle with `Authorization: Bearer`. |
+| Variable                       |    Default     | Description                                                                   |
+| ------------------------------ | :------------: | ----------------------------------------------------------------------------- |
+| `NEVER_STELLE_USERNAME`        |     `root`     | Username seeded for the first-run account.                                    |
+| `NEVER_STELLE_PASSWORD`        | `never-stelle` | Password seeded for the first-run account. Set a strong value.                |
+| `NEVER_STELLE_MAX_CONCURRENT`  |      `3`       | Maximum concurrent Never Stelle downloads.                                    |
+| `NEVER_STELLE_COOKIE_SECURE`   |    `false`     | Set `true` to mark the session cookie `Secure` when served over HTTPS.        |
+| `NEVER_STELLE_DROP_CACHE_SYNC` |    `false`     | Set `true` to sync completed files before Linux page-cache drop advice.       |
+| `SWARATELLE_URL`               |       ``       | Optional Swaratelle base URL, for example `http://swaratelle:8842`.           |
+| `SWARATELLE_API_TOKEN`         |       ``       | Optional token Never Stelle sends to Swaratelle with `Authorization: Bearer`. |
 
 Swaratelle is optional. Leave `SWARATELLE_URL` empty to run Never Stelle without Iwara/Oreno3D
 delegation. When `SWARATELLE_URL` is set, Never Stelle treats Iwara and Oreno3D links as
