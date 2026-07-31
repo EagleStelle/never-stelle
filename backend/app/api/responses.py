@@ -7,7 +7,7 @@ from urllib.parse import quote
 from fastapi import Request
 from fastapi.responses import Response, StreamingResponse
 
-DOWNLOAD_CHUNK_SIZE = 1024 * 1024
+DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024
 
 
 def attachment_content_disposition(filename: str) -> str:
@@ -110,4 +110,3 @@ def local_download_response(request: Request, path: Path, filename: str, cleanup
         media_type=media_type,
         headers=headers,
     )
-
