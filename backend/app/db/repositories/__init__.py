@@ -7,8 +7,11 @@ from backend.app.db.repositories.cookies import (
     reorder_source_cookies,
 )
 from backend.app.db.repositories.downloads import (
+    claim_next_enrichment_job_payload,
     claim_pending_task_payload,
+    complete_enrichment_job_payload,
     count_active_by_source,
+    count_active_download_tasks,
     count_history_by_source,
     count_pending_tasks,
     delete_history_row,
@@ -16,6 +19,7 @@ from backend.app.db.repositories.downloads import (
     delete_task_row_if_status,
     fail_running_tasks,
     load_active_task_store_payload,
+    load_enrichment_jobs_payload,
     load_history_entries_by_media_id,
     load_history_entry_by_path,
     load_history_entry_payload,
@@ -25,9 +29,11 @@ from backend.app.db.repositories.downloads import (
     load_task_store_payload,
     merge_task_payload,
     next_pending_task_payload,
+    retry_enrichment_job_payload,
     save_history_row,
     save_history_rows,
     source_activity_revision,
+    upsert_enrichment_job_payload,
 )
 from backend.app.db.repositories.formats import (
     clear_seeded_downloads,
@@ -41,8 +47,11 @@ from backend.app.db.repositories.settings import load_settings_payload, save_set
 
 __all__ = [
     "add_source_cookie",
+    "claim_next_enrichment_job_payload",
     "claim_pending_task_payload",
+    "complete_enrichment_job_payload",
     "count_active_by_source",
+    "count_active_download_tasks",
     "count_history_by_source",
     "count_pending_tasks",
     "delete_history_row",
@@ -52,6 +61,7 @@ __all__ = [
     "delete_task_row_if_status",
     "fail_running_tasks",
     "get_source_cookie",
+    "load_enrichment_jobs_payload",
     "list_source_cookies",
     "load_active_task_store_payload",
     "load_history_entries_by_media_id",
@@ -68,6 +78,7 @@ __all__ = [
     "load_task_store_payload",
     "merge_task_payload",
     "next_pending_task_payload",
+    "retry_enrichment_job_payload",
     "reorder_source_cookies",
     "save_history_row",
     "save_history_rows",
@@ -76,4 +87,5 @@ __all__ = [
     "seeded_download_ids",
     "settings_revision",
     "source_activity_revision",
+    "upsert_enrichment_job_payload",
 ]

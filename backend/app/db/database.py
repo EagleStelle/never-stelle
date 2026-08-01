@@ -78,6 +78,21 @@ CREATE INDEX IF NOT EXISTS idx_history_path
 CREATE INDEX IF NOT EXISTS idx_history_media_id
     ON download_history(media_id);
 
+CREATE TABLE IF NOT EXISTS download_enrichment_jobs (
+    id          TEXT PRIMARY KEY,
+    kind        TEXT NOT NULL DEFAULT 'completion',
+    status      TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending','running','failed')),
+    attempts    INTEGER NOT NULL DEFAULT 0,
+    error       TEXT NOT NULL DEFAULT '',
+    payload     TEXT NOT NULL DEFAULT '{}',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_enrichment_status_created
+    ON download_enrichment_jobs(status, created_at, id);
+
 CREATE TABLE IF NOT EXISTS learned_formats (
     source_key TEXT PRIMARY KEY,
     host TEXT NOT NULL DEFAULT '',
@@ -171,13 +186,6 @@ def initialize_database() -> None:
         connection = _shared_connection()
         try:
             connection.executescript(SCHEMA)
-            connection.execute(
-                """
-                DELETE FROM download_tasks
-                WHERE status = 'completed'
-                  AND id IN (SELECT id FROM download_history)
-                """
-            )
             connection.commit()
         except Exception:
             connection.rollback()

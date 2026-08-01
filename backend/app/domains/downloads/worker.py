@@ -4,6 +4,7 @@ from backend.app.domains.downloads.workers.completion import (
     _filename_creator,
     _render_template_folder,
 )
+from backend.app.domains.downloads.workers.enrichment import ensure_enrichment_worker
 from backend.app.domains.downloads.workers.execution import (
     _looks_unsupported,
     _run_engine_attempts,
@@ -24,6 +25,7 @@ __all__ = [
     "_run_engine_attempts",
     "_should_try_next_engine",
     "ensure_worker",
+    "ensure_enrichment_worker",
     "has_active_process",
     "recover_orphaned_tasks",
     "request_cancel",

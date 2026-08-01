@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 from collections.abc import Iterator
 from contextlib import closing
@@ -28,6 +30,26 @@ _RADIO_PREFIX = "RD"
 _PROBE_TIMEOUT_SECONDS = 90
 _MAX_ENTRIES = 500
 _GALLERYDL_TIKTOK_NO_AUDIO_OPTION = "extractor.tiktok.audio=false"
+
+
+def _run_probe_command(
+    cmd: list[str],
+    *,
+    low_priority: bool = False,
+    **kwargs: Any,
+) -> subprocess.CompletedProcess[str]:
+    run_cmd = list(cmd)
+    run_kwargs = dict(kwargs)
+    if low_priority:
+        if os.name == "nt":
+            priority = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
+            if priority:
+                run_kwargs["creationflags"] = priority
+        else:
+            nice = shutil.which("nice")
+            if nice:
+                run_cmd = [nice, "-n", "10", *run_cmd]
+    return subprocess.run(run_cmd, **run_kwargs)
 
 
 def _probe_cookie_source_keys(url: str, source_key: str = "") -> list[str]:
@@ -253,7 +275,7 @@ def _exact_url_field_roles(
 
 
 def _ytdlp_dump(
-    url: str, *, with_cookies: bool = True, cookie_source_key: str = ""
+    url: str, *, with_cookies: bool = True, cookie_source_key: str = "", low_priority: bool = False
 ) -> tuple[dict[str, Any] | None, str]:
     cmd = [
         "yt-dlp",
@@ -269,8 +291,9 @@ def _ytdlp_dump(
     ]
     def _exec(extra_args: list[str]) -> tuple[dict[str, Any] | None, str]:
         try:
-            result = subprocess.run(
+            result = _run_probe_command(
                 cmd + extra_args + [url],
+                low_priority=low_priority,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -316,14 +339,21 @@ def _gallerydl_richest_metadata(node: Any) -> dict[str, Any]:
     return best
 
 
-def _gallerydl_dump(url: str, *, with_cookies: bool = True, cookie_source_key: str = "") -> dict[str, Any] | None:
+def _gallerydl_dump(
+    url: str,
+    *,
+    with_cookies: bool = True,
+    cookie_source_key: str = "",
+    low_priority: bool = False,
+) -> dict[str, Any] | None:
     cmd = ["gallery-dl", "-j", "-o", _GALLERYDL_TIKTOK_NO_AUDIO_OPTION]
     errors: list[str] = []
 
     def _exec(extra_args: list[str]) -> dict[str, Any] | None:
         try:
-            result = subprocess.run(
+            result = _run_probe_command(
                 cmd + extra_args + [url],
+                low_priority=low_priority,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -355,7 +385,13 @@ def _gallerydl_dump(url: str, *, with_cookies: bool = True, cookie_source_key: s
     return None
 
 
-def probe_metadata(source_url: str, *, with_cookies: bool = True, cookie_source_key: str = "") -> dict[str, str]:
+def probe_metadata(
+    source_url: str,
+    *,
+    with_cookies: bool = True,
+    cookie_source_key: str = "",
+    low_priority: bool = False,
+) -> dict[str, str]:
     """Flat metadata for a URL from whichever engine answers first; ``{}`` on failure.
 
     The library scan uses this to resolve a manually-placed file's creator without a
@@ -365,10 +401,20 @@ def probe_metadata(source_url: str, *, with_cookies: bool = True, cookie_source_
     url = _prepare_url(source_url)
     if not url:
         return {}
-    info, _ = _ytdlp_dump(url, with_cookies=with_cookies, cookie_source_key=cookie_source_key)
+    info, _ = _ytdlp_dump(
+        url,
+        with_cookies=with_cookies,
+        cookie_source_key=cookie_source_key,
+        low_priority=low_priority,
+    )
     if isinstance(info, dict) and info:
         return _flatten_metadata(info)
-    metadata = _gallerydl_dump(url, with_cookies=with_cookies, cookie_source_key=cookie_source_key)
+    metadata = _gallerydl_dump(
+        url,
+        with_cookies=with_cookies,
+        cookie_source_key=cookie_source_key,
+        low_priority=low_priority,
+    )
     if isinstance(metadata, dict) and metadata:
         return _flatten_metadata(metadata)
     return {}
@@ -379,16 +425,31 @@ def _probe_field_metadata(
     source_key: str,
     *,
     with_cookies: bool,
+    low_priority: bool = False,
+    stop_after_first_with_roles: bool = False,
 ) -> tuple[list[tuple[str, dict[str, str]]], list[str]]:
     probed: list[tuple[str, dict[str, str]]] = []
     errors: list[str] = []
-    info, error = _ytdlp_dump(url, with_cookies=with_cookies, cookie_source_key=source_key)
+    info, error = _ytdlp_dump(
+        url,
+        with_cookies=with_cookies,
+        cookie_source_key=source_key,
+        low_priority=low_priority,
+    )
     if isinstance(info, dict) and info:
-        probed.append(("ytdlp", _flatten_metadata(info)))
+        flat = _flatten_metadata(info)
+        probed.append(("ytdlp", flat))
+        if stop_after_first_with_roles and _candidate_probe_fields(flat, "ytdlp"):
+            return probed, errors
     elif error:
         errors.append(error)
 
-    metadata = _gallerydl_dump(url, with_cookies=with_cookies, cookie_source_key=source_key)
+    metadata = _gallerydl_dump(
+        url,
+        with_cookies=with_cookies,
+        cookie_source_key=source_key,
+        low_priority=low_priority,
+    )
     if isinstance(metadata, dict) and metadata:
         probed.append(("gallerydl", _flatten_metadata(metadata)))
     return probed, errors
@@ -398,7 +459,13 @@ def _candidate_field_count(probed: list[tuple[str, dict[str, str]]]) -> int:
     return sum(len(_candidate_probe_fields(flat, engine)) for engine, flat in probed)
 
 
-def probe_fields(source_url: str, source_key: str = "") -> dict[str, Any]:
+def probe_fields(
+    source_url: str,
+    source_key: str = "",
+    *,
+    low_priority: bool = False,
+    stop_after_first_with_roles: bool = False,
+) -> dict[str, Any]:
     """List candidate metadata fields for a link, no download.
 
     Probes both yt-dlp and gallery-dl and merges the username/nickname/title catalog fields
@@ -419,6 +486,8 @@ def probe_fields(source_url: str, source_key: str = "") -> dict[str, Any]:
             url,
             resolved_key,
             with_cookies=with_cookies,
+            low_priority=low_priority,
+            stop_after_first_with_roles=stop_after_first_with_roles,
         )
         errors.extend(attempt_errors)
         if not attempt_probed:

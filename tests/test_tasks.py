@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import backend.app.db.database as database_module
 import backend.app.domains.downloads.files as files_module
 import backend.app.domains.downloads.gallerydl as gallerydl_module
 import backend.app.domains.downloads.history as history_module
@@ -18,8 +19,10 @@ import backend.app.domains.downloads.workers.completion as completion_module
 import backend.app.domains.downloads.workers.completion_learning as completion_learning_module
 import backend.app.domains.downloads.workers.completion_metadata as completion_metadata_module
 import backend.app.domains.downloads.workers.completion_outputs as completion_outputs_module
+import backend.app.domains.downloads.workers.enrichment as enrichment_module
 import backend.app.domains.downloads.workers.execution as worker_module
 import backend.app.domains.downloads.workers.runner as runner_module
+from backend.app.core.paths import path_key
 from backend.app.core.sources import source_label_from_key
 from backend.app.domains.downloads import (
     canonicalize_source_url,
@@ -32,6 +35,7 @@ from backend.app.domains.downloads import (
     is_media_file,
     parse_filename_media_id,
 )
+from backend.app.domains.downloads import store as store_module
 from backend.app.domains.downloads.formats import (
     conflicts_with_source,
     creator_from_url,
@@ -321,7 +325,7 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     assert captured["task"]["quality"]["video_codec"] == "vp9"
 
 
-def test_retry_task_migrates_to_gallerydl_engine(monkeypatch: pytest.MonkeyPatch):
+def test_retry_task_rebuilds_with_selected_engine(monkeypatch: pytest.MonkeyPatch):
     store = {
         "tasks": {
             "ytdlp:failed": {
@@ -403,6 +407,15 @@ def test_strip_placeholder_title_drops_when_real_media_id_matches():
 
 def test_strip_numbered_suffix_removes_gallerydl_num():
     assert strip_numbered_suffix("Creator - Cap [id]_8") == "Creator - Cap [id]"
+
+
+def test_find_numbered_media_siblings_skips_plain_filename_directory_scan(monkeypatch):
+    def fail_iterdir(self):
+        raise AssertionError("plain files should not scan their folder")
+
+    monkeypatch.setattr(Path, "iterdir", fail_iterdir)
+
+    assert files_module.find_numbered_media_siblings(Path("/media/Creator - Cap [id].jpg")) == []
 
 
 def test_parse_filename_media_id_rejects_unrecoverable_names():
@@ -1168,7 +1181,7 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
     assert saved[task_id]["resolved_filename"] == "Creator - [1234567890].jpg"
 
 
-def test_gallerydl_sparse_single_output_uses_probe_metadata_for_template(
+def test_gallerydl_sparse_single_output_enqueues_metadata_repair_without_inline_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     raw_video = tmp_path / "[abc123].mp4"
@@ -1190,6 +1203,7 @@ def test_gallerydl_sparse_single_output_uses_probe_metadata_for_template(
         }
     }
     saved: dict[str, dict] = {}
+    queued: list[dict[str, object]] = []
 
     class FakeProcess:
         stdout = iter([f"{raw_video}\n"])
@@ -1213,101 +1227,189 @@ def test_gallerydl_sparse_single_output_uses_probe_metadata_for_template(
     monkeypatch.setattr(
         completion_metadata_module,
         "_probe_output_metadata",
-        lambda url, source_key="": {
-            "id": "abc123",
-            "webpage_url": source_url,
-            "channel": "ChannelHandle",
-            "uploader": "Channel Name",
-            "title": "Nice clip",
-        },
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("probe must not run inline")),
     )
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "_learn_field_roles_from_download", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+    monkeypatch.setattr(
+        worker_module,
+        "enqueue_completion_enrichment",
+        lambda *args, **kwargs: queued.append({"args": args, "kwargs": kwargs}),
+    )
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
 
     completed = store["tasks"][task_id]
-    clean_video = tmp_path / "ChannelHandle" / "ChannelHandle - Nice clip [abc123].mp4"
     assert completed["status"] == "completed"
-    assert clean_video.is_file()
-    assert not raw_video.exists()
-    assert completed["resolved_full_path"] == str(clean_video)
-    assert completed["resolved_folder"] == str(clean_video.parent)
-    assert completed["resolved_filename"] == clean_video.name
-    assert completed["creator"] == "ChannelHandle"
+    assert raw_video.is_file()
     assert saved[task_id]["folder_template"] == store["tasks"][task_id]["folder_template"]
     assert saved[task_id]["filename_template"] == store["tasks"][task_id]["filename_template"]
+    assert len(queued) == 1
+    assert queued[0]["args"] == (task_id,)
+    assert queued[0]["kwargs"]["needs_metadata_probe"] is True
+    assert queued[0]["kwargs"]["needs_field_probe"] is False
 
 
-def test_gallerydl_cookie_probe_repairs_none_creator_and_duplicate_id_filename(
+def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
+    database_module.close_database()
+    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    monkeypatch.setattr(enrichment_module, "ensure_enrichment_worker", lambda: None)
+
+    enrichment_module.enqueue_completion_enrichment(
+        "gallerydl:abc123",
+        metadata={"id": "abc123", "username": "creator"},
+        template_settings={"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"},
+        quality={"mode": "video", "video_quality": "720p"},
+        output_root=str(tmp_path),
+        extra_tokens={"artist": "creator"},
+        token_roles={"example": {"artist": "username"}},
+        needs_metadata_probe=True,
+        needs_field_probe=True,
+    )
+
+    jobs = store_module.load_enrichment_jobs()
+    assert len(jobs) == 1
+    payload = jobs[0]["payload"]
+    assert payload == {
+        "task_id": "gallerydl:abc123",
+        "template_settings": {
+            "folder_template": "{{username}}",
+            "filename_template": "{{title}} [{{id}}]",
+        },
+        "quality": {
+            "mode": "video",
+            "video_quality": "720p",
+            "video_container": "mp4",
+            "video_codec": "auto",
+            "audio_format": "mp3",
+            "audio_bitrate": "best",
+        },
+        "output_root": str(tmp_path),
+        "metadata": {"id": "abc123", "username": "creator"},
+        "extra_tokens": {"artist": "creator"},
+        "token_roles": {"example": {"artist": "username"}},
+        "needs_metadata_probe": True,
+        "needs_field_probe": True,
+    }
+    assert {
+        "source_url",
+        "source_key",
+        "engine",
+        "creator",
+        "media_id",
+        "resolved_full_path",
+        "resolved_folder",
+        "resolved_filename",
+    }.isdisjoint(payload)
+
+
+def test_complete_sidecar_metadata_skips_completion_enrichment(tmp_path: Path):
+    path = tmp_path / "ChannelHandle - Nice clip [abc123].mp4"
+    path.write_bytes(b"video")
+
+    class GalleryDlEngine:
+        name = "gallerydl"
+
+    needed = completion_metadata_module._single_output_metadata_enrichment_needed(
+        [{"path": path, "engine": GalleryDlEngine()}],
+        {
+            path_key(path): {
+                "id": "abc123",
+                "channel": "ChannelHandle",
+                "title": "Nice clip",
+            }
+        },
+        {"filename_template": "{{username}} - {{title}} [{{id}}]"},
+    )
+
+    assert needed is False
+
+
+def test_enrichment_repairs_sparse_creator_title_and_filename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    database_module.close_database()
+    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
     media_id = "DZwrrifkye4"
     raw_video = tmp_path / f"None - [{media_id}] [{media_id}].mp4"
     raw_video.write_bytes(b"video")
     source_url = f"https://www.instagram.com/reel/{media_id}/"
     task_id = "gallerydl:instagram-cookie-metadata"
-    store = {
-        "tasks": {
-            task_id: {
-                "engine": "gallerydl",
-                "source_url": source_url,
-                "source_key": "instagram",
-                "status": "pending",
-                "output_dir": str(tmp_path),
-                "resolved_folder": str(tmp_path),
-                "folder_template": "",
-                "filename_template": "{{username}} - {{title}} [{{id}}]",
-            }
-        }
+    template_settings = {
+        "folder_template": "",
+        "filename_template": "{{username}} - {{title}} [{{id}}]",
     }
-    saved: dict[str, dict] = {}
-
-    class FakeProcess:
-        stdout = iter([f"{raw_video}\n"])
-
-        def wait(self):
-            return 0
-
-        def poll(self):
-            return 0
-
-        def kill(self):
-            return None
-
-    def fake_update_task(task_id: str, **updates):
-        store["tasks"].setdefault(task_id, {}).update(updates)
-        return store["tasks"][task_id]
-
-    monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
-    _patch_worker_task_store(monkeypatch, store, fake_update_task)
-    monkeypatch.setattr(worker_module, "get_effective_fields", lambda url: {"username": ["username"]})
+    store_module.save_history_entry_row(
+        task_id,
+        {
+            "engine": "gallerydl",
+            "source_url": source_url,
+            "source_key": "instagram",
+            "creator": "None",
+            "media_id": media_id,
+            "resolved_full_path": str(raw_video),
+            "resolved_folder": str(tmp_path),
+            "resolved_filename": raw_video.name,
+            "title": "",
+            **template_settings,
+        },
+    )
     monkeypatch.setattr(
-        completion_metadata_module,
+        enrichment_module,
         "_probe_output_metadata",
-        lambda url, source_key="": {
+        lambda url, source_key="", **kwargs: {
             "id": media_id,
             "webpage_url": source_url,
             "username": "real.creator",
             "title": f"None - [{media_id}]",
         },
     )
-    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
-    monkeypatch.setattr(worker_module, "_learn_field_roles_from_download", lambda *args, **kwargs: None)
-    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+    monkeypatch.setattr(enrichment_module, "drop_file_cache", lambda paths: None)
 
-    worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+    enrichment_module._run_enrichment_job(
+        {
+            "id": f"completion:{task_id}",
+            "payload": {
+                "task_id": task_id,
+                "template_settings": template_settings,
+                "output_root": str(tmp_path),
+                "needs_metadata_probe": True,
+                "needs_field_probe": False,
+            },
+        }
+    )
 
-    completed = store["tasks"][task_id]
+    updated = store_module.load_history_entry(task_id)
     clean_video = tmp_path / f"real.creator - [{media_id}].mp4"
-    assert completed["status"] == "completed"
     assert clean_video.is_file()
     assert not raw_video.exists()
-    assert completed["resolved_full_path"] == str(clean_video)
-    assert completed["resolved_filename"] == clean_video.name
-    assert completed["creator"] == "real.creator"
-    assert saved[task_id]["resolved_filename"] == clean_video.name
+    assert updated["resolved_full_path"] == str(clean_video)
+    assert updated["resolved_filename"] == clean_video.name
+    assert updated["creator"] == "real.creator"
+
+
+def test_enrichment_worker_deletes_stale_job_when_history_row_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    database_module.close_database()
+    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
+    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    store_module.enqueue_enrichment_job(
+        "completion:missing",
+        "completion",
+        {"task_id": "missing", "needs_metadata_probe": True, "needs_field_probe": True},
+    )
+
+    job = store_module.claim_next_enrichment_job()
+    assert job is not None
+    enrichment_module._process_enrichment_job(job)
+
+    assert store_module.load_enrichment_jobs() == []
 
 
 def test_gallerydl_same_source_assets_share_one_row_and_source_id(
@@ -2314,23 +2416,29 @@ def test_reconstruct_url_candidates_returns_every_learned_route():
     }
 
 
-def test_worker_reprobes_field_roles_only_when_format_is_new(monkeypatch):
-    calls: list[tuple[str, str]] = []
+def test_worker_marks_new_format_for_deferred_field_learning(monkeypatch):
     url = "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833"
 
     monkeypatch.setattr(completion_learning_module, "persist_source_format", lambda *args, **kwargs: True)
-    monkeypatch.setattr(
-        completion_learning_module,
-        "learn_missing_fields_for_format",
-        lambda source_url, source_key: calls.append((source_url, source_key)),
+
+    assert (
+        completion_learning_module._learn_source_format(
+            url,
+            "fzyahoo.com - [7420705673542978833].jpg",
+            source_key="tiktok",
+        )
+        is True
     )
 
-    completion_learning_module._learn_source_format(url, "fzyahoo.com - [7420705673542978833].jpg", source_key="tiktok")
-
     monkeypatch.setattr(completion_learning_module, "persist_source_format", lambda *args, **kwargs: False)
-    completion_learning_module._learn_source_format(url, "fzyahoo.com - [7420705673542978833].jpg", source_key="tiktok")
-
-    assert calls == [(url, "tiktok")]
+    assert (
+        completion_learning_module._learn_source_format(
+            url,
+            "fzyahoo.com - [7420705673542978833].jpg",
+            source_key="tiktok",
+        )
+        is False
+    )
 
 
 def test_learn_download_keeps_descriptive_segment_literal_for_single_sample():

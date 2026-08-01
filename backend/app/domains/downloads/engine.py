@@ -173,7 +173,7 @@ class GallerydlEngine(Engine):
         return ""
 
 
-# gallery-dl is the default broker; yt-dlp remains available for legacy rows.
+# gallery-dl is the default broker; yt-dlp remains available as a fallback engine.
 _YTDLP = YtdlpEngine()
 _GALLERYDL = GallerydlEngine()
 _ENGINES: tuple[Engine, ...] = (_GALLERYDL, _YTDLP)

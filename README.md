@@ -150,13 +150,13 @@ volumes:
 
 The overlay shadows `/media/facebook`: facebook files go to `/volume1/facebook` and never appear under the base. Everything else stays under the base mount. No duplicates.
 
-Docker does not move existing files. A new overlay mount **shadows** whatever was already in the base folder, so migrate those files yourself **before** adding the mount:
+Docker does not move existing files. A new overlay mount **shadows** whatever was already in the base folder, so move those files yourself **before** adding the mount:
 
 ```sh
 mv ./media/youtube/* /volume1/youtube/   # move first, then add the overlay and restart
 ```
 
-The container path stays `/media/youtube`, so history entries remain valid. Skip this step and the old files are stranded behind the mount (still on disk, but the app reports them missing until you move them).
+The container path stays `/media/youtube`, so history entries remain valid. Skip this step and the existing files are stranded behind the mount (still on disk, but the app reports them missing until you move them).
 
 ## Architecture
 

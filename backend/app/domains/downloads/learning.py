@@ -204,14 +204,27 @@ def promote_learned_format_from_probe(source_url: str, fields: Any) -> bool:
     return True
 
 
-def learn_missing_fields_for_format(source_url: str, source_key: str = "") -> dict[str, list[str]]:
+def learn_missing_fields_for_format(
+    source_url: str,
+    source_key: str = "",
+    *,
+    low_priority: bool = False,
+) -> dict[str, list[str]]:
     """Probe a newly learned URL format and append any missing fields."""
     if not str(source_url or "").strip():
         return {}
     try:
         from .probe import probe_fields
 
-        result = probe_fields(source_url, source_key)
+        if low_priority:
+            result = probe_fields(
+                source_url,
+                source_key,
+                low_priority=True,
+                stop_after_first_with_roles=True,
+            )
+        else:
+            result = probe_fields(source_url, source_key)
     except Exception:
         return {}
 

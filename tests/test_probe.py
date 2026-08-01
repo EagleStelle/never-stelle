@@ -278,6 +278,29 @@ def test_ytdlp_dump_falls_back_to_a_leased_cookie_after_anonymous_fails(monkeypa
     assert lease.banned is False
 
 
+def test_ytdlp_dump_low_priority_uses_windows_priority_flag(monkeypatch):
+    calls: list[dict[str, object]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append({"cmd": cmd, "kwargs": kwargs})
+
+        class Result:
+            returncode = 0
+            stdout = '{"id": "abc123", "uploader": "Creator"}\n'
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(probe_module.os, "name", "nt", raising=False)
+    monkeypatch.setattr(probe_module.subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0x4000, raising=False)
+    monkeypatch.setattr(probe_module.subprocess, "run", fake_run)
+
+    info, _ = probe_module._ytdlp_dump("https://example.test/watch/abc123", with_cookies=False, low_priority=True)
+
+    assert info == {"id": "abc123", "uploader": "Creator"}
+    assert calls[0]["kwargs"]["creationflags"] == 0x4000
+
+
 def test_ytdlp_dump_marks_the_leased_cookie_banned_on_a_rate_limit(monkeypatch):
     def fake_run(cmd, **kwargs):
         class Result:
@@ -411,6 +434,26 @@ def test_probe_fields_merges_both_engines(monkeypatch):
     assert "title" in fields
     assert result["field_roles"]["username"] == ["uploader_id", "username"]
     assert result["field_roles"]["nickname"] == ["username"]
+    assert result["field_roles"]["title"] == ["title"]
+
+
+def test_probe_fields_fast_mode_skips_second_engine_when_first_has_roles(monkeypatch):
+    monkeypatch.setattr(
+        probe_module,
+        "_ytdlp_dump",
+        lambda url, **kwargs: ({"uploader_id": "bob_h", "title": "hey"}, ""),
+    )
+    monkeypatch.setattr(
+        probe_module,
+        "_gallerydl_dump",
+        lambda url, **kwargs: (_ for _ in ()).throw(AssertionError("gallery-dl should not be probed")),
+    )
+    monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "example")
+
+    result = probe_fields("https://example.com/x", stop_after_first_with_roles=True)
+
+    assert [field["field"] for field in result["fields"]] == ["uploader_id", "title"]
+    assert result["field_roles"]["username"] == ["uploader_id"]
     assert result["field_roles"]["title"] == ["title"]
 
 

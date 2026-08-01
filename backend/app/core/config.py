@@ -41,9 +41,6 @@ DATA_DIR = (RUNTIME_ROOT / "data").resolve()  # sqlite db, config.yaml, built fr
 MEDIA_DIR = (RUNTIME_ROOT / "media").resolve()  # download library (also the default download root)
 SCRATCH_DIR = (RUNTIME_ROOT / "scratch").resolve()  # temp files, partial downloads, caches
 
-# Back-compat alias: code/scripts still reference RUNTIME_DIR.
-RUNTIME_DIR = DATA_DIR
-
 DATABASE_PATH = (DATA_DIR / "never-stelle.sqlite3").resolve()
 DEFAULT_LIBRARY_DIR = MEDIA_DIR
 

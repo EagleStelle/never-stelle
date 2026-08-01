@@ -60,6 +60,8 @@ def _numbered_suffix_value(stem: str) -> int:
 
 def find_numbered_media_siblings(path: Path) -> list[Path]:
     base = strip_numbered_suffix(path.stem)
+    if base == path.stem:
+        return []
     try:
         candidates = [
             candidate

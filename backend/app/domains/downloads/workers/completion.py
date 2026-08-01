@@ -26,6 +26,7 @@ from backend.app.domains.downloads.workers.completion_metadata import (
     _metadata_title_has_value,
     _probe_output_metadata,
     _read_metadata_sidecar,
+    _single_output_metadata_enrichment_needed,
     _template_needs_probe_metadata,
     _template_token_names,
 )
@@ -103,6 +104,7 @@ __all__ = [
     "_role_creator",
     "_role_token_value",
     "_same_creator_value",
+    "_single_output_metadata_enrichment_needed",
     "_template_folder_text",
     "_template_needs_probe_metadata",
     "_template_token_names",

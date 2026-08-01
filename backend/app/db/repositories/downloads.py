@@ -73,6 +73,19 @@ _HISTORY_SELECT = ", ".join(_HISTORY_COLUMNS)
 _HISTORY_STORAGE_KEYS = set(_HISTORY_COLUMNS)
 _HISTORY_INSERT_SQL = _insert_sql("download_history", _HISTORY_COLUMNS)
 
+_ENRICHMENT_COLUMNS = (
+    "id",
+    "kind",
+    "status",
+    "attempts",
+    "error",
+    "payload",
+    "created_at",
+    "updated_at",
+)
+_ENRICHMENT_SELECT = ", ".join(_ENRICHMENT_COLUMNS)
+_ENRICHMENT_STATUSES = {"pending", "running", "failed"}
+
 
 def _json_dict(value: Any) -> dict[str, Any]:
     payload = _decode(str(value or ""), {})
@@ -158,6 +171,22 @@ def _history_payload_from_row(row: Any) -> dict[str, Any]:
         }
     )
     return payload
+
+
+def _enrichment_payload_from_row(row: Any) -> dict[str, Any]:
+    if not row:
+        return {}
+    payload = _json_dict(row["payload"])
+    return {
+        "id": str(row["id"] or ""),
+        "kind": str(row["kind"] or "completion"),
+        "status": str(row["status"] or "pending"),
+        "attempts": safe_int(row["attempts"]),
+        "error": str(row["error"] or ""),
+        "payload": payload,
+        "created_at": str(row["created_at"] or ""),
+        "updated_at": str(row["updated_at"] or ""),
+    }
 
 
 def _task_row_values(task_id: str, payload: dict[str, Any], now: str) -> tuple[Any, ...]:
@@ -362,6 +391,105 @@ def count_pending_tasks() -> int:
     with transaction() as connection:
         row = connection.execute("SELECT COUNT(*) FROM download_tasks WHERE status = 'pending'").fetchone()
     return int(row[0] or 0)
+
+
+def count_active_download_tasks() -> int:
+    with transaction() as connection:
+        row = connection.execute(
+            "SELECT COUNT(*) FROM download_tasks WHERE status IN ('pending', 'running')"
+        ).fetchone()
+    return int(row[0] or 0)
+
+
+def upsert_enrichment_job_payload(job_id: str, kind: str, payload: dict[str, Any]) -> None:
+    now = utc_now()
+    job_id = str(job_id or "").strip()
+    if not job_id:
+        raise ValueError("Enrichment job id is required.")
+    with transaction() as connection:
+        connection.execute(
+            """
+            INSERT INTO download_enrichment_jobs
+                (id, kind, status, attempts, error, payload, created_at, updated_at)
+            VALUES (?, ?, 'pending', 0, '', ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                kind = excluded.kind,
+                status = 'pending',
+                error = '',
+                payload = excluded.payload,
+                updated_at = excluded.updated_at
+            """,
+            (job_id, str(kind or "completion"), _encode(payload if isinstance(payload, dict) else {}), now, now),
+        )
+
+
+def claim_next_enrichment_job_payload() -> dict[str, Any] | None:
+    now = utc_now()
+    with transaction() as connection:
+        row = connection.execute(
+            f"""
+            SELECT {_ENRICHMENT_SELECT} FROM download_enrichment_jobs
+            WHERE status = 'pending'
+            ORDER BY created_at, id
+            LIMIT 1
+            """
+        ).fetchone()
+        if not row:
+            return None
+        job_id = str(row["id"] or "")
+        cursor = connection.execute(
+            """
+            UPDATE download_enrichment_jobs
+            SET status = 'running',
+                attempts = attempts + 1,
+                error = '',
+                updated_at = ?
+            WHERE id = ? AND status = 'pending'
+            """,
+            (now, job_id),
+        )
+        if cursor.rowcount != 1:
+            return None
+        claimed = connection.execute(
+            f"SELECT {_ENRICHMENT_SELECT} FROM download_enrichment_jobs WHERE id = ?",
+            (job_id,),
+        ).fetchone()
+    return _enrichment_payload_from_row(claimed)
+
+
+def complete_enrichment_job_payload(job_id: str) -> None:
+    with transaction() as connection:
+        connection.execute("DELETE FROM download_enrichment_jobs WHERE id = ?", (str(job_id),))
+
+
+def retry_enrichment_job_payload(job_id: str, error: str, *, max_attempts: int = 3) -> None:
+    now = utc_now()
+    status = "pending"
+    with transaction() as connection:
+        row = connection.execute(
+            "SELECT attempts FROM download_enrichment_jobs WHERE id = ?",
+            (str(job_id),),
+        ).fetchone()
+        if not row:
+            return
+        if safe_int(row["attempts"]) >= max(1, int(max_attempts)):
+            status = "failed"
+        connection.execute(
+            """
+            UPDATE download_enrichment_jobs
+            SET status = ?, error = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (status, str(error or ""), now, str(job_id)),
+        )
+
+
+def load_enrichment_jobs_payload() -> list[dict[str, Any]]:
+    with transaction() as connection:
+        rows = connection.execute(
+            f"SELECT {_ENRICHMENT_SELECT} FROM download_enrichment_jobs ORDER BY created_at, id"
+        ).fetchall()
+    return [_enrichment_payload_from_row(row) for row in rows]
 
 
 def merge_task_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:

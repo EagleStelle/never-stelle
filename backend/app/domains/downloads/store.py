@@ -3,9 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from backend.app.db.repositories import (
+    claim_next_enrichment_job_payload,
     claim_pending_task_payload,
     clear_seeded_downloads,
+    complete_enrichment_job_payload,
     count_active_by_source,
+    count_active_download_tasks,
     count_history_by_source,
     count_pending_tasks,
     delete_history_row,
@@ -14,6 +17,7 @@ from backend.app.db.repositories import (
     fail_running_tasks,
     learned_formats_revision,
     load_active_task_store_payload,
+    load_enrichment_jobs_payload,
     load_history_entries_by_media_id,
     load_history_entry_by_path,
     load_history_entry_payload,
@@ -24,10 +28,12 @@ from backend.app.db.repositories import (
     load_task_store_payload,
     merge_task_payload,
     next_pending_task_payload,
+    retry_enrichment_job_payload,
     save_history_row,
     save_history_rows,
     save_learned_formats_payload,
     settings_revision,
+    upsert_enrichment_job_payload,
 )
 from backend.app.db.repositories import (
     mark_downloads_seeded as mark_downloads_seeded_rows,
@@ -109,6 +115,30 @@ def next_pending_task() -> tuple[str, dict[str, Any]] | None:
 
 def pending_task_count() -> int:
     return count_pending_tasks()
+
+
+def active_download_task_count() -> int:
+    return count_active_download_tasks()
+
+
+def enqueue_enrichment_job(job_id: str, kind: str, payload: dict[str, Any]) -> None:
+    upsert_enrichment_job_payload(job_id, kind, payload)
+
+
+def claim_next_enrichment_job() -> dict[str, Any] | None:
+    return claim_next_enrichment_job_payload()
+
+
+def complete_enrichment_job(job_id: str) -> None:
+    complete_enrichment_job_payload(job_id)
+
+
+def retry_enrichment_job(job_id: str, error: str, *, max_attempts: int = 3) -> None:
+    retry_enrichment_job_payload(job_id, error, max_attempts=max_attempts)
+
+
+def load_enrichment_jobs() -> list[dict[str, Any]]:
+    return load_enrichment_jobs_payload()
 
 
 def fail_running_task_records(error: str) -> int:

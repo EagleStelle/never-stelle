@@ -371,7 +371,7 @@ def _rename_gallerydl_group_paths(
 ) -> Path:
     selected = selected_path
     selected_key = _path_key(selected_path)
-    for path in paths:
+    for index, path in enumerate(paths):
         target_name = ""
         if filename_template:
             target_name = clean_template_filename(
@@ -389,6 +389,7 @@ def _rename_gallerydl_group_paths(
         if not target_name:
             continue
         target = _rename_path(path, target_name)
+        paths[index] = target
         if _path_key(path) == selected_key:
             selected = target
     return selected
@@ -550,6 +551,7 @@ def _move_group_to_template_folder(
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
     quality: dict[str, str] | None = None,
+    group_paths: list[Path] | None = None,
 ) -> Path:
     target_dir = _render_template_folder(
         output_root, template_settings, creator, media_id, nickname, extra_tokens, cleaning, quality
@@ -564,7 +566,8 @@ def _move_group_to_template_folder(
     source_parent = selected_path.parent
     selected = selected_path
     selected_key = _path_key(selected_path)
-    for path in find_numbered_media_siblings(selected_path) or [selected_path]:
+    paths = group_paths if group_paths else find_numbered_media_siblings(selected_path) or [selected_path]
+    for path in paths:
         target = _unique_sibling_path(target_dir / path.name)
         if _path_key(path) == _path_key(target):
             moved = path

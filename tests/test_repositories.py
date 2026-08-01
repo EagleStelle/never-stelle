@@ -19,7 +19,7 @@ def use_temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(database_module, "_INITIALIZED", False)
 
 
-def test_fresh_schema_uses_current_table_names(tmp_path, monkeypatch):
+def test_fresh_schema_contains_current_tables(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
     database_module.initialize_database()
 
@@ -29,8 +29,14 @@ def test_fresh_schema_uses_current_table_names(tmp_path, monkeypatch):
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
         }
 
-    assert {"app_settings", "download_tasks", "download_history", "learned_formats", "source_cookies"} <= tables
-    assert {"settings", "queue", "history", "formats", "cookies", "cookie_blobs"}.isdisjoint(tables)
+    assert {
+        "app_settings",
+        "download_tasks",
+        "download_history",
+        "download_enrichment_jobs",
+        "learned_formats",
+        "source_cookies",
+    } <= tables
 
 
 def test_download_tables_use_real_task_and_history_columns(tmp_path, monkeypatch):
@@ -57,7 +63,6 @@ def test_download_tables_use_real_task_and_history_columns(tmp_path, monkeypatch
         "encoding",
         "last_log_lines",
     } <= task_columns
-    assert {"payload"}.isdisjoint(task_columns)
     assert {
         "id",
         "creator",
@@ -72,7 +77,6 @@ def test_download_tables_use_real_task_and_history_columns(tmp_path, monkeypatch
         "updated_at",
         "encoding",
     } <= history_columns
-    assert {"task_id", "payload", "completed_at"}.isdisjoint(history_columns)
 
 
 def test_template_column_helpers_trim_symmetrically():
@@ -678,21 +682,47 @@ def test_history_source_lookup_matches_filename_media_id_through_real_sql(tmp_pa
     assert found["resolved_filename"] == "wsds-minus8_source [3238394].mp4"
 
 
-def test_initialize_database_prunes_completed_task_already_saved_to_history(tmp_path, monkeypatch):
-    use_temp_db(tmp_path, monkeypatch)
-    repositories.merge_task_payload("t1", {"status": "completed", "source_url": "https://example.test/p/1"})
-    repositories.save_history_row("t1", {"source_url": "https://example.test/p/1", "source_key": "example"})
-
-    database_module.close_database()
-    database_module.initialize_database()
-
-    assert repositories.load_task_payload("t1") == {}
-    assert repositories.load_history_entry_payload("t1")["source_url"] == "https://example.test/p/1"
-
-
 def test_save_history_rows_accepts_an_empty_batch(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
 
     repositories.save_history_rows([])
 
     assert repositories.load_history_payload()["entries"] == {}
+
+
+def test_enrichment_jobs_claim_retry_and_complete_persistently(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+
+    repositories.upsert_enrichment_job_payload(
+        "completion:t1",
+        "completion",
+        {"task_id": "t1", "needs_metadata_probe": True},
+    )
+
+    claimed = repositories.claim_next_enrichment_job_payload()
+    assert claimed is not None
+    assert claimed["id"] == "completion:t1"
+    assert claimed["status"] == "running"
+    assert claimed["attempts"] == 1
+    assert claimed["payload"]["needs_metadata_probe"] is True
+
+    repositories.retry_enrichment_job_payload("completion:t1", "temporary")
+    queued = repositories.load_enrichment_jobs_payload()
+    assert queued[0]["status"] == "pending"
+    assert queued[0]["error"] == "temporary"
+
+    claimed_again = repositories.claim_next_enrichment_job_payload()
+    assert claimed_again["attempts"] == 2
+    repositories.complete_enrichment_job_payload("completion:t1")
+    assert repositories.load_enrichment_jobs_payload() == []
+
+
+def test_active_download_task_count_ignores_failed_and_completed_rows(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+
+    repositories.merge_task_payload("pending", {"status": "pending", "source_url": "https://example.test/p/1"})
+    repositories.merge_task_payload("running", {"status": "running", "source_url": "https://example.test/p/2"})
+    repositories.merge_task_payload("failed", {"status": "failed", "source_url": "https://example.test/p/3"})
+    repositories.merge_task_payload("completed", {"status": "completed", "source_url": "https://example.test/p/4"})
+
+    assert repositories.count_active_download_tasks() == 2

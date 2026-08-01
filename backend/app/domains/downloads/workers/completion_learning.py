@@ -5,7 +5,6 @@ import os
 from backend.app.domains.downloads.constants import FIELD_CANDIDATES, field_roles_from_probe_fields
 from backend.app.domains.downloads.learning import (
     has_learned_fields,
-    learn_missing_fields_for_format,
     save_learned_fields,
 )
 from backend.app.domains.downloads.learning import learn_source_format as persist_source_format
@@ -25,20 +24,20 @@ def _learn_source_format(
     media_id: str = "",
     metadata: dict[str, str] | None = None,
     source_key: str = "",
-) -> None:
+) -> bool:
     # Teach the DB this source's URL shape + id signature from a real download.
     media_id = str(media_id or "").strip() or parse_filename_media_id(filename)[0]
-    learned = persist_source_format(source_url, media_id, metadata)
-    if learned:
-        learn_missing_fields_for_format(source_url, source_key)
+    return persist_source_format(source_url, media_id, metadata)
 
 def _learn_field_roles_from_download(
     source_url: str, source_key: str, engine_name: str, metadata: dict[str, str] | None
-) -> None:
+) -> bool:
     # Teach Settings this source's field order from a real download's metadata,
     # so the first download learns without a separate (and flaky) enqueue-time probe.
-    if not metadata or has_learned_fields(source_url, source_key):
-        return
+    if has_learned_fields(source_url, source_key):
+        return True
+    if not metadata:
+        return False
     engine_key = engine_name if engine_name in FIELD_CANDIDATES else "gallerydl"
     present = [
         field
@@ -47,4 +46,5 @@ def _learn_field_roles_from_download(
     ]
     roles = field_roles_from_probe_fields({engine_key: present})
     if roles:
-        save_learned_fields(source_url, source_key, roles, only_when_missing=True)
+        return bool(save_learned_fields(source_url, source_key, roles, only_when_missing=True))
+    return False

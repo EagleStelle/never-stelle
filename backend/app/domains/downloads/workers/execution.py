@@ -35,7 +35,6 @@ from backend.app.domains.downloads.workers.completion import (
     _filename_creator,
     _filename_nickname,
     _filename_template,
-    _fill_single_output_metadata_fallback,
     _has_output_media,
     _item_source_url,
     _learn_field_roles_from_download,
@@ -46,8 +45,10 @@ from backend.app.domains.downloads.workers.completion import (
     _resolved_task_creator,
     _role_creator,
     _role_token_value,
+    _single_output_metadata_enrichment_needed,
     _template_folder_text,
 )
+from backend.app.domains.downloads.workers.enrichment import enqueue_completion_enrichment
 from backend.app.domains.downloads.workers.pathing import _fallback_excluded_extensions
 from backend.app.domains.downloads.workers.processes import _cancel_pending, _clear_cancel
 from backend.app.domains.downloads.workers.runner import _run_engine_to_task
@@ -344,11 +345,9 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
         if rc == 0 or output_records:
             filename_template = _filename_template(template_settings)
             metadata_by_path = _read_metadata_sidecar(metadata_sidecar)
-            _fill_single_output_metadata_fallback(
+            metadata_enrichment_needed = _single_output_metadata_enrichment_needed(
                 output_records,
                 metadata_by_path,
-                source_url,
-                task_source_key,
                 template_settings,
             )
             output_records = _dedupe_output_records(
@@ -385,7 +384,9 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 collapse_source_items,
             )
             completed_rows: list[tuple[str, dict[str, Any]]] = []
-            field_roles_learned = False
+            enrichment_jobs: list[tuple[str, dict[str, str], bool, bool]] = []
+            field_roles_ready = False
+            field_roles_checked = False
             for index, group in enumerate(groups):
                 media_id = str(group.get("media_id") or "").strip()
                 raw_path = Path(group["path"])
@@ -422,12 +423,13 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 )
                 display_nickname_hint = _display_creator_candidate(nickname_hint, item_cleaning) or nickname_hint
                 title_hint = _metadata_title(metadata)
+                group_paths = list(group.get("paths") or [])
                 final_path, display_filename = _clean_resolved_filename(
                     item_source_url,
                     raw_path,
                     template_settings,
                     item_source_key,
-                    list(group.get("paths") or []),
+                    group_paths,
                     creator_hint,
                     media_id,
                     nickname_hint,
@@ -452,6 +454,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     extra_tokens,
                     item_cleaning,
                     quality,
+                    group_paths=group_paths if len(group_paths) > 1 else [final_path],
                 )
                 keep_paths = find_numbered_media_siblings(final_path) or [final_path]
                 _cleanup_duplicate_library_media(output_root, media_id, keep_paths)
@@ -469,9 +472,14 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     if _path_key(record["path"]) == _path_key(raw_path):
                         row_engine = record["engine"].name
                         break
-                if not field_roles_learned:
-                    _learn_field_roles_from_download(item_source_url, item_source_key, row_engine, metadata)
-                    field_roles_learned = True
+                if not field_roles_checked:
+                    field_roles_ready = _learn_field_roles_from_download(
+                        item_source_url,
+                        item_source_key,
+                        row_engine,
+                        metadata,
+                    )
+                    field_roles_checked = True
                 completed_task = update_task(
                     row_task_id,
                     status="completed",
@@ -492,10 +500,44 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     **template_columns(template_settings),
                 )
                 completed_rows.append((row_task_id, completed_task))
-                _learn_source_format(item_source_url, display_filename, media_id, metadata, item_source_key)
+                format_learned = _learn_source_format(
+                    item_source_url,
+                    display_filename,
+                    media_id,
+                    metadata,
+                    item_source_key,
+                )
+                needs_metadata_probe = metadata_enrichment_needed and index == 0
+                needs_field_probe = bool(format_learned and not field_roles_ready)
+                if needs_metadata_probe or needs_field_probe:
+                    enrichment_jobs.append(
+                        (
+                            row_task_id,
+                            dict(metadata),
+                            needs_metadata_probe,
+                            needs_field_probe,
+                        )
+                    )
             for row_task_id, completed_task in completed_rows:
                 save_history_entry(row_task_id, completed_task)
                 remove_task_record(row_task_id)
+            for (
+                row_task_id,
+                metadata,
+                needs_metadata_probe,
+                needs_field_probe,
+            ) in enrichment_jobs:
+                enqueue_completion_enrichment(
+                    row_task_id,
+                    metadata=metadata,
+                    template_settings=template_settings,
+                    quality=quality,
+                    output_root=str(output_root),
+                    extra_tokens=extra_tokens,
+                    token_roles=token_roles,
+                    needs_metadata_probe=needs_metadata_probe,
+                    needs_field_probe=needs_field_probe,
+                )
             return
 
         update_task(

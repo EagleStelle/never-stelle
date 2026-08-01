@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.paths import path_key as _path_key
-from backend.app.domains.downloads.constants import CREATOR_FIELDS, TEMPLATE_RE
+from backend.app.domains.downloads.constants import CREATOR_FIELDS, FIELD_ROLE_CHAINS, TEMPLATE_RE
 from backend.app.domains.downloads.naming import filename_template_fields
 from backend.app.domains.downloads.scan import parse_filename_media_id
 from backend.app.domains.downloads.workers.completion_values import (
@@ -55,6 +55,14 @@ def _metadata_title_has_value(value: str, media_id: str = "") -> bool:
     return not _empty_metadata_value(stripped)
 
 def _filename_satisfies_template_metadata(path: Path, template_settings: dict[str, str] | None) -> bool:
+    return _metadata_satisfies_template(path, {}, template_settings)
+
+
+def _metadata_satisfies_template(
+    path: Path,
+    metadata: dict[str, str],
+    template_settings: dict[str, str] | None,
+) -> bool:
     filename_template = _filename_template(template_settings)
     tokens = _template_token_names(template_settings) - {"quality", "ext"}
     if not tokens:
@@ -63,20 +71,46 @@ def _filename_satisfies_template_metadata(path: Path, template_settings: dict[st
     parsed_media_id, parsed_title = parse_filename_media_id(path.name)
     media_id = _field_value(fields, "id") or parsed_media_id
 
+    def metadata_role_value(role: str) -> str:
+        candidates: list[str] = []
+        for chains in FIELD_ROLE_CHAINS.values():
+            candidates.extend(chains.get(role, ()))
+        if role in CREATOR_FIELDS:
+            other = "nickname" if role == "username" else "username"
+            for chains in FIELD_ROLE_CHAINS.values():
+                candidates.extend(chains.get(other, ()))
+        for field in dict.fromkeys(candidates):
+            value = (
+                _clean_creator_candidate(_field_value(metadata, field))
+                if role in CREATOR_FIELDS
+                else _field_value(metadata, field)
+            )
+            if value:
+                return value
+        return ""
+
     def has_token(token: str) -> bool:
         if token == "id":
-            return bool(media_id)
+            return bool(_field_value(metadata, "id") or media_id)
         if token == "title":
-            return _metadata_title_has_value(_field_value(fields, "title") or parsed_title, media_id)
+            return _metadata_title_has_value(
+                _field_value(metadata, "title", "fulltitle", "caption", "description", "alt_text")
+                or _field_value(fields, "title")
+                or parsed_title,
+                media_id,
+            )
         if token == "nickname":
-            return bool(_clean_creator_candidate(_field_value(fields, "nickname", "username")))
+            return bool(
+                metadata_role_value("nickname")
+                or _clean_creator_candidate(_field_value(fields, "nickname", "username"))
+            )
         if token in CREATOR_FIELDS:
-            return bool(_clean_creator_candidate(_field_value(fields, token)))
-        return bool(_field_value(fields, token))
+            return bool(metadata_role_value(token) or _clean_creator_candidate(_field_value(fields, token)))
+        return bool(_field_value(metadata, token) or _field_value(fields, token))
 
     return all(has_token(token) for token in tokens)
 
-def _probe_output_metadata(source_url: str, source_key: str = "") -> dict[str, str]:
+def _probe_output_metadata(source_url: str, source_key: str = "", *, low_priority: bool = False) -> dict[str, str]:
     try:
         from .probe import probe_metadata
 
@@ -88,6 +122,7 @@ def _probe_output_metadata(source_url: str, source_key: str = "") -> dict[str, s
             source_url,
             with_cookies=with_cookies,
             cookie_source_key=cookie_source_key,
+            low_priority=low_priority,
         )
     except Exception:
         return {}
@@ -105,18 +140,46 @@ def _fill_single_output_metadata_fallback(
     source_url: str,
     source_key: str,
     template_settings: dict[str, str] | None,
-) -> None:
+) -> bool:
     if len(records) != 1 or not _template_needs_probe_metadata(template_settings):
-        return
+        return False
     record = records[0]
     if record["engine"].name != "gallerydl":
-        return
+        return False
     path = Path(record["path"])
-    if _filename_satisfies_template_metadata(path, template_settings):
-        return
     key = _path_key(path)
-    if metadata_by_path.get(key):
+    metadata = metadata_by_path.get(key, {})
+    if _metadata_satisfies_template(path, metadata, template_settings):
+        return False
+    return True
+
+
+def _single_output_metadata_enrichment_needed(
+    records: list[dict[str, Any]],
+    metadata_by_path: dict[str, dict[str, str]],
+    template_settings: dict[str, str] | None,
+) -> bool:
+    return _fill_single_output_metadata_fallback(records, metadata_by_path, "", "", template_settings)
+
+
+def _probe_single_output_metadata_inline(
+    records: list[dict[str, Any]],
+    metadata_by_path: dict[str, dict[str, str]],
+    source_url: str,
+    source_key: str,
+    template_settings: dict[str, str] | None,
+) -> None:
+    if not _fill_single_output_metadata_fallback(
+        records,
+        metadata_by_path,
+        source_url,
+        source_key,
+        template_settings,
+    ):
         return
+    record = records[0]
+    path = Path(record["path"])
+    key = _path_key(path)
     metadata = _probe_output_metadata(source_url, source_key)
     if not metadata:
         return
