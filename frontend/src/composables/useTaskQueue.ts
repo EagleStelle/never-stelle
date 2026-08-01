@@ -23,7 +23,7 @@ import {
   TASKS_QUERY_KEY,
 } from "@/ui";
 import type { PlaylistEntry, QualitySelection, SavedSettings, TaskItem, TaskStatus, TasksResponse, ToastType } from "@/types";
-import { countTasks, errorMessage, normalizeSourceKey } from "@/utils/dashboard";
+import { countTasks, errorMessage, extractUrl, normalizeSourceKey } from "@/utils/dashboard";
 
 interface UseTaskQueueOptions {
   getSavedSettings: () => SavedSettings;
@@ -145,7 +145,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   }
 
   async function addDownloadTask(): Promise<void> {
-    const sourceUrl = url.value.trim();
+    const sourceUrl = extractUrl(url.value);
     if (!sourceUrl) {
       toast("Paste a supported URL first.", "error");
       return;

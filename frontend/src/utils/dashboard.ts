@@ -88,6 +88,17 @@ export function hostFromUrl(sourceUrl: string): string {
   }
 }
 
+// Share buttons copy the link wrapped in a title and CJK boilerplate; keep only the link
+// so native URL validation still passes. Non-URL input passes through to that validation.
+const PASTED_URL_RE = /https?:\/\/[^\s<>"'`　-〿＀-￯]+/;
+
+export function extractUrl(sourceUrl: unknown): string {
+  const text = String(sourceUrl || "").trim();
+  if (!text) return "";
+  const match = PASTED_URL_RE.exec(text);
+  return match ? match[0].replace(/[.,;:!?)\]}»]+$/, "") : text;
+}
+
 export function faviconUrlForHost(host: string): string {
   const display = displayHost(host);
   return display

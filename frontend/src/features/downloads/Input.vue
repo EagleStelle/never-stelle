@@ -17,6 +17,7 @@ import { computed } from "vue";
 import type { QualityOptions, QualitySelection, SavedSettings } from "@/types";
 import {
   createQualitySelection,
+  extractUrl,
   isLosslessAudioFormat,
   videoCodecOptionsForContainer,
 } from "@/utils/dashboard";
@@ -52,10 +53,19 @@ function update(patch: Partial<QualitySelection>): void {
   );
 }
 
+// A bare URL pastes natively so the caret and selection replacement behave normally.
+function onPaste(event: ClipboardEvent): void {
+  const raw = event.clipboardData?.getData("text") || "";
+  const cleaned = extractUrl(raw);
+  if (cleaned === raw.trim()) return;
+  event.preventDefault();
+  emit("update:url", cleaned);
+}
+
+// The button never fires a paste event, so it cleans its own clipboard read.
 const pasteFromClipboard = async () => {
   try {
-    const text = await navigator.clipboard.readText();
-    emit("update:url", text);
+    emit("update:url", extractUrl(await navigator.clipboard.readText()));
   } catch (err) {
     console.error("Failed to read clipboard contents:", err);
   }
@@ -73,6 +83,7 @@ const pasteFromClipboard = async () => {
           class="flex-1 min-w-0"
           :model-value="url"
           @update:model-value="(val) => emit('update:url', String(val))"
+          @paste="onPaste"
           name="url"
           type="url"
           autocomplete="off"
