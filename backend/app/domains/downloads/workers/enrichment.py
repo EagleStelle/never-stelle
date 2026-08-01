@@ -14,52 +14,31 @@ from backend.app.domains.downloads.constants import (
     normalize_quality_selection,
 )
 from backend.app.domains.downloads.files import is_media_file
-from backend.app.domains.downloads.formats import media_id_from_url
 from backend.app.domains.downloads.learning import learn_missing_fields_for_format, save_missing_learned_fields
-from backend.app.domains.downloads.naming import filename_template_fields
-from backend.app.domains.downloads.scan import parse_filename_media_id
 from backend.app.domains.downloads.store import (
     active_download_task_count,
     claim_next_enrichment_job,
     complete_enrichment_job,
     enqueue_enrichment_job,
     load_history_entry,
+    pending_enrichment_job_count,
     retry_enrichment_job,
     save_history_entry_row,
 )
-from backend.app.domains.downloads.urls import detect_source_key
-from backend.app.domains.downloads.workers.completion_creators import (
-    _configured_field_value,
-    _filename_creator,
-    _filename_nickname,
-    _role_creator,
-    _role_token_value,
-    _template_folder_text,
+from backend.app.domains.downloads.workers.completion_finalization import (
+    _finalize_completed_output,
 )
 from backend.app.domains.downloads.workers.completion_metadata import (
     _empty_metadata_value,
-    _filename_template,
     _probe_output_metadata,
 )
-from backend.app.domains.downloads.workers.completion_outputs import (
-    _clean_resolved_filename,
-    _cleanup_duplicate_library_media,
-    _item_source_url,
-    _move_group_to_template_folder,
-)
-from backend.app.domains.downloads.workers.completion_values import (
-    _display_creator_candidate,
-    _metadata_title,
-)
-from backend.app.domains.settings import get_effective_title_cleaning
 
 _IDLE_SLEEP_SECONDS = 2.0
-_EMPTY_SLEEP_SECONDS = 5.0
 _MAX_ATTEMPTS = 3
 
 _worker_lock = threading.Lock()
 _worker_condition = threading.Condition(_worker_lock)
-_worker_started = False
+_worker_running = False
 
 
 def _string_dict(value: Any) -> dict[str, str]:
@@ -124,12 +103,14 @@ def enqueue_completion_enrichment(
 
 
 def ensure_enrichment_worker() -> None:
-    global _worker_started
+    global _worker_running
     with _worker_condition:
-        if _worker_started:
+        if _worker_running:
             _worker_condition.notify()
             return
-        _worker_started = True
+        if pending_enrichment_job_count() <= 0:
+            return
+        _worker_running = True
         threading.Thread(
             target=_enrichment_loop,
             name="never-stelle-enrichment",
@@ -154,7 +135,8 @@ def _enrichment_loop() -> None:
                 continue
             job = claim_next_enrichment_job()
             if not job:
-                _wait(_EMPTY_SLEEP_SECONDS)
+                if _stop_worker_if_drained():
+                    return
                 continue
             if _downloads_active():
                 retry_enrichment_job(str(job.get("id") or ""), "", max_attempts=_MAX_ATTEMPTS)
@@ -163,6 +145,15 @@ def _enrichment_loop() -> None:
             _process_enrichment_job(job)
         except Exception:
             time.sleep(1.0)
+
+
+def _stop_worker_if_drained() -> bool:
+    global _worker_running
+    with _worker_condition:
+        if pending_enrichment_job_count() > 0:
+            return False
+        _worker_running = False
+        return True
 
 
 def _process_enrichment_job(job: dict[str, Any]) -> None:
@@ -214,85 +205,34 @@ def _repair_history_metadata(task_id: str, entry: dict[str, Any], payload: dict[
     extra_tokens = _string_dict(payload.get("extra_tokens"))
     token_roles = _nested_string_dict(payload.get("token_roles"))
     output_root = Path(str(payload.get("output_root") or entry.get("resolved_folder") or path.parent))
-    filename_template = _filename_template(template_settings)
-    media_id = (
-        str(entry.get("media_id") or "").strip()
-        or parse_filename_media_id(path.name)[0]
-        or str(metadata.get("id") or "").strip()
-        or media_id_from_url(source_url)
-    )
-    scraped_username = _role_token_value(extra_tokens, token_roles, source_key, "username")
-    scraped_nickname = _role_token_value(extra_tokens, token_roles, source_key, "nickname")
-    configured_username = scraped_username or _configured_field_value(metadata, source_url, "username")
-    configured_nickname = scraped_nickname or _configured_field_value(metadata, source_url, "nickname")
-    creator_hint = (
-        _role_creator(extra_tokens, token_roles, source_key)
-        or configured_username
-        or _filename_creator(path, filename_template, metadata, source_url, media_id)
-    )
-    folder_template = str(template_settings.get("folder_template") or "").strip()
-    folder_text = _template_folder_text(output_root, path)
-    nickname_hint = configured_nickname or _filename_nickname(
-        path,
-        filename_template,
-        folder_template,
-        folder_text,
-        metadata,
-        creator_hint,
-    )
-    item_source_url = _item_source_url(source_url, source_key, media_id, creator_hint, metadata)
-    item_source_key = normalize_source_key(source_key or detect_source_key(item_source_url))
-    item_cleaning = get_effective_title_cleaning(item_source_url)
-    configured_display = (
-        _display_creator_candidate(configured_username, item_cleaning) if configured_username else ""
-    )
-    display_creator_hint = configured_display or _display_creator_candidate(creator_hint, item_cleaning) or creator_hint
-    display_nickname_hint = _display_creator_candidate(nickname_hint, item_cleaning) or nickname_hint
-    title_hint = _metadata_title(metadata)
-    final_path, display_filename = _clean_resolved_filename(
-        item_source_url,
-        path,
-        template_settings,
-        item_source_key,
-        [path],
-        creator_hint,
-        media_id,
-        nickname_hint,
-        title_hint,
-        extra_tokens,
-        item_cleaning,
-        creator_authoritative=bool(configured_username),
+    finalized = _finalize_completed_output(
+        source_url=source_url,
+        source_key=source_key,
+        output_root=output_root,
+        raw_path=path,
+        metadata=metadata,
+        media_id=str(entry.get("media_id") or ""),
+        template_settings=template_settings,
         quality=quality,
+        extra_tokens=extra_tokens,
+        token_roles=token_roles,
+        group_paths=[path],
+        existing_creator=str(entry.get("creator") or ""),
+        cache_dropper=drop_file_cache,
     )
-    media_id = media_id or parse_filename_media_id(display_filename)[0] or media_id_from_url(item_source_url)
-    final_path = _move_group_to_template_folder(
-        final_path,
-        output_root,
-        template_settings,
-        display_creator_hint,
-        media_id,
-        display_nickname_hint,
-        extra_tokens,
-        item_cleaning,
-        quality,
-        group_paths=[final_path],
-    )
-    creator = configured_display or creator_hint or str(entry.get("creator") or "") or nickname_hint
-    _cleanup_duplicate_library_media(output_root, media_id, [final_path])
-    drop_file_cache([final_path])
 
     updated = dict(entry)
     updated.update(
         {
-            "source_url": item_source_url,
-            "source_key": item_source_key,
-            "creator": creator,
-            "media_id": media_id,
-            "resolved_full_path": str(final_path),
-            "resolved_folder": str(final_path.parent),
-            "resolved_filename": display_filename,
-            "title": filename_template_fields(display_filename, filename_template).get("title", ""),
-            "file_size": _history_file_size(final_path),
+            "source_url": finalized.source_url,
+            "source_key": finalized.source_key,
+            "creator": finalized.creator,
+            "media_id": finalized.media_id,
+            "resolved_full_path": str(finalized.final_path),
+            "resolved_folder": str(finalized.final_path.parent),
+            "resolved_filename": finalized.display_filename,
+            "title": finalized.title,
+            "file_size": _history_file_size(finalized.final_path),
             "updated_at": utc_now(),
         }
     )
@@ -317,6 +257,9 @@ def _run_enrichment_job(job: dict[str, Any]) -> None:
         repaired = _repair_history_metadata(task_id, entry, payload)
         if repaired:
             metadata = repaired
+            entry = load_history_entry(task_id) or entry
+            source_url = str(entry.get("source_url") or "")
+            source_key = normalize_source_key(entry.get("source_key"))
 
     if not payload.get("needs_field_probe"):
         return

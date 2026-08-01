@@ -698,6 +698,7 @@ def test_enrichment_jobs_claim_retry_and_complete_persistently(tmp_path, monkeyp
         "completion",
         {"task_id": "t1", "needs_metadata_probe": True},
     )
+    assert repositories.count_pending_enrichment_jobs_payload() == 1
 
     claimed = repositories.claim_next_enrichment_job_payload()
     assert claimed is not None
@@ -705,16 +706,19 @@ def test_enrichment_jobs_claim_retry_and_complete_persistently(tmp_path, monkeyp
     assert claimed["status"] == "running"
     assert claimed["attempts"] == 1
     assert claimed["payload"]["needs_metadata_probe"] is True
+    assert repositories.count_pending_enrichment_jobs_payload() == 0
 
     repositories.retry_enrichment_job_payload("completion:t1", "temporary")
     queued = repositories.load_enrichment_jobs_payload()
     assert queued[0]["status"] == "pending"
     assert queued[0]["error"] == "temporary"
+    assert repositories.count_pending_enrichment_jobs_payload() == 1
 
     claimed_again = repositories.claim_next_enrichment_job_payload()
     assert claimed_again["attempts"] == 2
     repositories.complete_enrichment_job_payload("completion:t1")
     assert repositories.load_enrichment_jobs_payload() == []
+    assert repositories.count_pending_enrichment_jobs_payload() == 0
 
 
 def test_active_download_task_count_ignores_failed_and_completed_rows(tmp_path, monkeypatch):

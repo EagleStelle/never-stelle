@@ -567,7 +567,7 @@ def _move_group_to_template_folder(
     selected = selected_path
     selected_key = _path_key(selected_path)
     paths = group_paths if group_paths else find_numbered_media_siblings(selected_path) or [selected_path]
-    for path in paths:
+    for index, path in enumerate(paths):
         target = _unique_sibling_path(target_dir / path.name)
         if _path_key(path) == _path_key(target):
             moved = path
@@ -577,6 +577,7 @@ def _move_group_to_template_folder(
                 moved = target
             except OSError:
                 moved = path
+        paths[index] = moved
         if _path_key(path) == selected_key:
             selected = moved
     if _path_key(source_parent) != _path_key(output_root):
@@ -586,6 +587,3 @@ def _move_group_to_template_folder(
         except OSError:
             pass
     return selected
-
-def _resolved_task_creator(engine: Engine, sidecar_path: str, source_url: str, filename: str) -> str:
-    return engine.read_creator(sidecar_path, source_url)

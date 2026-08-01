@@ -16,6 +16,7 @@ import backend.app.domains.downloads.scan as scan_module
 import backend.app.domains.downloads.serializers as serializers_module
 import backend.app.domains.downloads.urls as urls_module
 import backend.app.domains.downloads.workers.completion as completion_module
+import backend.app.domains.downloads.workers.completion_creators as completion_creators_module
 import backend.app.domains.downloads.workers.completion_learning as completion_learning_module
 import backend.app.domains.downloads.workers.completion_metadata as completion_metadata_module
 import backend.app.domains.downloads.workers.completion_outputs as completion_outputs_module
@@ -586,7 +587,7 @@ def test_clean_template_filename_handle_at_cleanup_can_be_disabled():
 def test_filename_creator_ignores_nickname_token_for_handle():
     # A {{nickname}} filename must NOT feed the {{username}} handle with the display name.
     path = Path("/media/instagram/nasa/NASA - Cool Rocket [ABC123].jpg")
-    creator = worker_module._filename_creator(
+    creator = completion_module._filename_creator(
         path,
         "{{nickname}} - {{title}} [{{id}}]",
         {},
@@ -652,11 +653,11 @@ def test_filename_nickname_recovers_display_name_from_gallerydl_folder():
     # gallery-dl ships no metadata; the display name only survives in the folder it wrote.
     root = Path("/media/instagram")
     path = root / "NASA" / "nasa - Cool Rocket [ABC123].jpg"
-    nickname = worker_module._filename_nickname(
+    nickname = completion_module._filename_nickname(
         path,
         "{{username}} - {{title}} [{{id}}]",
         "{{nickname}}",
-        worker_module._template_folder_text(root, path),
+        completion_module._template_folder_text(root, path),
         {},
     )
     assert nickname == "NASA"
@@ -672,11 +673,11 @@ def test_filename_nickname_skips_username_value_and_uses_display_metadata():
         "uploader_url": "https://www.tiktok.com/@fzyahoo.com",
     }
 
-    nickname = worker_module._filename_nickname(
+    nickname = completion_module._filename_nickname(
         path,
         "{{nickname}} - {{title}} [{{id}}]",
         "{{username}}",
-        worker_module._template_folder_text(root, path),
+        completion_module._template_folder_text(root, path),
         metadata,
         "fzyahoo.com",
     )
@@ -701,22 +702,22 @@ def test_username_folder_and_nickname_filename_stay_distinct_for_handle_metadata
         "uploader_url": "https://www.tiktok.com/@fzyahoo.com",
     }
 
-    creator = worker_module._filename_creator(
+    creator = completion_module._filename_creator(
         raw_path,
         template_settings["filename_template"],
         metadata,
         source_url,
         media_id,
     )
-    nickname = worker_module._filename_nickname(
+    nickname = completion_module._filename_nickname(
         raw_path,
         template_settings["filename_template"],
         template_settings["folder_template"],
-        worker_module._template_folder_text(tmp_path, raw_path),
+        completion_module._template_folder_text(tmp_path, raw_path),
         metadata,
         creator,
     )
-    final_path, display_filename = worker_module._clean_resolved_filename(
+    final_path, display_filename = completion_module._clean_resolved_filename(
         source_url,
         raw_path,
         template_settings,
@@ -725,7 +726,7 @@ def test_username_folder_and_nickname_filename_stay_distinct_for_handle_metadata
         media_id_hint=media_id,
         nickname_hint=nickname,
     )
-    final_path = worker_module._move_group_to_template_folder(
+    final_path = completion_module._move_group_to_template_folder(
         final_path,
         tmp_path,
         template_settings,
@@ -838,7 +839,7 @@ def test_filename_creator_uses_handle_metadata_without_at():
         "webpage_url": "https://video.example/watch?v=In5Du5x6MZM",
     }
 
-    creator = worker_module._filename_creator(
+    creator = completion_module._filename_creator(
         Path("@mili - Iron Lotus [In5Du5x6MZM].mp4"),
         "{{username}} - {{title}} [{{id}}]",
         metadata,
@@ -850,7 +851,7 @@ def test_filename_creator_uses_handle_metadata_without_at():
 
 
 def test_filename_creator_strips_at_from_filename_username():
-    creator = worker_module._filename_creator(
+    creator = completion_module._filename_creator(
         Path("@mili - Iron Lotus [In5Du5x6MZM].mp4"),
         "{{username}} - {{title}} [{{id}}]",
         {},
@@ -862,7 +863,7 @@ def test_filename_creator_strips_at_from_filename_username():
 
 
 def test_role_creator_uses_scraped_token_role():
-    creator = worker_module._role_creator(
+    creator = completion_module._role_creator(
         {"username": "Trace Artist"},
         {"rule34video": {"artist": "username"}},
         "rule34video",
@@ -969,7 +970,7 @@ def test_clean_resolved_filename_renames_real_file_using_settings_template(tmp_p
     media_file = tmp_path / "DohaVT - 2073635724684054528 - Video by DohaVT.mp4"
     media_file.write_bytes(b"video")
 
-    final_path, display_filename = worker_module._clean_resolved_filename(
+    final_path, display_filename = completion_module._clean_resolved_filename(
         source_url,
         media_file,
         {"folder_template": "", "filename_template": "{{username}} - {{id}} - {{title}}"},
@@ -988,7 +989,7 @@ def test_clean_resolved_filename_rerenders_selected_quality(tmp_path: Path):
     media_file = tmp_path / "source - Video by Artist [4483553].mp4"
     media_file.write_bytes(b"video")
 
-    final_path, display_filename = worker_module._clean_resolved_filename(
+    final_path, display_filename = completion_module._clean_resolved_filename(
         source_url,
         media_file,
         {"folder_template": "", "filename_template": "{{quality}} - {{title}} [{{id}}]"},
@@ -1010,7 +1011,7 @@ def test_clean_resolved_filename_rebuilds_sparse_gallerydl_name_from_title_hint(
     media_file = tmp_path / "[abc123]_1.jpg"
     media_file.write_bytes(b"image")
 
-    final_path, display_filename = worker_module._clean_resolved_filename(
+    final_path, display_filename = completion_module._clean_resolved_filename(
         source_url,
         media_file,
         {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
@@ -1032,7 +1033,7 @@ def test_clean_resolved_filename_title_only_template_falls_back_to_media_id(tmp_
     media_file = tmp_path / "Video by DohaVT.mp4"
     media_file.write_bytes(b"video")
 
-    final_path, display_filename = worker_module._clean_resolved_filename(
+    final_path, display_filename = completion_module._clean_resolved_filename(
         source_url,
         media_file,
         {"folder_template": "", "filename_template": "{{title}}"},
@@ -1051,7 +1052,7 @@ def test_clean_resolved_filename_strips_at_from_username(tmp_path: Path):
     media_file = tmp_path / "@mili - Iron Lotus [In5Du5x6MZM].mp4"
     media_file.write_bytes(b"video")
 
-    final_path, display_filename = worker_module._clean_resolved_filename(
+    final_path, display_filename = completion_module._clean_resolved_filename(
         source_url,
         media_file,
         {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
@@ -1072,7 +1073,7 @@ def test_configured_field_value_honors_opaque_id_in_priority_order(monkeypatch):
     # channel_id first in the configured order must win, even though the handle
     # heuristics reject it as an opaque identifier.
     monkeypatch.setattr(
-        worker_module,
+        completion_creators_module,
         "get_effective_fields",
         lambda url: {"username": ["channel_id", "uploader"]},
     )
@@ -1083,16 +1084,16 @@ def test_configured_field_value_honors_opaque_id_in_priority_order(monkeypatch):
     }
 
     assert (
-        worker_module._configured_field_value(metadata, "https://video.example/watch?v=x", "username")
+        completion_module._configured_field_value(metadata, "https://video.example/watch?v=x", "username")
         == "UC-wNqHVYS82PF4mkaQb0Alg"
     )
 
 
 def test_configured_field_value_empty_order_defers_to_heuristics(monkeypatch):
-    monkeypatch.setattr(worker_module, "get_effective_fields", lambda url: {})
+    monkeypatch.setattr(completion_creators_module, "get_effective_fields", lambda url: {})
     metadata = {"channel_id": "UC-wNqHVYS82PF4mkaQb0Alg", "uploader": "Mili"}
 
-    assert worker_module._configured_field_value(metadata, "https://video.example/watch?v=x", "username") == ""
+    assert completion_module._configured_field_value(metadata, "https://video.example/watch?v=x", "username") == ""
 
 
 def test_clean_resolved_filename_keeps_authoritative_creator_over_url_handle(tmp_path: Path):
@@ -1101,7 +1102,7 @@ def test_clean_resolved_filename_keeps_authoritative_creator_over_url_handle(tmp
     media_file = tmp_path / "UC1234567890 - Clip [7493558766131039489].mp4"
     media_file.write_bytes(b"video")
 
-    final_path, display_filename = worker_module._clean_resolved_filename(
+    final_path, display_filename = completion_module._clean_resolved_filename(
         source_url,
         media_file,
         {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
@@ -1412,6 +1413,42 @@ def test_enrichment_worker_deletes_stale_job_when_history_row_is_missing(
     assert store_module.load_enrichment_jobs() == []
 
 
+def test_enrichment_worker_does_not_start_when_queue_is_empty(monkeypatch: pytest.MonkeyPatch):
+    started: list[object] = []
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs):
+            started.append((args, kwargs))
+
+        def start(self):
+            raise AssertionError("empty queue should not start a worker thread")
+
+    monkeypatch.setattr(enrichment_module, "_worker_running", False)
+    monkeypatch.setattr(enrichment_module, "pending_enrichment_job_count", lambda: 0)
+    monkeypatch.setattr(enrichment_module.threading, "Thread", FakeThread)
+
+    enrichment_module.ensure_enrichment_worker()
+
+    assert started == []
+    assert enrichment_module._worker_running is False
+
+
+def test_enrichment_worker_marks_itself_stopped_when_queue_drains(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(enrichment_module, "_worker_running", True)
+    monkeypatch.setattr(enrichment_module, "pending_enrichment_job_count", lambda: 0)
+
+    assert enrichment_module._stop_worker_if_drained() is True
+    assert enrichment_module._worker_running is False
+
+
+def test_enrichment_worker_keeps_running_when_job_arrives_during_drain(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(enrichment_module, "_worker_running", True)
+    monkeypatch.setattr(enrichment_module, "pending_enrichment_job_count", lambda: 1)
+
+    assert enrichment_module._stop_worker_if_drained() is False
+    assert enrichment_module._worker_running is True
+
+
 def test_gallerydl_same_source_assets_share_one_row_and_source_id(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1495,11 +1532,11 @@ def test_gallerydl_distinct_metadata_urls_split_rows_dynamically(tmp_path: Path)
     for path in (first, second):
         path.write_bytes(b"image")
     metadata = {
-        worker_module._path_key(first): {"webpage_url": "https://www.example.test/item/asset-a"},
-        worker_module._path_key(second): {"webpage_url": "https://www.example.test/item/asset-b"},
+        path_key(first): {"webpage_url": "https://www.example.test/item/asset-a"},
+        path_key(second): {"webpage_url": "https://www.example.test/item/asset-b"},
     }
 
-    groups = worker_module._download_groups(
+    groups = completion_module._download_groups(
         [first, second],
         engine_by_name("gallerydl"),
         "{{username}} - {{title}} [{{id}}]",
@@ -1517,11 +1554,11 @@ def test_gallerydl_source_url_id_groups_distinct_child_metadata_urls(tmp_path: P
     for path in (first, second):
         path.write_bytes(b"media")
     metadata = {
-        worker_module._path_key(first): {"webpage_url": "https://www.example.test/item/child-a"},
-        worker_module._path_key(second): {"webpage_url": "https://www.example.test/item/child-b"},
+        path_key(first): {"webpage_url": "https://www.example.test/item/child-a"},
+        path_key(second): {"webpage_url": "https://www.example.test/item/child-b"},
     }
 
-    groups = worker_module._download_groups(
+    groups = completion_module._download_groups(
         [first, second],
         engine_by_name("gallerydl"),
         "{{username}} - {{title}} [{{id}}]",
@@ -1540,7 +1577,7 @@ def test_gallerydl_parent_group_keeps_pasted_source_url_for_child_metadata():
     }
 
     assert (
-        worker_module._item_source_url(source_url, "example", "root123", "poster", metadata)
+        completion_module._item_source_url(source_url, "example", "root123", "poster", metadata)
         == source_url
     )
 
@@ -1631,7 +1668,7 @@ def test_read_metadata_sidecar_accepts_gallerydl_jsonl(tmp_path: Path):
 
     metadata = completion_metadata_module._read_metadata_sidecar(str(sidecar))
 
-    row = metadata[worker_module._path_key(media_file)]
+    row = metadata[path_key(media_file)]
     assert row["id"] == "child-a"
     assert row["user[name]"] == "poster"
     assert row["tags"] == "one, two"
@@ -2151,7 +2188,7 @@ def test_worker_resolved_task_creator_uses_engine_sidecar_not_url_creator(tmp_pa
         def read_creator(self, sidecar_path: str, source_url: str) -> str:
             return "Some Display Name"
 
-    creator = worker_module._resolved_task_creator(
+    creator = completion_module._resolved_task_creator(
         FakeEngine(),
         str(sidecar),
         "https://www.tiktok.com/@fzyahoo.com/video/7420705673542978833",

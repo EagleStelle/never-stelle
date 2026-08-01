@@ -10,6 +10,7 @@ from backend.app.db.repositories import (
     count_active_by_source,
     count_active_download_tasks,
     count_history_by_source,
+    count_pending_enrichment_jobs_payload,
     count_pending_tasks,
     delete_history_row,
     delete_task_row,
@@ -119,6 +120,10 @@ def pending_task_count() -> int:
 
 def active_download_task_count() -> int:
     return count_active_download_tasks()
+
+
+def pending_enrichment_job_count() -> int:
+    return count_pending_enrichment_jobs_payload()
 
 
 def enqueue_enrichment_job(job_id: str, kind: str, payload: dict[str, Any]) -> None:

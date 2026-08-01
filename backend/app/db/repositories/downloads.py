@@ -401,6 +401,14 @@ def count_active_download_tasks() -> int:
     return int(row[0] or 0)
 
 
+def count_pending_enrichment_jobs_payload() -> int:
+    with transaction() as connection:
+        row = connection.execute(
+            "SELECT COUNT(*) FROM download_enrichment_jobs WHERE status = 'pending'"
+        ).fetchone()
+    return int(row[0] or 0)
+
+
 def upsert_enrichment_job_payload(job_id: str, kind: str, payload: dict[str, Any]) -> None:
     now = utc_now()
     job_id = str(job_id or "").strip()

@@ -9,9 +9,14 @@ from backend.app.domains.downloads.workers.completion_creators import (
     _metadata_nickname,
     _profile_host_candidates,
     _resolved_profile_handle,
+    _resolved_task_creator,
     _role_creator,
     _role_token_value,
     _template_folder_text,
+)
+from backend.app.domains.downloads.workers.completion_finalization import (
+    FinalizedCompletionOutput,
+    _finalize_completed_output,
 )
 from backend.app.domains.downloads.workers.completion_learning import (
     _cleanup_file,
@@ -44,7 +49,6 @@ from backend.app.domains.downloads.workers.completion_outputs import (
     _move_group_to_template_folder,
     _output_identity,
     _render_template_folder,
-    _resolved_task_creator,
 )
 from backend.app.domains.downloads.workers.completion_values import (
     _best_creator_candidate,
@@ -60,6 +64,7 @@ from backend.app.domains.downloads.workers.completion_values import (
 )
 
 __all__ = [
+    "FinalizedCompletionOutput",
     "_attempt_output_paths",
     "_best_creator_candidate",
     "_child_task_id",
@@ -75,6 +80,7 @@ __all__ = [
     "_distinct_metadata_item_url",
     "_download_groups",
     "_existing_output_paths",
+    "_finalize_completed_output",
     "_field_value",
     "_filename_creator",
     "_filename_media_id",

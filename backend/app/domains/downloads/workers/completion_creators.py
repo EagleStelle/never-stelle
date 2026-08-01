@@ -5,6 +5,7 @@ from pathlib import Path
 
 from backend.app.core.sources import apex_host, host_from_url, normalize_source_key
 from backend.app.domains.downloads.constants import FIELD_DEFAULTS
+from backend.app.domains.downloads.engine import Engine
 from backend.app.domains.downloads.formats import creator_from_url, media_id_from_url
 from backend.app.domains.downloads.naming import filename_template_fields, template_fields
 from backend.app.domains.downloads.scan import parse_filename_media_id
@@ -230,3 +231,7 @@ def _filename_nickname(
         if not _same_creator_value(value, username_hint):
             return value
     return _metadata_nickname(metadata, username_hint) or fallback
+
+
+def _resolved_task_creator(engine: Engine, sidecar_path: str, source_url: str, filename: str) -> str:
+    return engine.read_creator(sidecar_path, source_url)

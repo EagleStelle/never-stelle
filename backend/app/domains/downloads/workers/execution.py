@@ -13,40 +13,26 @@ from backend.app.core.sources import normalize_source_key
 from backend.app.domains.downloads.cache import drop_file_cache
 from backend.app.domains.downloads.constants import normalize_quality_selection
 from backend.app.domains.downloads.engine import Engine, all_engines, select_engine
-from backend.app.domains.downloads.files import find_numbered_media_siblings
-from backend.app.domains.downloads.formats import media_id_from_url
 from backend.app.domains.downloads.history import save_history_entry
-from backend.app.domains.downloads.naming import detect_ffmpeg_location, filename_template_fields
-from backend.app.domains.downloads.scan import parse_filename_media_id
+from backend.app.domains.downloads.naming import detect_ffmpeg_location
 from backend.app.domains.downloads.store import load_learned_formats, load_task, remove_task_record, update_task
 from backend.app.domains.downloads.templates import template_columns, template_settings_from_columns
 from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
 from backend.app.domains.downloads.workers.completion import (
     _attempt_output_paths,
     _child_task_id,
-    _clean_creator_candidate,
-    _clean_resolved_filename,
-    _cleanup_duplicate_library_media,
     _cleanup_file,
     _dedupe_output_records,
-    _display_creator_candidate,
     _download_groups,
     _existing_output_paths,
-    _filename_creator,
-    _filename_nickname,
     _filename_template,
+    _finalize_completed_output,
     _has_output_media,
-    _item_source_url,
     _learn_field_roles_from_download,
     _learn_source_format,
-    _metadata_title,
-    _move_group_to_template_folder,
     _read_metadata_sidecar,
     _resolved_task_creator,
-    _role_creator,
-    _role_token_value,
     _single_output_metadata_enrichment_needed,
-    _template_folder_text,
 )
 from backend.app.domains.downloads.workers.enrichment import enqueue_completion_enrichment
 from backend.app.domains.downloads.workers.pathing import _fallback_excluded_extensions
@@ -56,9 +42,7 @@ from backend.app.domains.settings import (
     cookie_rotation,
     detect_cookie_source,
     get_effective_fields,
-    get_effective_title_cleaning,
     has_cookies_for_source,
-    is_scraper_field,
     load_scrape_rules,
     load_slug_tokens,
     load_token_roles,
@@ -91,16 +75,6 @@ def _should_try_next_engine(rc: int, task: dict[str, Any], last_dest: str, emitt
     if _has_output_media(last_dest, emitted_paths):
         return False
     return True
-
-
-def _configured_field_value(metadata: dict[str, str], source_url: str, role: str) -> str:
-    for field in get_effective_fields(source_url).get(role) or ():
-        if is_scraper_field(field):
-            continue
-        value = _clean_creator_candidate(str(metadata.get(field) or ""), strip_at=False)
-        if value:
-            return value
-    return ""
 
 
 def _failure_detail(engine: Engine, rc: int, task: dict[str, Any]) -> str:
@@ -390,92 +364,41 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
             for index, group in enumerate(groups):
                 media_id = str(group.get("media_id") or "").strip()
                 raw_path = Path(group["path"])
-                metadata = group.get("metadata") or {}
-                # Honor the per-source field priority the same way the download template does.
-                scraped_username = _role_token_value(extra_tokens, token_roles, task_source_key, "username")
-                scraped_nickname = _role_token_value(extra_tokens, token_roles, task_source_key, "nickname")
-                configured_username = scraped_username or _configured_field_value(metadata, source_url, "username")
-                configured_nickname = scraped_nickname or _configured_field_value(metadata, source_url, "nickname")
-                creator_hint = (
-                    _role_creator(extra_tokens, token_roles, task_source_key)
-                    or configured_username
-                    or _filename_creator(raw_path, filename_template, metadata, source_url, media_id)
-                )
-                folder_template = str((template_settings or {}).get("folder_template") or "").strip()
-                folder_text = _template_folder_text(output_root, raw_path)
-                nickname_hint = configured_nickname or _filename_nickname(
-                    raw_path,
-                    filename_template,
-                    folder_template,
-                    folder_text,
-                    metadata,
-                    creator_hint,
-                )
-                item_source_url = _item_source_url(source_url, task_source_key, media_id, creator_hint, metadata)
-                item_source_key = normalize_source_key(task_source_key or detect_source_key(item_source_url))
-                item_cleaning = get_effective_title_cleaning(item_source_url)
-                configured_display = (
-                    _display_creator_candidate(configured_username, item_cleaning) if configured_username else ""
-                )
-                display_creator_hint = configured_display or (
-                    _display_creator_candidate(creator_hint, item_cleaning)
-                    or creator_hint
-                )
-                display_nickname_hint = _display_creator_candidate(nickname_hint, item_cleaning) or nickname_hint
-                title_hint = _metadata_title(metadata)
-                group_paths = list(group.get("paths") or [])
-                final_path, display_filename = _clean_resolved_filename(
-                    item_source_url,
-                    raw_path,
-                    template_settings,
-                    item_source_key,
-                    group_paths,
-                    creator_hint,
-                    media_id,
-                    nickname_hint,
-                    title_hint,
-                    extra_tokens,
-                    item_cleaning,
-                    creator_authoritative=bool(configured_username),
-                    quality=quality,
-                )
-                media_id = (
-                    media_id
-                    or parse_filename_media_id(display_filename)[0]
-                    or media_id_from_url(item_source_url)
-                )
-                final_path = _move_group_to_template_folder(
-                    final_path,
-                    output_root,
-                    template_settings,
-                    display_creator_hint,
-                    media_id,
-                    display_nickname_hint,
-                    extra_tokens,
-                    item_cleaning,
-                    quality,
-                    group_paths=group_paths if len(group_paths) > 1 else [final_path],
-                )
-                keep_paths = find_numbered_media_siblings(final_path) or [final_path]
-                _cleanup_duplicate_library_media(output_root, media_id, keep_paths)
-                drop_file_cache(keep_paths)
-                creator = (
-                    _role_creator(extra_tokens, token_roles, item_source_key)
-                    or configured_display
-                    or creator_hint
-                    or _resolved_task_creator(used_engine, creator_sidecar, item_source_url, display_filename)
-                    or nickname_hint
-                )
-                row_task_id = task_id if index == 0 else _child_task_id(task_id, media_id, final_path)
                 row_engine = used_engine.name
                 for record in output_records:
                     if _path_key(record["path"]) == _path_key(raw_path):
                         row_engine = record["engine"].name
                         break
+                metadata = dict(group.get("metadata") or {})
+                finalized = _finalize_completed_output(
+                    source_url=source_url,
+                    source_key=task_source_key,
+                    output_root=output_root,
+                    raw_path=raw_path,
+                    metadata=metadata,
+                    media_id=media_id,
+                    template_settings=template_settings,
+                    quality=quality,
+                    extra_tokens=extra_tokens,
+                    token_roles=token_roles,
+                    group_paths=list(group.get("paths") or [raw_path]),
+                    creator_fallback=lambda item_url, filename: _resolved_task_creator(
+                        used_engine,
+                        creator_sidecar,
+                        item_url,
+                        filename,
+                    ),
+                    cache_dropper=drop_file_cache,
+                )
+                row_task_id = task_id if index == 0 else _child_task_id(
+                    task_id,
+                    finalized.media_id,
+                    finalized.final_path,
+                )
                 if not field_roles_checked:
                     field_roles_ready = _learn_field_roles_from_download(
-                        item_source_url,
-                        item_source_key,
+                        finalized.source_url,
+                        finalized.source_key,
                         row_engine,
                         metadata,
                     )
@@ -486,14 +409,14 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     progress_pct=100,
                     error="",
                     engine=row_engine,
-                    creator=creator,
-                    media_id=media_id,
-                    source_url=item_source_url,
-                    source_key=item_source_key,
-                    resolved_full_path=str(final_path),
-                    resolved_folder=str(final_path.parent),
-                    resolved_filename=display_filename,
-                    title=filename_template_fields(display_filename, filename_template).get("title", ""),
+                    creator=finalized.creator,
+                    media_id=finalized.media_id,
+                    source_url=finalized.source_url,
+                    source_key=finalized.source_key,
+                    resolved_full_path=str(finalized.final_path),
+                    resolved_folder=str(finalized.final_path.parent),
+                    resolved_filename=finalized.display_filename,
+                    title=finalized.title,
                     last_log_lines=[],
                     output_dir="",
                     output_template="",
@@ -501,11 +424,11 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 )
                 completed_rows.append((row_task_id, completed_task))
                 format_learned = _learn_source_format(
-                    item_source_url,
-                    display_filename,
-                    media_id,
+                    finalized.source_url,
+                    finalized.display_filename,
+                    finalized.media_id,
                     metadata,
-                    item_source_key,
+                    finalized.source_key,
                 )
                 needs_metadata_probe = metadata_enrichment_needed and index == 0
                 needs_field_probe = bool(format_learned and not field_roles_ready)
