@@ -119,7 +119,6 @@ function isDropTarget(key: string, index: number): boolean {
       <Button
         variant="primary"
         type="button"
-        class="shrink-0"
         aria-label="Learn format"
         title="Learn format"
         :disabled="learning"
@@ -183,9 +182,8 @@ function isDropTarget(key: string, index: number): boolean {
               {{ displayUrlTemplate(template) }}
             </span>
             <Button
-              variant="danger"
+              variant="destructive"
               type="button"
-              class="shrink-0"
               title="Delete format"
               aria-label="Delete format"
               @click="deleteTemplate(site.key, index)"

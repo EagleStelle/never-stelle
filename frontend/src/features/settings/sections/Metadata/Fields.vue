@@ -140,7 +140,6 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
                 @keydown.enter.prevent="runProbe(site.key)"
               />
               <Button
-                class="shrink-0"
                 variant="primary"
                 type="button"
                 aria-label="Test"

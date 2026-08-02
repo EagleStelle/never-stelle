@@ -2,10 +2,9 @@
 import { ref } from "vue";
 import IconPanelOpen from "~icons/material-symbols/left-panel-open";
 import IconPanelClose from "~icons/material-symbols/left-panel-close";
-import type { Component } from "vue";
 
-import type { PageKey, SettingsSection } from "@/types";
 import AccountMenu from "@/components/layout/AccountMenu.vue";
+import { useDashboard } from "@/composables/useDashboard";
 import {
   Sidebar,
   SidebarHeader,
@@ -16,18 +15,7 @@ import {
   SidebarMenuButton,
 } from "@/components/ui/sidebar";
 
-defineProps<{
-  activePage: PageKey;
-  isLightMode: boolean;
-  pageItems: Array<{ key: PageKey; label: string; icon: Component }>;
-  settingsOpen: boolean;
-}>();
-
-const emit = defineEmits<{
-  openSettings: [event: Event, section?: SettingsSection];
-  selectPage: [page: PageKey];
-  toggleTheme: [];
-}>();
+const { activePage, pageItems, setActivePage } = useDashboard();
 
 const isExpanded = ref(true);
 </script>
@@ -78,7 +66,7 @@ const isExpanded = ref(true);
       <SidebarMenu>
         <SidebarMenuItem v-for="item in pageItems" :key="item.key">
           <SidebarMenuButton
-            @click="emit('selectPage', item.key)"
+            @click="setActivePage(item.key)"
             :aria-pressed="activePage === item.key"
             :title="!isExpanded ? item.label : undefined"
             :class="!isExpanded ? 'w-10 px-0 justify-center' : ''"
@@ -101,13 +89,7 @@ const isExpanded = ref(true);
     <SidebarFooter
       :class="isExpanded ? 'w-full' : 'items-center w-full'"
     >
-      <AccountMenu
-        :is-light-mode="isLightMode"
-        :settings-open="settingsOpen"
-        :variant="isExpanded ? 'sidebar' : 'sidebar-collapsed'"
-        @open-settings="(event, section) => emit('openSettings', event, section)"
-        @toggle-theme="emit('toggleTheme')"
-      />
+      <AccountMenu :variant="isExpanded ? 'sidebar' : 'sidebar-collapsed'" />
     </SidebarFooter>
   </Sidebar>
 </template>

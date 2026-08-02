@@ -98,7 +98,7 @@ function hasActions(task: TaskItem): boolean {
           <Button
             v-if="canDownload(task)"
             as="a"
-            variant="soft"
+            variant="primary"
             :href="taskFileUrl(task.vid)"
             download
             aria-label="Download file"
@@ -110,7 +110,7 @@ function hasActions(task: TaskItem): boolean {
           </Button>
           <Button
             v-if="canRetry(task)"
-            variant="soft"
+            variant="primary"
             type="button"
             aria-label="Retry download"
             title="Retry download"
@@ -122,7 +122,7 @@ function hasActions(task: TaskItem): boolean {
           </Button>
           <Button
             v-if="canCancel(task)"
-            variant="danger"
+            variant="destructive"
             type="button"
             aria-label="Cancel download"
             title="Cancel download"
@@ -134,7 +134,7 @@ function hasActions(task: TaskItem): boolean {
           </Button>
           <Button
             v-if="canRemove(task)"
-            variant="soft"
+            variant="primary"
             type="button"
             aria-label="Remove task from the list"
             title="Remove task from the list"

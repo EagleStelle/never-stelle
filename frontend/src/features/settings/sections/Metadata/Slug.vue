@@ -107,7 +107,7 @@ function roleDisabled(
             :key="template"
           >
             <CardHeader>
-              <CardTitle class="font-mono text-sm leading-snug">
+              <CardTitle class="min-w-0 font-mono text-sm leading-snug wrap-anywhere">
                 {{ displayTemplate(site.key, template) }}
               </CardTitle>
             </CardHeader>
@@ -127,7 +127,7 @@ function roleDisabled(
                 <Separator v-if="i > 0" class="my-2" />
 
                 <div class="flex flex-col gap-3">
-                  <span class="font-mono text-sm font-semibold">
+                  <span class="min-w-0 font-mono text-sm font-semibold wrap-anywhere">
                     {{ segmentLabel(site.key, segment) }}
                   </span>
 

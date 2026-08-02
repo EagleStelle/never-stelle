@@ -4,7 +4,7 @@ import type { HTMLAttributes } from "vue"
 import { reactiveOmit } from "@vueuse/core"
 import { ComboboxViewport, useForwardProps } from "reka-ui"
 import { cn } from "@/lib/utils"
-import { useIsMobile } from "@/composables/useIsMobile"
+import { useIsMobile } from "@/composables/useBreakpoints"
 
 const props = defineProps<ComboboxViewportProps & { class?: HTMLAttributes["class"] }>()
 

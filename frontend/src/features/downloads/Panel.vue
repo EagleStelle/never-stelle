@@ -1,45 +1,55 @@
 <script setup lang="ts">
+import { computed } from "vue";
+
 import TaskCollection from "@/components/task/TaskCollection.vue";
-import type { SourceProfile, TaskItem, ViewMode } from "@/types";
+import { useDashboard } from "@/composables/useDashboard";
 
-defineProps<{
-  errorMessage: string;
-  listKey: string;
-  loading: boolean;
-  pageKind: "downloads" | "history";
-  sourceProfiles: SourceProfile[];
-  tasks: TaskItem[];
-  viewMode: ViewMode;
-  hasMore?: boolean;
-  fetchingMore?: boolean;
-}>();
+const {
+  activeMenu,
+  activePage,
+  activeTasks,
+  cancelTask,
+  completedTasks,
+  historyError,
+  historyFetchingMore,
+  historyHasMore,
+  historyLoading,
+  loadMoreHistory,
+  mediaFilter,
+  removeTask,
+  retryTask,
+  setTaskSource,
+  sourceProfiles,
+  tasksErrorMessage,
+  tasksLoading,
+  viewMode,
+} = useDashboard();
 
-const emit = defineEmits<{
-  cancel: [taskId: string];
-  remove: [taskId: string];
-  retry: [taskId: string];
-  "set-source": [payload: { taskId: string; sourceKey: string }];
-  "load-more": [];
-}>();
+// Both pages render the same list; only the source of its rows differs.
+const isHistory = computed(() => activePage.value === "history");
+// Paging restarts from the top whenever the query behind the list changes.
+const listKey = computed(
+  () => `${activePage.value}|${activeMenu.value}|${mediaFilter.value}`,
+);
 </script>
 
 <template>
-  <section aria-labelledby="downloadsHeading">
+  <section :aria-label="isHistory ? 'Download history' : 'Download queue'">
     <TaskCollection
-      :tasks="tasks"
+      :tasks="isHistory ? completedTasks : activeTasks"
       :view-mode="viewMode"
       :list-key="listKey"
-      :loading="loading"
-      :page-kind="pageKind"
+      :loading="isHistory ? historyLoading : tasksLoading"
+      :page-kind="isHistory ? 'history' : 'downloads'"
       :source-profiles="sourceProfiles"
-      :error-message="errorMessage"
-      :has-more="hasMore"
-      :fetching-more="fetchingMore"
-      @cancel="emit('cancel', $event)"
-      @remove="emit('remove', $event)"
-      @retry="emit('retry', $event)"
-      @set-source="emit('set-source', $event)"
-      @load-more="emit('load-more')"
+      :error-message="isHistory ? historyError : tasksErrorMessage"
+      :has-more="isHistory ? historyHasMore : undefined"
+      :fetching-more="isHistory ? historyFetchingMore : undefined"
+      @cancel="cancelTask"
+      @remove="removeTask"
+      @retry="retryTask"
+      @set-source="setTaskSource"
+      @load-more="loadMoreHistory"
     />
   </section>
 </template>

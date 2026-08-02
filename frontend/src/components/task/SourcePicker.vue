@@ -70,7 +70,7 @@ function submitSource(event: Event): void {
       <Button
         v-for="candidate in task.source_candidates || []"
         :key="candidate"
-        variant="soft"
+        variant="primary"
         type="button"
         class="rounded-lg"
         @click="pickSource(candidate)"

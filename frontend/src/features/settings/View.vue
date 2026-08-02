@@ -1,106 +1,80 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from "vue";
+import { computed, nextTick, reactive, ref } from "vue";
 import IconClose from "~icons/material-symbols/close";
 import { TabsContent, TabsRoot } from "reka-ui";
 
 import { DialogShell as Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import type {
-  CookiesMap,
-  LearnedFormats,
-  RuntimeSettings,
-  SettingsDraft,
-  SettingsSection,
-  SourceProfile,
-  ProbeFieldsResponse,
-} from "@/types";
+import type { SettingsSection } from "@/types";
+import { useDashboard } from "@/composables/useDashboard";
 import { useSettingsDraft } from "@/features/settings/composables/useSettingsDraft";
 import { provideSettingsContext } from "@/features/settings/context";
 import { Card } from "@/components/ui/card";
 import { SETTINGS_SECTION_DEFS } from "@/features/settings/sections";
 import SettingsSidebar from "@/features/settings/Sidebar.vue";
 
-const props = defineProps<{
-  cookieStatuses: CookiesMap;
-  open: boolean;
-  section: SettingsSection;
-  settings: RuntimeSettings;
-  settingsDraft: SettingsDraft;
-  learnedFormatsDraft: LearnedFormats;
-  sourceProfiles: SourceProfile[];
-  learnFormat: (url: string) => Promise<string>;
-  probeFields: (
-    url: string,
-    sourceKey?: string,
-  ) => Promise<ProbeFieldsResponse>;
-  reorderFormatTemplates: (
-    sourceKey: string,
-    templates: string[],
-  ) => Promise<void>;
-  reorderCookies: (sourceKey: string, cookieIds: string[]) => Promise<void>;
-  hasUnsavedChanges: boolean;
-  markSettingsDraftDirty: (section?: SettingsSection) => void;
-  saveSettingsDraft: () => Promise<void>;
-  copySettingsToDraft: () => void;
-}>();
-
-const emit = defineEmits<{
-  connectCookies: [platform: string, file?: File];
-  removeCookies: [platform: string, cookieId: string];
-  "update:open": [open: boolean];
-  "update:section": [section: SettingsSection];
-}>();
+const {
+  connectCookies,
+  cookieStatuses,
+  copySettingsToDraft,
+  hasUnsavedChanges,
+  learnedFormatsDraft,
+  learnFormat,
+  markSettingsDraftDirty,
+  probeFields,
+  removeCookies,
+  reorderCookies,
+  reorderFormatTemplates,
+  saveSettingsDraft,
+  settings,
+  settingsDraft,
+  settingsOpen,
+  settingsSection,
+  sourceProfiles,
+} = useDashboard();
 
 const confirmCloseOpen = ref(false);
 const saving = ref(false);
 
 const openModel = computed({
-  get: () => props.open,
+  get: () => settingsOpen.value,
   set: (value) => {
-    if (!value) {
-      if (props.hasUnsavedChanges) {
-        confirmCloseOpen.value = true;
-      } else {
-        emit("update:open", false);
-      }
-    } else {
-      emit("update:open", true);
+    if (!value && hasUnsavedChanges.value) {
+      confirmCloseOpen.value = true;
+      return;
     }
+    settingsOpen.value = value;
   },
 });
 
 const sectionModel = computed({
-  get: () => props.section,
-  set: (value) => emit("update:section", value),
+  get: () => settingsSection.value,
+  set: (value) => (settingsSection.value = value),
 });
 
-const { editableSourceProfiles } = useSettingsDraft(props);
+// `reactive` unwraps the computed so the draft keeps tracking the merged profiles.
+const { editableSourceProfiles } = useSettingsDraft(
+  reactive({ settings, settingsDraft, sourceProfiles }),
+);
 
 provideSettingsContext({
-  open: computed(() => props.open),
-  settings: props.settings,
-  settingsDraft: props.settingsDraft,
-  learnedFormatsDraft: props.learnedFormatsDraft,
-  cookieStatuses: computed(() => props.cookieStatuses),
+  open: computed(() => settingsOpen.value),
+  settings,
+  settingsDraft,
+  learnedFormatsDraft,
+  cookieStatuses,
   editableSourceProfiles,
-  connectCookies: (platform, file) => emit("connectCookies", platform, file),
-  removeCookies: (platform, cookieId) => emit("removeCookies", platform, cookieId),
-  learnFormat: (url) => props.learnFormat(url),
-  probeFields: (url, sourceKey) =>
-    props.probeFields(url, sourceKey),
-  reorderFormatTemplates: (sourceKey, templates) =>
-    props.reorderFormatTemplates(sourceKey, templates),
-  reorderCookies: (sourceKey, cookieIds) => props.reorderCookies(sourceKey, cookieIds),
-  markSettingsDraftDirty: (section) =>
-    props.markSettingsDraftDirty(section || props.section),
-  saveSettingsDraft: () => props.saveSettingsDraft(),
-  copySettingsToDraft: () => props.copySettingsToDraft(),
+  connectCookies,
+  removeCookies,
+  learnFormat,
+  probeFields,
+  reorderFormatTemplates,
+  reorderCookies,
+  markSettingsDraftDirty,
+  saveSettingsDraft,
+  copySettingsToDraft,
   close: () => {
-    if (props.hasUnsavedChanges) {
-      confirmCloseOpen.value = true;
-    } else {
-      emit("update:open", false);
-    }
+    openModel.value = false;
   },
 });
 
@@ -120,17 +94,17 @@ function cancelClose() {
 
 function discardAndClose() {
   confirmCloseOpen.value = false;
-  props.copySettingsToDraft();
-  emit("update:open", false);
+  copySettingsToDraft();
+  settingsOpen.value = false;
 }
 
 async function saveAndClose() {
   if (saving.value) return;
   saving.value = true;
   try {
-    await props.saveSettingsDraft();
+    await saveSettingsDraft();
     confirmCloseOpen.value = false;
-    emit("update:open", false);
+    settingsOpen.value = false;
   } catch (err) {
     // Keep dialog open if save fails
   } finally {
@@ -142,7 +116,7 @@ async function saveChanges() {
   if (saving.value) return;
   saving.value = true;
   try {
-    await props.saveSettingsDraft();
+    await saveSettingsDraft();
   } catch (err) {
   } finally {
     saving.value = false;
@@ -150,7 +124,7 @@ async function saveChanges() {
 }
 
 function discardChanges() {
-  props.copySettingsToDraft();
+  copySettingsToDraft();
 }
 
 function markActivePaneDirty(event: Event): void {
@@ -159,7 +133,7 @@ function markActivePaneDirty(event: Event): void {
   if (target instanceof Element && target.closest("[data-settings-system]")) {
     return;
   }
-  props.markSettingsDraftDirty(props.section);
+  markSettingsDraftDirty(settingsSection.value);
 }
 </script>
 

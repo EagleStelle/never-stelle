@@ -245,9 +245,8 @@ function isDropTarget(key: string, index: number): boolean {
                     {{ cookie.filename }}
                   </span>
                   <Button
-                    variant="danger"
+                    variant="destructive"
                     type="button"
-                    class="shrink-0"
                     title="Delete cookies file"
                     aria-label="Delete cookies file"
                     @click="deleteCookie(site.key, cookie.id)"
@@ -265,7 +264,6 @@ function isDropTarget(key: string, index: number): boolean {
                   <Button
                     variant="primary"
                     type="button"
-                    class="shrink-0"
                     :title="`Upload ${site.label} cookie`"
                     :aria-label="`Upload ${site.label} cookie`"
                     @click="openPicker(site.key)"

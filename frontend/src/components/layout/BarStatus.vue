@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import type { Component } from "vue";
+import { computed } from "vue";
+import IconRefresh from "~icons/material-symbols/sync";
 import IconTrash from "~icons/material-symbols/delete";
 import { Button } from "@/components/ui/button";
+import { useDashboard } from "@/composables/useDashboard";
+import { useIsMobile } from "@/composables/useBreakpoints";
 
-defineProps<{
-  countCards: Array<{ label: string; value: number; icon: Component }>;
-}>();
+const {
+  activePage,
+  clearPending,
+  countCards,
+  historyRefreshing,
+  refreshHistory,
+} = useDashboard();
 
-const emit = defineEmits<{
-  clearQueue: [];
-}>();
+const isHistory = computed(() => activePage.value === "history");
+const isMobile = useIsMobile();
 </script>
 
 <template>
@@ -18,19 +24,37 @@ const emit = defineEmits<{
     aria-label="Task counts"
   >
     <Button
+      v-if="isHistory"
       type="button"
-      class="shrink-0"
-      title="Clear Queue"
-      aria-label="Clear Queue"
-      @click="emit('clearQueue')"
+      size="sm"
+      title="Refresh history"
+      aria-label="Refresh history"
+      :disabled="historyRefreshing"
+      @click="refreshHistory"
     >
       <template #icon>
-        <IconTrash class="w-4 h-4" aria-hidden="true" />
+        <IconRefresh
+          aria-hidden="true"
+          class="group-hover:rotate-45"
+          :class="{ 'animate-spin': historyRefreshing }"
+        />
       </template>
-      <span
-        class="hidden sm:inline text-xs font-medium uppercase tracking-wider"
-        >Clear Queue</span
-      >
+      <template v-if="!isMobile">Refresh History</template>
+    </Button>
+
+    <Button
+      v-else
+      type="button"
+      variant="destructive"
+      size="sm"
+      title="Clear Queue"
+      aria-label="Clear Queue"
+      @click="clearPending"
+    >
+      <template #icon>
+        <IconTrash aria-hidden="true" />
+      </template>
+      <template v-if="!isMobile">Clear Queue</template>
     </Button>
     <div
       class="flex items-center justify-end gap-3 sm:gap-4 overflow-x-auto scrollbar-hide w-full max-w-full"

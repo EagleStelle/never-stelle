@@ -5,7 +5,7 @@ import { computed } from "vue"
 import { reactiveOmit } from "@vueuse/core"
 import { ComboboxContent, ComboboxPortal, useForwardPropsEmits } from "reka-ui"
 import { cn } from "@/lib/utils"
-import { useIsMobile } from "@/composables/useIsMobile"
+import { useIsMobile } from "@/composables/useBreakpoints"
 import { useKeyboardInset } from "@/composables/useKeyboardInset"
 
 defineOptions({

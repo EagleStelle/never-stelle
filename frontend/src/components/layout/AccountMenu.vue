@@ -9,25 +9,20 @@ import IconMoon from "~icons/material-symbols/dark-mode";
 import IconSun from "~icons/material-symbols/light-mode";
 
 import { useAuth } from "@/composables/useAuth";
-import type { SettingsSection } from "@/types";
+import { useDashboard } from "@/composables/useDashboard";
 
 type AccountMenuVariant = "sidebar" | "sidebar-collapsed" | "bottom";
 
 const props = withDefaults(
   defineProps<{
-    isLightMode: boolean;
-    settingsOpen: boolean;
     variant?: AccountMenuVariant;
   }>(),
   { variant: "sidebar" },
 );
 
-const emit = defineEmits<{
-  openSettings: [event: Event, section?: SettingsSection];
-  toggleTheme: [];
-}>();
-
 const auth = useAuth();
+const { isLightMode, openSettings, settingsOpen, toggleThemeMode } =
+  useDashboard();
 const open = ref(false);
 const trigger = useTemplateRef<HTMLButtonElement>("trigger");
 const menu = useTemplateRef<HTMLElement>("menu");
@@ -91,12 +86,12 @@ function toggleMenu(): void {
 }
 
 function chooseTheme(): void {
-  emit("toggleTheme");
+  toggleThemeMode();
   open.value = false;
 }
 
 function chooseSettings(event: Event): void {
-  emit("openSettings", event, "account");
+  openSettings(event, "account");
   open.value = false;
 }
 

@@ -136,7 +136,7 @@ function toggle(set: Set<string>, id: string): void {
             </Button>
             <Button
               v-if="task.can_cancel"
-              variant="danger"
+              variant="destructive"
               type="button"
               aria-label="Cancel download"
               title="Cancel download"

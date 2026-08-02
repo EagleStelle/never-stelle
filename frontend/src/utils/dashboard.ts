@@ -606,7 +606,7 @@ export function createSourceFields(
 const NAMING_NUMBER_KEYS = new Set(["max_chars", "stem_max_chars"]);
 
 // Keep only user-set flags; untouched sources stay empty so the server applies rule defaults.
-// Choices arrive as strings and must survive verbatim — coercing them to Boolean would
+// Choices arrive as strings and must survive verbatim; coercing them to Boolean would
 // collapse every option to `true`.
 export function createNamingFlags(
   source: Record<string, NamingFlagValue> = {},

@@ -116,7 +116,6 @@ const {
                 @keydown.enter.prevent="runScrapeTest(site.key)"
               />
               <Button
-                class="shrink-0"
                 variant="primary"
                 type="button"
                 aria-label="Test"
@@ -202,13 +201,13 @@ const {
             :key="template"
           >
             <CardHeader class="flex flex-row items-center justify-between gap-2">
-              <CardTitle class="font-mono text-sm leading-snug">
+              <CardTitle class="min-w-0 font-mono text-sm leading-snug wrap-anywhere">
                 {{ displayUrlTemplate(template) }}
               </CardTitle>
               <Button
+                class="shrink-0"
                 variant="primary"
                 type="button"
-                class="shrink-0"
                 title="Add rule"
                 aria-label="Add rule"
                 @click="addScrapeRule(site.key, template)"
@@ -235,7 +234,7 @@ const {
 
                 <div class="flex flex-col gap-3">
                   <div class="flex items-center justify-between gap-2">
-                    <span class="font-mono text-sm font-semibold">
+                    <span class="min-w-0 font-mono text-sm font-semibold wrap-anywhere">
                       {{
                         rule.token
                           ? tokenLabel(rule.token)
@@ -243,9 +242,9 @@ const {
                       }}
                     </span>
                     <Button
-                      variant="danger"
-                      type="button"
                       class="shrink-0"
+                      variant="destructive"
+                      type="button"
                       title="Remove rule"
                       aria-label="Remove rule"
                       @click="removeScrapeRule(site.key, index)"

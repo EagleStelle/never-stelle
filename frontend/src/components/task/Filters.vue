@@ -6,21 +6,25 @@ import {
 } from "@/components/ui/segmented-control";
 import IconGrid from "~icons/material-symbols/grid-view";
 import IconList from "~icons/material-symbols/list";
+
+import { useDashboard } from "@/composables/useDashboard";
 import type { MediaFilter, MenuKey, ViewMode } from "@/types";
 
-defineProps<{
-  activeMenu: MenuKey;
-  navigationItems: any[];
-  mediaFilter: MediaFilter;
-  mediaFilterItems: any[];
-  viewMode: ViewMode;
-}>();
+// Downloads and history narrow the same task list, so both toolbars mount this.
+const {
+  activeMenu,
+  mediaFilter,
+  mediaFilterItems,
+  navigationItems,
+  setActiveMenu,
+  setMediaFilter,
+  setViewMode,
+  viewMode,
+} = useDashboard();
 
-const emit = defineEmits<{
-  "update:activeMenu": [val: MenuKey];
-  "update:mediaFilter": [val: MediaFilter];
-  "update:viewMode": [val: ViewMode];
-}>();
+function selectViewMode(value: string | string[]): void {
+  if (typeof value === "string" && value) setViewMode(value as ViewMode);
+}
 </script>
 
 <template>
@@ -28,28 +32,26 @@ const emit = defineEmits<{
     <Combobox
       :model-value="activeMenu"
       :items="navigationItems"
-      @update:model-value="(val) => emit('update:activeMenu', val as MenuKey)"
+      @update:model-value="(val) => setActiveMenu(val as MenuKey)"
       class="shrink-0"
       placeholder="Search platform..."
       empty-text="No platforms found."
+      aria-label="Platform"
     />
 
     <Combobox
       :model-value="mediaFilter"
       :items="mediaFilterItems"
-      @update:model-value="(val) => emit('update:mediaFilter', val as MediaFilter)"
+      @update:model-value="(val) => setMediaFilter(val as MediaFilter)"
       class="shrink-0"
       placeholder="Media type..."
       empty-text="No types."
+      aria-label="Media type"
     />
 
     <SegmentedControl
       :model-value="viewMode"
-      @update:model-value="
-        (val) => {
-          if (val) emit('update:viewMode', val as ViewMode);
-        }
-      "
+      @update:model-value="selectViewMode"
       aria-label="View mode"
       class="shrink-0"
     >

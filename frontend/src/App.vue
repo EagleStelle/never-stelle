@@ -2,28 +2,17 @@
 import { computed, onMounted, useTemplateRef } from "vue";
 import { useElementSize } from "@vueuse/core";
 
-import DownloadInput from "@/features/downloads/Input.vue";
-import DownloadPanel from "@/features/downloads/Panel.vue";
-import DownloadFilters from "@/features/downloads/Filters.vue";
-import PlaylistDialog from "@/features/downloads/PlaylistDialog.vue";
-import Login from "@/features/auth/Login.vue";
-import NavSide from "@/components/layout/NavSide.vue";
 import BarStatus from "@/components/layout/BarStatus.vue";
 import NavBottom from "@/components/layout/NavBottom.vue";
+import NavSide from "@/components/layout/NavSide.vue";
+import PageToolbar from "@/components/layout/PageToolbar.vue";
+import Login from "@/features/auth/Login.vue";
+import DownloadPanel from "@/features/downloads/Panel.vue";
+import PlaylistDialog from "@/features/downloads/PlaylistDialog.vue";
 import SettingsView from "@/features/settings/View.vue";
 import { Toaster } from "@/components/ui/sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  SegmentedControl,
-  SegmentedControlItem,
-} from "@/components/ui/segmented-control";
-import IconGrid from "~icons/material-symbols/grid-view";
-import IconList from "~icons/material-symbols/list";
-import IconRefresh from "~icons/material-symbols/sync";
-import IconSearch from "~icons/material-symbols/search";
 
-import { useDownloadDashboard } from "@/composables/useDownloadDashboard";
+import { provideDashboard } from "@/composables/useDashboard";
 import { useAuth } from "@/composables/useAuth";
 
 const auth = useAuth();
@@ -34,68 +23,15 @@ onMounted(() => {
   void auth.refreshSession();
 });
 
+// Built once here; every surface below injects the slice it needs instead of
+// receiving it as a prop.
 const {
-  activeMenu,
-  activePage,
-  addDownloadTask,
-  cancelTask,
-  clearPending,
   confirmPlaylistSelection,
-  connectCookies,
-  cookieStatuses,
-  learnFormat,
-  probeFields,
-  reorderFormatTemplates,
-  countCards,
-  historyRefreshing,
-  historyLoading,
-  historyError,
-  historyHasMore,
-  historyFetchingMore,
-  historySearch,
-  submitHistorySearch,
-  loadMoreHistory,
-  activeTasks,
-  completedTasks,
   isLightMode,
-  mediaFilter,
-  mediaFilterItems,
-  navigationItems,
-  openSettings,
-  pageItems,
   playlistEntries,
   playlistOpen,
   playlistTitle,
-  removeCookies,
-  reorderCookies,
-  removeTask,
-  retryTask,
-  refreshHistory,
-  savedSettings,
-  setActiveMenu,
-  setActivePage,
-  setMediaFilter,
-  setTaskSource,
-  setViewMode,
-  settings,
-  settingsDraft,
-  learnedFormatsDraft,
-  settingsOpen,
-  settingsSection,
-  sourceProfiles,
-  downloadSelection,
-  qualityOptions,
-  setDownloadQuality,
-  tasksErrorMessage,
-  tasksLoading,
-  toggleThemeMode,
-  url,
-  viewMode,
-  hasUnsavedChanges,
-  markSettingsDraftDirty,
-  saveSettingsDraft,
-  copySettingsToDraft,
-} = useDownloadDashboard();
+} = provideDashboard();
 
 // Live status-bar height so toasts dock above it instead of covering it.
 const statusBar = useTemplateRef<InstanceType<typeof BarStatus>>("statusBar");
@@ -132,16 +68,7 @@ const { height: statusBarHeight } = useElementSize(
       >Skip to content</a
     >
 
-    <NavSide
-      class="shrink-0"
-      :active-page="activePage"
-      :is-light-mode="isLightMode"
-      :page-items="pageItems"
-      :settings-open="settingsOpen"
-      @open-settings="openSettings"
-      @select-page="setActivePage"
-      @toggle-theme="toggleThemeMode"
-    />
+    <NavSide class="shrink-0" />
 
     <div class="flex-1 min-w-0 flex flex-col h-dvh relative">
       <div class="flex-1 relative min-h-0 overflow-hidden">
@@ -150,227 +77,23 @@ const { height: statusBarHeight } = useElementSize(
           class="absolute inset-0 overflow-y-auto overflow-x-hidden flex flex-col"
           tabindex="-1"
         >
-          <!-- Desktop Header: Sticky Top -->
-          <div class="hidden lg:block sticky top-0 z-20 shrink-0 pt-4 pb-2 px-4 glass border-0 border-b border-(--glass-border)">
-            <template v-if="activePage === 'downloads'">
-              <DownloadInput
-                v-model:url="url"
-                :saved-settings="savedSettings"
-                :quality="downloadSelection"
-                :quality-options="qualityOptions"
-                @update:quality="setDownloadQuality"
-                @add-download="addDownloadTask"
-              >
-                <template #filters>
-                  <DownloadFilters
-                    :active-menu="activeMenu"
-                    :navigation-items="navigationItems"
-                    :media-filter="mediaFilter"
-                    :media-filter-items="mediaFilterItems"
-                    :view-mode="viewMode"
-                    @update:active-menu="setActiveMenu"
-                    @update:media-filter="setMediaFilter"
-                    @update:view-mode="setViewMode"
-                  />
-                </template>
-              </DownloadInput>
-            </template>
+          <PageToolbar placement="top" />
 
-            <template v-else-if="activePage === 'history'">
-              <div class="flex flex-col-reverse lg:flex-col gap-2 w-full">
-                <section aria-label="Search history">
-                  <div class="flex items-center gap-2">
-                    <Input
-                      v-model="historySearch"
-                      class="flex-1 min-w-0"
-                      type="text"
-                      placeholder="Search history..."
-                      @keydown.enter="submitHistorySearch"
-                    >
-                      <template #icon>
-                        <IconSearch class="w-5 h-5" aria-hidden="true" />
-                      </template>
-                    </Input>
-                    <Button
-                      variant="primary"
-                      type="button"
-                      class="shrink-0"
-                      aria-label="Refresh history"
-                      title="Refresh history"
-                      :disabled="historyRefreshing"
-                      @click="refreshHistory"
-                    >
-                      <template #icon>
-                        <IconRefresh
-                          aria-hidden="true"
-                          class="w-6 h-6 transition-transform duration-300 ease-glass group-hover:rotate-45"
-                          :class="{ 'animate-spin': historyRefreshing }"
-                        />
-                      </template>
-                    </Button>
-                  </div>
-                </section>
-                
-                <div class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-end gap-2 w-full py-1">
-                  <div class="shrink-0 lg:ml-auto">
-                    <DownloadFilters
-                      :active-menu="activeMenu"
-                      :navigation-items="navigationItems"
-                      :media-filter="mediaFilter"
-                      :media-filter-items="mediaFilterItems"
-                      :view-mode="viewMode"
-                      @update:active-menu="setActiveMenu"
-                      @update:media-filter="setMediaFilter"
-                      @update:view-mode="setViewMode"
-                    />
-                  </div>
-                </div>
-              </div>
-            </template>
-          </div>
-
-          <!-- Scrollable Content -->
           <div class="flex-1 flex flex-col p-4 pb-36 lg:pb-4">
-            <DownloadPanel
-              v-if="['downloads', 'history'].includes(activePage)"
-              :error-message="activePage === 'history' ? historyError : tasksErrorMessage"
-              :list-key="`${activePage}|${activeMenu}|${mediaFilter}`"
-              :loading="activePage === 'history' ? historyLoading : tasksLoading"
-              :page-kind="activePage as 'downloads' | 'history'"
-              :source-profiles="sourceProfiles"
-              :tasks="activePage === 'downloads' ? activeTasks : completedTasks"
-              :view-mode="viewMode"
-              :has-more="activePage === 'history' ? historyHasMore : undefined"
-              :fetching-more="activePage === 'history' ? historyFetchingMore : undefined"
-              @cancel="cancelTask"
-              @clear-pending="clearPending"
-              @remove="removeTask"
-              @retry="retryTask"
-              @set-source="setTaskSource"
-              @set-view-mode="setViewMode"
-              @load-more="loadMoreHistory"
-            />
+            <DownloadPanel />
           </div>
 
-          <!-- Mobile Header & Status Bar: Sticky Bottom -->
           <div class="sticky bottom-0 z-20 flex flex-col shrink-0">
-            <div class="lg:hidden pt-2 pb-4 px-4 glass border-0 border-t border-(--glass-border)">
-              <template v-if="activePage === 'downloads'">
-                <DownloadInput
-                  v-model:url="url"
-                  :saved-settings="savedSettings"
-                  :quality="downloadSelection"
-                  :quality-options="qualityOptions"
-                  @update:quality="setDownloadQuality"
-                  @add-download="addDownloadTask"
-                >
-                  <template #filters>
-                    <DownloadFilters
-                      :active-menu="activeMenu"
-                      :navigation-items="navigationItems"
-                      :media-filter="mediaFilter"
-                      :media-filter-items="mediaFilterItems"
-                      :view-mode="viewMode"
-                      @update:active-menu="setActiveMenu"
-                      @update:media-filter="setMediaFilter"
-                      @update:view-mode="setViewMode"
-                    />
-                  </template>
-                </DownloadInput>
-              </template>
-
-              <template v-else-if="activePage === 'history'">
-                <div class="flex flex-col-reverse lg:flex-col gap-2 w-full">
-                  <section aria-label="Search history">
-                    <div class="flex items-center gap-2">
-                      <Input
-                        v-model="historySearch"
-                        class="flex-1 min-w-0"
-                        type="text"
-                        placeholder="Search history..."
-                        @keydown.enter="submitHistorySearch"
-                      >
-                        <template #icon>
-                          <IconSearch class="w-5 h-5" aria-hidden="true" />
-                        </template>
-                      </Input>
-                      <Button
-                        variant="primary"
-                        type="button"
-                        class="shrink-0"
-                        aria-label="Refresh history"
-                        title="Refresh history"
-                        :disabled="historyRefreshing"
-                        @click="refreshHistory"
-                      >
-                        <template #icon>
-                          <IconRefresh
-                            aria-hidden="true"
-                            class="w-6 h-6 transition-transform duration-300 ease-glass group-hover:rotate-45"
-                            :class="{ 'animate-spin': historyRefreshing }"
-                          />
-                        </template>
-                      </Button>
-                    </div>
-                  </section>
-                  
-                  <div class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-end gap-2 w-full py-1">
-                    <div class="shrink-0 lg:ml-auto">
-                      <DownloadFilters
-                        :active-menu="activeMenu"
-                        :navigation-items="navigationItems"
-                        :media-filter="mediaFilter"
-                        :media-filter-items="mediaFilterItems"
-                        :view-mode="viewMode"
-                        @update:active-menu="setActiveMenu"
-                        @update:media-filter="setMediaFilter"
-                        @update:view-mode="setViewMode"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </template>
-            </div>
-
-            <BarStatus
-              ref="statusBar"
-              :count-cards="countCards"
-              @clear-queue="clearPending"
-            />
+            <PageToolbar placement="bottom" />
+            <BarStatus ref="statusBar" />
           </div>
         </main>
       </div>
     </div>
 
-    <NavBottom
-      :active-page="activePage"
-      :page-items="pageItems"
-      :is-light-mode="isLightMode"
-      :settings-open="settingsOpen"
-      @select-page="setActivePage"
-      @toggle-theme="toggleThemeMode"
-      @open-settings="openSettings"
-    />
+    <NavBottom />
 
-    <SettingsView
-      v-model:open="settingsOpen"
-      v-model:section="settingsSection"
-      :cookie-statuses="cookieStatuses"
-      :settings="settings"
-      :settings-draft="settingsDraft"
-      :learned-formats-draft="learnedFormatsDraft"
-      :source-profiles="sourceProfiles"
-      :learn-format="learnFormat"
-      :probe-fields="probeFields"
-      :reorder-format-templates="reorderFormatTemplates"
-      :reorder-cookies="reorderCookies"
-      :has-unsaved-changes="hasUnsavedChanges"
-      :mark-settings-draft-dirty="markSettingsDraftDirty"
-      :save-settings-draft="saveSettingsDraft"
-      :copy-settings-to-draft="copySettingsToDraft"
-      @connect-cookies="connectCookies"
-      @remove-cookies="removeCookies"
-    />
+    <SettingsView />
 
     <PlaylistDialog
       v-model:open="playlistOpen"
