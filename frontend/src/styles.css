@@ -305,15 +305,6 @@
     color: #1b1931;
   }
 
-  .glass-option[data-highlighted] {
-    background: none;
-    color: #f8f4f5;
-  }
-
-  :root.light-mode .glass-option[data-highlighted] {
-    color: #000;
-  }
-
   .glass-hoverable {
     transition:
       background 260ms var(--ease-glass),

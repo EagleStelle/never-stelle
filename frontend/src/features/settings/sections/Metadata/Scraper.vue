@@ -6,7 +6,7 @@ import IconTrash from "~icons/material-symbols/delete";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ComboboxSelect as Combobox } from "@/components/ui/combobox";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {

@@ -5,7 +5,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { ComboboxSelect as Combobox } from "@/components/ui/combobox";
+import { Combobox } from "@/components/ui/combobox";
 import { Label } from "@/components/ui/label";
 import { useSettingsContext } from "@/features/settings/context";
 import { displayUrlTemplate } from "@/utils/dashboard";

@@ -10,5 +10,6 @@ export { default as ComboboxSeparator } from "@/components/ui/combobox/ComboboxS
 export { default as ComboboxTrigger } from "@/components/ui/combobox/ComboboxTrigger.vue"
 export { default as ComboboxViewport } from "@/components/ui/combobox/ComboboxViewport.vue"
 export { default as ComboboxSelect } from "@/components/ui/combobox/ComboboxSelect.vue"
+export type { ComboboxItemOption } from "@/components/ui/combobox/types"
 
 export { ComboboxCancel } from "reka-ui"

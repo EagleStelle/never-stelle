@@ -6,7 +6,7 @@ import IconMovie from "~icons/material-symbols/movie";
 import IconMusic from "~icons/material-symbols/music-note";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ComboboxSelect as Combobox } from "@/components/ui/combobox";
+import { Combobox } from "@/components/ui/combobox";
 import {
   SegmentedControl,
   SegmentedControlItem,

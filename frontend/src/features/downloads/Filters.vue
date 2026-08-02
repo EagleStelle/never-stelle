@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ComboboxSelect as Combobox } from "@/components/ui/combobox";
+import { Combobox } from "@/components/ui/combobox";
 import {
   SegmentedControl,
   SegmentedControlItem,

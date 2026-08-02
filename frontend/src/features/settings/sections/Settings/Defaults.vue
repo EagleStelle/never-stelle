@@ -4,7 +4,7 @@ import IconDrag from "~icons/material-symbols/drag-indicator";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ComboboxSelect as Combobox } from "@/components/ui/combobox";
+import { Combobox } from "@/components/ui/combobox";
 import { FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
