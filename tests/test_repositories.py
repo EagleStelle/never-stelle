@@ -468,6 +468,64 @@ def test_save_history_rows_writes_the_whole_batch(tmp_path, monkeypatch):
     assert repositories.count_history_by_source() == {"example": 5}
 
 
+def test_build_counts_splits_platform_totals_by_media_type(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(serializers.swaratelle, "fetch_counts", lambda: {})
+
+    repositories.merge_task_payload(
+        "yt:queued",
+        {"source_key": "youtube", "status": "pending", "engine": "ytdlp", "resolved_filename": ""},
+    )
+    repositories.merge_task_payload(
+        "ig:running",
+        {"source_key": "instagram", "status": "running", "engine": "gallerydl", "resolved_filename": ""},
+    )
+    repositories.merge_task_payload(
+        "ig:failed-video",
+        {"source_key": "instagram", "status": "failed", "engine": "gallerydl", "resolved_filename": "bad.mp4"},
+    )
+    repositories.merge_task_payload(
+        "ig:failed-image",
+        {"source_key": "instagram", "status": "failed", "engine": "gallerydl", "resolved_filename": "poster.avif"},
+    )
+    repositories.save_history_rows(
+        [
+            (
+                "yt:done-image",
+                {"source_key": "youtube", "engine": "disk", "resolved_filename": "thumb.jpg"},
+            ),
+            (
+                "yt:done-video",
+                {"source_key": "youtube", "engine": "disk", "resolved_filename": "clip.mp4"},
+            ),
+            (
+                "tt:done-image",
+                {"source_key": "tiktok", "engine": "gallerydl", "resolved_filename": ""},
+            ),
+        ]
+    )
+
+    payload = serializers.build_counts()
+
+    assert payload["counts_by_media_menu"]["all"] == payload["counts_by_menu"]
+    assert payload["counts_by_media_menu"]["image"]["all"] == {
+        "queued": 0,
+        "running": 1,
+        "completed": 2,
+        "failed": 1,
+    }
+    assert payload["counts_by_media_menu"]["video"]["all"] == {
+        "queued": 1,
+        "running": 0,
+        "completed": 1,
+        "failed": 1,
+    }
+    assert payload["counts_by_media_menu"]["image"]["instagram"]["running"] == 1
+    assert payload["counts_by_media_menu"]["image"]["instagram"]["failed"] == 1
+    assert payload["counts_by_media_menu"]["video"]["youtube"]["queued"] == 1
+    assert payload["counts_by_media_menu"]["video"]["youtube"]["completed"] == 1
+
+
 def test_history_payload_roundtrips_through_real_columns(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
 

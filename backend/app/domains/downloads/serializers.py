@@ -17,7 +17,9 @@ from .naming import clean_template_display_filename
 from .scan import parse_filename_media_id
 from .store import (
     active_counts_by_source,
+    active_counts_by_source_and_media,
     history_counts_by_source,
+    history_counts_by_source_and_media,
     load_active_task_store,
     load_history,
     load_history_entries_page,
@@ -318,6 +320,8 @@ def build_counts() -> dict[str, Any]:
     # Counts from SQL only (queue statuses + history COUNT); no per-row serialization or disk stat.
     active = active_counts_by_source()
     completed = history_counts_by_source()
+    active_by_media = active_counts_by_source_and_media()
+    completed_by_media = history_counts_by_source_and_media()
     swaratelle_counts = swaratelle.fetch_counts()
     if swaratelle_counts:
         active[swaratelle.SOURCE_KEY] = {
@@ -357,7 +361,27 @@ def build_counts() -> dict[str, Any]:
     }
     by_menu = {key: counts_for(key) for key in keys}
     by_menu["all"] = totals
-    return {"counts": totals, "counts_by_menu": by_menu}
+
+    def counts_for_media(media: str, key: str) -> dict[str, int]:
+        status = active_by_media.get(media, {}).get(key, {})
+        return {
+            "queued": int(status.get("pending", 0)),
+            "running": int(status.get("running", 0)),
+            "completed": int(completed_by_media.get(media, {}).get(key, 0)),
+            "failed": int(status.get("failed", 0)),
+        }
+
+    by_media_menu: dict[str, dict[str, dict[str, int]]] = {"all": by_menu}
+    for media in ("image", "video"):
+        media_by_menu = {key: counts_for_media(media, key) for key in keys}
+        media_by_menu["all"] = {
+            "queued": sum(counts["queued"] for counts in media_by_menu.values()),
+            "running": sum(counts["running"] for counts in media_by_menu.values()),
+            "completed": sum(counts["completed"] for counts in media_by_menu.values()),
+            "failed": sum(counts["failed"] for counts in media_by_menu.values()),
+        }
+        by_media_menu[media] = media_by_menu
+    return {"counts": totals, "counts_by_menu": by_menu, "counts_by_media_menu": by_media_menu}
 
 
 def count_tasks(tasks: list[dict[str, Any]]) -> dict[str, int]:

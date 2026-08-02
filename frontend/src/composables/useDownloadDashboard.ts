@@ -30,6 +30,7 @@ import type {
 } from "@/types";
 import {
   createQualitySelection,
+  countTasks,
   isFilterKey,
   isMediaFilter,
   isMenuKey,
@@ -87,6 +88,10 @@ function hasSourceCounts(counts?: Partial<TaskCounts>): boolean {
         Number(counts.completed) ||
         Number(counts.failed)),
   );
+}
+
+function emptyTaskCounts(): TaskCounts {
+  return { queued: 0, running: 0, completed: 0, failed: 0 };
 }
 
 export function useDownloadDashboard() {
@@ -274,13 +279,14 @@ export function useDownloadDashboard() {
         ),
   );
   const countsForActiveMenu = computed<TaskCounts>(
-    () =>
-      taskQueue.countsByMenu.value[activeMenu.value] || {
-        queued: 0,
-        running: 0,
-        completed: 0,
-        failed: 0,
-      },
+    () => {
+      if (mediaFilter.value === "all") {
+        return taskQueue.countsByMenu.value[activeMenu.value] || emptyTaskCounts();
+      }
+      const mediaCounts = taskQueue.countsByMediaMenu.value[mediaFilter.value]?.[activeMenu.value];
+      if (mediaCounts) return mediaCounts;
+      return activePage.value === "history" ? countTasks(completedTasks.value) : countTasks(mediaTasks.value);
+    },
   );
   const activeMenuLabel = computed(() => {
     if (activeMenu.value === "all") return "All";

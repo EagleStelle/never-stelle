@@ -344,6 +344,7 @@ export interface TasksResponse {
   tasks: TaskItem[];
   counts?: TaskCounts;
   counts_by_menu?: Partial<Record<string, TaskCounts>>;
+  counts_by_media_menu?: Partial<Record<MediaFilter, Partial<Record<string, TaskCounts>>>>;
 }
 
 export interface HistoryResponse {

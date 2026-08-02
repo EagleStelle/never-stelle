@@ -12,6 +12,7 @@ from backend.app.db.repositories.utils import (
     _payload_source_key,
     _safe_float,
 )
+from backend.app.domains.downloads.constants import IMAGE_EXTENSIONS
 
 
 def _insert_sql(table: str, columns: tuple[str, ...]) -> str:
@@ -85,6 +86,19 @@ _ENRICHMENT_COLUMNS = (
 )
 _ENRICHMENT_SELECT = ", ".join(_ENRICHMENT_COLUMNS)
 _ENRICHMENT_STATUSES = {"pending", "running", "failed"}
+
+
+def _media_kind_sql() -> tuple[str, tuple[str, ...]]:
+    image_suffixes = tuple(f"%{suffix}" for suffix in sorted(IMAGE_EXTENSIONS))
+    image_checks = " OR ".join("LOWER(resolved_filename) LIKE ?" for _ in image_suffixes)
+    return (
+        "CASE "
+        f"WHEN ({image_checks}) THEN 'image' "
+        "WHEN INSTR(resolved_filename, '.') > 0 THEN 'video' "
+        "WHEN LOWER(engine) = 'gallerydl' THEN 'image' "
+        "ELSE 'video' END",
+        image_suffixes,
+    )
 
 
 def _json_dict(value: Any) -> dict[str, Any]:
@@ -275,6 +289,27 @@ def count_active_by_source() -> dict[str, dict[str, int]]:
     return result
 
 
+def count_active_by_source_and_media() -> dict[str, dict[str, dict[str, int]]]:
+    media_sql, params = _media_kind_sql()
+    with transaction() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT source_key, status, {media_sql} AS media_kind, COUNT(*) AS n
+            FROM download_tasks
+            WHERE status != 'completed'
+            GROUP BY source_key, status, media_kind
+            """,
+            params,
+        ).fetchall()
+    result: dict[str, dict[str, dict[str, int]]] = {}
+    for row in rows:
+        media = str(row["media_kind"] or "video")
+        key = str(row["source_key"] or "")
+        status = str(row["status"] or "pending")
+        result.setdefault(media, {}).setdefault(key, {})[status] = int(row["n"] or 0)
+    return result
+
+
 def count_history_by_source() -> dict[str, int]:
     # Completed tally per source from SQL COUNT, no disk stat per row.
     with transaction() as connection:
@@ -282,6 +317,25 @@ def count_history_by_source() -> dict[str, int]:
             "SELECT source_key, COUNT(*) AS n FROM download_history GROUP BY source_key"
         ).fetchall()
     return {str(row["source_key"] or ""): int(row["n"] or 0) for row in rows}
+
+
+def count_history_by_source_and_media() -> dict[str, dict[str, int]]:
+    media_sql, params = _media_kind_sql()
+    with transaction() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT source_key, {media_sql} AS media_kind, COUNT(*) AS n
+            FROM download_history
+            GROUP BY source_key, media_kind
+            """,
+            params,
+        ).fetchall()
+    result: dict[str, dict[str, int]] = {}
+    for row in rows:
+        media = str(row["media_kind"] or "video")
+        key = str(row["source_key"] or "")
+        result.setdefault(media, {})[key] = int(row["n"] or 0)
+    return result
 
 
 def load_history_page(

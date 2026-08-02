@@ -38,6 +38,8 @@ IMAGE_EXTENSIONS = {
     ".bmp",
     ".heic",
     ".heif",
+    ".avif",
+    ".jfif",
 }
 AUDIO_EXTENSIONS = {
     ".aac",

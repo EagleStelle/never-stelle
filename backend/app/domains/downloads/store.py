@@ -8,8 +8,10 @@ from backend.app.db.repositories import (
     clear_seeded_downloads,
     complete_enrichment_job_payload,
     count_active_by_source,
+    count_active_by_source_and_media,
     count_active_download_tasks,
     count_history_by_source,
+    count_history_by_source_and_media,
     count_pending_enrichment_jobs_payload,
     count_pending_tasks,
     delete_history_row,
@@ -95,6 +97,14 @@ def history_counts_by_source() -> dict[str, int]:
 
 def active_counts_by_source() -> dict[str, dict[str, int]]:
     return count_active_by_source()
+
+
+def history_counts_by_source_and_media() -> dict[str, dict[str, int]]:
+    return count_history_by_source_and_media()
+
+
+def active_counts_by_source_and_media() -> dict[str, dict[str, dict[str, int]]]:
+    return count_active_by_source_and_media()
 
 
 def save_history_entry_row(task_id: str, entry: dict[str, Any]) -> None:
