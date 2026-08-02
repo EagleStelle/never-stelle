@@ -50,6 +50,19 @@ def test_a_leased_jar_is_not_handed_to_a_second_caller(monkeypatch):
     assert pool.lease_cookie("instagram", wait_seconds=0) is not None
 
 
+def test_releasing_a_lease_drops_the_materialized_cookie(monkeypatch):
+    dropped = []
+    _stub_pool(monkeypatch, ["a"])
+    monkeypatch.setattr(pool, "drop_materialized_cookie", lambda path: dropped.append(path))
+
+    lease = pool.lease_cookie("instagram")
+    assert lease is not None
+
+    pool.release_cookie(lease)
+
+    assert dropped == ["/tmp/a.txt"]
+
+
 def test_more_jars_means_more_requests_before_the_pool_runs_dry(monkeypatch):
     def drain(jars):
         _stub_pool(monkeypatch, jars, limit=2)

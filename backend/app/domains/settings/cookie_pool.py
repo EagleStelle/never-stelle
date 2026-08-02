@@ -7,7 +7,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .cookie_policy import DEFAULT_COOKIE_POLICY, CookiePolicy, cookie_policy_for_source
-from .cookies import list_cookies_for_source, materialize_cookie, normalize_cookie_source
+from .cookies import (
+    drop_materialized_cookie,
+    list_cookies_for_source,
+    materialize_cookie,
+    normalize_cookie_source,
+)
 
 # Site responses that mean "this jar is burnt for now" rather than "this link is bad".
 RATE_LIMIT_MARKERS = (
@@ -197,17 +202,20 @@ def release_cookie(lease: CookieLease | None, *, banned: bool | None = None) -> 
         return
     banned = lease.banned if banned is None else banned
     policy = lease.policy
-    with _CONDITION:
-        state = _STATES.get(lease.cookie_id)
-        if state is not None:
-            now = time.monotonic()
-            state.in_use = False
-            state.used_at = now
-            state.ready_at = now + (policy.cooldown if banned else policy.delay)
-            if banned:
-                # Burn the window too, so a blocked jar is skipped, not just delayed.
-                state.window_count = max(state.window_count, policy.limit)
-        _CONDITION.notify_all()
+    try:
+        with _CONDITION:
+            state = _STATES.get(lease.cookie_id)
+            if state is not None:
+                now = time.monotonic()
+                state.in_use = False
+                state.used_at = now
+                state.ready_at = now + (policy.cooldown if banned else policy.delay)
+                if banned:
+                    # Burn the window too, so a blocked jar is skipped, not just delayed.
+                    state.window_count = max(state.window_count, policy.limit)
+            _CONDITION.notify_all()
+    finally:
+        drop_materialized_cookie(lease.path)
 
 
 def cookie_rotation(source_key: str, *, wait_seconds: float | None = None) -> Iterator[CookieLease]:

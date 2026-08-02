@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import tempfile
-import threading
 import uuid
-from pathlib import Path
 from typing import Any
 
 from fastapi import UploadFile
@@ -18,6 +15,7 @@ from backend.app.db.repositories import (
     list_source_cookies,
     reorder_source_cookies,
 )
+from backend.app.runtime.scratch import remove_scratch_path, write_scratch_file
 
 from .profiles import (
     get_effective_source_profiles,
@@ -28,11 +26,7 @@ from .profiles import (
 
 # A source holds any number of cookie jars; the pool rotates between them.
 MAX_COOKIE_UPLOAD_BYTES = 5 * 1024 * 1024
-_cookie_file_lock = threading.RLock()
-
-
-def _cookie_runtime_dir() -> Path:
-    return Path(tempfile.gettempdir()) / "never-stelle" / "cookies"
+COOKIE_RUNTIME_FILE_PREFIX = "nvs-cookie-"
 
 
 def normalize_cookie_source(source_key: Any) -> str:
@@ -96,23 +90,11 @@ def materialize_cookie(cookie_id: str) -> str:
     if not isinstance(content, bytes) or not content:
         return ""
 
-    runtime_dir = _cookie_runtime_dir()
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    target = runtime_dir / f"{cookie_id}.txt"
-    with _cookie_file_lock:
-        temp_target = target.with_suffix(".tmp")
-        temp_target.write_bytes(content)
-        temp_target.replace(target)
-    return str(target)
+    return write_scratch_file(content, prefix=COOKIE_RUNTIME_FILE_PREFIX, suffix=".txt")
 
 
-def _drop_materialized_cookie(cookie_id: str) -> None:
-    runtime_dir = _cookie_runtime_dir()
-    for name in (f"{cookie_id}.txt", f"{cookie_id}.tmp"):
-        try:
-            (runtime_dir / name).unlink(missing_ok=True)
-        except Exception:
-            pass
+def drop_materialized_cookie(path: str) -> None:
+    remove_scratch_path(path)
 
 
 def _stored_cookie_filename(source_key: str) -> str:
@@ -160,7 +142,6 @@ def clear_ytdlp_cookie(source_key: str, cookie_id: str) -> None:
     if not stored or normalize_cookie_source(stored.get("source_key")) != source_key:
         raise ValueError("That cookies file no longer exists.")
     delete_source_cookie(stored["id"])
-    _drop_materialized_cookie(stored["id"])
     from .cookie_pool import invalidate_cookie_pool
 
     invalidate_cookie_pool(source_key)
@@ -169,8 +150,6 @@ def clear_ytdlp_cookie(source_key: str, cookie_id: str) -> None:
 def clear_ytdlp_cookies_upload(source_key: str) -> None:
     require_settings_managed_source(source_key)
     source_key = normalize_cookie_source(source_key)
-    for entry in list_cookies_for_source(source_key):
-        _drop_materialized_cookie(entry["id"])
     delete_source_cookies(source_key)
     from .cookie_pool import invalidate_cookie_pool
 

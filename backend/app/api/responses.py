@@ -7,6 +7,8 @@ from urllib.parse import quote
 from fastapi import Request
 from fastapi.responses import Response, StreamingResponse
 
+from backend.app.runtime.scratch import remove_scratch_path
+
 DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024
 
 
@@ -76,7 +78,7 @@ async def iter_download_file(
                 drop_file_cache_fd(handle.fileno(), start, 0 if length is None else length)
     finally:
         if cleanup_path:
-            cleanup_path.unlink(missing_ok=True)
+            remove_scratch_path(cleanup_path)
 
 
 def local_download_response(request: Request, path: Path, filename: str, cleanup_path: Path | None) -> Response:
@@ -89,7 +91,7 @@ def local_download_response(request: Request, path: Path, filename: str, cleanup
     byte_range = parse_byte_range(request.headers.get("range", ""), size)
     if request.headers.get("range") and byte_range is None:
         if cleanup_path:
-            cleanup_path.unlink(missing_ok=True)
+            remove_scratch_path(cleanup_path)
         return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
 
     if byte_range is not None:

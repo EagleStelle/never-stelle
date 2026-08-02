@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import tempfile
 import uuid
 import zipfile
 from pathlib import Path
@@ -11,6 +10,7 @@ from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
 from backend.app.domains.settings import get_effective_saved_settings
 from backend.app.integrations.swaratelle import client as swaratelle
+from backend.app.runtime.scratch import scratch_temp_path
 
 from .constants import normalize_quality_selection
 from .engine import select_engine
@@ -250,9 +250,7 @@ def set_task_source(task_id: str, source_key: str) -> str:
 
 
 def _build_slideshow_archive(files: list[Path]) -> Path:
-    handle = tempfile.NamedTemporaryFile(prefix="never-stelle-slideshow-", suffix=".zip", delete=False)
-    archive_path = Path(handle.name)
-    handle.close()
+    archive_path = scratch_temp_path(prefix="nvs-slideshow-", suffix=".zip")
     with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for file in files:
             archive.write(file, arcname=file.name)
