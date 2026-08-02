@@ -201,7 +201,7 @@ const {
             :key="template"
           >
             <CardHeader class="flex flex-row items-center justify-between gap-2">
-              <CardTitle class="min-w-0 font-mono text-sm leading-snug wrap-anywhere">
+              <CardTitle class="font-mono text-sm leading-snug">
                 {{ displayUrlTemplate(template) }}
               </CardTitle>
               <Button

@@ -9,7 +9,10 @@ const props = defineProps<{ class?: HTMLAttributes["class"] }>();
   <div
     data-slot="card-description"
     :class="
-      cn('text-sm text-white/70 in-[.light-mode]:text-black/70', props.class)
+      cn(
+        'min-w-0 wrap-anywhere text-sm text-white/70 in-[.light-mode]:text-black/70',
+        props.class,
+      )
     "
   >
     <slot />

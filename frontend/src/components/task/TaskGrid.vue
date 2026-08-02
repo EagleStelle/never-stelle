@@ -86,11 +86,11 @@ function hasActions(task: TaskItem): boolean {
             :href="sourceLink(task)"
             target="_blank"
             rel="noopener noreferrer"
-            class="block break-all font-mono text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
+            class="block font-mono text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
           >
             {{ taskDetail(task) }}
           </a>
-          <span v-else class="block break-all font-mono">
+          <span v-else class="block font-mono">
             {{ taskDetail(task) }}
           </span>
         </CardDescription>

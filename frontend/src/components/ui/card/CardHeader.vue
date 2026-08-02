@@ -10,7 +10,7 @@ const props = defineProps<{ class?: HTMLAttributes["class"] }>();
     data-slot="card-header"
     :class="
       cn(
-        '@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-1.5 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] relative z-10',
+        '@container/card-header grid auto-rows-min grid-cols-[minmax(0,1fr)] grid-rows-[auto_auto] items-start gap-1.5 px-6 has-data-[slot=card-action]:grid-cols-[minmax(0,1fr)_auto] relative z-10',
         props.class,
       )
     "

@@ -107,7 +107,7 @@ function roleDisabled(
             :key="template"
           >
             <CardHeader>
-              <CardTitle class="min-w-0 font-mono text-sm leading-snug wrap-anywhere">
+              <CardTitle class="font-mono text-sm leading-snug">
                 {{ displayTemplate(site.key, template) }}
               </CardTitle>
             </CardHeader>

@@ -204,7 +204,7 @@ function insert(siteKey: string, format: string, token: string): void {
         <div v-else class="flex flex-col gap-[0.85rem]">
           <Card v-for="template in formatsFor(site.key)" :key="template">
             <CardHeader>
-              <CardTitle class="font-mono text-sm leading-snug wrap-anywhere">
+              <CardTitle class="font-mono text-sm leading-snug">
                 {{ displayUrlTemplate(template) }}
               </CardTitle>
             </CardHeader>
