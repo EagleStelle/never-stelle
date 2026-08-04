@@ -41,6 +41,8 @@ services:
       NEVER_STELLE_MAX_CONCURRENT: "3"
       NEVER_STELLE_COOKIE_SECURE: "false"
       NEVER_STELLE_DROP_CACHE_SYNC: "false"
+      # Optional: read-only API token for external apps that consume Never Stelle data.
+      # NEVER_STELLE_API_TOKEN: "change-this-token"
       # Optional: enable Iwara/Oreno3D delegation through Swaratelle.
       # SWARATELLE_URL: "http://swaratelle:8842"
       # SWARATELLE_API_TOKEN: "change-this-token"
@@ -120,6 +122,7 @@ Never Stelle is configured with environment variables. Set them inline in Docker
 | `NEVER_STELLE_MAX_CONCURRENT`  |      `3`       | Maximum concurrent Never Stelle downloads.                                    |
 | `NEVER_STELLE_COOKIE_SECURE`   |    `false`     | Set `true` to mark the session cookie `Secure` when served over HTTPS.        |
 | `NEVER_STELLE_DROP_CACHE_SYNC` |    `false`     | Set `true` to sync completed files before Linux page-cache drop advice.       |
+| `NEVER_STELLE_API_TOKEN`       |       ``       | Optional read-only token for external apps using `/api/integration/*`.        |
 | `SWARATELLE_URL`               |       ``       | Optional Swaratelle base URL, for example `http://swaratelle:8842`.           |
 | `SWARATELLE_API_TOKEN`         |       ``       | Optional token Never Stelle sends to Swaratelle with `Authorization: Bearer`. |
 
@@ -204,6 +207,10 @@ The app authenticates with a session cookie set by `POST /api/auth/login`. All r
 | `PATCH`  | `/api/downloads/{id}/source`                             | Reassigns a task's source key.                              |
 | `GET`    | `/api/downloads/{id}`                                    | Returns one active or historical task.                      |
 | `GET`    | `/api/downloads/{id}/file`                               | Downloads the completed file.                               |
+| `GET`    | `/api/integration/manifest`                              | Describes the read-only integration database contract.      |
+| `GET`    | `/api/integration/downloads?state=history&limit=100&offset=0` | Lists decoded download records for another app.       |
+| `GET`    | `/api/integration/tables/{table_name}`                   | Lists allowed database table rows with optional JSON decode. |
+| `GET`    | `/api/integration/settings`                              | Returns saved settings with auth secrets removed.           |
 
 Queue example (log in first to obtain the session cookie):
 
@@ -216,6 +223,17 @@ curl -b cookies.txt -X POST http://localhost:8840/api/downloads \
   -H "Content-Type: application/json" \
   -d '{"urls":["https://www.youtube.com/watch?v=abc123"]}'
 ```
+
+Integration example using `NEVER_STELLE_API_TOKEN`:
+
+```sh
+curl http://localhost:8840/api/integration/downloads?state=history \
+  -H "Authorization: Bearer change-this-token-too"
+```
+
+The integration API is read-only and focuses on the data the app creates: active tasks,
+completed history, learned formats, seeded downloads, and enrichment jobs. Sensitive storage
+such as auth settings and uploaded source cookies is not exposed through the table endpoint.
 
 Interactive API docs are available while the app is running:
 

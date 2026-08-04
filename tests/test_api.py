@@ -50,6 +50,69 @@ def test_protected_api_requires_login(tmp_path, monkeypatch):
     assert response.json()["error"] == "Authentication required."
 
 
+def test_integration_manifest_accepts_api_token_without_login(tmp_path, monkeypatch):
+    use_temp_auth_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("NEVER_STELLE_API_TOKEN", "api-secret")
+
+    response = client.get(
+        "/api/integration/manifest",
+        headers={"Authorization": "Bearer api-secret"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["database"]["engine"] == "sqlite"
+    assert "download_history" in [table["name"] for table in body["tables"]]
+    assert body["auth"]["api_token_env"] == "NEVER_STELLE_API_TOKEN"
+
+
+def test_integration_downloads_returns_decoded_history_rows(tmp_path, monkeypatch):
+    use_temp_auth_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("NEVER_STELLE_API_TOKEN", "api-secret")
+    repositories.save_history_row(
+        "disk:abc123",
+        {
+            "source_url": "https://example.test/p/abc123",
+            "source_key": "example",
+            "creator": "Creator",
+            "title": "Clip",
+            "media_id": "abc123",
+            "resolved_filename": "Clip [abc123].mp4",
+            "quality": {"mode": "audio"},
+            "created_at": "2026-07-10T00:00:00+00:00",
+        },
+    )
+
+    response = client.get(
+        "/api/integration/downloads?state=history&limit=10",
+        headers={"X-API-Key": "api-secret"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["records"][0]["id"] == "disk:abc123"
+    assert body["records"][0]["status"] == "completed"
+    assert body["records"][0]["encoding"]["quality"] == {"mode": "audio"}
+
+
+def test_integration_tables_blocks_sensitive_tables(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+
+    response = client.get("/api/integration/tables/app_settings")
+
+    assert response.status_code == 404
+
+
+def test_integration_settings_omits_auth_payload(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+
+    response = client.get("/api/integration/settings")
+
+    assert response.status_code == 200
+    assert "auth" not in response.json()["settings"]
+
+
 def test_probe_empty_url_is_client_error(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
     response = client.post("/api/downloads/probe", json={"url": "   "})
