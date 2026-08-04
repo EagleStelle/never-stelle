@@ -13,14 +13,18 @@ from backend.app.domains.settings import (
 )
 
 from .constants import (
-    AUDIO_BITRATE_PRESETS,
     FIELD_ROLE_CHAINS,
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
-    is_lossless_audio,
-    merge_output_format,
+    audio_format_selector,
+    audio_postprocess_format,
+    audio_postprocess_quality,
     normalize_quality_selection,
     video_format_selector,
+    video_merge_output_format,
+    video_merger_args,
+    video_recode_args,
+    video_recode_format,
 )
 from .formats import derived_token_value
 from .naming import (
@@ -183,9 +187,14 @@ def build_ytdlp_command(
     selection = normalize_quality_selection(quality)
     audio_mode = selection["mode"] == "audio"
     selected_format = (
-        "bestaudio/best"
+        audio_format_selector(selection["audio_format"], selection["audio_bitrate"])
         if audio_mode
-        else video_format_selector(selection["video_quality"], selection["video_container"])
+        else video_format_selector(
+            selection["video_quality"],
+            selection["video_container"],
+            selection["video_codec"],
+            selection["video_audio_codec"],
+        )
     )
     cmd = [
         "yt-dlp",
@@ -199,20 +208,32 @@ def build_ytdlp_command(
         # carry, and the cost lands hardest on the long transfers.
         "--format",
         selected_format,
-        "--ffmpeg-location",
-        ffmpeg_location,
     ]
     if audio_mode:
-        # Extract the audio track in the chosen format; lossless ignores bitrate.
-        cmd.extend(["--extract-audio", "--audio-format", selection["audio_format"]])
-        if not is_lossless_audio(selection["audio_format"]):
-            cmd.extend(["--audio-quality", AUDIO_BITRATE_PRESETS[selection["audio_bitrate"]]["ytdlp"]])
+        target_format = audio_postprocess_format(selection)
+        if target_format:
+            if ffmpeg_location:
+                cmd.extend(["--ffmpeg-location", ffmpeg_location])
+            cmd.extend(["--extract-audio", "--audio-format", target_format])
+            audio_quality = audio_postprocess_quality(selection)
+            if audio_quality:
+                cmd.extend(["--audio-quality", audio_quality])
     else:
-        cmd.extend(["--merge-output-format", merge_output_format(selection["video_container"])])
+        recode_format = video_recode_format(selection)
+        cmd.extend(["--ffmpeg-location", ffmpeg_location])
+        cmd.extend(["--merge-output-format", video_merge_output_format(selection)])
         codec_sort = VIDEO_CODEC_PRESETS[selection["video_codec"]]["sort"]
         if codec_sort:
             # Soft preference; the --format filter enforces container compatibility.
             cmd.extend(["-S", f"vcodec:{codec_sort}"])
+        merger_args = video_merger_args(selection)
+        if merger_args:
+            cmd.extend(["--postprocessor-args", f"Merger+ffmpeg_o:{' '.join(merger_args)}"])
+        if recode_format:
+            cmd.extend(["--recode-video", recode_format])
+            recode_args = video_recode_args(selection)
+            if recode_args:
+                cmd.extend(["--postprocessor-args", f"VideoConvertor+ffmpeg_o:{' '.join(recode_args)}"])
     cmd.extend(["--js-runtimes", "node", "--remote-components", "ejs:github"])
     # --print-to-file (unlike --print) keeps normal progress output intact; the
     # after_move stage runs on real downloads, never in simulate mode.

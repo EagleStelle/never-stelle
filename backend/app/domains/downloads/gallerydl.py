@@ -19,9 +19,15 @@ from .constants import (
     MEDIA_EXTENSIONS,
     TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
-    merge_output_format,
+    audio_format_selector,
+    audio_postprocess_format,
+    audio_postprocess_quality,
     normalize_quality_selection,
     video_format_selector,
+    video_merge_output_format,
+    video_merger_args,
+    video_recode_args,
+    video_recode_format,
 )
 from .formats import derived_token_value, media_id_from_url
 from .naming import detect_ffmpeg_location, sanitize_path_literal
@@ -77,18 +83,23 @@ _TIKTOK_NO_AUDIO_OPTION = "extractor.tiktok.audio=false"
 _YTDL_DOWNLOADER_MODULE_OPTION = "downloader.ytdl.module=yt_dlp"
 _YTDL_EXTRACTOR_ENABLED_OPTION = "extractor.ytdl.enabled=true"
 _YTDL_EXTRACTOR_MODULE_OPTION = "extractor.ytdl.module=yt_dlp"
+_YTDL_JS_RUNTIMES = json.dumps({"node": {}}, separators=(",", ":"))
+_YTDL_REMOTE_COMPONENTS = json.dumps(["ejs:github"], separators=(",", ":"))
 
 
 def _ytdl_downloader_options(quality: dict[str, str] | None = None) -> list[str]:
-    # gallery-dl handles images/galleries, not audio extraction; audio mode still
-    # pulls video here (the worker drops any stray audio), so use the video format.
     selection = normalize_quality_selection(quality)
     audio_mode = selection["mode"] == "audio"
-    video_quality = "best" if audio_mode else selection["video_quality"]
-    container = "mp4" if audio_mode else selection["video_container"]
-    format_string = video_format_selector(video_quality, container)
-    # Prefer the chosen container but let yt-dlp drop to MKV when it can't hold the streams.
-    merge_format = merge_output_format(container)
+    format_string = (
+        audio_format_selector(selection["audio_format"], selection["audio_bitrate"])
+        if audio_mode
+        else video_format_selector(
+            selection["video_quality"],
+            selection["video_container"],
+            selection["video_codec"],
+            selection["video_audio_codec"],
+        )
+    )
     options = [
         "-o",
         _YTDL_DOWNLOADER_MODULE_OPTION,
@@ -101,16 +112,54 @@ def _ytdl_downloader_options(quality: dict[str, str] | None = None) -> list[str]
         "-o",
         f"extractor.ytdl.format={format_string}",
         "-o",
-        f"downloader.ytdl.raw-options.merge_output_format={merge_format}",
+        f"downloader.ytdl.raw-options.js_runtimes={_YTDL_JS_RUNTIMES}",
         "-o",
-        f"extractor.ytdl.raw-options.merge_output_format={merge_format}",
+        f"extractor.ytdl.raw-options.js_runtimes={_YTDL_JS_RUNTIMES}",
+        "-o",
+        f"downloader.ytdl.raw-options.remote_components={_YTDL_REMOTE_COMPONENTS}",
+        "-o",
+        f"extractor.ytdl.raw-options.remote_components={_YTDL_REMOTE_COMPONENTS}",
     ]
-    codec_sort = VIDEO_CODEC_PRESETS[selection["video_codec"]]["sort"]
-    if not audio_mode and codec_sort:
-        # Soft preference; the format filter enforces container compatibility.
-        options.extend(["-o", f"downloader.ytdl.raw-options.format_sort=vcodec:{codec_sort}"])
-        options.extend(["-o", f"extractor.ytdl.raw-options.format_sort=vcodec:{codec_sort}"])
-    ffmpeg_location = detect_ffmpeg_location()
+    postprocessors: list[dict[str, str]] = []
+    postprocessor_args: dict[str, list[str]] = {}
+    if audio_mode:
+        target_format = audio_postprocess_format(selection)
+        if target_format:
+            processor = {"key": "FFmpegExtractAudio", "preferredcodec": target_format}
+            audio_quality = audio_postprocess_quality(selection)
+            if audio_quality:
+                processor["preferredquality"] = audio_quality
+            postprocessors.append(processor)
+        ffmpeg_location = detect_ffmpeg_location() if postprocessors else ""
+    else:
+        recode_format = video_recode_format(selection)
+        # Prefer native merge containers in Auto mode; codec-changing merge steps and
+        # recodes use MKV as the universal intermediate.
+        merge_format = video_merge_output_format(selection)
+        options.extend(["-o", f"downloader.ytdl.raw-options.merge_output_format={merge_format}"])
+        options.extend(["-o", f"extractor.ytdl.raw-options.merge_output_format={merge_format}"])
+        codec_sort = VIDEO_CODEC_PRESETS[selection["video_codec"]]["sort"]
+        if codec_sort:
+            # Soft preference; the format filter enforces container compatibility.
+            options.extend(["-o", f"downloader.ytdl.raw-options.format_sort=vcodec:{codec_sort}"])
+            options.extend(["-o", f"extractor.ytdl.raw-options.format_sort=vcodec:{codec_sort}"])
+        if recode_format:
+            postprocessors.append({"key": "FFmpegVideoConvertor", "preferedformat": recode_format})
+            recode_args = video_recode_args(selection)
+            if recode_args:
+                postprocessor_args["VideoConvertor+ffmpeg_o"] = recode_args
+        merger_args = video_merger_args(selection)
+        if merger_args:
+            postprocessor_args["Merger+ffmpeg_o"] = merger_args
+        ffmpeg_location = detect_ffmpeg_location()
+    if postprocessors:
+        serialized = json.dumps(postprocessors, separators=(",", ":"))
+        options.extend(["-o", f"downloader.ytdl.raw-options.postprocessors={serialized}"])
+        options.extend(["-o", f"extractor.ytdl.raw-options.postprocessors={serialized}"])
+    if postprocessor_args:
+        serialized_args = json.dumps(postprocessor_args, separators=(",", ":"))
+        options.extend(["-o", f"downloader.ytdl.raw-options.postprocessor_args={serialized_args}"])
+        options.extend(["-o", f"extractor.ytdl.raw-options.postprocessor_args={serialized_args}"])
     if ffmpeg_location:
         # Forward slashes dodge gallery-dl JSON-escape parsing of the option value.
         normalized = ffmpeg_location.replace("\\", "/")

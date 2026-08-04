@@ -20,8 +20,10 @@ import {
 } from "@/components/ui/tooltip";
 import type { CookiePolicyField, NamingChoice } from "@/types";
 import {
+  isAudioCodecCompatibleWithVideoContainer,
   isCodecCompatibleWithContainer,
   isLosslessAudioFormat,
+  videoAudioCodecOptionsForContainer,
   videoCodecOptionsForContainer,
 } from "@/utils/dashboard";
 import { COOKIE_POLICY_FIELDS } from "@/features/settings/cookiePolicy";
@@ -58,6 +60,12 @@ const videoCodecItems = computed(() =>
     settingsDraft.default_quality.video_container,
   ),
 );
+const videoAudioCodecItems = computed(() =>
+  videoAudioCodecOptionsForContainer(
+    settings.quality_options,
+    settingsDraft.default_quality.video_container,
+  ),
+);
 
 function updateContainer(container: string): void {
   settingsDraft.default_quality.video_container = container;
@@ -70,6 +78,15 @@ function updateContainer(container: string): void {
     )
   ) {
     settingsDraft.default_quality.video_codec = "auto";
+  }
+  if (
+    !isAudioCodecCompatibleWithVideoContainer(
+      settingsDraft.default_quality.video_audio_codec,
+      container,
+      settings.quality_options.video_containers,
+    )
+  ) {
+    settingsDraft.default_quality.video_audio_codec = "auto";
   }
 }
 
@@ -278,7 +295,7 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
             </div>
           </div>
           <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-            <Label class="sm:w-40 sm:shrink-0">Codec</Label>
+            <Label class="sm:w-40 sm:shrink-0">Video codec</Label>
             <div class="w-full sm:flex-auto">
               <Combobox
                 :model-value="settingsDraft.default_quality.video_codec"
@@ -287,8 +304,24 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
                   (val) => (settingsDraft.default_quality.video_codec = val)
                 "
                 layout="fill"
-                placeholder="Choose a codec"
+                placeholder="Video codec..."
                 empty-text="No codecs."
+              />
+            </div>
+          </div>
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <Label class="sm:w-40 sm:shrink-0">Audio codec</Label>
+            <div class="w-full sm:flex-auto">
+              <Combobox
+                :model-value="settingsDraft.default_quality.video_audio_codec"
+                :items="videoAudioCodecItems"
+                @update:model-value="
+                  (val) =>
+                    (settingsDraft.default_quality.video_audio_codec = val)
+                "
+                layout="fill"
+                placeholder="Choose an audio codec"
+                empty-text="No audio codecs."
               />
             </div>
           </div>
@@ -304,9 +337,7 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
         <FieldGroup class="gap-4">
           <!-- Bitrate leads, the way video quality does; format takes the container slot. -->
           <div
-            v-if="
-              !isLosslessAudioFormat(settingsDraft.default_quality.audio_format)
-            "
+            v-if="!isLosslessAudioFormat(settingsDraft.default_quality.audio_format)"
             class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
           >
             <Label class="sm:w-40 sm:shrink-0">Bitrate</Label>

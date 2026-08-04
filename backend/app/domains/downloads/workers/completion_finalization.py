@@ -24,6 +24,7 @@ from backend.app.domains.downloads.workers.completion_metadata import _filename_
 from backend.app.domains.downloads.workers.completion_outputs import (
     _clean_resolved_filename,
     _cleanup_duplicate_library_media,
+    _coerce_audio_output_extension,
     _item_source_url,
     _move_group_to_template_folder,
 )
@@ -91,6 +92,7 @@ def _finalize_completed_output(
     group_paths = [Path(path) for path in (group_paths or [raw_path])]
     if not any(_path_key(path) == _path_key(raw_path) for path in group_paths):
         group_paths.insert(0, raw_path)
+    raw_path = _coerce_audio_output_extension(raw_path, group_paths, quality)
 
     filename_template = _filename_template(template_settings)
     media_id = (

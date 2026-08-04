@@ -8,7 +8,7 @@ from typing import Any
 from backend.app.core.config import is_allowed_location, load_app_config
 from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
-from backend.app.domains.settings import get_effective_saved_settings
+from backend.app.domains.settings import get_effective_saved_settings, get_effective_title_cleaning
 from backend.app.integrations.swaratelle import client as swaratelle
 from backend.app.runtime.scratch import scratch_temp_path
 
@@ -299,6 +299,7 @@ def resolve_task_file(task_id: str) -> tuple[Path, str, Path | None]:
             title=str(task.get("title") or ""),
             media_id=str(task.get("media_id") or "").strip() or parsed_media_id,
             source_key=source_key,
+            cleaning=get_effective_title_cleaning(str(task.get("source_url") or "")),
             quality=normalize_quality_selection(task.get("quality")),
         )
     siblings = find_numbered_media_siblings(path)

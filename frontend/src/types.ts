@@ -165,8 +165,9 @@ export interface ScrapeTestResponse {
 export interface QualityPreset {
   key: string;
   label: string;
-  // Container presets carry the codecs they can play back; the codec picker filters on it.
+  // Container presets carry codecs they can play back; codec pickers filter on them.
   codecs?: string[];
+  audio_codecs?: string[];
 }
 
 export interface QualitySelection {
@@ -174,6 +175,7 @@ export interface QualitySelection {
   video_quality: string;
   video_container: string;
   video_codec: string;
+  video_audio_codec: string;
   audio_format: string;
   audio_bitrate: string;
 }
@@ -182,6 +184,7 @@ export interface QualityOptions {
   video: QualityPreset[];
   video_containers: QualityPreset[];
   video_codecs: QualityPreset[];
+  video_audio_codecs: QualityPreset[];
   audio_formats: QualityPreset[];
   audio_bitrates: QualityPreset[];
 }

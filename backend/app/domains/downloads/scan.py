@@ -16,7 +16,7 @@ from backend.app.core.paths import path_key as _path_key
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
-from backend.app.domains.settings import is_scraper_field, scraper_token_from_field
+from backend.app.domains.settings import get_effective_title_cleaning, is_scraper_field, scraper_token_from_field
 
 from .constants import CREATOR_FIELDS, FIELD_DEFAULTS, MEDIA_EXTENSIONS, TEMPLATE_RE
 from .files import recover_task_path
@@ -1033,6 +1033,7 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
             title=title,
             media_id=media_id,
             source_key=source_key,
+            cleaning=get_effective_title_cleaning(source_url),
         )
         pending_rows.append(
             (

@@ -59,7 +59,12 @@ def _maybe_progress(engine: Engine, line: str) -> float | None:
 
 
 def _run_engine_to_task(
-    engine: Engine, task_id: str, cmd: list[str], *, total_items: int = 0
+    engine: Engine,
+    task_id: str,
+    cmd: list[str],
+    *,
+    total_items: int = 0,
+    keep_gallerydl_audio: bool = False,
 ) -> tuple[int, str, list[str]]:
     """Run one downloader invocation, streaming progress into the task store.
 
@@ -106,7 +111,7 @@ def _run_engine_to_task(
                 downloaded_path = engine.extract_output_path(line)
                 if downloaded_path:
                     path = Path(downloaded_path)
-                    if engine.name == "gallerydl" and _is_audio_path(path):
+                    if engine.name == "gallerydl" and _is_audio_path(path) and not keep_gallerydl_audio:
                         # Audio sidecar: keep the log line, skip path bookkeeping.
                         pass
                     else:

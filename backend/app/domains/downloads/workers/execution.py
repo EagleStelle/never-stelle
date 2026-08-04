@@ -11,7 +11,7 @@ from backend.app.core.paths import path_key as _path_key
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
 from backend.app.domains.downloads.cache import drop_file_cache
-from backend.app.domains.downloads.constants import normalize_quality_selection
+from backend.app.domains.downloads.constants import normalize_quality_selection, quality_needs_ffmpeg
 from backend.app.domains.downloads.engine import Engine, all_engines, select_engine
 from backend.app.domains.downloads.history import save_history_entry
 from backend.app.domains.downloads.naming import detect_ffmpeg_location
@@ -68,12 +68,12 @@ def _looks_unsupported(task: dict[str, Any]) -> bool:
 def _should_try_next_engine(rc: int, task: dict[str, Any], last_dest: str, emitted_paths: list[str]) -> bool:
     if rc == 0:
         return False
-    if _looks_unsupported(task):
-        return True
     # If this engine already produced media, do not blindly redownload through
     # another backend. Failed empty runs are the dynamic capability probe.
     if _has_output_media(last_dest, emitted_paths):
         return False
+    if _looks_unsupported(task):
+        return True
     return True
 
 
@@ -128,7 +128,10 @@ def _run_engine_attempts(
             excluded_extensions=excluded_extensions,
             quality=quality,
         )
-        return _run_engine_to_task(engine, task_id, cmd, total_items=total_items)
+        run_kwargs: dict[str, Any] = {"total_items": total_items}
+        if quality and quality.get("mode") == "audio":
+            run_kwargs["keep_gallerydl_audio"] = True
+        return _run_engine_to_task(engine, task_id, cmd, **run_kwargs)
 
     # Anonymous first: a cookie is only spent when the public path actually fails.
     rc, last_dest, emitted_paths = _attempt("")
@@ -241,7 +244,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
         for index, engine in enumerate(candidates):
             if _cancel_pending(task_id):
                 break
-            if engine.needs_ffmpeg:
+            if engine.needs_ffmpeg and quality_needs_ffmpeg(quality):
                 ffmpeg_location = detect_ffmpeg_location()
                 if not ffmpeg_location:
                     message = "ffmpeg was not found. Install ffmpeg or make it available on PATH."

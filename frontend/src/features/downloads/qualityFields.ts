@@ -1,6 +1,7 @@
 import type { QualityOptions, QualityPreset, QualitySelection } from "@/types";
 import {
   isLosslessAudioFormat,
+  videoAudioCodecOptionsForContainer,
   videoCodecOptionsForContainer,
 } from "@/utils/dashboard";
 
@@ -62,9 +63,19 @@ export function qualityFieldsFor(
               options,
               selection.video_container,
             ),
-            placeholder: "Codec...",
+            placeholder: "Video codec...",
             emptyText: "No codecs.",
             label: "Video codec",
+          },
+          {
+            key: "video_audio_codec",
+            items: videoAudioCodecOptionsForContainer(
+              options,
+              selection.video_container,
+            ),
+            placeholder: "Audio codec...",
+            emptyText: "No audio codecs.",
+            label: "Audio codec",
           },
         ];
 

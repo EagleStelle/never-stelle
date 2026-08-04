@@ -8,7 +8,7 @@ from typing import Any
 
 from backend.app.core.coercion import safe_int
 from backend.app.core.sources import normalize_source_key
-from backend.app.domains.settings import get_effective_source_profiles
+from backend.app.domains.settings import get_effective_source_profiles, get_effective_title_cleaning
 from backend.app.integrations.swaratelle import client as swaratelle
 
 from .constants import STATUS_LABELS, STATUS_ORDER, normalize_quality_selection
@@ -74,6 +74,7 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
             title=str(task.get("title") or ""),
             media_id=media_id,
             source_key=source_key,
+            cleaning=get_effective_title_cleaning(source_url),
             quality=quality,
         )
         if task_type in {"gallerydl", "disk"}

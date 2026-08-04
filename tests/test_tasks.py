@@ -222,6 +222,9 @@ def test_convert_template_empty():
     "line,expected",
     [
         ("[download] Destination: /media/a.mp4", "/media/a.mp4"),
+        ("[ExtractAudio] Destination: /media/a.opus", "/media/a.opus"),
+        ("[ExtractAudio] Destination: /media/a.wav", "/media/a.wav"),
+        ("[VideoConvertor] Converting video from webm to mkv; Destination: /media/a.mkv", "/media/a.mkv"),
         ('[Merger] Merging formats into "/media/b.mkv"', "/media/b.mkv"),
         ("[download] /media/c.mp4 has already been downloaded", "/media/c.mp4"),
         ("[download]  50.0% of 10MiB", ""),
@@ -286,6 +289,7 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
         "video_quality": "1080p",
         "video_container": "mp4",
         "video_codec": "auto",
+        "video_audio_codec": "auto",
         "audio_format": "mp3",
         "audio_bitrate": "best",
     }
@@ -309,8 +313,9 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     assert captured["task"]["quality"] == {
         "mode": "audio",
         "video_quality": "best",
-        "video_container": "mp4",
+        "video_container": "auto",
         "video_codec": "auto",
+        "video_audio_codec": "auto",
         "audio_format": "opus",
         "audio_bitrate": "320",
     }
@@ -1006,6 +1011,115 @@ def test_clean_resolved_filename_rerenders_selected_quality(tmp_path: Path):
     assert not media_file.exists()
 
 
+def test_coerce_audio_output_extension_prefers_postprocessed_target(tmp_path: Path):
+    raw = tmp_path / "clip.webm"
+    final = tmp_path / "clip.opus"
+    final.write_bytes(b"opus")
+    group_paths = [raw]
+
+    result = completion_module._coerce_audio_output_extension(
+        raw,
+        group_paths,
+        {"mode": "audio", "audio_format": "opus"},
+    )
+
+    assert result == final
+    assert group_paths == [final]
+
+
+def test_coerce_audio_output_extension_renames_ytdlp_aac_m4a(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def fail(*args):
+        raise AssertionError("already the target container")
+
+    monkeypatch.setattr(completion_outputs_module, "convert_audio_output", fail)
+    # yt-dlp writes ADTS AAC under a `.m4a` name.
+    raw = tmp_path / "clip.m4a"
+    raw.write_bytes(b"\xff\xf1" + bytes(16))
+    group_paths = [raw]
+
+    result = completion_module._coerce_audio_output_extension(
+        raw,
+        group_paths,
+        {"mode": "audio", "audio_format": "aac"},
+    )
+
+    expected = tmp_path / "clip.aac"
+    assert result == expected
+    assert group_paths == [expected]
+    assert expected.is_file()
+    assert not raw.exists()
+
+
+def test_coerce_audio_output_extension_keeps_m4a_when_remux_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(completion_outputs_module, "convert_audio_output", lambda *args: False)
+    raw = tmp_path / "clip.m4a"
+    raw.write_bytes(bytes(4) + b"ftypM4A " + bytes(8))
+    group_paths = [raw]
+
+    result = completion_module._coerce_audio_output_extension(
+        raw,
+        group_paths,
+        {"mode": "audio", "audio_format": "aac"},
+    )
+
+    assert result == raw
+    assert group_paths == [raw]
+    assert raw.is_file()
+
+
+def test_coerce_audio_output_extension_renames_relabeled_gallerydl_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    def fail(*args):
+        raise AssertionError("already the target container")
+
+    monkeypatch.setattr(completion_outputs_module, "convert_audio_output", fail)
+    # gallery-dl finalizes yt-dlp's converted Ogg Opus under the source extension.
+    raw = tmp_path / "clip.webm"
+    raw.write_bytes(b"OggS" + bytes(16))
+    group_paths = [raw]
+
+    result = completion_module._coerce_audio_output_extension(
+        raw,
+        group_paths,
+        {"mode": "audio", "audio_format": "opus"},
+    )
+
+    expected = tmp_path / "clip.opus"
+    assert result == expected
+    assert group_paths == [expected]
+    assert expected.is_file()
+    assert not raw.exists()
+
+
+def test_coerce_audio_output_extension_converts_unconverted_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    def convert(source: Path, target: Path, quality: dict[str, str]) -> bool:
+        assert quality["audio_format"] == "wav"
+        target.write_bytes(b"RIFF____WAVE")
+        return True
+
+    monkeypatch.setattr(completion_outputs_module, "convert_audio_output", convert)
+    raw = tmp_path / "clip.webm"
+    raw.write_bytes(b"\x1a\x45\xdf\xa3" + bytes(16))
+    group_paths = [raw]
+
+    result = completion_module._coerce_audio_output_extension(
+        raw,
+        group_paths,
+        {"mode": "audio", "audio_format": "wav"},
+    )
+
+    expected = tmp_path / "clip.wav"
+    assert result == expected
+    assert group_paths == [expected]
+    assert expected.is_file()
+    assert not raw.exists()
+
+
 def test_clean_resolved_filename_rebuilds_sparse_gallerydl_name_from_title_hint(tmp_path: Path):
     source_url = "https://example.com/alice/post/abc123"
     media_file = tmp_path / "[abc123]_1.jpg"
@@ -1284,9 +1398,10 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
         "quality": {
             "mode": "video",
             "video_quality": "720p",
-            "video_container": "mp4",
+            "video_container": "auto",
             "video_codec": "auto",
-            "audio_format": "mp3",
+            "video_audio_codec": "auto",
+            "audio_format": "auto",
             "audio_bitrate": "best",
         },
         "output_root": str(tmp_path),
@@ -1740,6 +1855,139 @@ def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(
     assert saved[task_id]["engine"] == "gallerydl"
 
 
+def test_worker_does_not_run_fallback_after_media_and_unsupported_tail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    image = tmp_path / "@Creator - Image [abc123]_1.jpg"
+    image.write_bytes(b"image")
+    source_url = "https://www.example.test/post/abc123"
+    task_id = "gallerydl:no-duplicate-fallback"
+    store = {
+        "tasks": {
+            task_id: {
+                "engine": "gallerydl",
+                "source_url": source_url,
+                "source_key": "example",
+                "status": "pending",
+                "output_dir": str(tmp_path),
+                "resolved_folder": str(tmp_path),
+                "folder_template": "",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
+            }
+        }
+    }
+    saved: dict[str, dict] = {}
+    commands: list[str] = []
+
+    class FakeProcess:
+        stdout = iter(
+            [
+                f"{image}\n",
+                "ERROR: [Example] child-video: No video formats found!\n",
+            ]
+        )
+
+        def wait(self):
+            return 1
+
+        def poll(self):
+            return 1
+
+        def kill(self):
+            return None
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    def fake_popen(cmd, *args, **kwargs):
+        commands.append(cmd[0])
+        return FakeProcess()
+
+    monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
+    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+
+    worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+
+    clean_image = tmp_path / "Creator - Image [abc123]_1.jpg"
+    completed = store["tasks"][task_id]
+    assert commands == ["gallery-dl"]
+    assert completed["status"] == "completed"
+    assert completed["engine"] == "gallerydl"
+    assert clean_image.is_file()
+    assert not image.exists()
+    assert saved[task_id]["resolved_full_path"] == str(clean_image)
+
+
+def test_worker_runs_ytdlp_fallback_after_empty_gallerydl_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    video = tmp_path / "Creator - Clip [abc123].mp4"
+    video.write_bytes(b"video")
+    source_url = "https://www.example.test/post/abc123"
+    task_id = "gallerydl:ytdlp-fallback"
+    store = {
+        "tasks": {
+            task_id: {
+                "engine": "gallerydl",
+                "source_url": source_url,
+                "source_key": "example",
+                "status": "pending",
+                "output_dir": str(tmp_path),
+                "resolved_folder": str(tmp_path),
+                "folder_template": "",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
+            }
+        }
+    }
+    saved: dict[str, dict] = {}
+    commands: list[str] = []
+
+    class FakeProcess:
+        def __init__(self, lines: list[str], rc: int):
+            self.stdout = iter(lines)
+            self._rc = rc
+
+        def wait(self):
+            return self._rc
+
+        def poll(self):
+            return self._rc
+
+        def kill(self):
+            return None
+
+    def fake_popen(cmd, *args, **kwargs):
+        commands.append(cmd[0])
+        if cmd[0] == "gallery-dl":
+            return FakeProcess(["ERROR: Unsupported URL: https://www.example.test/post/abc123\n"], 1)
+        return FakeProcess([f"[download] Destination: {video}\n"], 0)
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
+    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+
+    worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+
+    completed = store["tasks"][task_id]
+    assert commands == ["gallery-dl", "yt-dlp"]
+    assert completed["status"] == "completed"
+    assert completed["engine"] == "ytdlp"
+    assert saved[task_id]["resolved_full_path"] == str(video)
+
+
 def test_worker_runs_gallerydl_without_preflight(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2126,6 +2374,38 @@ def test_task_to_api_prefers_saved_template_over_gallerydl_id_display(tmp_path: 
     assert api_task["resolved_filename"] == "ChannelHandle - Nice clip [abc123].mp4"
 
 
+def test_task_to_api_honors_effective_naming_cleaning_for_gallerydl_display(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    media_file = tmp_path / "[abc123].mp4"
+    media_file.write_bytes(b"video")
+    monkeypatch.setattr(
+        serializers_module,
+        "get_effective_title_cleaning",
+        lambda url: {"strip_handle_at": False},
+    )
+
+    api_task = task_to_api(
+        "gallerydl:test",
+        {
+            "engine": "gallerydl",
+            "status": "completed",
+            "source_key": "example",
+            "source_url": "https://www.example.test/watch/abc123",
+            "creator": "@ChannelHandle",
+            "media_id": "abc123",
+            "title": "Nice clip",
+            "resolved_full_path": str(media_file),
+            "resolved_filename": media_file.name,
+            "folder_template": "{{username}}",
+            "filename_template": "{{username}} - {{title}} [{{id}}]",
+        },
+    )
+
+    assert api_task["resolved_filename"] == "@ChannelHandle - Nice clip [abc123].mp4"
+
+
 def test_resolve_task_file_prefers_saved_template_for_gallerydl_download_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -2136,7 +2416,7 @@ def test_resolve_task_file_prefers_saved_template_for_gallerydl_download_name(
         "status": "completed",
         "source_key": "example",
         "source_url": "https://www.example.test/watch/abc123",
-        "creator": "ChannelHandle",
+        "creator": "@ChannelHandle",
         "media_id": "abc123",
         "title": "Nice clip",
         "resolved_full_path": str(media_file),
@@ -2153,11 +2433,16 @@ def test_resolve_task_file_prefers_saved_template_for_gallerydl_download_name(
         lambda task_id, task, persist=True: (str(media_file), str(tmp_path), media_file.name),
     )
     monkeypatch.setattr(operations_module, "find_numbered_media_siblings", lambda path: [path])
+    monkeypatch.setattr(
+        operations_module,
+        "get_effective_title_cleaning",
+        lambda url: {"strip_handle_at": False},
+    )
 
     path, filename, archive = operations_module.resolve_task_file("gallerydl:test")
 
     assert path == media_file
-    assert filename == "ChannelHandle - Nice clip [abc123].mp4"
+    assert filename == "@ChannelHandle - Nice clip [abc123].mp4"
     assert archive is None
 
 

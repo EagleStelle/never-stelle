@@ -208,7 +208,14 @@ class _FakeProcess:
         return None
 
 
-def _stream_progress(monkeypatch, lines, clock_step: float):
+def _stream_engine_progress(
+    monkeypatch,
+    lines,
+    clock_step: float,
+    *,
+    engine_name: str = "ytdlp",
+    keep_gallerydl_audio: bool = False,
+):
     """Run the streaming loop over ``lines`` with a virtual clock, returning the writes."""
     import backend.app.domains.downloads.workers.runner as runner_module
     from backend.app.domains.downloads.engine import engine_by_name
@@ -228,7 +235,17 @@ def _stream_progress(monkeypatch, lines, clock_step: float):
     monkeypatch.setattr(runner_module, "_register_process", lambda task_id, process: None)
     monkeypatch.setattr(runner_module, "_unregister_process", lambda task_id: None)
 
-    rc, dest, paths = runner_module._run_engine_to_task(engine_by_name("ytdlp"), "task", ["yt-dlp"])
+    rc, dest, paths = runner_module._run_engine_to_task(
+        engine_by_name(engine_name),
+        "task",
+        [engine_name],
+        keep_gallerydl_audio=keep_gallerydl_audio,
+    )
+    return writes, rc, dest, paths
+
+
+def _stream_progress(monkeypatch, lines, clock_step: float):
+    writes, rc, dest, _ = _stream_engine_progress(monkeypatch, lines, clock_step)
     return writes, rc, dest
 
 
@@ -276,6 +293,34 @@ def test_a_new_output_path_flushes_immediately(monkeypatch):
 
     assert dest.endswith("clip [abc].mp4")
     assert any(update.get("resolved_filename") == "clip [abc].mp4" for update in writes)
+
+
+def test_gallerydl_audio_sidecar_is_ignored_for_non_audio_tasks(monkeypatch):
+    lines = ["/media/x/probe.m4a\n"]
+
+    writes, rc, dest, paths = _stream_engine_progress(monkeypatch, lines, 0.01, engine_name="gallerydl")
+
+    assert rc == 0
+    assert dest == ""
+    assert paths == []
+    assert not any(update.get("resolved_filename") == "probe.m4a" for update in writes)
+
+
+def test_gallerydl_audio_output_is_recorded_for_audio_tasks(monkeypatch):
+    lines = ["/media/x/probe.m4a\n"]
+
+    writes, rc, dest, paths = _stream_engine_progress(
+        monkeypatch,
+        lines,
+        0.01,
+        engine_name="gallerydl",
+        keep_gallerydl_audio=True,
+    )
+
+    assert rc == 0
+    assert dest.endswith("probe.m4a")
+    assert [path.replace("\\", "/") for path in paths] == ["/media/x/probe.m4a"]
+    assert any(update.get("resolved_filename") == "probe.m4a" for update in writes)
 
 
 def test_the_log_tail_is_persisted_when_the_run_ends(monkeypatch):

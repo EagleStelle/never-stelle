@@ -6,7 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.paths import path_key as _path_key
-from backend.app.domains.downloads.constants import CREATOR_FIELDS, TEMPLATE_RE, quality_label
+from backend.app.domains.downloads.audio import audio_container_matches, convert_audio_output
+from backend.app.domains.downloads.constants import (
+    CREATOR_FIELDS,
+    TEMPLATE_RE,
+    audio_output_extension,
+    quality_label,
+)
 from backend.app.domains.downloads.engine import Engine
 from backend.app.domains.downloads.files import (
     find_newest_media_file,
@@ -270,6 +276,44 @@ def _remove_duplicate_candidate(path: Path, seen: set[str], task_id: str = "") -
         return
     if task_id:
         remove_history_record(task_id)
+
+
+def _replace_group_path(paths: list[Path], old: Path, new: Path) -> None:
+    old_key = _path_key(old)
+    for index, path in enumerate(paths):
+        if _path_key(path) == old_key:
+            paths[index] = new
+            return
+    paths.insert(0, new)
+
+
+def _adopt_audio_path(path: Path, group_paths: list[Path], new_path: Path) -> Path:
+    if new_path == path:
+        return path
+    _replace_group_path(group_paths, path, new_path)
+    return new_path
+
+
+def _coerce_audio_output_extension(path: Path, group_paths: list[Path], quality: dict[str, str] | None) -> Path:
+    expected_suffix = audio_output_extension(quality)
+    if not expected_suffix or path.suffix.lower() == expected_suffix:
+        return path
+    sibling = path.with_suffix(expected_suffix)
+    if is_media_file(sibling):
+        return _adopt_audio_path(path, group_paths, sibling)
+    if not is_media_file(path) or _media_kind(path) == "image":
+        return path
+    # gallery-dl names the file from the pre-postprocess stream, so a converted
+    # track keeps the source extension (Opus/WAV land as `.webm`) and only the
+    # name is stale. yt-dlp itself writes ADTS AAC under a `.m4a` name.
+    if audio_container_matches(path, expected_suffix):
+        return _adopt_audio_path(path, group_paths, _rename_path(path, sibling.name))
+    target = _unique_sibling_path(sibling)
+    if convert_audio_output(path, target, quality):
+        path.unlink(missing_ok=True)
+        return _adopt_audio_path(path, group_paths, target)
+    # Without the remux the container is still the one on disk, so keep its name.
+    return path
 
 
 def _download_groups(

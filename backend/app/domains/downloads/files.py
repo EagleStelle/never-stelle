@@ -16,6 +16,9 @@ def extract_downloaded_path(line: str) -> str:
     for prefix in ("[download] Destination:", "[download] Resuming download at byte"):
         if line.startswith(prefix) and ":" in line:
             return line.split(":", 1)[1].strip().strip('"')
+    match = re.search(r"^\[[^\]]+\].*?\bDestination:\s+(.+)$", line)
+    if match:
+        return match.group(1).strip().strip('"')
     if line.startswith("[Merger] Merging formats into "):
         return line.split("into ", 1)[1].strip().strip('"')
     match = re.search(r"^\[download\]\s+(.+?)\s+has already been downloaded(?:\s|$)", line)

@@ -235,14 +235,40 @@ export function isLosslessAudioFormat(format: string): boolean {
 const DEFAULT_QUALITY_OPTIONS: QualityOptions = {
   video: [
     { key: "best", label: "Best" },
+    { key: "2160p60", label: "2160p60" },
+    { key: "2160p", label: "2160p" },
+    { key: "1440p60", label: "1440p60" },
+    { key: "1440p", label: "1440p" },
+    { key: "1080p60", label: "1080p60" },
     { key: "1080p", label: "1080p" },
     { key: "720p", label: "720p" },
     { key: "480p", label: "480p" },
   ],
   video_containers: [
-    { key: "mp4", label: "MP4", codecs: ["av1", "h264", "h265"] },
-    { key: "mkv", label: "MKV", codecs: ["av1", "vp9", "h264", "h265"] },
-    { key: "webm", label: "WebM", codecs: ["av1", "vp9"] },
+    {
+      key: "auto",
+      label: "Auto",
+      codecs: ["av1", "vp9", "h264", "h265"],
+      audio_codecs: ["aac", "opus", "mp3", "flac"],
+    },
+    {
+      key: "mp4",
+      label: "MP4",
+      codecs: ["av1", "h264", "h265"],
+      audio_codecs: ["aac", "mp3"],
+    },
+    {
+      key: "mkv",
+      label: "MKV",
+      codecs: ["av1", "vp9", "h264", "h265"],
+      audio_codecs: ["aac", "opus", "mp3", "flac"],
+    },
+    {
+      key: "webm",
+      label: "WebM",
+      codecs: ["av1", "vp9"],
+      audio_codecs: ["opus"],
+    },
   ],
   video_codecs: [
     { key: "auto", label: "Auto" },
@@ -251,7 +277,15 @@ const DEFAULT_QUALITY_OPTIONS: QualityOptions = {
     { key: "h264", label: "H.264" },
     { key: "h265", label: "H.265" },
   ],
+  video_audio_codecs: [
+    { key: "auto", label: "Auto" },
+    { key: "aac", label: "AAC" },
+    { key: "opus", label: "Opus" },
+    { key: "mp3", label: "MP3" },
+    { key: "flac", label: "FLAC" },
+  ],
   audio_formats: [
+    { key: "auto", label: "Auto" },
     { key: "mp3", label: "MP3" },
     { key: "m4a", label: "M4A" },
     { key: "opus", label: "Opus" },
@@ -280,6 +314,11 @@ function createQualityPreset(source: Partial<QualityPreset>): QualityPreset {
       .map((codec) => String(codec || "").trim().toLowerCase())
       .filter(Boolean);
   }
+  if (Array.isArray(source.audio_codecs)) {
+    preset.audio_codecs = source.audio_codecs
+      .map((codec) => String(codec || "").trim().toLowerCase())
+      .filter(Boolean);
+  }
   return preset;
 }
 
@@ -304,6 +343,10 @@ export function createQualityOptions(
     video_codecs: createQualityPresetList(
       source.video_codecs,
       DEFAULT_QUALITY_OPTIONS.video_codecs,
+    ),
+    video_audio_codecs: createQualityPresetList(
+      source.video_audio_codecs,
+      DEFAULT_QUALITY_OPTIONS.video_audio_codecs,
     ),
     audio_formats: createQualityPresetList(
       source.audio_formats,
@@ -351,14 +394,45 @@ export function videoCodecOptionsForContainer(
   );
 }
 
+export function isAudioCodecCompatibleWithVideoContainer(
+  codec: string,
+  container: string,
+  containers: QualityPreset[],
+): boolean {
+  const codecKey = String(codec || "").trim().toLowerCase();
+  if (!codecKey || codecKey === "auto") return true;
+  const preset = containers.find((item) => item.key === container);
+  if (!preset || !Array.isArray(preset.audio_codecs)) return true;
+  return preset.audio_codecs.includes(codecKey);
+}
+
+export function videoAudioCodecOptionsForContainer(
+  options: QualityOptions,
+  container: string,
+): QualityPreset[] {
+  return options.video_audio_codecs.filter((codec) =>
+    isAudioCodecCompatibleWithVideoContainer(
+      codec.key,
+      container,
+      options.video_containers,
+    ),
+  );
+}
+
 export function createQualitySelection(
   source: Partial<QualitySelection> = {},
   qualityOptions: Partial<QualityOptions> = {},
 ): QualitySelection {
   const options = createQualityOptions(qualityOptions);
   const mode: MediaMode = source.mode === "audio" ? "audio" : "video";
-  const videoContainer = optionKey(source.video_container, options.video_containers, "mp4");
+  const videoContainer = optionKey(source.video_container, options.video_containers, "auto");
   const videoCodec = optionKey(source.video_codec, options.video_codecs, "auto");
+  const videoAudioCodec = optionKey(
+    source.video_audio_codec,
+    options.video_audio_codecs,
+    "auto",
+  );
+  const audioFormat = optionKey(source.audio_format, options.audio_formats, "auto");
   return {
     mode,
     video_quality: optionKey(source.video_quality, options.video, "best"),
@@ -368,7 +442,14 @@ export function createQualitySelection(
     video_codec: isCodecCompatibleWithContainer(videoCodec, videoContainer, options.video_containers)
       ? videoCodec
       : "auto",
-    audio_format: optionKey(source.audio_format, options.audio_formats, "mp3"),
+    video_audio_codec: isAudioCodecCompatibleWithVideoContainer(
+      videoAudioCodec,
+      videoContainer,
+      options.video_containers,
+    )
+      ? videoAudioCodec
+      : "auto",
+    audio_format: audioFormat,
     audio_bitrate: optionKey(
       source.audio_bitrate,
       options.audio_bitrates,

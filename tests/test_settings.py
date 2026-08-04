@@ -334,6 +334,12 @@ def test_normalize_source_title_cleaning_keeps_overrides_and_skips_empty():
     assert "strip_metrics" not in flags
 
 
+def test_naming_defaults_parse_string_boolean_flags():
+    flags = get_effective_naming_defaults({"default_naming": {"strip_handle_at": "false"}})
+
+    assert flags["strip_handle_at"] is False
+
+
 def test_normalize_source_title_cleaning_measures_against_configured_defaults():
     defaults = get_effective_naming_defaults({"default_naming": {"strip_hashtags": False, "case": "lowercase"}})
     result = normalize_source_title_cleaning(
