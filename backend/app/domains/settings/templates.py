@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from backend.app.core.config import load_app_config
+from backend.app.core.resolution import resolved
 from backend.app.core.sources import normalize_source_key
 
 from .profiles import get_effective_source_profiles, get_source_profile_for_url, settings_managed_profiles
@@ -80,24 +81,44 @@ def normalize_source_template_selection(
     return out
 
 
+def _source_template_map(cfg: dict[str, Any], payload: dict[str, Any], key: str) -> dict[str, dict[str, str]]:
+    # Settings-only, so it is invariant across the rows of one operation.
+    return resolved(
+        f"settings.source_templates.{key}",
+        lambda: normalize_source_template_selection(
+            payload.get("source_templates"),
+            cfg,
+            get_effective_source_profiles(cfg, payload, [key]),
+            get_effective_token_roles(payload),
+        ).get(key)
+        or {},
+    )
+
+
+def possible_filename_templates(source_key: str) -> set[str]:
+    """Every filename template ``get_effective_template_settings`` could return for a source.
+
+    Settings-only, so it answers without parsing a URL. A single option is conclusive:
+    it is what the resolver would pick.
+    """
+    payload = load_saved_settings_file()
+    per_format = _source_template_map(load_app_config(), payload, normalize_source_key(source_key))
+    return {get_effective_template_settings()["filename_template"]} | {
+        str(templates.get("filename_template") or "") for templates in per_format.values()
+    }
+
+
 def get_effective_template_settings(source_url: str = "") -> dict[str, str]:
     cfg = load_app_config()
     payload = load_saved_settings_file()
-    token_roles = get_effective_token_roles(payload)
     base = normalize_template_settings(payload.get("template_settings"))
     if not source_url:
         return base
-    profile = get_source_profile_for_url(source_url, cfg, payload)
-    source_templates = normalize_source_template_selection(
-        payload.get("source_templates"),
-        cfg,
-        get_effective_source_profiles(cfg, payload, [profile["key"]]),
-        token_roles,
-    )
 
     from backend.app.domains.downloads.formats import match_template, select_for_format
     from backend.app.domains.downloads.store import load_learned_formats
 
+    profile = get_source_profile_for_url(source_url, cfg, payload)
     matched = match_template(load_learned_formats(), profile["key"], source_url)
-    matched_template = select_for_format(source_templates.get(profile["key"]), matched)
+    matched_template = select_for_format(_source_template_map(cfg, payload, profile["key"]), matched)
     return normalize_template_settings(matched_template if matched_template is not None else base)

@@ -76,6 +76,7 @@ from backend.app.domains.settings.templates import (
     get_effective_template_settings,
     normalize_source_template_selection,
     normalize_template_settings,
+    possible_filename_templates,
 )
 from backend.app.domains.settings.tokens import (
     get_effective_token_roles,
@@ -111,6 +112,7 @@ __all__ = [
     "get_effective_source_fields_map",
     "get_effective_source_profiles",
     "get_effective_template_settings",
+    "possible_filename_templates",
     "get_effective_title_cleaning",
     "get_effective_token_roles",
     "get_source_field_defaults",

@@ -11,6 +11,16 @@ OLD_TEMPLATE = "{{username}} - {{title}} [{{id}}]"
 NEW_TEMPLATE = "{{title}} ({{username}}) [{{id}}]"
 
 
+def _pin_template(monkeypatch: pytest.MonkeyPatch, filename_template: str) -> None:
+    """Pin what the settings currently say, both the answer and the set it comes from."""
+    monkeypatch.setattr(
+        rename_module,
+        "get_effective_template_settings",
+        lambda source_url="": {"folder_template": "{{username}}", "filename_template": filename_template},
+    )
+    monkeypatch.setattr(rename_module, "possible_filename_templates", lambda source_key: {filename_template})
+
+
 def _rename_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, template: str = NEW_TEMPLATE):
     """A scan wired to an in-memory history, with the effective template pinned."""
     media_root = tmp_path / "media"
@@ -29,11 +39,7 @@ def _rename_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, template: str =
     monkeypatch.setattr(scan_module, "mark_downloads_seeded", lambda ids: None)
 
     monkeypatch.setattr(rename_module, "save_history_entry_rows", lambda batch: rows.update(dict(batch)))
-    monkeypatch.setattr(
-        rename_module,
-        "get_effective_template_settings",
-        lambda source_url="": {"folder_template": "{{username}}", "filename_template": template},
-    )
+    _pin_template(monkeypatch, template)
     monkeypatch.setattr(rename_module, "get_effective_title_cleaning", lambda source_url="": {})
     monkeypatch.setattr(
         rename_module, "begin_rename", lambda task_id, old, new: journal.__setitem__(task_id, (old, new))
@@ -141,17 +147,30 @@ def test_rename_avoids_collisions_with_a_numbered_suffix(tmp_path: Path, monkeyp
     # Both rows render to the same stem once the id token is dropped from the template.
     rows["gallerydl:1"] = _row(first)
     rows["gallerydl:2"] = _row(second, media_id="def456", source_url="https://example.com/p/def456")
-    monkeypatch.setattr(
-        rename_module,
-        "get_effective_template_settings",
-        lambda source_url="": {"folder_template": "{{username}}", "filename_template": "{{title}} - {{username}}"},
-    )
+    _pin_template(monkeypatch, "{{title}} - {{username}}")
 
     result = scan_module.scan_media_library([media_root])
 
     assert result["renamed"] == 2
     landed = sorted(path.name for path in media_root.iterdir())
     assert landed == ["Clip - Creator.mp4", "Clip - Creator_1.mp4"]
+
+
+def test_multiple_possible_templates_still_resolve_per_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # The stored template being one the source can produce is only conclusive when it
+    # is the only one; otherwise the effective template still has to be resolved.
+    media_root, rows, _journal = _rename_env(tmp_path, monkeypatch)
+    old_file = media_root / "Creator - Clip [abc123].mp4"
+    old_file.write_bytes(b"video")
+    rows["gallerydl:1"] = _row(old_file)
+    monkeypatch.setattr(
+        rename_module, "possible_filename_templates", lambda source_key: {OLD_TEMPLATE, NEW_TEMPLATE}
+    )
+
+    result = scan_module.scan_media_library([media_root])
+
+    assert result["renamed"] == 1
+    assert (media_root / "Clip (Creator) [abc123].mp4").exists()
 
 
 def test_rename_keeps_the_numbered_suffix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -186,14 +205,7 @@ def test_missing_token_defers_to_resolve_instead_of_renaming(
     old_file = media_root / "Creator - Clip [abc123].mp4"
     old_file.write_bytes(b"video")
     rows["gallerydl:1"] = _row(old_file)
-    monkeypatch.setattr(
-        rename_module,
-        "get_effective_template_settings",
-        lambda source_url="": {
-            "folder_template": "{{username}}",
-            "filename_template": "{{uploader}} - {{title}} [{{id}}]",
-        },
-    )
+    _pin_template(monkeypatch, "{{uploader}} - {{title}} [{{id}}]")
 
     result = scan_module.scan_media_library([media_root])
 
@@ -212,14 +224,7 @@ def test_nickname_falls_back_to_username_without_deferring(
     old_file = media_root / "Creator - Clip [abc123].mp4"
     old_file.write_bytes(b"video")
     rows["gallerydl:1"] = _row(old_file)
-    monkeypatch.setattr(
-        rename_module,
-        "get_effective_template_settings",
-        lambda source_url="": {
-            "folder_template": "{{username}}",
-            "filename_template": "{{nickname}} - {{title}} [{{id}}]",
-        },
-    )
+    _pin_template(monkeypatch, "{{nickname}} - {{title}} [{{id}}]")
 
     result = scan_module.scan_media_library([media_root])
 
@@ -290,14 +295,7 @@ def test_case_only_rename_lands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     old_file = media_root / "Creator - clip [abc123].mp4"
     old_file.write_bytes(b"video")
     rows["gallerydl:1"] = _row(old_file, title="clip")
-    monkeypatch.setattr(
-        rename_module,
-        "get_effective_template_settings",
-        lambda source_url="": {
-            "folder_template": "{{username}}",
-            "filename_template": "{{username}} - {{title}} [{{id}}] ",
-        },
-    )
+    _pin_template(monkeypatch, "{{username}} - {{title}} [{{id}}] ")
     monkeypatch.setattr(rename_module, "render_template_filename", lambda *a, **k: "Creator - Clip [abc123].mp4")
 
     scan_module.scan_media_library([media_root])

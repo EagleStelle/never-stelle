@@ -7,7 +7,12 @@ from typing import Any
 
 from backend.app.core.pacing import CpuPacer
 from backend.app.core.paths import path_key as _path_key
-from backend.app.domains.settings import get_effective_template_settings, get_effective_title_cleaning
+from backend.app.core.sources import normalize_source_key
+from backend.app.domains.settings import (
+    get_effective_template_settings,
+    get_effective_title_cleaning,
+    possible_filename_templates,
+)
 
 from .constants import CREATOR_FIELDS
 from .files import is_media_file, payload_path_string
@@ -49,8 +54,7 @@ def _numbered_suffix(stem: str) -> str:
 
 
 def _row_fields(payload: dict[str, Any], stored_template: str, old_name: str) -> dict[str, str]:
-    # The old name is parsed with the template it was written under, which is the only
-    # way to recover tokens the row has no column for (scraped and URL-part tokens).
+    # Parsing the old name recovers tokens the row has no column for (scraped, URL-part).
     fields = dict(filename_template_fields(old_name, stored_template))
     creator = str(payload.get("creator") or "").strip()
     if creator:
@@ -99,8 +103,7 @@ def plan_history_renames(
 ) -> tuple[list[RenamePlan], list[str]]:
     """Work out which files the current templates would name differently.
 
-    Reads only the rows and the settings: no probing, no walking, no re-inference. A
-    row whose stamped template still matches costs a dict lookup and a string compare.
+    Reads only the rows and the settings: no probing, no walking, no re-inference.
 
     Returns ``(plans, needs_resolve)``, the second being rows the template cannot be
     rendered for without losing a token.
@@ -108,19 +111,24 @@ def plan_history_renames(
     plans: list[RenamePlan] = []
     needs_resolve: list[str] = []
     claimed: set[str] = set()
-    templates: dict[str, dict[str, str]] = {}
+    options: dict[str, set[str]] = {}
 
     for task_id, payload in records.items():
         if pacer is not None:
             pacer.tick()
-        source_url = str(payload.get("source_url") or "")
-        if source_url not in templates:
-            templates[source_url] = get_effective_template_settings(source_url)
         stored = str(payload.get("filename_template") or "")
-        current = str(templates[source_url].get("filename_template") or "")
-        # The folder template is deliberately not compared or stamped: moving a file
-        # between directories is a separate pass, and claiming the row already matches
-        # would hide that work from it.
+        source_key = normalize_source_key(payload.get("source_key"))
+        if source_key not in options:
+            options[source_key] = possible_filename_templates(source_key)
+        # Resolving per row parses the URL; a lone option needs no resolving.
+        candidates = options[source_key]
+        if stored in candidates and len(candidates) == 1:
+            continue
+
+        source_url = str(payload.get("source_url") or "")
+        current = str(get_effective_template_settings(source_url).get("filename_template") or "")
+        # Folder templates are left to the directory-move pass; stamping one here would
+        # hide that work from it.
         if stored == current:
             continue
 
@@ -141,8 +149,7 @@ def plan_history_renames(
             current,
             fields,
             extension=old_path.suffix,
-            # Siblings from one post are distinguished only by this suffix, and the
-            # rest of the pipeline groups them by it.
+            # The pipeline groups siblings from one post by this suffix.
             numbered_suffix=_numbered_suffix(old_path.stem),
             cleaning=get_effective_title_cleaning(source_url),
             quality=quality,
@@ -167,8 +174,7 @@ def plan_history_renames(
 
 def _swap_on_disk(old: Path, new: Path) -> None:
     if _path_key(old) == _path_key(new):
-        # Same path identity, so this is a case-only change, which Windows no-ops
-        # unless it goes through an intermediate name.
+        # Case-only change; Windows no-ops it without an intermediate name.
         staging = old.with_name(f"{old.name}{_CASE_SWAP_SUFFIX}")
         os.rename(old, staging)
         os.rename(staging, new)
@@ -192,12 +198,9 @@ def _row_at_path(payload: dict[str, Any], path: Path, **extra: Any) -> dict[str,
 def apply_history_renames(plans: list[RenamePlan]) -> tuple[dict[str, int], dict[str, dict[str, Any]]]:
     """Rename the planned files and point their history rows at the new names.
 
-    Each rename is journalled before the disk is touched and cleared once the row
-    agrees with it, so a crash in between leaves a record to settle rather than a row
-    pointing at a path the next scan would read as a deleted file.
-
-    ``scan_mtime_ns`` and ``scan_revision`` ride along untouched: a rename changes
-    neither the bytes nor the rules, so the walk must not resolve the file again.
+    Journalled before the disk is touched, so a crash leaves a record to settle rather
+    than a row pointing at a path the next scan reads as deleted. ``scan_mtime_ns`` and
+    ``scan_revision`` ride along untouched, keeping the walk from re-resolving the file.
     """
     renamed = 0
     failed = 0

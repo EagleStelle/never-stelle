@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.app.core.resolution import invalidate, resolved
 from backend.app.db.repositories import (
     begin_rename_journal_entry,
     claim_next_enrichment_job_payload,
@@ -163,8 +164,12 @@ def fail_running_task_records(error: str) -> int:
     return fail_running_tasks(error)
 
 
+LEARNED_FORMATS_KEY = "downloads.learned_formats"
+
+
 def load_learned_formats() -> dict[str, Any]:
-    return load_learned_formats_payload()
+    # Template resolution runs per row, and each was re-querying the table.
+    return resolved(LEARNED_FORMATS_KEY, load_learned_formats_payload)
 
 
 def seeded_download_ids() -> set[str]:
@@ -207,6 +212,7 @@ def resolution_revision() -> str:
 
 def save_learned_formats(payload: dict[str, Any]) -> None:
     save_learned_formats_payload(payload)
+    invalidate(LEARNED_FORMATS_KEY)
 
 
 def update_task(task_id: str, **updates: Any) -> dict[str, Any]:
