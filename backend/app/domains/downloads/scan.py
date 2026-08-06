@@ -19,7 +19,7 @@ from backend.app.core.time import utc_now
 from backend.app.domains.settings import get_effective_title_cleaning, is_scraper_field, scraper_token_from_field
 
 from .constants import CREATOR_FIELDS, FIELD_DEFAULTS, MEDIA_EXTENSIONS, TEMPLATE_RE
-from .files import recover_task_path
+from .files import payload_path_string, recover_task_path
 from .formats import (
     conflicts_with_source,
     guess_sources,
@@ -33,6 +33,7 @@ from .naming import (
     strip_numbered_suffix,
     template_literal_pattern,
 )
+from .rename import apply_history_renames, plan_history_renames, recover_interrupted_renames
 from .store import (
     load_history,
     load_learned_formats,
@@ -178,28 +179,12 @@ def parse_filename_media_id(filename: str | Path) -> tuple[str, str]:
     return media_id, (match.group(1).strip() or stem)
 
 
-def _payload_path_string(payload: dict[str, Any]) -> str:
-    full_path = str(payload.get("resolved_full_path") or "").strip()
-    if full_path:
-        return full_path
-    folder = str(payload.get("resolved_folder") or "").strip()
-    filename = str(payload.get("resolved_filename") or "").strip()
-    if folder and filename:
-        return os.path.join(folder, filename)
-    return ""
-
-
-def _payload_path(payload: dict[str, Any]) -> Path | None:
-    path = _payload_path_string(payload)
-    return Path(path) if path else None
-
-
 def _payload_media_id(payload: dict[str, Any]) -> str:
     value = str(payload.get("media_id") or "").strip()
     if value and value.lower() not in UNRECOVERABLE_MEDIA_IDS:
         return value
     filename = str(payload.get("resolved_filename") or "").strip()
-    path = _payload_path_string(payload) if not filename else ""
+    path = payload_path_string(payload) if not filename else ""
     media_id, _ = parse_filename_media_id(filename or (os.path.basename(path) if path else ""))
     # Real downloads often leave media_id blank, but their source_url still carries the id.
     return media_id or media_id_from_url(str(payload.get("source_url") or ""))
@@ -322,7 +307,7 @@ def _drop_missing_records(
         if pacer is not None:
             pacer.tick()
         task = dict(payload)
-        path = _payload_path_string(task)
+        path = payload_path_string(task)
         if path and _path_key(path) in seen_paths:
             checked += 1
             continue
@@ -354,7 +339,7 @@ def _known_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], set[str]
     paths: set[str] = set()
     media_ids: set[str] = set()
     for payload in records.values():
-        path = _payload_path_string(payload)
+        path = payload_path_string(payload)
         if path:
             paths.add(_path_key(path))
         media_id = _payload_media_id(payload)
@@ -394,7 +379,7 @@ def _disk_signature_index(records: dict[str, dict[str, Any]]) -> dict[str, tuple
     for task_id, payload in records.items():
         if not _is_disk_record(task_id, payload):
             continue
-        path = _payload_path_string(payload)
+        path = payload_path_string(payload)
         signature = _record_signature(payload)
         if path and signature[0] and signature[2]:
             index[_path_key(path)] = (signature, _payload_media_id(payload))
@@ -408,7 +393,7 @@ def _disk_derived_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], s
     for task_id, payload in records.items():
         if not _is_disk_record(task_id, payload):
             continue
-        path = _payload_path_string(payload)
+        path = payload_path_string(payload)
         if path:
             paths.add(_path_key(path))
         media_id = _payload_media_id(payload)
@@ -886,7 +871,12 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
 
 
 def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> dict[str, int]:
+    recover_interrupted_renames()
     records = _completed_records()
+    # Before the walk, so the rest of the scan sees the final paths.
+    plans, needs_resolve = plan_history_renames(records, pacer)
+    rename_counts, renamed_rows = apply_history_renames(plans)
+    records.update(renamed_rows)
     walked_media: list[tuple[Path, Path, os.stat_result | None, str]] = []
     seen_paths: set[str] = set()
     for root, path, stat_result, path_key in _iter_media_files(_iter_scan_roots(roots)):
@@ -1070,4 +1060,12 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
         known_media_ids.add(media_id)
 
     save_history_entry_rows(pending_rows)
-    return {"checked": checked, "missing": missing, "added": added, "unchanged": unchanged}
+    return {
+        "checked": checked,
+        "missing": missing,
+        "added": added,
+        "unchanged": unchanged,
+        "renamed": rename_counts["renamed"],
+        "rename_failed": rename_counts["failed"],
+        "needs_resolve": len(needs_resolve),
+    }

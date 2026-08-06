@@ -19,10 +19,12 @@ def scan_media() -> dict[str, int]:
         local = scan_media_library()
         external = swaratelle.scan_media_library()
         # "unchanged" is what the incremental pass skipped: files whose bytes and
-        # resolution rules both matched the row already on file.
+        # resolution rules both matched the row already on file. "renamed" is what the
+        # current templates named differently; "needs_resolve" is what they could not
+        # be applied to without dropping a token they reference.
         return {
             key: int(local.get(key, 0)) + int(external.get(key, 0))
-            for key in ("checked", "missing", "added", "unchanged")
+            for key in ("checked", "missing", "added", "unchanged", "renamed", "rename_failed", "needs_resolve")
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

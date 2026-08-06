@@ -2512,7 +2512,15 @@ def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkey
 
     result = scan_module.scan_media_library([media_root])
 
-    assert result == {"checked": 0, "missing": 0, "added": 1, "unchanged": 0}
+    assert result == {
+        "checked": 0,
+        "missing": 0,
+        "added": 1,
+        "unchanged": 0,
+        "renamed": 0,
+        "rename_failed": 0,
+        "needs_resolve": 0,
+    }
     assert saved["disk:abc123"]["resolved_full_path"] == str(media_file)
     assert saved["disk:abc123"]["resolved_filename"] == media_file.name
     assert saved["disk:abc123"]["source_key"] == ""
@@ -3822,7 +3830,15 @@ def test_scan_media_library_removes_missing_completed_rows(tmp_path: Path, monke
 
     result = scan_module.scan_media_library([tmp_path])
 
-    assert result == {"checked": 1, "missing": 1, "added": 0, "unchanged": 0}
+    assert result == {
+        "checked": 1,
+        "missing": 1,
+        "added": 0,
+        "unchanged": 0,
+        "renamed": 0,
+        "rename_failed": 0,
+        "needs_resolve": 0,
+    }
     assert removed_tasks == ["task-1"]
     assert removed_history == ["task-1"]
 
@@ -3862,7 +3878,15 @@ def test_scan_media_library_unreadable_subtree_keeps_records(tmp_path: Path, mon
 
     result = scan_module.scan_media_library([media_root])
 
-    assert result == {"checked": 1, "missing": 0, "added": 0, "unchanged": 0}
+    assert result == {
+        "checked": 1,
+        "missing": 0,
+        "added": 0,
+        "unchanged": 0,
+        "renamed": 0,
+        "rename_failed": 0,
+        "needs_resolve": 1,
+    }
     assert removed == []
 
 
@@ -3890,7 +3914,15 @@ def test_scan_media_library_keeps_non_media_history_file(tmp_path: Path, monkeyp
 
     result = scan_module.scan_media_library([tmp_path])
 
-    assert result == {"checked": 1, "missing": 0, "added": 0, "unchanged": 0}
+    assert result == {
+        "checked": 1,
+        "missing": 0,
+        "added": 0,
+        "unchanged": 0,
+        "renamed": 0,
+        "rename_failed": 0,
+        "needs_resolve": 0,
+    }
     assert removed == []
 
 
@@ -3920,7 +3952,15 @@ def test_scan_media_library_keeps_history_file_outside_roots(tmp_path: Path, mon
 
     result = scan_module.scan_media_library([media_root])
 
-    assert result == {"checked": 1, "missing": 0, "added": 0, "unchanged": 0}
+    assert result == {
+        "checked": 1,
+        "missing": 0,
+        "added": 0,
+        "unchanged": 0,
+        "renamed": 0,
+        "rename_failed": 0,
+        "needs_resolve": 1,
+    }
     assert removed == []
 
 
@@ -4293,7 +4333,15 @@ def test_rescan_skips_files_that_did_not_change(tmp_path: Path, monkeypatch: pyt
     assert first["added"] == 4
     assert first["unchanged"] == 0
     # Second pass resolves nothing: same bytes, same rules.
-    assert second == {"checked": 4, "missing": 0, "added": 0, "unchanged": 4}
+    assert second == {
+        "checked": 4,
+        "missing": 0,
+        "added": 0,
+        "unchanged": 4,
+        "renamed": 0,
+        "rename_failed": 0,
+        "needs_resolve": 0,
+    }
     assert resolved == []
     assert len(rows) == 4
 

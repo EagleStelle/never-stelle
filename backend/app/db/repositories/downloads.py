@@ -718,3 +718,35 @@ def fail_running_tasks(error: str) -> int:
 def delete_history_row(task_id: str) -> None:
     with transaction() as connection:
         connection.execute("DELETE FROM download_history WHERE id = ?", (str(task_id),))
+
+
+def open_rename_journal_entries() -> list[dict[str, str]]:
+    """Renames that were started but never confirmed, oldest first."""
+    with transaction() as connection:
+        rows = connection.execute(
+            "SELECT task_id, old_path, new_path FROM rename_journal ORDER BY created_at, task_id"
+        ).fetchall()
+    return [
+        {
+            "task_id": str(row["task_id"]),
+            "old_path": str(row["old_path"] or ""),
+            "new_path": str(row["new_path"] or ""),
+        }
+        for row in rows
+    ]
+
+
+def begin_rename_journal_entry(task_id: str, old_path: str, new_path: str) -> None:
+    with transaction() as connection:
+        connection.execute(
+            "INSERT OR REPLACE INTO rename_journal (task_id, old_path, new_path, created_at) VALUES (?, ?, ?, ?)",
+            (str(task_id), str(old_path), str(new_path), utc_now()),
+        )
+
+
+def clear_rename_journal_entries(task_ids: Any) -> None:
+    rows = [(str(task_id),) for task_id in task_ids]
+    if not rows:
+        return
+    with transaction() as connection:
+        connection.executemany("DELETE FROM rename_journal WHERE task_id = ?", rows)

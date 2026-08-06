@@ -240,14 +240,18 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     try {
       const result = await scanMediaMutation.mutateAsync();
       await loadTasks(true);
-      const changes = result.added + result.missing;
-      if (changes === 0) {
-        toast(`History refreshed. Checked ${result.checked} file${result.checked === 1 ? "" : "s"}.`);
+      const plural = (count: number) => (count === 1 ? "" : "s");
+      const parts: string[] = [];
+      if (result.added > 0) parts.push(`added ${result.added} file${plural(result.added)}`);
+      if (result.missing > 0) parts.push(`removed ${result.missing} missing item${plural(result.missing)}`);
+      if (result.renamed > 0) parts.push(`renamed ${result.renamed} file${plural(result.renamed)}`);
+      if (result.rename_failed > 0) parts.push(`could not rename ${result.rename_failed}`);
+      if (parts.length === 0) {
+        toast(`History refreshed. Checked ${result.checked} file${plural(result.checked)}.`);
         return;
       }
-      toast(
-        `History refreshed. Added ${result.added} file${result.added === 1 ? "" : "s"} and removed ${result.missing} missing item${result.missing === 1 ? "" : "s"}.`,
-      );
+      const summary = parts.join(", ").replace(/, ([^,]*)$/, " and $1");
+      toast(`History refreshed. ${summary.charAt(0).toUpperCase()}${summary.slice(1)}.`);
     } catch (error) {
       toast(errorMessage(error, "Could not refresh history."), "error");
     }

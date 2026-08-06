@@ -153,7 +153,17 @@ def test_library_scan_returns_ok_when_subtree_scandir_fails(tmp_path, monkeypatc
     response = client.post("/api/library/scan")
 
     assert response.status_code == 200
-    assert response.json() == {"checked": 1, "missing": 0, "added": 0, "unchanged": 0}
+    # The row carries no creator or title, so the builtin template cannot be applied to
+    # it without dropping those tokens: it is left for a resolve pass, not renamed.
+    assert response.json() == {
+        "checked": 1,
+        "missing": 0,
+        "added": 0,
+        "unchanged": 0,
+        "renamed": 0,
+        "rename_failed": 0,
+        "needs_resolve": 1,
+    }
 
 
 def test_settings_put_accepts_format_keyed_source_templates(tmp_path, monkeypatch):

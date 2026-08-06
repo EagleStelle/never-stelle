@@ -116,6 +116,18 @@ CREATE TABLE IF NOT EXISTS seeded_downloads (
     seeded_at TEXT NOT NULL
 );
 
+-- Renames in flight. A rename touches the disk and the history row separately, so a
+-- crash between the two would leave a row pointing at a path that no longer exists
+-- (which the next scan would treat as a missing file and delete). A row is written
+-- here before the disk is touched and cleared once the history row agrees with it,
+-- so anything still present on the next scan is a rename to finish or undo.
+CREATE TABLE IF NOT EXISTS rename_journal (
+    task_id    TEXT PRIMARY KEY,
+    old_path   TEXT NOT NULL,
+    new_path   TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS source_cookies (
     id TEXT PRIMARY KEY,
     source_key TEXT NOT NULL DEFAULT '',

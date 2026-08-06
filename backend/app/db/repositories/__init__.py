@@ -7,8 +7,10 @@ from backend.app.db.repositories.cookies import (
     reorder_source_cookies,
 )
 from backend.app.db.repositories.downloads import (
+    begin_rename_journal_entry,
     claim_next_enrichment_job_payload,
     claim_pending_task_payload,
+    clear_rename_journal_entries,
     complete_enrichment_job_payload,
     count_active_by_source,
     count_active_by_source_and_media,
@@ -32,6 +34,7 @@ from backend.app.db.repositories.downloads import (
     load_task_store_payload,
     merge_task_payload,
     next_pending_task_payload,
+    open_rename_journal_entries,
     retry_enrichment_job_payload,
     save_history_row,
     save_history_rows,
@@ -46,12 +49,18 @@ from backend.app.db.repositories.formats import (
     save_learned_formats_payload,
     seeded_download_ids,
 )
-from backend.app.db.repositories.settings import load_settings_payload, save_settings_payload, settings_revision
+from backend.app.db.repositories.settings import (
+    load_settings_payload,
+    resolution_settings_revision,
+    save_settings_payload,
+)
 
 __all__ = [
     "add_source_cookie",
+    "begin_rename_journal_entry",
     "claim_next_enrichment_job_payload",
     "claim_pending_task_payload",
+    "clear_rename_journal_entries",
     "complete_enrichment_job_payload",
     "count_active_by_source",
     "count_active_by_source_and_media",
@@ -84,14 +93,15 @@ __all__ = [
     "load_task_store_payload",
     "merge_task_payload",
     "next_pending_task_payload",
+    "open_rename_journal_entries",
     "retry_enrichment_job_payload",
     "reorder_source_cookies",
+    "resolution_settings_revision",
     "save_history_row",
     "save_history_rows",
     "save_learned_formats_payload",
     "save_settings_payload",
     "seeded_download_ids",
-    "settings_revision",
     "source_activity_revision",
     "upsert_enrichment_job_payload",
 ]

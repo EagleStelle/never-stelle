@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from backend.app.db.repositories import (
+    begin_rename_journal_entry,
     claim_next_enrichment_job_payload,
     claim_pending_task_payload,
+    clear_rename_journal_entries,
     clear_seeded_downloads,
     complete_enrichment_job_payload,
     count_active_by_source,
@@ -31,11 +33,12 @@ from backend.app.db.repositories import (
     load_task_store_payload,
     merge_task_payload,
     next_pending_task_payload,
+    open_rename_journal_entries,
+    resolution_settings_revision,
     retry_enrichment_job_payload,
     save_history_row,
     save_history_rows,
     save_learned_formats_payload,
-    settings_revision,
     upsert_enrichment_job_payload,
 )
 from backend.app.db.repositories import (
@@ -176,13 +179,30 @@ def forget_seeded_downloads() -> None:
     clear_seeded_downloads()
 
 
+def open_renames() -> list[dict[str, str]]:
+    return open_rename_journal_entries()
+
+
+def begin_rename(task_id: str, old_path: str, new_path: str) -> None:
+    begin_rename_journal_entry(task_id, old_path, new_path)
+
+
+def finish_renames(task_ids: list[str]) -> None:
+    clear_rename_journal_entries(task_ids)
+
+
 def resolution_revision() -> str:
     """Marker of everything that decides how a file on disk resolves.
 
     A disk row records this alongside the file's own signature, so a rescan
     re-resolves a file when the rules improved, not merely because time passed.
+
+    Naming templates are deliberately absent: changing one does not change what a
+    file resolves *to*, only what it should be called, which the rename pass applies
+    directly from the stored fields. Keying re-resolution on them meant a template
+    edit re-derived (and re-probed) the whole library to arrive at the same answers.
     """
-    return f"{settings_revision()}|{learned_formats_revision()}"
+    return f"{resolution_settings_revision()}|{learned_formats_revision()}"
 
 
 def save_learned_formats(payload: dict[str, Any]) -> None:

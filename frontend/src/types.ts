@@ -387,6 +387,10 @@ export interface ScanMediaResponse {
   checked: number;
   missing: number;
   added: number;
+  unchanged: number;
+  renamed: number;
+  rename_failed: number;
+  needs_resolve: number;
 }
 
 export interface AuthSessionResponse {

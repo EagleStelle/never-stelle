@@ -557,6 +557,37 @@ def _render_template_stem(
     return apply_stem_limit(value, flags)
 
 
+def template_tokens(template: str) -> list[str]:
+    """The ``{{token}}`` names a template references, lowercased, in order.
+
+    ``{{ext}}`` is excluded: it is the extension the file already carries rather than
+    a field anything has to supply.
+    """
+    return [match.group(1).strip().lower() for match in TEMPLATE_RE.finditer(_template_stem(template))]
+
+
+def render_template_filename(
+    filename_template: str,
+    fields: dict[str, str],
+    *,
+    extension: str = "",
+    numbered_suffix: str = "",
+    cleaning: dict[str, Any] | None = None,
+    quality: dict[str, str] | None = None,
+) -> str:
+    """Render a filename straight from field values.
+
+    ``clean_template_filename`` tidies a name against the template it was already
+    written with, so it starts from the on-disk stem. Re-templating has no such stem
+    to trust (the whole point is that the shape changed), so it renders from the
+    fields instead and never reconciles an old name against a new shape.
+    """
+    stem = _render_template_stem(filename_template, fields, None, cleaning, quality)
+    if not stem:
+        return ""
+    return f"{stem}{numbered_suffix}{extension}"
+
+
 def _extra_tokens_change_fields(
     filename_template: str,
     fields: dict[str, str],

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,20 @@ from typing import Any
 from .constants import MEDIA_EXTENSIONS
 from .naming import strip_numbered_suffix
 from .store import update_task
+
+
+def payload_path_string(payload: dict[str, Any]) -> str:
+    """The on-disk path a task or history row points at.
+
+    Prefers the stored full path and falls back to folder+filename, which is all a
+    row carries when it was written before the full path was known.
+    """
+    full_path = str(payload.get("resolved_full_path") or "").strip()
+    if full_path:
+        return full_path
+    folder = str(payload.get("resolved_folder") or "").strip()
+    filename = str(payload.get("resolved_filename") or "").strip()
+    return os.path.join(folder, filename) if folder and filename else ""
 
 
 def extract_downloaded_path(line: str) -> str:
