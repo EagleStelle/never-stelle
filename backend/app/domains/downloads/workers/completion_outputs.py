@@ -39,6 +39,7 @@ from backend.app.domains.downloads.workers.completion_creators import (
 )
 from backend.app.domains.downloads.workers.completion_metadata import _filename_template
 from backend.app.domains.downloads.workers.completion_values import (
+    _clean_creator_candidate,
     _display_creator_candidate,
 )
 from backend.app.domains.downloads.workers.pathing import (
@@ -585,6 +586,19 @@ def _render_template_folder(
         return None
     return output_root.joinpath(*segments)
 
+def _placeholder_creator_escape(selected_path: Path, output_root: Path) -> Path | None:
+    """The output root, when the engine filed the download under a non-name.
+
+    A null folder token leaves the engine writing a literal "None" directory. Our
+    template renders nothing for that row, so the file stayed there, reading as though
+    that were the creator.
+    """
+    parent = selected_path.parent
+    if _path_key(parent.parent) != _path_key(output_root):
+        return None
+    return None if _clean_creator_candidate(parent.name) else output_root
+
+
 def _move_group_to_template_folder(
     selected_path: Path,
     output_root: Path,
@@ -600,6 +614,8 @@ def _move_group_to_template_folder(
     target_dir = _render_template_folder(
         output_root, template_settings, creator, media_id, nickname, extra_tokens, cleaning, quality
     )
+    if target_dir is None:
+        target_dir = _placeholder_creator_escape(selected_path, output_root)
     if target_dir is None or _path_key(selected_path.parent) == _path_key(target_dir):
         return selected_path
     try:

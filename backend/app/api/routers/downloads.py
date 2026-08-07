@@ -21,7 +21,12 @@ router = APIRouter(
 
 @router.get("")
 def list_downloads() -> dict[str, Any]:
-    return {"tasks": serializers.fetch_active_tasks(), **serializers.build_counts()}
+    return {
+        "tasks": serializers.fetch_active_tasks(),
+        **serializers.build_counts(),
+        # Rides the poll the client already runs, so no second endpoint or timer.
+        **serializers.library_activity(),
+    }
 
 
 @router.post("")

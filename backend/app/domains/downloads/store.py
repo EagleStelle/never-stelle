@@ -13,12 +13,12 @@ from backend.app.db.repositories import (
     count_active_by_source,
     count_active_by_source_and_media,
     count_active_download_tasks,
+    count_enrichment_jobs_payload,
     count_history_by_source,
     count_history_by_source_and_media,
-    count_history_resolve_flagged,
     count_history_rows,
-    count_pending_enrichment_jobs_payload,
     count_pending_tasks,
+    delete_enrichment_jobs_payload,
     delete_history_row,
     delete_task_row,
     delete_task_row_if_status,
@@ -26,6 +26,7 @@ from backend.app.db.repositories import (
     learned_formats_revision,
     load_active_task_store_payload,
     load_enrichment_jobs_payload,
+    load_failed_enrichment_job_ids,
     load_history_entries_by_media_id,
     load_history_entry_by_path,
     load_history_entry_payload,
@@ -59,6 +60,7 @@ from backend.app.db.repositories import (
 from backend.app.db.repositories import (
     sync_history_resolve_flags as sync_history_resolve_flag_rows,
 )
+from backend.app.domains.downloads.constants import ENRICHMENT_JOB_KINDS, enrichment_job_id
 
 
 def _normalize_task_store(raw: Any) -> dict[str, Any]:
@@ -138,10 +140,6 @@ def history_entry_ids() -> list[str]:
     return load_history_row_ids()
 
 
-def history_resolve_flagged_count() -> int:
-    return count_history_resolve_flagged()
-
-
 def history_entry_count() -> int:
     return count_history_rows()
 
@@ -172,7 +170,9 @@ def active_download_task_count() -> int:
 
 
 def pending_enrichment_job_count() -> int:
-    return count_pending_enrichment_jobs_payload()
+    # Pending only: a job stuck in 'running' from a dead process must not keep the
+    # worker thread alive forever.
+    return count_enrichment_jobs_payload(("pending",))
 
 
 def enqueue_enrichment_job(job_id: str, kind: str, payload: dict[str, Any]) -> None:
@@ -181,6 +181,14 @@ def enqueue_enrichment_job(job_id: str, kind: str, payload: dict[str, Any]) -> N
 
 def enqueue_enrichment_jobs(kind: str, rows: list[tuple[str, dict[str, Any]]]) -> int:
     return upsert_enrichment_jobs_payload(kind, rows)
+
+
+def spent_enrichment_job_ids() -> set[str]:
+    return load_failed_enrichment_job_ids()
+
+
+def unfinished_enrichment_job_count(kind: str) -> int:
+    return count_enrichment_jobs_payload(("pending", "running"), kind)
 
 
 def claim_next_enrichment_job() -> dict[str, Any] | None:
@@ -272,3 +280,5 @@ def remove_task_record_if_status(task_id: str, statuses: set[str]) -> bool:
 
 def remove_history_record(task_id: str) -> None:
     delete_history_row(task_id)
+    # A spent job outliving its row left the id unqueueable if the download came back.
+    delete_enrichment_jobs_payload([enrichment_job_id(kind, task_id) for kind in ENRICHMENT_JOB_KINDS])

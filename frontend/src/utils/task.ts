@@ -79,6 +79,13 @@ export function taskDetail(task: TaskItem): string {
   return String(task.source_url || task.vid || "").trim();
 }
 
+// A spent row is skipped by "Resolve Missing", so its own button is the only way back.
+export function resolveHint(task: TaskItem): string {
+  return task.resolve_failed
+    ? "Source did not supply the missing details. Try again"
+    : "Fetch info from source";
+}
+
 // Human-readable byte size, empty when unknown.
 export function formatSize(bytes: number): string {
   const value = Number(bytes) || 0;

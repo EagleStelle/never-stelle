@@ -94,10 +94,18 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   const countsByMediaMenu = computed(() => tasksQuery.data.value?.counts_by_media_menu || {});
   const tasksLoading = computed(() => tasksQuery.isPending.value);
   const tasksErrorMessage = computed(() => (tasksQuery.error.value ? errorMessage(tasksQuery.error.value, "Could not load tasks.") : ""));
-  const historyRefreshing = computed(() => scanMediaMutation.isPending.value);
-  const historyResolving = computed(
-    () => resolveScopeMutation.isPending.value || resolveMutation.isPending.value,
+  // Server-owned, so a reload rejoins a pass it did not start and the spinner stops when
+  // the work is done rather than when this tab's request returned.
+  const historyRefreshing = computed<boolean>(
+    () => scanMediaMutation.isPending.value || Boolean(tasksQuery.data.value?.scanning),
   );
+  const historyResolving = computed<boolean>(
+    () =>
+      resolveScopeMutation.isPending.value ||
+      resolveMutation.isPending.value ||
+      Number(tasksQuery.data.value?.resolving || 0) > 0,
+  );
+  const libraryBusy = computed<boolean>(() => historyRefreshing.value || historyResolving.value);
 
   const { pause: pausePolling, resume: resumePolling, isActive: pollingActive } = useIntervalFn(
     () => void loadTasks(true),
@@ -127,7 +135,14 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
 
   function syncPoll(tasks: TaskItem[]): void {
     const counts = countTasks(tasks);
-    const targetMs = counts.running > 0 ? POLL_RUNNING_MS : counts.queued > 0 ? POLL_PENDING_MS : 0;
+    // A scan or resolve keeps the poll awake on its own: both run with no task rows,
+    // and stopping would strand the spinner until something else woke it.
+    const targetMs =
+      counts.running > 0 || libraryBusy.value
+        ? POLL_RUNNING_MS
+        : counts.queued > 0
+          ? POLL_PENDING_MS
+          : 0;
     if (!targetMs || document.hidden) {
       pausePolling();
       return;
@@ -269,7 +284,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
       // Its own sentence, not part of the summary: it is work waiting on Resolve, not a result.
       const pending =
         result.needs_resolve > 0
-          ? ` ${result.needs_resolve} item${plural(result.needs_resolve)} need${pluralVerb(result.needs_resolve)} more info.`
+          ? ` ${result.needs_resolve} item${plural(result.needs_resolve)} need${pluralVerb(result.needs_resolve)} resolving.`
           : "";
       if (parts.length === 0) {
         toast(`History refreshed. Checked ${result.checked} file${plural(result.checked)}.${pending}`);
@@ -297,6 +312,9 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     resolveOpen.value = false;
     try {
       const result = await resolveMutation.mutateAsync({ scope });
+      // The POST only queues, so the poll has to be started here or the spinner would
+      // not appear until whatever tick happened to come next.
+      await loadTasks(true);
       toast(queuedMessage(result.queued));
     } catch (error) {
       toast(errorMessage(error, "Could not resolve history."), "error");
@@ -306,6 +324,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   async function resolveTask(taskId: string): Promise<void> {
     try {
       const result = await resolveMutation.mutateAsync({ task_ids: [taskId] });
+      await loadTasks(true);
       toast(queuedMessage(result.queued));
     } catch (error) {
       toast(errorMessage(error, "Could not resolve history."), "error");
@@ -322,10 +341,15 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   }
 
   watch(
-    rawTasks,
-    (tasks) => syncPoll(tasks),
+    [rawTasks, libraryBusy],
+    () => syncPoll(rawTasks.value),
     { immediate: true },
   );
+
+  // A finished pass has renamed rows, so the list they came from is stale.
+  watch(libraryBusy, (busy, wasBusy) => {
+    if (wasBusy && !busy) void loadTasks(true);
+  });
 
   useEventListener(document, "visibilitychange", handleVisibilityChange);
   onBeforeUnmount(() => pausePolling());
@@ -338,6 +362,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     confirmResolve,
     historyRefreshing,
     historyResolving,
+    libraryBusy,
     openResolveDialog,
     retryTask,
     playlistEntries,

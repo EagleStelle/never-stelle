@@ -12,6 +12,7 @@ from backend.app.domains.downloads.constants import (
     COMPLETION_JOB_KIND,
     FIELD_CANDIDATES,
     RESOLVE_JOB_KIND,
+    enrichment_job_id,
     field_roles_from_probe_fields,
     normalize_quality_selection,
 )
@@ -71,10 +72,6 @@ def _merge_probe_metadata(sidecar: dict[str, str], probed: dict[str, str]) -> di
     return merged
 
 
-def _job_id(task_id: str) -> str:
-    return f"{COMPLETION_JOB_KIND}:{task_id}"
-
-
 def enqueue_completion_enrichment(
     task_id: str,
     *,
@@ -100,7 +97,7 @@ def enqueue_completion_enrichment(
         "needs_metadata_probe": bool(needs_metadata_probe),
         "needs_field_probe": bool(needs_field_probe),
     }
-    enqueue_enrichment_job(_job_id(task_id), COMPLETION_JOB_KIND, payload)
+    enqueue_enrichment_job(enrichment_job_id(COMPLETION_JOB_KIND, task_id), COMPLETION_JOB_KIND, payload)
     ensure_enrichment_worker()
 
 
@@ -129,10 +126,18 @@ def _downloads_active() -> bool:
     return active_download_task_count() > 0
 
 
+def _library_busy() -> bool:
+    # A scan renames the same files and rewrites the same rows, so a job that ran
+    # alongside one could have its result overwritten by that scan's snapshot.
+    from backend.app.domains.downloads.scan import scan_in_progress
+
+    return _downloads_active() or scan_in_progress()
+
+
 def _enrichment_loop() -> None:
     while True:
         try:
-            if _downloads_active():
+            if _library_busy():
                 _wait(_IDLE_SLEEP_SECONDS)
                 continue
             job = claim_next_enrichment_job()
@@ -140,7 +145,7 @@ def _enrichment_loop() -> None:
                 if _stop_worker_if_drained():
                     return
                 continue
-            if _downloads_active():
+            if _library_busy():
                 retry_enrichment_job(str(job.get("id") or ""), "", max_attempts=_MAX_ATTEMPTS)
                 _wait(_IDLE_SLEEP_SECONDS)
                 continue

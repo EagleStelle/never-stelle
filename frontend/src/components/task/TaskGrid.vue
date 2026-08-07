@@ -19,6 +19,7 @@ import SourcePicker from "@/components/task/SourcePicker.vue";
 import { taskFileUrl } from "@/api";
 import type { SourceProfile, TaskItem } from "@/types";
 import {
+  resolveHint,
   sourceIconUrl,
   sourceLink,
   taskProgressState,
@@ -105,8 +106,9 @@ function hasActions(task: TaskItem): boolean {
             v-if="canResolve(task)"
             variant="primary"
             type="button"
-            aria-label="Fetch info from source"
-            title="Fetch info from source"
+            :aria-label="resolveHint(task)"
+            :title="resolveHint(task)"
+            :data-resolve-failed="task.resolve_failed || undefined"
             @click="emit('resolve', task.vid)"
           >
             <template #icon>

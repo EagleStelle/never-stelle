@@ -5,23 +5,38 @@ from typing import Any
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
-from backend.app.domains.settings import get_effective_fields, is_scraper_field
+from backend.app.domains.settings import (
+    detect_cookie_source,
+    get_effective_fields,
+    get_effective_template_settings,
+    is_scraper_field,
+    load_scrape_rules,
+    load_slug_tokens,
+    load_token_roles,
+)
 
-from .constants import CREATOR_FIELDS, RESOLVE_JOB_KIND, ResolveScope
+from .constants import CREATOR_FIELDS, RESOLVE_JOB_KIND, ResolveScope, enrichment_job_id
 from .formats import reconstruct_url_candidates
 from .rename import apply_history_renames, entry_token_state, plan_history_renames
-from .scan import _MAX_PROBE_CANDIDATES, _clean_probe_value, probe_metadata_anonymous_first
+from .scan import (
+    _MAX_PROBE_CANDIDATES,
+    _clean_probe_value,
+    history_write_lock,
+    probe_metadata_anonymous_first,
+)
 from .store import (
     clear_history_resolve_flags,
     enqueue_enrichment_jobs,
     history_entry_count,
     history_entry_ids,
-    history_resolve_flagged_count,
     history_resolve_flagged_ids,
     load_history_entry,
     load_learned_formats,
     save_history_entry_row,
+    spent_enrichment_job_ids,
+    unfinished_enrichment_job_count,
 )
+from .urls import detect_source_key
 from .workers.enrichment import ensure_enrichment_worker
 
 # Tokens with no column of their own ride in the encoding blob.
@@ -51,9 +66,49 @@ def _probe_entry(entry: dict[str, Any]) -> tuple[dict[str, str], str]:
     return {}, ""
 
 
-def _token_value(token: str, metadata: dict[str, str], order: dict[str, list[str]]) -> str:
+def _configured_tokens(entry: dict[str, Any], source_url: str, order: dict[str, list[str]]) -> dict[str, str]:
+    """Slug and scraper values for one row, the same way a download resolves them.
+
+    Both return {} without fetching when the source configures no rules.
+    """
+    from .enrich import resolve_scraped_tokens, resolve_slug_tokens
+
+    source_key = normalize_source_key(entry.get("source_key")) or detect_source_key(source_url)
+    template_settings = get_effective_template_settings(source_url)
+    token_roles = load_token_roles()
+    tokens = resolve_slug_tokens(
+        source_url, source_key, template_settings, load_slug_tokens(), token_roles, order
+    )
+    # Scraper HTML wins on a collision, matching the download path.
+    tokens.update(
+        resolve_scraped_tokens(
+            source_url,
+            source_key,
+            template_settings,
+            load_scrape_rules(),
+            token_roles,
+            normalize_source_key(entry.get("source_key")) or detect_cookie_source(source_url),
+            order,
+            load_learned_formats(),
+        )
+    )
+    return tokens
+
+
+def _token_value(
+    token: str,
+    metadata: dict[str, str],
+    order: dict[str, list[str]],
+    configured: dict[str, str],
+) -> str:
+    # A configured scraper/slug rule is an explicit instruction, so it outranks whatever
+    # the probe happened to return, exactly as it does during a download.
+    value = _clean_probe_value(configured.get(token, ""))
+    if value:
+        return value
     role = token if token in CREATOR_FIELDS or token == "title" else ""
     for field in (*(order.get(role) or ()), token):
+        # Scraper fields name a rule, not a metadata key; they arrive via ``configured``.
         if is_scraper_field(field):
             continue
         value = _clean_probe_value(metadata.get(field, ""))
@@ -101,29 +156,59 @@ def resolve_history_entry(task_id: str, *, force: bool = False) -> bool:
             return False
 
         metadata, matched_url = _probe_entry(entry)
-        if not metadata:
+        source_url = str(entry.get("source_url") or matched_url)
+        order = get_effective_fields(source_url)
+        # Configured rules can name a token the probe never carries, so a source that
+        # answers nothing is only dead once those come back empty too.
+        configured = _configured_tokens(entry, source_url, order)
+        if not metadata and not configured:
             raise LookupError(f"Nothing answered for {task_id}.")
 
-        order = get_effective_fields(str(entry.get("source_url") or matched_url))
-        filled = {token: value for token in wanted if (value := _token_value(token, metadata, order))}
+        filled = {
+            token: value for token in wanted if (value := _token_value(token, metadata, order, configured))
+        }
         if not filled:
             raise LookupError(f"Probe supplied none of {', '.join(wanted)} for {task_id}.")
 
         updated = _filled_entry(entry, filled, matched_url)
-        save_history_entry_row(task_id, updated)
-        plans, _ = plan_history_renames({str(task_id): updated})
-        apply_history_renames(plans)
+        # The probe is done; from here on this is the same rename a scan does, so it
+        # takes the same lock. A scan planning from a snapshot would otherwise write
+        # its pre-probe copy of this row back over the values just found.
+        with history_write_lock():
+            save_history_entry_row(task_id, updated)
+            plans, _ = plan_history_renames({str(task_id): updated})
+            apply_history_renames(plans)
         return True
 
 
+def _flagged_worklist() -> list[str]:
+    """Flagged rows whose retries are not spent: the one definition of a flagged pass.
+
+    The count and the pass both read it, so the offered number is what will queue.
+    """
+    spent = spent_enrichment_job_ids()
+    return [
+        task_id
+        for task_id in history_resolve_flagged_ids()
+        if enrichment_job_id(RESOLVE_JOB_KIND, task_id) not in spent
+    ]
+
+
 def resolve_scope_counts() -> dict[str, int]:
-    return {"flagged": history_resolve_flagged_count(), "total": history_entry_count()}
+    return {"flagged": len(_flagged_worklist()), "total": history_entry_count()}
+
+
+def resolve_in_progress() -> int:
+    return unfinished_enrichment_job_count(RESOLVE_JOB_KIND)
 
 
 def enqueue_resolve(task_ids: list[str], *, force: bool = False) -> int:
     queued = enqueue_enrichment_jobs(
         RESOLVE_JOB_KIND,
-        [(f"{RESOLVE_JOB_KIND}:{task_id}", {"task_id": task_id, "force": force}) for task_id in task_ids],
+        [
+            (enrichment_job_id(RESOLVE_JOB_KIND, task_id), {"task_id": task_id, "force": force})
+            for task_id in task_ids
+        ],
     )
     if queued:
         ensure_enrichment_worker()
@@ -134,10 +219,11 @@ def start_resolve(scope: ResolveScope = "flagged", task_ids: list[str] | None = 
     """Queue a resolve pass and return how many rows it will probe.
 
     ``task_ids`` wins over ``scope`` and forces: clicking one row is deliberate, and that
-    row is usually one the templates can already name.
+    row is usually one the templates can already name. Forcing skips the backoff, so it
+    is also the way back for a spent row.
     """
     if task_ids:
         return enqueue_resolve([str(task_id) for task_id in task_ids], force=True)
     if scope == "all":
         return enqueue_resolve(history_entry_ids(), force=True)
-    return enqueue_resolve(history_resolve_flagged_ids())
+    return enqueue_resolve(_flagged_worklist())

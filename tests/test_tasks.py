@@ -4434,3 +4434,42 @@ def test_seeded_learning_reads_only_the_download_that_was_added(
 
     # Only the new download is analyzed; the one already folded in is not re-read.
     assert analyzed == ["https://example.test/@other/video/2"]
+
+
+@pytest.mark.parametrize("placeholder", ["None", "unknown"])
+def test_a_download_filed_under_a_placeholder_creator_moves_to_the_root(tmp_path: Path, placeholder: str):
+    # The engine's own folder token came back null, so it invented a directory.
+    stranded = tmp_path / placeholder
+    stranded.mkdir()
+    path = stranded / "Clip [abc123].mp4"
+    path.write_bytes(b"video")
+
+    final_path = completion_module._move_group_to_template_folder(
+        path,
+        tmp_path,
+        {"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"},
+        "",
+        "abc123",
+    )
+
+    assert final_path == tmp_path / path.name
+    assert final_path.is_file()
+    assert not stranded.exists()
+
+
+def test_a_real_creator_folder_is_left_alone(tmp_path: Path):
+    kept = tmp_path / "Creator"
+    kept.mkdir()
+    path = kept / "Clip [abc123].mp4"
+    path.write_bytes(b"video")
+
+    final_path = completion_module._move_group_to_template_folder(
+        path,
+        tmp_path,
+        {"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"},
+        "",
+        "abc123",
+    )
+
+    assert final_path == path
+    assert path.is_file()

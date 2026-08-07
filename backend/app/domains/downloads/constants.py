@@ -62,6 +62,12 @@ CREATOR_FIELDS = {"username", "nickname"}
 # history row for the template tokens nothing on hand can supply.
 COMPLETION_JOB_KIND = "completion"
 RESOLVE_JOB_KIND = "resolve"
+ENRICHMENT_JOB_KINDS = (COMPLETION_JOB_KIND, RESOLVE_JOB_KIND)
+
+
+def enrichment_job_id(kind: str, task_id: str) -> str:
+    return f"{kind}:{task_id}"
+
 
 # How wide a resolve pass reaches. 'flagged' is the rows the templates cannot name;
 # 'all' is the deliberate full re-probe.

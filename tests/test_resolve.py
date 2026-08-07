@@ -12,10 +12,12 @@ from backend.app.domains.downloads.constants import RESOLVE_JOB_KIND
 from backend.app.domains.downloads.serializers import history_to_api
 from backend.app.domains.downloads.store import (
     claim_next_enrichment_job,
-    history_resolve_flagged_count,
+    enqueue_enrichment_job,
+    history_resolve_flagged_ids,
     load_enrichment_jobs,
     load_history,
     load_history_entry,
+    remove_history_record,
     save_history_entry_row,
     sync_history_resolve_flags,
 )
@@ -91,7 +93,7 @@ def test_refresh_flags_a_row_the_template_cannot_name(tmp_path: Path, monkeypatc
     _seed(tmp_path)
 
     assert _refresh(load_history()["entries"]) == ["gallerydl:1"]
-    assert history_resolve_flagged_count() == 1
+    assert len(history_resolve_flagged_ids()) == 1
     assert load_history_entry("gallerydl:1")["needs_resolve"] is True
     # The button is offered on every completed row; the flag only decides the default scope.
     assert history_to_api("gallerydl:1", load_history_entry("gallerydl:1"))["can_resolve"] is True
@@ -102,7 +104,7 @@ def test_refresh_clears_the_flag_once_the_row_can_be_named(tmp_path: Path, monke
     _pin_template(monkeypatch)
     _seed(tmp_path)
     _refresh(load_history()["entries"])
-    assert history_resolve_flagged_count() == 1
+    assert len(history_resolve_flagged_ids()) == 1
 
     # The creator arrives from somewhere else; the template is satisfiable now.
     entry = load_history_entry("gallerydl:1")
@@ -110,7 +112,7 @@ def test_refresh_clears_the_flag_once_the_row_can_be_named(tmp_path: Path, monke
     save_history_entry_row("gallerydl:1", entry)
     _refresh(load_history()["entries"])
 
-    assert history_resolve_flagged_count() == 0
+    assert len(history_resolve_flagged_ids()) == 0
     # Still offered per row: a satisfied row is re-probed only if the user asks for it.
     assert history_to_api("gallerydl:1", load_history_entry("gallerydl:1"))["can_resolve"] is True
 
@@ -121,7 +123,7 @@ def test_a_satisfiable_row_is_never_flagged(tmp_path: Path, monkeypatch: pytest.
     _seed(tmp_path, creator="Creator")
 
     assert _refresh(load_history()["entries"]) == []
-    assert history_resolve_flagged_count() == 0
+    assert len(history_resolve_flagged_ids()) == 0
 
 
 def test_the_scan_persists_the_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -135,7 +137,7 @@ def test_the_scan_persists_the_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     result = scan_module.scan_media_library([media_root])
 
     assert result["needs_resolve"] == 1
-    assert history_resolve_flagged_count() == 1
+    assert len(history_resolve_flagged_ids()) == 1
 
 
 def test_resolve_queues_nothing_when_nothing_is_flagged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -223,7 +225,7 @@ def test_resolve_rechecks_at_probe_time_and_never_probes_a_satisfied_row(
 
     assert resolve_module.resolve_history_entry("gallerydl:1") is False
     assert calls == []
-    assert history_resolve_flagged_count() == 0
+    assert len(history_resolve_flagged_ids()) == 0
 
 
 def test_resolve_probes_anonymously_before_using_cookies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -277,6 +279,85 @@ def test_a_link_that_never_answers_stops_being_probed(tmp_path: Path, monkeypatc
     assert len(calls) == probes_so_far
 
 
+def _spend_the_retries(task_id: str = "gallerydl:1") -> None:
+    """Run the flagged pass until its job has spent every attempt and is marked failed."""
+    resolve_module.start_resolve()
+    for _ in range(enrichment_module._MAX_ATTEMPTS):
+        job = claim_next_enrichment_job()
+        assert job is not None
+        enrichment_module._process_enrichment_job(job)
+    assert [(job["id"], job["status"]) for job in load_enrichment_jobs()] == [(f"resolve:{task_id}", "failed")]
+
+
+def test_a_spent_row_stops_being_offered_by_the_flagged_count(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {})
+    _spend_the_retries()
+
+    # The flag stays; the count follows the pass, which would queue nothing.
+    assert len(history_resolve_flagged_ids()) == 1
+    assert resolve_module.resolve_scope_counts() == {"flagged": 0, "total": 1}
+
+
+def test_forcing_one_row_hands_back_its_spent_retries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {})
+    _spend_the_retries()
+
+    assert resolve_module.start_resolve(task_ids=["gallerydl:1"]) == 1
+    jobs = load_enrichment_jobs()
+    # A fresh budget, not a job that fails again on its first claim.
+    assert [(job["status"], job["attempts"]) for job in jobs] == [("pending", 0)]
+
+    _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
+    job = claim_next_enrichment_job()
+    assert job is not None
+    enrichment_module._process_enrichment_job(job)
+
+    assert load_history_entry("gallerydl:1")["creator"] == "Creator"
+    assert len(history_resolve_flagged_ids()) == 0
+    assert load_enrichment_jobs() == []
+
+
+def test_resolving_everything_hands_back_spent_retries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {})
+    _spend_the_retries()
+
+    assert resolve_module.start_resolve("all") == 1
+    assert [(job["status"], job["attempts"]) for job in load_enrichment_jobs()] == [("pending", 0)]
+
+
+def test_requeueing_an_unspent_job_keeps_the_attempts_it_has_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {})
+
+    resolve_module.start_resolve()
+    assert claim_next_enrichment_job() is not None
+
+    # Resetting an in-flight job would let repeated clicks retry a dead link forever.
+    assert resolve_module.start_resolve("all") == 1
+    assert [(job["status"], job["attempts"]) for job in load_enrichment_jobs()] == [("pending", 1)]
+
+
 def test_the_worker_routes_a_resolve_job_to_the_resolver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
@@ -315,3 +396,198 @@ def test_resolve_scope_counts_report_both_choices(tmp_path: Path, monkeypatch: p
     _refresh(load_history()["entries"])
 
     assert resolve_module.resolve_scope_counts() == {"flagged": 1, "total": 2}
+
+
+def test_a_spent_row_says_so_on_its_own_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {})
+
+    assert history_to_api("gallerydl:1", load_history_entry("gallerydl:1"))["resolve_failed"] is False
+    _spend_the_retries()
+    # It drops out of the flagged count, so the row itself must carry the reason.
+    assert history_to_api("gallerydl:1", load_history_entry("gallerydl:1"))["resolve_failed"] is True
+
+
+def test_requeueing_a_spent_completion_job_hands_back_its_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    use_temp_db(tmp_path, monkeypatch)
+    enqueue_enrichment_job("completion:gallerydl:1", "completion", {"task_id": "gallerydl:1"})
+    for _ in range(enrichment_module._MAX_ATTEMPTS):
+        job = claim_next_enrichment_job()
+        assert job is not None
+        enrichment_module.retry_enrichment_job(str(job["id"]), "boom", max_attempts=enrichment_module._MAX_ATTEMPTS)
+    assert [job["status"] for job in load_enrichment_jobs()] == ["failed"]
+
+    enqueue_enrichment_job("completion:gallerydl:1", "completion", {"task_id": "gallerydl:1"})
+
+    # Without the reset it came back at its ceiling and failed on first claim.
+    assert [(job["status"], job["attempts"]) for job in load_enrichment_jobs()] == [("pending", 0)]
+
+
+def test_deleting_a_history_row_takes_its_jobs_with_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {})
+    _spend_the_retries()
+
+    remove_history_record("gallerydl:1")
+
+    # A spent job outliving its row made the id unqueueable if it came back.
+    assert load_enrichment_jobs() == []
+
+
+def _configured(monkeypatch: pytest.MonkeyPatch, *, slug: dict | None = None, scraped: dict | None = None):
+    import backend.app.domains.downloads.enrich as enrich_module
+
+    monkeypatch.setattr(enrich_module, "resolve_slug_tokens", lambda *a, **k: dict(slug or {}))
+    monkeypatch.setattr(enrich_module, "resolve_scraped_tokens", lambda *a, **k: dict(scraped or {}))
+
+
+def test_a_slug_token_resolves_a_row_the_probe_cannot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    path, _row_payload = _seed(tmp_path)
+    _refresh(load_history()["entries"])
+    # The source answers, but carries no username: the case that used to be a dead end.
+    _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"title": "Clip"}})
+    _configured(monkeypatch, slug={"username": "SlugCreator"})
+
+    assert resolve_module.resolve_history_entry("gallerydl:1") is True
+
+    assert load_history_entry("gallerydl:1")["creator"] == "SlugCreator"
+    assert path.with_name("SlugCreator - Clip [abc123].mp4").is_file()
+
+
+def test_a_scraper_rule_outranks_the_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "FromProbe"}})
+    _configured(monkeypatch, slug={"username": "FromSlug"}, scraped={"username": "FromScraper"})
+
+    assert resolve_module.resolve_history_entry("gallerydl:1") is True
+
+    assert load_history_entry("gallerydl:1")["creator"] == "FromScraper"
+
+
+def test_a_source_that_answers_nothing_still_resolves_from_its_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {})
+    _configured(monkeypatch, scraped={"username": "FromScraper"})
+
+    assert resolve_module.resolve_history_entry("gallerydl:1") is True
+    assert load_history_entry("gallerydl:1")["creator"] == "FromScraper"
+
+
+def test_nothing_answering_and_no_rules_is_still_a_dead_link(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {})
+    _configured(monkeypatch)
+
+    with pytest.raises(LookupError):
+        resolve_module.resolve_history_entry("gallerydl:1")
+
+
+def test_activity_reports_queued_resolves_until_they_finish(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
+
+    assert resolve_module.resolve_in_progress() == 0
+    resolve_module.start_resolve()
+    # Queued but not run: the client that reloads still has to see the pass.
+    assert resolve_module.resolve_in_progress() == 1
+
+    job = claim_next_enrichment_job()
+    assert job is not None
+    assert resolve_module.resolve_in_progress() == 1
+    enrichment_module._process_enrichment_job(job)
+
+    assert resolve_module.resolve_in_progress() == 0
+
+
+def test_a_spent_resolve_is_not_reported_as_still_running(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {})
+    _spend_the_retries()
+
+    # Failed rows stay in the table; counting them would spin the UI forever.
+    assert resolve_module.resolve_in_progress() == 0
+
+
+def test_resolve_holds_the_history_lock_while_it_rewrites_the_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
+
+    held: list[bool] = []
+    original = resolve_module.save_history_entry_row
+
+    def spy(task_id: str, entry: dict) -> None:
+        held.append(scan_module.scan_in_progress())
+        original(task_id, entry)
+
+    monkeypatch.setattr(resolve_module, "save_history_entry_row", spy)
+
+    assert resolve_module.resolve_history_entry("gallerydl:1") is True
+    # A scan planning from a snapshot would otherwise revert this write.
+    assert held == [True]
+    assert scan_module.scan_in_progress() is False
+
+
+def test_the_probe_runs_outside_the_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    _refresh(load_history()["entries"])
+    seen: list[bool] = []
+
+    def probe(url: str, *, with_cookies: bool = False) -> dict[str, str]:
+        seen.append(scan_module.scan_in_progress())
+        return {"uploader": "Creator"}
+
+    monkeypatch.setattr(scan_module, "_scan_probe_metadata", probe)
+    monkeypatch.setattr(resolve_module, "load_learned_formats", dict)
+    monkeypatch.setattr(resolve_module, "get_effective_fields", lambda source_url="": {"username": ["uploader"]})
+
+    assert resolve_module.resolve_history_entry("gallerydl:1") is True
+    # Holding the lock across a network round-trip would stall every refresh behind it.
+    assert seen and not any(seen)
+
+
+def test_the_enrichment_worker_stands_down_during_a_scan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(enrichment_module, "active_download_task_count", lambda: 0)
+
+    assert enrichment_module._library_busy() is False
+    with scan_module.history_write_lock():
+        assert enrichment_module._library_busy() is True
+    assert enrichment_module._library_busy() is False

@@ -469,49 +469,69 @@ def count_active_download_tasks() -> int:
     return int(row[0] or 0)
 
 
-def count_pending_enrichment_jobs_payload() -> int:
+def count_enrichment_jobs_payload(statuses: tuple[str, ...], kind: str = "") -> int:
+    """Jobs in the given states, optionally of one kind.
+
+    A finished job is deleted and a spent one is 'failed', so neither is ever counted.
+    """
+    clauses = [f"status IN ({', '.join('?' for _ in statuses)})"]
+    params: list[str] = list(statuses)
+    if kind:
+        clauses.append("kind = ?")
+        params.append(str(kind))
     with transaction() as connection:
         row = connection.execute(
-            "SELECT COUNT(*) FROM download_enrichment_jobs WHERE status = 'pending'"
+            f"SELECT COUNT(*) FROM download_enrichment_jobs WHERE {' AND '.join(clauses)}",
+            tuple(params),
         ).fetchone()
     return int(row[0] or 0)
 
 
-def upsert_enrichment_job_payload(job_id: str, kind: str, payload: dict[str, Any]) -> None:
-    now = utc_now()
-    job_id = str(job_id or "").strip()
-    if not job_id:
-        raise ValueError("Enrichment job id is required.")
+def load_failed_enrichment_job_ids() -> set[str]:
+    """Ids whose jobs spent their retries."""
     with transaction() as connection:
-        connection.execute(
-            _ENRICHMENT_INSERT_SQL,
-            (job_id, str(kind or "completion"), _encode(payload if isinstance(payload, dict) else {}), now, now),
-        )
+        rows = connection.execute("SELECT id FROM download_enrichment_jobs WHERE status = 'failed'").fetchall()
+    return {str(row["id"]) for row in rows}
 
 
 def upsert_enrichment_jobs_payload(kind: str, rows: list[tuple[str, dict[str, Any]]]) -> int:
-    """Queue many jobs of one kind, skipping ids that already spent their retries.
+    """Queue many jobs of one kind, each on a fresh attempt budget.
 
-    Re-queueing a job whose URL is known dead would probe it again on every run.
+    Dropping a spent row rather than flipping it to pending is what resets its
+    attempts. Whether a spent id belongs in ``rows`` is the caller's backoff to apply.
     """
     if not rows:
         return 0
     now = utc_now()
+    prepared = [
+        (str(job_id), str(kind or "completion"), _encode(payload if isinstance(payload, dict) else {}), now, now)
+        for job_id, payload in rows
+        if str(job_id or "").strip()
+    ]
+    if not prepared:
+        return 0
     with transaction() as connection:
-        spent = {
-            str(row["id"])
-            for row in connection.execute(
-                "SELECT id FROM download_enrichment_jobs WHERE status = 'failed'"
-            ).fetchall()
-        }
-        prepared = [
-            (job_id, str(kind or "completion"), _encode(payload if isinstance(payload, dict) else {}), now, now)
-            for job_id, payload in rows
-            if str(job_id or "").strip() and str(job_id) not in spent
-        ]
-        if prepared:
-            connection.executemany(_ENRICHMENT_INSERT_SQL, prepared)
+        connection.executemany(
+            "DELETE FROM download_enrichment_jobs WHERE id = ? AND status = 'failed'",
+            [(job[0],) for job in prepared],
+        )
+        connection.executemany(_ENRICHMENT_INSERT_SQL, prepared)
     return len(prepared)
+
+
+def upsert_enrichment_job_payload(job_id: str, kind: str, payload: dict[str, Any]) -> None:
+    job_id = str(job_id or "").strip()
+    if not job_id:
+        raise ValueError("Enrichment job id is required.")
+    upsert_enrichment_jobs_payload(kind, [(job_id, payload)])
+
+
+def delete_enrichment_jobs_payload(job_ids: list[str]) -> None:
+    rows = [(str(job_id),) for job_id in job_ids if str(job_id or "").strip()]
+    if not rows:
+        return
+    with transaction() as connection:
+        connection.executemany("DELETE FROM download_enrichment_jobs WHERE id = ?", rows)
 
 
 def claim_next_enrichment_job_payload() -> dict[str, Any] | None:
@@ -782,12 +802,6 @@ def load_history_row_ids() -> list[str]:
             "SELECT id FROM download_history ORDER BY created_at DESC, id DESC"
         ).fetchall()
     return [str(row["id"]) for row in rows]
-
-
-def count_history_resolve_flagged() -> int:
-    with transaction() as connection:
-        row = connection.execute("SELECT COUNT(*) FROM download_history WHERE needs_resolve = 1").fetchone()
-    return int(row[0] or 0)
 
 
 def count_history_rows() -> int:

@@ -13,6 +13,7 @@ const {
   countCards,
   historyRefreshing,
   historyResolving,
+  libraryBusy,
   openResolveDialog,
   refreshHistory,
 } = useDashboard();
@@ -32,7 +33,7 @@ const isMobile = useIsMobile();
         size="sm"
         title="Refresh history"
         aria-label="Refresh history"
-        :disabled="historyRefreshing"
+        :disabled="libraryBusy"
         @click="refreshHistory"
       >
         <template #icon>
@@ -50,7 +51,7 @@ const isMobile = useIsMobile();
         size="sm"
         title="Resolve history"
         aria-label="Resolve history"
-        :disabled="historyResolving"
+        :disabled="libraryBusy"
         @click="openResolveDialog"
       >
         <template #icon>

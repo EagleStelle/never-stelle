@@ -330,6 +330,7 @@ export interface TaskItem {
   error: string;
   can_download: boolean;
   can_resolve?: boolean;
+  resolve_failed?: boolean;
   quality?: QualitySelection;
   external?: boolean;
   external_backend?: string;
@@ -346,6 +347,8 @@ export interface TaskCounts {
 
 export interface TasksResponse {
   tasks: TaskItem[];
+  scanning?: number;
+  resolving?: number;
   counts?: TaskCounts;
   counts_by_menu?: Partial<Record<string, TaskCounts>>;
   counts_by_media_menu?: Partial<Record<MediaFilter, Partial<Record<string, TaskCounts>>>>;

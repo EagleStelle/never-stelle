@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 import re
 import threading
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,24 @@ from .store import (
 
 _scan_lock = threading.Lock()
 _HISTORY_WRITE_BATCH = 200
+
+
+def scan_in_progress() -> bool:
+    """Whether a scan holds the lock, so a reload can show the pass it did not start."""
+    return _scan_lock.locked()
+
+
+@contextmanager
+def history_write_lock() -> Iterator[None]:
+    """Held by whoever is renaming files and rewriting the rows that name them.
+
+    A scan plans from a snapshot, so a row rewritten between the snapshot and the write
+    is silently reverted. Resolve takes this around its own write for that reason, and
+    holds it only for the rewrite, never across a probe.
+    """
+    with _scan_lock:
+        yield
+
 
 FILENAME_ID_RE = re.compile(r"^(.*) \[([A-Za-z0-9_-]+)\](?:_\d+)?$")
 UNRECOVERABLE_MEDIA_IDS = {"", "na", "n-a", "n/a", "none", "null", "unknown"}

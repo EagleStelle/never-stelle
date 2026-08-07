@@ -11,7 +11,13 @@ from backend.app.core.sources import normalize_source_key
 from backend.app.domains.settings import get_effective_source_profiles, get_effective_title_cleaning
 from backend.app.integrations.swaratelle import client as swaratelle
 
-from .constants import STATUS_LABELS, STATUS_ORDER, normalize_quality_selection
+from .constants import (
+    RESOLVE_JOB_KIND,
+    STATUS_LABELS,
+    STATUS_ORDER,
+    enrichment_job_id,
+    normalize_quality_selection,
+)
 from .files import recover_task_path
 from .naming import clean_template_display_filename
 from .scan import parse_filename_media_id
@@ -24,6 +30,7 @@ from .store import (
     load_history,
     load_history_entries_page,
     load_task_store,
+    spent_enrichment_job_ids,
 )
 from .templates import template_settings_from_columns
 from .urls import detect_source_key
@@ -105,6 +112,7 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
         # Any completed row can be re-probed on demand; the queue is what is only
         # spent on rows that need it. Active rows have nothing to resolve yet.
         "can_resolve": status == "completed",
+        "resolve_failed": bool(task.get("resolve_failed")),
         "quality": quality,
         "external": bool(task.get("external")),
         "external_backend": str(task.get("external_backend") or ""),
@@ -113,7 +121,13 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
     }
 
 
-def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
+def history_to_api(
+    task_id: str,
+    entry: dict[str, Any],
+    spent_resolves: set[str] | None = None,
+) -> dict[str, Any]:
+    # Callers listing many rows pass the set, so a page costs one query, not one per row.
+    spent = spent_enrichment_job_ids() if spent_resolves is None else spent_resolves
     task = {
         "source_url": entry.get("source_url", ""),
         "status": "completed",
@@ -136,6 +150,8 @@ def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "external_backend": entry.get("external_backend", ""),
         "created_at": entry.get("created_at", ""),
         "updated_at": entry.get("updated_at", ""),
+        "resolve_failed": bool(entry.get("needs_resolve"))
+        and enrichment_job_id(RESOLVE_JOB_KIND, str(task_id)) in spent,
     }
     return task_to_api(task_id, task, resolve_files=False)
 
@@ -146,10 +162,11 @@ def fetch_tasks() -> list[dict[str, Any]]:
     for task_id, task in (load_task_store().get("tasks") or {}).items():
         tasks.append(task_to_api(task_id, task))
         seen.add(str(task_id))
+    spent = spent_enrichment_job_ids()
     for task_id, entry in (load_history().get("entries") or {}).items():
         if str(task_id) in seen:
             continue
-        tasks.append(history_to_api(task_id, entry))
+        tasks.append(history_to_api(task_id, entry, spent))
     tasks.sort(key=lambda task: (STATUS_ORDER.get(task["status"], 99), task["vid"]))
     return tasks
 
@@ -239,10 +256,11 @@ def _history_sort_key(task: dict[str, Any]) -> tuple[float, str]:
 
 def _local_history_candidates(cursor: str, limit: int, search: str) -> list[HistoryCandidate]:
     rows = load_history_entries_page(limit + 1, _decode_local_history_cursor(cursor), "", search)
+    spent = spent_enrichment_job_ids()
     candidates: list[HistoryCandidate] = []
     for row in rows:
         task_id, entry, _created_at = row
-        task = history_to_api(task_id, entry)
+        task = history_to_api(task_id, entry, spent)
         candidates.append(
             (
                 _history_sort_key(task),
@@ -274,7 +292,8 @@ def _swaratelle_history_candidates(cursor: str, limit: int, search: str) -> list
 def _fetch_local_history_page(cursor: str, limit: int, source_key: str, search: str) -> dict[str, Any]:
     rows = load_history_entries_page(limit + 1, _decode_local_history_cursor(cursor), source_key, search)
     page_rows = rows[:limit]
-    entries = [history_to_api(task_id, entry) for task_id, entry, _ in page_rows]
+    spent = spent_enrichment_job_ids()
+    entries = [history_to_api(task_id, entry, spent) for task_id, entry, _ in page_rows]
     result: dict[str, Any] = {"entries": entries}
     if len(rows) > limit and page_rows:
         result["next_cursor"] = _local_history_cursor_for_row(page_rows[-1])
@@ -386,6 +405,18 @@ def build_counts() -> dict[str, Any]:
         }
         by_media_menu[media] = media_by_menu
     return {"counts": totals, "counts_by_menu": by_menu, "counts_by_media_menu": by_media_menu}
+
+
+def library_activity() -> dict[str, int]:
+    """What is still running, read from the server rather than from whoever started it.
+
+    Rides the task poll the client already runs, so a reload rejoins a pass it did not
+    start and the spinner clears when the work is done, not when a request returned.
+    """
+    from .resolve import resolve_in_progress
+    from .scan import scan_in_progress
+
+    return {"scanning": int(scan_in_progress()), "resolving": resolve_in_progress()}
 
 
 def count_tasks(tasks: list[dict[str, Any]]) -> dict[str, int]:

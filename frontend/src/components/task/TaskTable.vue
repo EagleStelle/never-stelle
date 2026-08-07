@@ -19,7 +19,14 @@ import SourcePicker from "@/components/task/SourcePicker.vue";
 
 import { taskFileUrl } from "@/api";
 import type { SourceProfile, TaskItem } from "@/types";
-import { formatSize, sourceIconUrl, sourceLink, taskProgressState, taskProgressStyle } from "@/utils/task";
+import {
+  formatSize,
+  resolveHint,
+  sourceIconUrl,
+  sourceLink,
+  taskProgressState,
+  taskProgressStyle,
+} from "@/utils/task";
 
 const props = defineProps<{
   tasks: TaskItem[];
@@ -115,8 +122,9 @@ function toggle(set: Set<string>, id: string): void {
               v-if="task.can_resolve"
               variant="primary"
               type="button"
-              aria-label="Fetch info from source"
-              title="Fetch info from source"
+              :aria-label="resolveHint(task)"
+              :title="resolveHint(task)"
+              :data-resolve-failed="task.resolve_failed || undefined"
               @click="emit('resolve', task.vid)"
             >
               <template #icon>
