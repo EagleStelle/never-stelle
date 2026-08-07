@@ -1409,11 +1409,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
 
   const hasSettingsUnsavedChanges = computed(() => {
     if (!draftSeeded.value) return false;
-    return settingsDraftTouched.value || draftSnapshot() !== lastDraftSnapshot;
+    return draftSnapshot() !== lastDraftSnapshot;
   });
 
   const hasAccountUnsavedChanges = computed(() => {
-    return draftSeeded.value && (accountDraftTouched.value || accountDraftDirty());
+    return draftSeeded.value && accountDraftDirty();
   });
 
   const hasFormatUnsavedChanges = computed(() => {

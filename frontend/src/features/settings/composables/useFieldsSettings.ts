@@ -195,21 +195,28 @@ export function useFieldsSettings(
     });
   }
 
-  function sameAsDefault(
-    key: string,
-    role: FieldRole,
-    list: string[],
-  ): boolean {
-    const base = withAssignedScraperFields(key, role, roleDefaultList(key, role));
-    return (
-      list.length === base.length &&
-      list.every((value, index) => value === base[index])
-    );
+  function savedFieldRoles(key: string, role: FieldRole): string[] {
+    return settings.source_fields[key]?.[role] || [];
+  }
+
+  function unmodifiedList(key: string, role: FieldRole): string[] {
+    const saved = savedFieldRoles(key, role);
+    const base = saved.length ? saved : roleDefaultList(key, role);
+    return withAssignedScraperFields(key, role, base);
   }
 
   function commit(key: string, role: FieldRole, list: string[]): void {
     const normalized = withAssignedScraperFields(key, role, list);
-    fieldRoles(key)[role] = sameAsDefault(key, role, normalized) ? [] : normalized;
+    const targetUnmodified = unmodifiedList(key, role);
+    const isUnmodified =
+      normalized.length === targetUnmodified.length &&
+      normalized.every((val, i) => val === targetUnmodified[i]);
+
+    if (isUnmodified) {
+      fieldRoles(key)[role] = [...savedFieldRoles(key, role)];
+    } else {
+      fieldRoles(key)[role] = normalized;
+    }
   }
 
   function addField(key: string, role: FieldRole, raw: string): void {
@@ -242,11 +249,17 @@ export function useFieldsSettings(
   }
 
   function resetRole(key: string, role: FieldRole): void {
-    fieldRoles(key)[role] = [];
+    const targetUnmodified = unmodifiedList(key, role);
+    commit(key, role, targetUnmodified);
   }
 
   function isConfigured(key: string, role: FieldRole): boolean {
-    return !sameAsDefault(key, role, fieldList(key, role));
+    const current = fieldList(key, role);
+    const targetUnmodified = unmodifiedList(key, role);
+    return !(
+      current.length === targetUnmodified.length &&
+      current.every((val, i) => val === targetUnmodified[i])
+    );
   }
 
   function learnedFields(values: string[]): string[] {
