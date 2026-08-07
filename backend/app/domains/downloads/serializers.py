@@ -102,7 +102,9 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
         "source_candidates": list(task.get("source_candidates") or []),
         "error": str(task.get("error") or ""),
         "can_download": can_download,
-        "can_resolve": bool(task.get("needs_resolve")),
+        # Any completed row can be re-probed on demand; the queue is what is only
+        # spent on rows that need it. Active rows have nothing to resolve yet.
+        "can_resolve": status == "completed",
         "quality": quality,
         "external": bool(task.get("external")),
         "external_backend": str(task.get("external_backend") or ""),
@@ -125,7 +127,6 @@ def history_to_api(task_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "resolved_filename": entry.get("resolved_filename", ""),
         "resolved_full_path": entry.get("resolved_full_path", ""),
         "media_id": entry.get("media_id", ""),
-        "needs_resolve": entry.get("needs_resolve", False),
         "title": entry.get("title", ""),
         "folder_template": entry.get("folder_template", ""),
         "filename_template": entry.get("filename_template", ""),

@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-import backend.app.db.database as database_module
 import backend.app.domains.downloads.rename as rename_module
 import backend.app.domains.downloads.resolve as resolve_module
 import backend.app.domains.downloads.scan as scan_module
@@ -20,16 +19,11 @@ from backend.app.domains.downloads.store import (
     save_history_entry_row,
     sync_history_resolve_flags,
 )
+from tests.support import use_temp_db
 
 STORED_TEMPLATE = "{{title}} [{{id}}]"
 # Needs a creator the row may not have, which is what makes it a resolve case.
 CURRENT_TEMPLATE = "{{username}} - {{title}} [{{id}}]"
-
-
-def _use_temp_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
-    database_module.initialize_database()
 
 
 def _pin_template(monkeypatch: pytest.MonkeyPatch, filename_template: str = CURRENT_TEMPLATE) -> None:
@@ -85,25 +79,26 @@ def _probe_recorder(monkeypatch: pytest.MonkeyPatch, answers: dict[str, dict[str
         calls.append((url, with_cookies))
         return dict(answers.get(url, {})) if not with_cookies else dict(answers.get(f"cookies:{url}", {}))
 
-    monkeypatch.setattr(resolve_module, "_scan_probe_metadata", probe)
+    monkeypatch.setattr(scan_module, "_scan_probe_metadata", probe)
     monkeypatch.setattr(resolve_module, "load_learned_formats", dict)
     monkeypatch.setattr(resolve_module, "get_effective_fields", lambda source_url="": {"username": ["uploader"]})
     return calls
 
 
 def test_refresh_flags_a_row_the_template_cannot_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
 
     assert _refresh(load_history()["entries"]) == ["gallerydl:1"]
     assert history_resolve_flagged_count() == 1
     assert load_history_entry("gallerydl:1")["needs_resolve"] is True
+    # The button is offered on every completed row; the flag only decides the default scope.
     assert history_to_api("gallerydl:1", load_history_entry("gallerydl:1"))["can_resolve"] is True
 
 
 def test_refresh_clears_the_flag_once_the_row_can_be_named(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
     _refresh(load_history()["entries"])
@@ -116,11 +111,12 @@ def test_refresh_clears_the_flag_once_the_row_can_be_named(tmp_path: Path, monke
     _refresh(load_history()["entries"])
 
     assert history_resolve_flagged_count() == 0
-    assert history_to_api("gallerydl:1", load_history_entry("gallerydl:1"))["can_resolve"] is False
+    # Still offered per row: a satisfied row is re-probed only if the user asks for it.
+    assert history_to_api("gallerydl:1", load_history_entry("gallerydl:1"))["can_resolve"] is True
 
 
 def test_a_satisfiable_row_is_never_flagged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path, creator="Creator")
 
@@ -129,7 +125,7 @@ def test_a_satisfiable_row_is_never_flagged(tmp_path: Path, monkeypatch: pytest.
 
 
 def test_the_scan_persists_the_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     media_root = tmp_path / "media"
     _seed(tmp_path)
@@ -143,7 +139,7 @@ def test_the_scan_persists_the_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 
 def test_resolve_queues_nothing_when_nothing_is_flagged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path, creator="Creator")
     calls = _probe_recorder(monkeypatch, {})
@@ -154,7 +150,7 @@ def test_resolve_queues_nothing_when_nothing_is_flagged(tmp_path: Path, monkeypa
 
 
 def test_resolve_queues_only_the_flagged_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path, task_id="gallerydl:1")
     _seed(tmp_path, task_id="gallerydl:2", creator="Creator")
@@ -166,7 +162,7 @@ def test_resolve_queues_only_the_flagged_rows(tmp_path: Path, monkeypatch: pytes
 
 
 def test_resolve_everything_queues_every_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path, task_id="gallerydl:1")
     _seed(tmp_path, task_id="gallerydl:2", creator="Creator")
@@ -180,18 +176,21 @@ def test_resolve_everything_queues_every_row(tmp_path: Path, monkeypatch: pytest
 
 
 def test_resolve_one_row_queues_only_that_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path, task_id="gallerydl:1")
     _seed(tmp_path, task_id="gallerydl:2")
     monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
 
     assert resolve_module.start_resolve(task_ids=["gallerydl:2"]) == 1
-    assert [job["id"] for job in load_enrichment_jobs()] == ["resolve:gallerydl:2"]
+    jobs = load_enrichment_jobs()
+    assert [job["id"] for job in jobs] == ["resolve:gallerydl:2"]
+    # Clicking one row is as deliberate as asking for the library, so it forces.
+    assert jobs[0]["payload"]["force"] is True
 
 
 def test_resolve_fills_the_missing_token_and_renames_the_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     path, _row_payload = _seed(tmp_path)
     _refresh(load_history()["entries"])
@@ -212,7 +211,7 @@ def test_resolve_fills_the_missing_token_and_renames_the_file(tmp_path: Path, mo
 def test_resolve_rechecks_at_probe_time_and_never_probes_a_satisfied_row(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
     _refresh(load_history()["entries"])
@@ -228,7 +227,7 @@ def test_resolve_rechecks_at_probe_time_and_never_probes_a_satisfied_row(
 
 
 def test_resolve_probes_anonymously_before_using_cookies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
     url = "https://example.com/p/abc123"
@@ -239,7 +238,7 @@ def test_resolve_probes_anonymously_before_using_cookies(tmp_path: Path, monkeyp
 
 
 def test_resolve_bounds_the_probes_per_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
     calls = _probe_recorder(monkeypatch, {})
@@ -257,7 +256,7 @@ def test_resolve_bounds_the_probes_per_row(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_a_link_that_never_answers_stops_being_probed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
     monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
@@ -279,7 +278,7 @@ def test_a_link_that_never_answers_stops_being_probed(tmp_path: Path, monkeypatc
 
 
 def test_the_worker_routes_a_resolve_job_to_the_resolver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
     monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
@@ -296,7 +295,7 @@ def test_the_worker_routes_a_resolve_job_to_the_resolver(tmp_path: Path, monkeyp
 
 
 def test_a_probed_token_with_no_column_survives_into_the_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch, "{{title}} [{{id}}] {{series}}")
     path, _row_payload = _seed(tmp_path)
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"series": "Season 1"}})
@@ -309,7 +308,7 @@ def test_a_probed_token_with_no_column_survives_into_the_name(tmp_path: Path, mo
 
 
 def test_resolve_scope_counts_report_both_choices(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _use_temp_db(tmp_path, monkeypatch)
+    use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path, task_id="gallerydl:1")
     _seed(tmp_path, task_id="gallerydl:2", creator="Creator")

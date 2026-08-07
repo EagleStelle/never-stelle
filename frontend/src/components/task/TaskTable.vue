@@ -115,8 +115,8 @@ function toggle(set: Set<string>, id: string): void {
               v-if="task.can_resolve"
               variant="primary"
               type="button"
-              aria-label="Fetch missing info"
-              title="Fetch missing info"
+              aria-label="Fetch info from source"
+              title="Fetch info from source"
               @click="emit('resolve', task.vid)"
             >
               <template #icon>

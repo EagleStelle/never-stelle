@@ -49,6 +49,16 @@ function reusedMessage(status?: TaskStatus): string {
   return REUSED_TASK_MESSAGES[status || ""] || REUSED_TASK_FALLBACK;
 }
 
+// "1 item needs" vs "2 items need": the noun and the verb take the s in opposite cases.
+const plural = (count: number) => (count === 1 ? "" : "s");
+const pluralVerb = (count: number) => (count === 1 ? "s" : "");
+
+function queuedMessage(queued: number): string {
+  return queued === 0
+    ? "Nothing left to resolve."
+    : `Resolving ${queued} item${plural(queued)} in the background.`;
+}
+
 export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTaskQueueOptions) {
   const auth = useAuth();
   const taskCache = new Map<string, Partial<TaskItem>>();
@@ -145,7 +155,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     });
     const created = Array.isArray(data.created) ? data.created : [];
     if (urls.length > 1) {
-      toast(created.length ? `Added ${created.length} download${created.length === 1 ? "" : "s"}.` : REUSED_TASK_FALLBACK);
+      toast(created.length ? `Added ${created.length} download${plural(created.length)}.` : REUSED_TASK_FALLBACK);
     } else if (data.reused) {
       toast(reusedMessage(created[0]?.status));
     } else if (created[0]?.status === "failed") {
@@ -240,7 +250,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   async function clearPending(): Promise<void> {
     try {
       const data = await clearPendingTasks();
-      toast(data.cleared === 0 ? "No queued tasks to clear." : `Cleared ${data.cleared} queued task${data.cleared === 1 ? "" : "s"}.`);
+      toast(data.cleared === 0 ? "No queued tasks to clear." : `Cleared ${data.cleared} queued task${plural(data.cleared)}.`);
       await loadTasks(true);
     } catch (error) {
       toast(errorMessage(error, "Could not clear queue."), "error");
@@ -251,27 +261,25 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     try {
       const result = await scanMediaMutation.mutateAsync();
       await loadTasks(true);
-      const plural = (count: number) => (count === 1 ? "" : "s");
       const parts: string[] = [];
       if (result.added > 0) parts.push(`added ${result.added} file${plural(result.added)}`);
       if (result.missing > 0) parts.push(`removed ${result.missing} missing item${plural(result.missing)}`);
       if (result.renamed > 0) parts.push(`renamed ${result.renamed} file${plural(result.renamed)}`);
       if (result.rename_failed > 0) parts.push(`could not rename ${result.rename_failed}`);
+      // Its own sentence, not part of the summary: it is work waiting on Resolve, not a result.
+      const pending =
+        result.needs_resolve > 0
+          ? ` ${result.needs_resolve} item${plural(result.needs_resolve)} need${pluralVerb(result.needs_resolve)} more info.`
+          : "";
       if (parts.length === 0) {
-        toast(`History refreshed. Checked ${result.checked} file${plural(result.checked)}.`);
+        toast(`History refreshed. Checked ${result.checked} file${plural(result.checked)}.${pending}`);
         return;
       }
       const summary = parts.join(", ").replace(/, ([^,]*)$/, " and $1");
-      toast(`History refreshed. ${summary.charAt(0).toUpperCase()}${summary.slice(1)}.`);
+      toast(`History refreshed. ${summary.charAt(0).toUpperCase()}${summary.slice(1)}.${pending}`);
     } catch (error) {
       toast(errorMessage(error, "Could not refresh history."), "error");
     }
-  }
-
-  function queuedMessage(queued: number): string {
-    return queued === 0
-      ? "Nothing left to resolve."
-      : `Resolving ${queued} item${queued === 1 ? "" : "s"} in the background.`;
   }
 
   async function openResolveDialog(): Promise<void> {
@@ -298,7 +306,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   async function resolveTask(taskId: string): Promise<void> {
     try {
       const result = await resolveMutation.mutateAsync({ task_ids: [taskId] });
-      toast(result.queued === 0 ? "Nothing left to resolve." : "Resolving in the background.");
+      toast(queuedMessage(result.queued));
     } catch (error) {
       toast(errorMessage(error, "Could not resolve history."), "error");
     }

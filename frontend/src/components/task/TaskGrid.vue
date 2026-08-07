@@ -105,8 +105,8 @@ function hasActions(task: TaskItem): boolean {
             v-if="canResolve(task)"
             variant="primary"
             type="button"
-            aria-label="Fetch missing info"
-            title="Fetch missing info"
+            aria-label="Fetch info from source"
+            title="Fetch info from source"
             @click="emit('resolve', task.vid)"
           >
             <template #icon>
