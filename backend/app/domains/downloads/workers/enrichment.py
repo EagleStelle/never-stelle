@@ -9,6 +9,7 @@ from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
 from backend.app.domains.downloads.cache import drop_file_cache
 from backend.app.domains.downloads.constants import (
+    COMPLETION_JOB_KIND,
     FIELD_CANDIDATES,
     RESOLVE_JOB_KIND,
     field_roles_from_probe_fields,
@@ -71,7 +72,7 @@ def _merge_probe_metadata(sidecar: dict[str, str], probed: dict[str, str]) -> di
 
 
 def _job_id(task_id: str) -> str:
-    return f"completion:{task_id}"
+    return f"{COMPLETION_JOB_KIND}:{task_id}"
 
 
 def enqueue_completion_enrichment(
@@ -99,7 +100,7 @@ def enqueue_completion_enrichment(
         "needs_metadata_probe": bool(needs_metadata_probe),
         "needs_field_probe": bool(needs_field_probe),
     }
-    enqueue_enrichment_job(_job_id(task_id), "completion", payload)
+    enqueue_enrichment_job(_job_id(task_id), COMPLETION_JOB_KIND, payload)
     ensure_enrichment_worker()
 
 

@@ -555,6 +555,11 @@ def _scan_probe_metadata(url: str, *, with_cookies: bool = False) -> dict[str, s
         return {}
 
 
+def probe_metadata_anonymous_first(url: str) -> dict[str, str]:
+    # Cookies are scarce and rate-limited, so authenticated is the fallback not the default.
+    return _scan_probe_metadata(url) or _scan_probe_metadata(url, with_cookies=True)
+
+
 def _clean_probe_value(value: str) -> str:
     value = unquote(str(value or "")).strip().lstrip("@").strip()
     return "" if value.lower() in _EMPTY_CREATOR_VALUES else value
@@ -679,8 +684,7 @@ def _probe_disk_creator(
             if all(existing_url != url for existing_url, _ in probe_candidates):
                 probe_candidates.append((url, disk_creator))
     for url, url_creator in probe_candidates[:_MAX_PROBE_CANDIDATES]:
-        # Anonymous first; retry authenticated only when the anonymous probe finds nothing.
-        flat = _scan_probe_metadata(url) or _scan_probe_metadata(url, with_cookies=True)
+        flat = probe_metadata_anonymous_first(url)
         if not flat:
             continue
         for field in order:
@@ -878,8 +882,7 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
     plans, needs_resolve = plan_history_renames(records, pacer)
     rename_counts, renamed_rows = apply_history_renames(plans)
     records.update(renamed_rows)
-    # After the renames: a row this pass renamed carries the flag it was loaded with,
-    # and the write above would put it back.
+    # After the renames: the write above would restore the flag it was loaded with.
     sync_history_resolve_flags(needs_resolve)
     walked_media: list[tuple[Path, Path, os.stat_result | None, str]] = []
     seen_paths: set[str] = set()
