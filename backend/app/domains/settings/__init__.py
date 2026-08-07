@@ -48,7 +48,9 @@ from backend.app.domains.settings.fields import (
 )
 from backend.app.domains.settings.formats import add_source_and_learn_format, set_learned_format_templates
 from backend.app.domains.settings.locations import (
+    iter_resolved_source_locations,
     normalize_source_location_selection,
+    normalize_subpath,
     resolve_source_location,
 )
 from backend.app.domains.settings.profiles import (
@@ -124,6 +126,7 @@ __all__ = [
     "invalidate_cookie_policies",
     "invalidate_cookie_pool",
     "is_scraper_field",
+    "iter_resolved_source_locations",
     "lease_cookie",
     "list_cookies_for_source",
     "load_saved_settings_file",
@@ -143,6 +146,7 @@ __all__ = [
     "normalize_source_template_selection",
     "normalize_source_title_cleaning",
     "normalize_source_token_roles",
+    "normalize_subpath",
     "normalize_template_settings",
     "normalize_token_name",
     "persist_settings",

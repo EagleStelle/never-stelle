@@ -37,7 +37,7 @@ def add_download(payload: AddDownloadPayload) -> dict[str, Any]:
         try:
             task_created, task_reused = operations.queue_task(
                 target,
-                payload.site_locations,
+                payload.source_locations,
                 payload.template_settings,
                 payload.source_profiles,
                 payload.source_templates,

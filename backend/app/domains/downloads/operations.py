@@ -37,7 +37,7 @@ from .worker import ensure_worker, has_active_process, request_cancel
 
 def queue_task(
     source_url: str,
-    site_locations: dict[str, dict[str, str]] | None = None,
+    source_locations: dict[str, dict[str, str]] | None = None,
     template_settings: dict[str, str] | None = None,
     source_profiles: list[dict[str, Any]] | dict[str, Any] | None = None,
     source_templates: dict[str, Any] | None = None,
@@ -63,7 +63,7 @@ def queue_task(
     cfg = load_app_config()
     resolved_settings = resolve_task_settings(
         source_url,
-        site_locations=site_locations,
+        source_locations=source_locations,
         template_settings=template_settings,
         source_profiles=source_profiles,
         source_templates=source_templates,

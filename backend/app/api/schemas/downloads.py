@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 class AddDownloadPayload(BaseModel):
     url: str = ""
     urls: list[str] = Field(default_factory=list)
-    site_locations: dict[str, dict[str, str]] | None = None
+    source_locations: dict[str, dict[str, str]] | None = None
     template_settings: dict[str, str] | None = None
     source_profiles: list[dict[str, Any]] | dict[str, Any] | None = None
     source_templates: dict[str, Any] | None = None

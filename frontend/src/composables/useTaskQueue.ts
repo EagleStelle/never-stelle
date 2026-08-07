@@ -147,7 +147,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     const currentSettings = getSavedSettings();
     const data = await addTaskMutation.mutateAsync({
       urls,
-      site_locations: currentSettings.site_locations,
+      source_locations: currentSettings.source_locations,
       template_settings: currentSettings.template_settings,
       source_profiles: currentSettings.source_profiles,
       source_templates: currentSettings.source_templates,

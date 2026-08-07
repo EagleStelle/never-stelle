@@ -141,7 +141,7 @@ def test_library_scan_returns_ok_when_subtree_scandir_fails(tmp_path, monkeypatc
             raise OSError("blocked")
         return real_scandir(folder)
 
-    monkeypatch.setattr(scan_module, "discover_volume_roots", lambda: [str(media_root)])
+    monkeypatch.setattr(scan_module, "MEDIA_DIR", media_root)
     monkeypatch.setattr(scan_module.os, "scandir", flaky_scandir)
     monkeypatch.setattr(
         swaratelle,
@@ -224,7 +224,7 @@ def test_settings_put_accepts_format_keyed_source_templates(tmp_path, monkeypatc
     response = client.put(
         "/api/settings",
         json={
-            "site_locations": {},
+            "source_locations": {},
             "template_settings": {"folder_template": "{{username}}", "filename_template": "{{title}}"},
             "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
             "source_templates": {
@@ -245,10 +245,9 @@ def test_settings_put_accepts_format_keyed_source_templates(tmp_path, monkeypatc
     }
 
 
-def test_settings_put_accepts_format_keyed_site_locations(tmp_path, monkeypatch):
+def test_settings_put_accepts_format_keyed_source_locations(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
     import backend.app.domains.downloads.store as store_module
-    from backend.app.core.config import MEDIA_DIR
 
     status_format = "https://twitter.com/{creator}/status/{id}"
     photo_format = "https://twitter.com/{creator}/status/{id}/photo/{var}"
@@ -257,24 +256,23 @@ def test_settings_put_accepts_format_keyed_site_locations(tmp_path, monkeypatch)
         "load_learned_formats",
         lambda: {"twitter": {"templates": [status_format, photo_format], "segments": []}},
     )
-    photos_dir = str(MEDIA_DIR / "twitter" / "photos")
 
     response = client.put(
         "/api/settings",
         json={
-            "site_locations": {"twitter": {photo_format: photos_dir}},
+            "source_locations": {"twitter": {photo_format: "photos"}},
             "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
         },
     )
 
     assert response.status_code == 200
-    locations = response.json()["source_default_locations"]["twitter"]
-    assert locations[photo_format] == photos_dir
-    # The untouched format keeps the <media>/<source_key> default.
-    assert locations[status_format] == str(MEDIA_DIR / "twitter")
+    locations = response.json()["source_locations"]["twitter"]
+    assert locations[photo_format] == "photos"
+    # The untouched format keeps the source root.
+    assert locations[status_format] == ""
 
 
-def test_settings_put_rescopes_site_location_to_source_root(tmp_path, monkeypatch):
+def test_settings_put_rejects_an_absolute_source_location(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
     import backend.app.domains.downloads.store as store_module
     from backend.app.core.config import MEDIA_DIR
@@ -289,24 +287,24 @@ def test_settings_put_rescopes_site_location_to_source_root(tmp_path, monkeypatc
     response = client.put(
         "/api/settings",
         json={
-            "site_locations": {"twitter": {status_format: str(MEDIA_DIR / "instagram")}},
+            "source_locations": {"twitter": {status_format: str(MEDIA_DIR / "instagram")}},
             "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
         },
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["source_default_locations"]["twitter"][status_format] == str(MEDIA_DIR / "twitter")
-    assert body["source_location_roots"]["twitter"] == str(MEDIA_DIR / "twitter")
+    assert body["source_locations"]["twitter"][status_format] == ""
+    assert body["media_root"] == str(MEDIA_DIR)
 
 
-def test_settings_put_rejects_flat_site_locations(tmp_path, monkeypatch):
+def test_settings_put_rejects_flat_source_locations(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
 
     response = client.put(
         "/api/settings",
         json={
-            "site_locations": {"twitter": "/media/twitter"},
+            "source_locations": {"twitter": "/media/twitter"},
             "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
         },
     )
@@ -329,7 +327,7 @@ def test_add_task_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
 
     def fake_queue_task(
         source_url,
-        site_locations=None,
+        source_locations=None,
         template_settings=None,
         source_profiles=None,
         source_templates=None,
@@ -344,7 +342,7 @@ def test_add_task_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
         "/api/downloads",
         json={
             "url": "https://twitter.com/DohaVT/status/2073635724684054528",
-            "site_locations": {},
+            "source_locations": {},
             "template_settings": {"folder_template": "{{username}}", "filename_template": "{{title}}"},
             "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
             "source_templates": source_templates,
@@ -532,7 +530,7 @@ def test_cookies_endpoint_stacks_multiple_jars_on_one_source(tmp_path, monkeypat
     profile = client.put(
         "/api/settings",
         json={
-            "site_locations": {},
+            "source_locations": {},
             "source_profiles": [
                 {"key": "instagram", "label": "Instagram", "hosts": ["instagram.com"]},
             ],
@@ -593,7 +591,7 @@ def test_settings_put_round_trips_per_source_cookie_policies(tmp_path, monkeypat
     response = client.put(
         "/api/settings",
         json={
-            "site_locations": {},
+            "source_locations": {},
             "source_profiles": [{"key": "instagram", "label": "Instagram", "hosts": ["instagram.com"]}],
             "source_cookie_policies": {
                 "instagram": {"limit": "6", "window": 120, "delay": "", "junk": 1},
@@ -622,7 +620,7 @@ def test_settings_put_round_trips_global_defaults(tmp_path, monkeypatch):
     response = client.put(
         "/api/settings",
         json={
-            "site_locations": {},
+            "source_locations": {},
             "source_profiles": [{"key": "youtube", "label": "YouTube", "hosts": ["youtube.com"]}],
             "default_cookie_policy": {"limit": "9", "window": "", "junk": 1},
             "default_fields": {"username": ["channel", "channel", "uploader!"], "title": []},

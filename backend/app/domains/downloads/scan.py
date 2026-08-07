@@ -10,13 +10,18 @@ from typing import Any
 from urllib.parse import unquote
 
 from backend.app.core.coercion import safe_int
-from backend.app.core.config import discover_volume_roots
+from backend.app.core.config import MEDIA_DIR
 from backend.app.core.pacing import CpuPacer
 from backend.app.core.paths import path_key as _path_key
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
-from backend.app.domains.settings import get_effective_title_cleaning, is_scraper_field, scraper_token_from_field
+from backend.app.domains.settings import (
+    get_effective_title_cleaning,
+    is_scraper_field,
+    iter_resolved_source_locations,
+    scraper_token_from_field,
+)
 
 from .constants import CREATOR_FIELDS, FIELD_DEFAULTS, MEDIA_EXTENSIONS, TEMPLATE_RE
 from .files import payload_path_string, recover_task_path
@@ -58,18 +63,6 @@ _MAX_PROBE_CANDIDATES = 2
 _EMPTY_CREATOR_VALUES = {"", "unknown", "none", "null", "undefined", "na", "n/a"}
 _ID_TOKENS = {"id"}
 _EXT_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$")
-_COMMON_SOURCE_FOLDER_KEYS = {
-    "bilibili",
-    "facebook",
-    "instagram",
-    "imgur",
-    "pixiv",
-    "reddit",
-    "tiktok",
-    "twitter",
-    "x",
-    "youtube",
-}
 
 
 def _template_group(
@@ -202,7 +195,7 @@ def _path_exists(path: str | Path) -> bool:
 
 
 def _iter_scan_roots(roots: Iterable[str | Path] | None) -> list[Path]:
-    raw_roots = list(roots) if roots is not None else discover_volume_roots()
+    raw_roots = list(roots) if roots is not None else [MEDIA_DIR]
     out: list[Path] = []
     seen: set[str] = set()
     for value in raw_roots:
@@ -420,26 +413,14 @@ def _prune_disk_shadows(records: dict[str, dict[str, Any]], real_media_ids: set[
             records.pop(task_id, None)
 
 
-def _scan_location_map() -> dict[str, dict[str, str]]:
-    return _scan_settings_section("site_locations")
+def _scan_location_rows() -> list[tuple[str, str, str]]:
+    # (source_key, format_template, absolute folder); saved locations are subpaths.
+    return list(iter_resolved_source_locations(_scan_settings_section("source_locations")))
 
 
-def _iter_source_locations(locations: dict[str, dict[str, str]]) -> Iterable[tuple[str, str, str]]:
-    # Flatten the per-source, per-format map into (source_key, format_template, folder) rows.
-    for raw_key, formats in (locations or {}).items():
-        key = normalize_source_key(raw_key)
-        if not key:
-            continue
-        if not isinstance(formats, dict):
-            continue
-        for format_template, folder in formats.items():
-            if str(folder or "").strip():
-                yield key, str(format_template or ""), str(folder)
-
-
-def _source_folder_keys(locations: dict[str, dict[str, str]]) -> set[str]:
-    # Platform folders (site locations) are never a creator; used to skip them.
-    return {_path_key(folder) for _, _, folder in _iter_source_locations(locations)}
+def _source_folder_keys(rows: list[tuple[str, str, str]]) -> set[str]:
+    # Source folders are never a creator; used to skip them.
+    return {_path_key(folder) for _, _, folder in rows}
 
 
 def _scan_settings_section(section: str) -> dict[str, Any]:
@@ -750,12 +731,12 @@ class _TemplateResolver:
         settings = templates_dict.get(format_template) or self._base
         return str(settings.get("folder_template") or ""), str(settings.get("filename_template") or "")
 
-def _source_location_index(locations: dict[str, dict[str, str]]) -> list[tuple[str, str, str]]:
+def _source_location_index(rows: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
     # Only folders owned by exactly one resolved source carry a usable signal; two formats of
     # the same source may share a folder, and then only the source half stays unambiguous.
     owners: dict[str, set[str]] = {}
     formats: dict[str, set[str]] = {}
-    for key, format_template, folder in _iter_source_locations(locations):
+    for key, format_template, folder in rows:
         folder_key = _path_key(folder)
         owners.setdefault(folder_key, set()).add(key)
         formats.setdefault(folder_key, set()).add(format_template)
@@ -776,18 +757,14 @@ def _source_from_path(path: Path, location_index: list[tuple[str, str, str]]) ->
 
 
 def _source_from_named_folder(root: Path, path: Path, source_keys: set[str]) -> str:
-    # `source_keys` is already the resolved candidate set. It used to be re-derived
-    # here per file, which reloaded the config and re-decoded the whole history for
-    # every media file on disk.
+    # A source's folder is `<media>/<source_key>`, so only the first segment can name one.
+    # `source_keys` is the resolved candidate set, passed in rather than re-derived per file.
     try:
         relative_parts = path.parent.relative_to(root).parts
     except ValueError:
-        relative_parts = path.parent.parts
-    for part in relative_parts:
-        key = normalize_source_key(part)
-        if key in source_keys:
-            return key
-    return ""
+        return ""
+    key = normalize_source_key(relative_parts[0]) if relative_parts else ""
+    return key if key in source_keys else ""
 
 
 def _seed_learned_from_history(
@@ -896,9 +873,9 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
     _prune_disk_shadows(records, real_media_ids)
     known_paths, known_media_ids = _known_media(records)
     disk_paths, disk_media_ids = _disk_derived_media(records)
-    locations = _scan_location_map()
-    location_index = _source_location_index(locations)
-    source_folders = _source_folder_keys(locations)
+    location_rows = _scan_location_rows()
+    location_index = _source_location_index(location_rows)
+    source_folders = _source_folder_keys(location_rows)
     source_profile_keys = _scan_source_profile_keys()
     token_role_map = _scan_token_role_map()
     scrape_rule_tokens_map = _scan_scrape_rule_tokens()
@@ -916,8 +893,6 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
     if learned != learned_before:
         save_learned_formats(learned)
 
-    # Folder names that may identify a platform, resolved once instead of per file.
-    named_folder_keys = source_profile_keys | _COMMON_SOURCE_FOLDER_KEYS
     # Index of what each disk file resolved from last time. A rescan compares the
     # file and the rules against it and re-resolves only what actually moved,
     # instead of rebuilding every disk entry from scratch on every pass.
@@ -952,7 +927,7 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
 
         task_id = f"disk:{media_id}"
         file_size = int(stat_result.st_size) if stat_result else 0
-        source_hint = _source_from_named_folder(root, path, named_folder_keys)
+        source_hint = _source_from_named_folder(root, path, source_profile_keys)
         source_key, source_pending, source_candidates, folder_format = infer_disk_source(
             path, media_id, location_index, learned, source_hint
         )

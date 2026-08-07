@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from backend.app.api.deps import require_authenticated_session
-from backend.app.core.config import get_default_general_location, load_app_config
+from backend.app.core.config import load_app_config
 from backend.app.domains.settings import build_settings_response, get_effective_saved_settings
 
 router = APIRouter(tags=["runtime"], dependencies=[Depends(require_authenticated_session)])
@@ -20,7 +20,6 @@ def runtime_settings() -> dict[str, Any]:
         {
             "default_filename_template": saved.get("template_settings", {}).get("filename_template", ""),
             "default_folder_template": saved.get("template_settings", {}).get("folder_template", ""),
-            "default_general_location": get_default_general_location(cfg),
         }
     )
     return payload

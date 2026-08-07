@@ -23,63 +23,37 @@ function formatsFor(key: string): string[] {
 
 function location(siteKey: string, format: string): string {
   return (
-    settingsDraft.site_locations[siteKey]?.[format] ??
-    settings.site_locations[siteKey]?.[format] ??
+    settingsDraft.source_locations[siteKey]?.[format] ??
+    settings.source_locations[siteKey]?.[format] ??
     ""
   );
 }
 
 function setLocation(siteKey: string, format: string, value: string): void {
-  if (!settingsDraft.site_locations[siteKey]) {
-    settingsDraft.site_locations[siteKey] = {};
+  if (!settingsDraft.source_locations[siteKey]) {
+    settingsDraft.source_locations[siteKey] = {};
   }
-  settingsDraft.site_locations[siteKey][format] = value;
+  settingsDraft.source_locations[siteKey][format] = value;
 }
 
-function pathKey(path: string): string {
-  return String(path || "")
-    .replace(/\\/g, "/")
-    .replace(/\/+$/g, "")
-    .toLowerCase();
+function displayPath(siteKey: string, subpath: string): string {
+  const root = String(settings.media_root || "").replace(/[\\/]+$/, "");
+  return [root, siteKey, subpath].filter(Boolean).join("/").replace(/\\/g, "/");
 }
 
-function isSameOrChildPath(path: string, parent: string): boolean {
-  const childKey = pathKey(path);
-  const parentKey = pathKey(parent);
-  return Boolean(
-    childKey &&
-      parentKey &&
-      (childKey === parentKey || childKey.startsWith(`${parentKey}/`)),
-  );
-}
-
-function sourceRoot(siteKey: string): string {
-  return settings.source_location_roots?.[siteKey] || "";
-}
-
-// The source root and its children, plus the current valid value so a saved path
-// stays selectable even when the folder has not been created on disk yet.
+// The source's existing subfolders, plus the current value so a saved subpath stays
+// selectable even when the folder has not been created on disk yet.
 function locationItems(
   siteKey: string,
   format: string,
 ): { key: string; label: string }[] {
   const current = location(siteKey, format);
-  const root = sourceRoot(siteKey);
-  const paths = root ? [root] : [];
-  for (const path of settings.download_locations || []) {
-    if (root && isSameOrChildPath(path, root)) paths.push(path);
-  }
-  if (current && (!root || isSameOrChildPath(current, root))) {
-    paths.unshift(current);
-  }
-  const seen = new Set<string>();
-  return paths.map((path) => ({ key: path, label: path }))
-    .filter((item) => {
-      const key = pathKey(item.key);
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+  const options = settings.source_location_options?.[siteKey] || [""];
+  const paths = options.includes(current) ? options : [current, ...options];
+  return paths.map((path) => ({
+    key: path,
+    label: displayPath(siteKey, path),
+  }));
 }
 </script>
 

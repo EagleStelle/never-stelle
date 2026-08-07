@@ -49,7 +49,7 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
     cfg = load_app_config()
     saved = persist_settings(
         cfg,
-        payload.site_locations,
+        payload.source_locations,
         payload.template_settings,
         payload.source_profiles,
         payload.source_templates,

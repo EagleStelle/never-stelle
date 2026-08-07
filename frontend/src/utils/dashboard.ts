@@ -19,7 +19,7 @@ import {
   type ScrapeRule,
   type SettingsSection,
   type SourceFields,
-  type SourceLocationRoots,
+  type SourceLocationOptions,
   type SourceLocations,
   type SourceProfile,
   type SlugToken,
@@ -181,14 +181,22 @@ export function mergeSourceProfiles(
   return [...merged.values()];
 }
 
-// Folders are keyed by source, then by that source's learned URL format.
+// Subpaths are keyed by source, then by that source's learned URL format.
 function formatLocations(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== "object") return {};
   const out: Record<string, string> = {};
   for (const [format, value] of Object.entries(raw as Record<string, unknown>)) {
-    out[format] = String(value || "");
+    out[format] = normalizeSubpath(value);
   }
   return out;
+}
+
+// Mirror of the server's rule: posix separators, no anchor, no traversal.
+export function normalizeSubpath(raw: unknown): string {
+  const value = String(raw || "").trim().replace(/\\/g, "/");
+  if (!value || value.startsWith("/") || /^[a-zA-Z]:/.test(value)) return "";
+  const parts = value.split("/").filter((part) => part && part !== ".");
+  return parts.includes("..") ? "" : parts.join("/");
 }
 
 export function createSourceLocations(
@@ -204,15 +212,19 @@ export function createSourceLocations(
   return out;
 }
 
-export function createSourceLocationRoots(
+export function createSourceLocationOptions(
   source: Record<string, unknown> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
-): SourceLocationRoots {
-  const out: SourceLocationRoots = {};
-  for (const profile of profiles) out[profile.key] = String(source[profile.key] || "");
+): SourceLocationOptions {
+  const out: SourceLocationOptions = {};
+  const options = (raw: unknown): string[] => {
+    const values = Array.isArray(raw) ? raw.map(normalizeSubpath) : [];
+    return [...new Set(["", ...values])];
+  };
+  for (const profile of profiles) out[profile.key] = options(source[profile.key]);
   for (const [key, value] of Object.entries(source)) {
     const normalizedKey = normalizeSourceKey(key);
-    if (normalizedKey && !out[normalizedKey]) out[normalizedKey] = String(value || "");
+    if (normalizedKey && !out[normalizedKey]) out[normalizedKey] = options(value);
   }
   return out;
 }

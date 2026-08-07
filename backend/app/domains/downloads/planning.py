@@ -23,7 +23,7 @@ class ResolvedTaskSettings:
     source_key: str
     source_profile: dict[str, Any]
     source_profiles: list[dict[str, Any]]
-    site_locations: dict[str, dict[str, str]]
+    source_locations: dict[str, dict[str, str]]
     output_dir: str
     template_settings: dict[str, str]
 
@@ -31,7 +31,7 @@ class ResolvedTaskSettings:
 def resolve_task_settings(
     source_url: str,
     *,
-    site_locations: dict[str, dict[str, str]] | None = None,
+    source_locations: dict[str, dict[str, str]] | None = None,
     template_settings: Any = None,
     source_profiles: Any = None,
     source_templates: Any = None,
@@ -49,7 +49,7 @@ def resolve_task_settings(
     if not any(normalize_source_key(profile.get("key")) == source_key for profile in profiles):
         profiles.append(source_profile)
 
-    raw_locations = site_locations if site_locations is not None else effective.get("site_locations")
+    raw_locations = source_locations if source_locations is not None else effective.get("source_locations")
     selected_locations = normalize_source_location_selection(raw_locations, cfg, profiles)
 
     base_template = normalize_template_settings(
@@ -67,7 +67,7 @@ def resolve_task_settings(
 
     # One format match drives both the folder and the naming templates for this link.
     matched = match_template(load_learned_formats(), source_key, source_url)
-    output_dir = resolve_source_location(selected_locations, cfg, source_key, matched)
+    output_dir = resolve_source_location(selected_locations, source_key, matched)
 
     matched_template = select_for_format(selected_templates.get(source_key), matched)
     selected_template = normalize_template_settings(
@@ -78,7 +78,7 @@ def resolve_task_settings(
         source_key=source_key,
         source_profile=source_profile,
         source_profiles=profiles,
-        site_locations=selected_locations,
+        source_locations=selected_locations,
         output_dir=output_dir,
         template_settings=selected_template,
     )

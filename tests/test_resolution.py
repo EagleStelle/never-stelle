@@ -98,7 +98,7 @@ def test_saving_settings_drops_the_scoped_snapshot(tmp_path, monkeypatch):
 
 def test_app_config_is_built_once_per_scope(monkeypatch):
     calls = {"n": 0}
-    monkeypatch.setattr(config_module, "discover_volume_locations", lambda: (calls.update(n=calls["n"] + 1), [])[1])
+    monkeypatch.setattr(config_module, "_read_app_config", lambda: (calls.update(n=calls["n"] + 1), {})[1])
 
     with resolution_scope():
         config_module.load_app_config()
@@ -170,7 +170,7 @@ def test_a_foreign_config_is_not_served_from_the_memo(monkeypatch):
 
     with resolution_scope():
         service_module.get_effective_saved_settings()
-        service_module.get_effective_saved_settings({"downloadLocations": ["/somewhere/else"]})
+        service_module.get_effective_saved_settings({"sourceProfiles": {"other": {}}})
 
     assert calls["n"] == 2
 

@@ -104,15 +104,10 @@ def max_concurrent_downloads(default: int = 3) -> int:
     return max(1, min(value, _MAX_WORKER_POOL_SIZE))
 
 
-def discover_volume_roots() -> list[str]:
-    # Media base is the single library root; per-platform folders live beneath it.
-    root = MEDIA_DIR
-    if not root.exists() or not root.is_dir():
-        return []
-    try:
-        return [str(root.resolve())]
-    except Exception:
-        return [str(root)]
+def source_root(source_key: str) -> Path:
+    """The library folder of one source, ``<media>/<source_key>``: derived, never configured."""
+    key = normalize_source_key(source_key)
+    return (MEDIA_DIR / key) if key else MEDIA_DIR
 
 
 # Recursively walking the media tree is expensive on a NAS; the location list
@@ -130,7 +125,7 @@ _volume_locations_refreshing = False
 
 
 def _walk_location_dirs(root: Path, out: list[str], budget: int) -> int:
-    """Breadth-first directory walk bounded by depth and total entries."""
+    """Breadth-first walk bounded by depth and total entries, collecting posix paths relative to ``root``."""
     frontier = [(root, 0)]
     while frontier and budget > 0:
         current, depth = frontier.pop(0)
@@ -146,24 +141,20 @@ def _walk_location_dirs(root: Path, out: list[str], budget: int) -> int:
         for child in children:
             if budget <= 0:
                 break
-            out.append(child)
+            try:
+                out.append(Path(child).relative_to(root).as_posix())
+            except ValueError:
+                continue
             budget -= 1
             frontier.append((Path(child), depth + 1))
     return budget
 
 
 def _scan_volume_locations() -> list[str]:
+    if not MEDIA_DIR.is_dir():
+        return []
     out: list[str] = []
-    seen: set[str] = set()
-    budget = _VOLUME_LOCATIONS_MAX_ENTRIES
-    for root_value in discover_volume_roots():
-        root = Path(root_value)
-        found: list[str] = [str(root)]
-        budget = _walk_location_dirs(root, found, budget)
-        for value in found:
-            if value not in seen:
-                seen.add(value)
-                out.append(value)
+    _walk_location_dirs(MEDIA_DIR, out, _VOLUME_LOCATIONS_MAX_ENTRIES)
     return out
 
 
@@ -182,6 +173,7 @@ def _refresh_volume_locations() -> None:
 
 
 def discover_volume_locations() -> list[str]:
+    """Every folder under the media root, relative to it, newest cached answer first."""
     global _volume_locations_cache, _volume_locations_refreshing
     now = time.monotonic()
     with _volume_locations_lock:
@@ -203,42 +195,35 @@ def discover_volume_locations() -> list[str]:
     return list(result)
 
 
-def normalize_download_locations(cfg: dict[str, Any]) -> list[str]:
-    raw = cfg.get("downloadLocations") or []
-    out: list[str] = []
-    for item in raw:
-        if isinstance(item, str):
-            path = item.strip()
-        elif isinstance(item, dict):
-            path = str(item.get("path") or item.get("value") or "").strip()
-        else:
-            path = ""
-        if path and path not in out:
-            out.append(path)
-    return out
+def source_location_options(source_keys: Iterable[str]) -> dict[str, list[str]]:
+    """Selectable subfolders under each source's root, relative to that root.
 
-
-def normalize_allowed_location(raw_path: str) -> str:
-    candidate_raw = str(raw_path or "").strip()
-    if not candidate_raw:
-        return ""
-    try:
-        candidate_resolved = Path(candidate_raw).resolve(strict=False)
-    except Exception:
-        candidate_resolved = Path(candidate_raw)
-
-    for root_value in discover_volume_roots():
-        try:
-            root_resolved = Path(root_value).resolve()
-        except Exception:
-            root_resolved = Path(root_value)
-        if candidate_resolved == root_resolved or root_resolved in candidate_resolved.parents:
-            return str(candidate_resolved)
-    return ""
+    Buckets the one cached media-tree walk by first segment (the source key by
+    construction), rather than paying a walk per source for the same answer.
+    """
+    buckets: dict[str, list[str]] = {}
+    for raw_key in source_keys:
+        key = normalize_source_key(raw_key)
+        # "" is the source root itself, always an option.
+        if key and key not in buckets:
+            buckets[key] = [""]
+    for relative in discover_volume_locations():
+        head, _, tail = relative.partition("/")
+        bucket = buckets.get(normalize_source_key(head))
+        if bucket is not None and tail and tail not in bucket:
+            bucket.append(tail)
+    return buckets
 
 
 def is_allowed_location(path: str) -> bool:
-    return bool(normalize_allowed_location(path))
+    """True when an absolute path is the media root or sits under it."""
+    if not str(path or "").strip():
+        return False
+    try:
+        candidate = Path(path).resolve(strict=False)
+    except Exception:
+        candidate = Path(path)
+    return candidate == MEDIA_DIR or MEDIA_DIR in candidate.parents
 
 
 def _read_app_config() -> dict[str, Any]:
@@ -249,11 +234,7 @@ def _read_app_config() -> dict[str, Any]:
         except Exception:
             file_cfg = {}
 
-    cfg = deepcopy(file_cfg) if isinstance(file_cfg, dict) else {}
-    discovered_locations = discover_volume_locations()
-    if discovered_locations:
-        cfg["downloadLocations"] = discovered_locations
-    return cfg
+    return deepcopy(file_cfg) if isinstance(file_cfg, dict) else {}
 
 
 # Scope key for the resolved app config, so callers can recognize the object they
@@ -267,37 +248,5 @@ def load_app_config() -> dict[str, Any]:
     return resolved(APP_CONFIG_KEY, _read_app_config)
 
 
-def get_default_general_location(cfg: dict[str, Any]) -> str:
-    value = normalize_allowed_location(str(cfg.get("defaultGeneralDownloadLocation") or "").strip())
-    if value:
-        return value
-    locations = normalize_download_locations(cfg)
-    return locations[0] if locations else str(MEDIA_DIR)
-
-
 def get_config_source_profiles(cfg: dict[str, Any]) -> list[dict[str, Any]]:
     return merge_source_profiles(cfg.get("sourceProfiles") or cfg.get("sources") or {})
-
-
-def get_default_site_location(cfg: dict[str, Any], site: str) -> str:
-    site = normalize_source_key(site)
-    if not site:
-        return ""
-    profile = next((item for item in get_config_source_profiles(cfg) if item.get("key") == site), {})
-    profile_default = str(profile.get("default_download_location") or "").strip()
-    if profile_default:
-        normalized_profile_default = normalize_allowed_location(profile_default)
-        if normalized_profile_default:
-            return normalized_profile_default
-    base = get_default_general_location(cfg)
-    if not base:
-        return ""
-    if "\\" in base or ":" in base:
-        return str(Path(base) / site)
-    return f"{base.rstrip('/')}/{site}"
-
-
-def get_site_default_locations(cfg: dict[str, Any], source_keys: Iterable[str] | None = None) -> dict[str, str]:
-    raw_keys = source_keys or [profile["key"] for profile in get_config_source_profiles(cfg)]
-    keys = [key for key in (normalize_source_key(key) for key in raw_keys) if key]
-    return {site: get_default_site_location(cfg, site) for site in dict.fromkeys(keys)}

@@ -48,7 +48,7 @@ import {
   createFieldRoles,
   createQualitySelection,
   createSourceFields,
-  createSourceLocationRoots,
+  createSourceLocationOptions,
   createSourceLocations,
   createSourceProfile,
   createSourceScrapeRules,
@@ -380,7 +380,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   const queryClient = useQueryClient();
   const defaults = reactive<SavedSettings>({
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
-    site_locations: createSourceLocations(),
+    source_locations: createSourceLocations(),
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
     default_quality: createQualitySelection(),
@@ -397,7 +397,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   const settings = reactive<RuntimeSettings>({
     auth: { username: "", password_configured: false },
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
-    site_locations: createSourceLocations(),
+    source_locations: createSourceLocations(),
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
     default_quality: createQualitySelection(),
@@ -410,8 +410,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_cookie_policy: createCookiePolicy(),
     default_fields: createFieldRoles(),
     default_naming: createNamingFlags(),
-    download_locations: [],
-    source_location_roots: {},
+    media_root: "",
+    source_location_options: {},
     ytdlp_cookies: createCookiesMap(),
     cookie_policy_defaults: createCookiePolicyDefaults(),
     quality_options: createQualityOptions(),
@@ -430,7 +430,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       confirm_password: "",
     },
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
-    site_locations: createSourceLocations(),
+    source_locations: createSourceLocations(),
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
     default_quality: createQualitySelection(),
@@ -526,8 +526,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     const templateSettings = createTemplateSettings(source.template_settings);
     return {
       source_profiles: profiles,
-      site_locations: createSourceLocations(
-        recordForProfiles(source.site_locations, profiles),
+      source_locations: createSourceLocations(
+        recordForProfiles(source.source_locations, profiles),
         profiles,
       ),
       template_settings: templateSettings,
@@ -593,11 +593,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     });
     return {
       source_profiles: profiles,
-      site_locations: createSourceLocations(
+      source_locations: createSourceLocations(
         recordForProfiles(
           {
-            ...defaults.site_locations,
-            ...settings.site_locations,
+            ...defaults.source_locations,
+            ...settings.source_locations,
           } as SourceLocations,
           profiles,
         ),
@@ -708,7 +708,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     return JSON.stringify(
       stableValue({
         source_profiles: settingsDraft.source_profiles,
-        site_locations: settingsDraft.site_locations,
+        source_locations: settingsDraft.source_locations,
         template_settings: settingsDraft.template_settings,
         source_templates: settingsDraft.source_templates,
         default_quality: settingsDraft.default_quality,
@@ -843,16 +843,16 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     replaceProfiles(settings.source_profiles, profiles);
 
     const locations =
-      data.source_default_locations || data.site_default_locations || {};
+      data.source_locations || {};
     replaceRecord(
-      defaults.site_locations,
+      defaults.source_locations,
       createSourceLocations(
         recordForProfiles(locations, managedProfiles),
         managedProfiles,
       ),
     );
     replaceRecord(
-      settings.site_locations,
+      settings.source_locations,
       createSourceLocations(
         recordForProfiles(locations, managedProfiles),
         managedProfiles,
@@ -962,13 +962,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     settings.template_tokens = Array.isArray(data.template_tokens)
       ? data.template_tokens
       : [];
-    settings.download_locations = Array.isArray(data.download_locations)
-      ? data.download_locations
-      : [];
+    settings.media_root = String(data.media_root || "");
     replaceRecord(
-      settings.source_location_roots,
-      createSourceLocationRoots(
-        data.source_location_roots || {},
+      settings.source_location_options,
+      createSourceLocationOptions(
+        data.source_location_options || {},
         managedProfiles,
       ),
     );
@@ -1045,9 +1043,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   ): void {
     mergeCleanProfilesFromServer(previous.source_profiles, server.source_profiles);
     mergeCleanRecordEntries(
-      settingsDraft.site_locations,
-      previous.site_locations,
-      server.site_locations,
+      settingsDraft.source_locations,
+      previous.source_locations,
+      server.source_locations,
     );
     mergeCleanObjectProps(
       settingsDraft.template_settings,
@@ -1315,7 +1313,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     const current = getSavedSettings();
     const normalized = normalizeSavedPayload(current);
     replaceProfiles(settingsDraft.source_profiles, normalized.source_profiles);
-    replaceRecord(settingsDraft.site_locations, normalized.site_locations);
+    replaceRecord(settingsDraft.source_locations, normalized.source_locations);
     Object.assign(
       settingsDraft.template_settings,
       normalized.template_settings,

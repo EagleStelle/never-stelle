@@ -310,7 +310,7 @@ def test_resolution_revision_ignores_template_edits(monkeypatch: pytest.MonkeyPa
     # resolved row in the library.
     import backend.app.db.repositories.settings as settings_repo
 
-    payload = {"template_settings": {"filename_template": OLD_TEMPLATE}, "site_locations": {"a": {}}}
+    payload = {"template_settings": {"filename_template": OLD_TEMPLATE}, "source_locations": {"a": {}}}
     monkeypatch.setattr(settings_repo, "load_settings_payload", lambda: payload)
     before = settings_repo.resolution_settings_revision()
 
@@ -318,5 +318,5 @@ def test_resolution_revision_ignores_template_edits(monkeypatch: pytest.MonkeyPa
     payload["source_templates"] = {"example": {"": {"filename_template": NEW_TEMPLATE}}}
     assert settings_repo.resolution_settings_revision() == before
 
-    payload["site_locations"] = {"a": {"": "/elsewhere"}}
+    payload["source_locations"] = {"a": {"": "elsewhere"}}
     assert settings_repo.resolution_settings_revision() != before

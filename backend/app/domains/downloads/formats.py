@@ -840,7 +840,7 @@ def select_for_format(mapping: Any, format_template: str) -> Any:
     """The entry a format-keyed per-source setting holds for one learned template.
 
     Callers key their settings by the learned template string (source_templates,
-    site_locations); this looks the matched template up through ``_canonical_shape`` so a
+    source_locations); this looks the matched template up through ``_canonical_shape`` so a
     stored ``{username}`` key still matches a ``{creator}``-shaped template. Returns None
     when the source has nothing configured for that format, so callers apply their own default.
     """

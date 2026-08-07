@@ -209,10 +209,10 @@ def test_iwara_is_not_exposed_as_never_stelle_settings(monkeypatch: pytest.Monke
     monkeypatch.setattr(settings_module, "load_saved_settings_file", lambda: {})
     monkeypatch.setattr(settings_cookies_module, "list_source_cookies", lambda source_key: [])
 
-    settings = settings_module.get_effective_saved_settings({"downloadLocations": ["/media"]})
+    settings = settings_module.get_effective_saved_settings({})
 
     assert any(profile["key"] == "iwara" for profile in settings["source_profiles"])
-    assert "iwara" not in settings["site_locations"]
+    assert "iwara" not in settings["source_locations"]
     assert "iwara" not in settings["source_templates"]
     assert "iwara" not in settings["ytdlp_cookies"]
 

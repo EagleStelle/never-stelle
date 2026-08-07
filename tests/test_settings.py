@@ -8,6 +8,7 @@ import backend.app.domains.settings.locations as settings_locations_module
 import backend.app.domains.settings.service as settings_module
 import backend.app.domains.settings.storage as settings_storage_module
 import backend.app.domains.settings.templates as settings_templates_module
+from backend.app.core.config import MEDIA_DIR
 from backend.app.domains.downloads.learning import (
     ensure_fields_learned,
     get_learned_fields,
@@ -24,6 +25,7 @@ from backend.app.domains.settings import (
     get_effective_template_settings,
     get_effective_title_cleaning,
     get_source_field_defaults,
+    iter_resolved_source_locations,
     normalize_source_fields,
     normalize_source_location_selection,
     normalize_source_scrape_rules,
@@ -69,10 +71,10 @@ def test_settings_response_exposes_supported_template_tokens_only(monkeypatch):
     monkeypatch.setattr(settings_module, "get_learned_formats_for_ui", lambda *args, **kwargs: {})
 
     response = settings_module.build_settings_response(
-        {"downloadLocations": []},
+        {},
         {
             "source_profiles": [],
-            "site_locations": {},
+            "source_locations": {},
             "template_settings": normalize_template_settings({}),
             "source_templates": {},
             "ytdlp_cookies": {},
@@ -851,14 +853,13 @@ def test_get_effective_template_settings_uses_format_keyed_source_template(monke
 
 
 def test_normalize_source_locations_does_not_seed_unresolved_location():
-    result = normalize_source_location_selection({}, {"downloadLocations": ["/media"]}, [])
-
-    assert result == {}
+    assert normalize_source_location_selection({}, {}, []) == {}
 
 
 _TWITTER_PROFILE = [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}]
 _STATUS_FORMAT = "https://twitter.com/{creator}/status/{id}"
 _PHOTO_FORMAT = "https://twitter.com/{creator}/status/{id}/photo/{var}"
+_TWITTER_ROOT = MEDIA_DIR / "twitter"
 
 
 def _learn_twitter_formats(monkeypatch, *templates: str) -> None:
@@ -871,115 +872,118 @@ def _learn_twitter_formats(monkeypatch, *templates: str) -> None:
     )
 
 
-def test_normalize_source_locations_defaults_every_format_to_the_source_folder(monkeypatch):
-    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
+def test_normalize_source_locations_defaults_every_format_to_the_source_root(monkeypatch):
     _learn_twitter_formats(monkeypatch, _STATUS_FORMAT, _PHOTO_FORMAT)
 
-    result = normalize_source_location_selection({}, {"downloadLocations": ["/media"]}, _TWITTER_PROFILE)
+    result = normalize_source_location_selection({}, {}, _TWITTER_PROFILE)
 
-    assert result == {"twitter": {_STATUS_FORMAT: "/media/twitter", _PHOTO_FORMAT: "/media/twitter"}}
+    assert result == {"twitter": {_STATUS_FORMAT: "", _PHOTO_FORMAT: ""}}
 
 
-def test_normalize_source_locations_keeps_a_per_format_folder(monkeypatch):
-    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
+def test_normalize_source_locations_keeps_a_per_format_subpath(monkeypatch):
     _learn_twitter_formats(monkeypatch, _STATUS_FORMAT, _PHOTO_FORMAT)
 
     result = normalize_source_location_selection(
-        {"twitter": {_PHOTO_FORMAT: "/media/twitter/photos"}},
-        {"downloadLocations": ["/media"]},
+        {"twitter": {_PHOTO_FORMAT: "photos"}},
+        {},
         _TWITTER_PROFILE,
     )
 
-    assert result == {"twitter": {_STATUS_FORMAT: "/media/twitter", _PHOTO_FORMAT: "/media/twitter/photos"}}
+    assert result == {"twitter": {_STATUS_FORMAT: "", _PHOTO_FORMAT: "photos"}}
 
 
-def test_normalize_source_locations_rejects_the_media_root(monkeypatch):
-    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
+def test_normalize_source_locations_rejects_absolute_paths(monkeypatch):
+    # Absolute paths are a migration's job (m0002), never accepted as a stored value.
+    _learn_twitter_formats(monkeypatch, _STATUS_FORMAT, _PHOTO_FORMAT)
+
+    result = normalize_source_location_selection(
+        {"twitter": {_STATUS_FORMAT: "/media/twitter", _PHOTO_FORMAT: "C:/media/twitter/photos"}},
+        {},
+        _TWITTER_PROFILE,
+    )
+
+    assert result == {"twitter": {_STATUS_FORMAT: "", _PHOTO_FORMAT: ""}}
+
+
+def test_normalize_source_locations_rejects_traversal(monkeypatch):
     _learn_twitter_formats(monkeypatch, _STATUS_FORMAT)
 
     result = normalize_source_location_selection(
-        {"twitter": {_STATUS_FORMAT: "/media"}},
-        {"downloadLocations": ["/media"]},
+        {"twitter": {_STATUS_FORMAT: "../instagram"}},
+        {},
         _TWITTER_PROFILE,
     )
 
-    assert result == {"twitter": {_STATUS_FORMAT: "/media/twitter"}}
+    assert result == {"twitter": {_STATUS_FORMAT: ""}}
 
 
-def test_normalize_source_locations_rejects_another_source_folder(monkeypatch):
-    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
-    _learn_twitter_formats(monkeypatch, _STATUS_FORMAT)
-
-    result = normalize_source_location_selection(
-        {"twitter": {_STATUS_FORMAT: "/media/instagram"}},
-        {"downloadLocations": ["/media"]},
-        _TWITTER_PROFILE,
-    )
-
-    assert result == {"twitter": {_STATUS_FORMAT: "/media/twitter"}}
-
-
-def test_normalize_source_locations_rescopes_canonical_format_folder(monkeypatch):
-    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
+def test_normalize_source_locations_rescopes_canonical_format_subpath(monkeypatch):
     _learn_twitter_formats(monkeypatch, _STATUS_FORMAT, _PHOTO_FORMAT)
     username_format = "https://twitter.com/{username}/status/{id}"
 
     result = normalize_source_location_selection(
-        {"twitter": {username_format: "/media/twitter/users"}},
-        {"downloadLocations": ["/media"]},
+        {"twitter": {username_format: "users"}},
+        {},
         _TWITTER_PROFILE,
     )
 
-    assert result == {"twitter": {_STATUS_FORMAT: "/media/twitter/users", _PHOTO_FORMAT: "/media/twitter"}}
+    assert result == {"twitter": {_STATUS_FORMAT: "users", _PHOTO_FORMAT: ""}}
 
 
 def test_normalize_source_locations_ignores_flat_source_locations(monkeypatch):
-    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
     _learn_twitter_formats(monkeypatch, _STATUS_FORMAT, _PHOTO_FORMAT)
 
     result = normalize_source_location_selection(
         {"twitter": "/library/twitter"},
-        {"downloadLocations": ["/media"]},
+        {},
         _TWITTER_PROFILE,
     )
 
-    assert result == {"twitter": {_STATUS_FORMAT: "/media/twitter", _PHOTO_FORMAT: "/media/twitter"}}
+    assert result == {"twitter": {_STATUS_FORMAT: "", _PHOTO_FORMAT: ""}}
 
 
 def test_normalize_source_locations_drops_a_format_no_longer_learned(monkeypatch):
-    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
     _learn_twitter_formats(monkeypatch, _STATUS_FORMAT)
 
     result = normalize_source_location_selection(
-        {"twitter": {_STATUS_FORMAT: "/media/twitter", _PHOTO_FORMAT: "/media/twitter/photos"}},
-        {"downloadLocations": ["/media"]},
+        {"twitter": {_STATUS_FORMAT: "", _PHOTO_FORMAT: "photos"}},
+        {},
         _TWITTER_PROFILE,
     )
 
-    assert result == {"twitter": {_STATUS_FORMAT: "/media/twitter"}}
+    assert result == {"twitter": {_STATUS_FORMAT: ""}}
 
 
-def test_resolve_source_location_falls_back_to_the_source_default(monkeypatch):
-    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
-    cfg = {"downloadLocations": ["/media"]}
-    locations = {"twitter": {_STATUS_FORMAT: "/media/twitter/status"}}
+def test_resolve_source_location_falls_back_to_the_source_root():
     resolve = settings_locations_module.resolve_source_location
+    locations = {"twitter": {_STATUS_FORMAT: "status"}}
 
-    assert resolve(locations, cfg, "twitter", _STATUS_FORMAT) == "/media/twitter/status"
-    # An unmatched format, and a source with nothing configured, both land on the default.
-    assert resolve(locations, cfg, "twitter", _PHOTO_FORMAT) == "/media/twitter"
-    assert resolve(locations, cfg, "twitter", "") == "/media/twitter"
-    assert resolve({}, cfg, "youtube", _STATUS_FORMAT) == "/media/youtube"
+    assert resolve(locations, "twitter", _STATUS_FORMAT) == str(_TWITTER_ROOT / "status")
+    # An unmatched format, and a source with nothing configured, both land on the root.
+    assert resolve(locations, "twitter", _PHOTO_FORMAT) == str(_TWITTER_ROOT)
+    assert resolve({}, "youtube", _STATUS_FORMAT) == str(MEDIA_DIR / "youtube")
+
+
+def test_iter_resolved_source_locations_expands_subpaths_to_absolute():
+    rows = sorted(
+        iter_resolved_source_locations({"twitter": {_STATUS_FORMAT: "status", _PHOTO_FORMAT: ""}})
+    )
+
+    assert rows == sorted(
+        [
+            ("twitter", _STATUS_FORMAT, str(_TWITTER_ROOT / "status")),
+            ("twitter", _PHOTO_FORMAT, str(_TWITTER_ROOT)),
+        ]
+    )
 
 
 def test_resolve_task_settings_uses_the_matched_format_location(monkeypatch):
-    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
     monkeypatch.setattr(
         planning_module,
         "get_effective_saved_settings",
         lambda cfg: {
             "source_profiles": [],
-            "site_locations": {},
+            "source_locations": {},
             "template_settings": {
                 "folder_template": "{{username}}",
                 "filename_template": "{{username}} - {{title}} [{{id}}]",
@@ -992,29 +996,26 @@ def test_resolve_task_settings_uses_the_matched_format_location(monkeypatch):
     def resolve(url: str):
         return planning_module.resolve_task_settings(
             url,
-            site_locations={
-                "twitter": {_STATUS_FORMAT: "/library/twitter/status", _PHOTO_FORMAT: "/library/twitter/photos"}
-            },
+            source_locations={"twitter": {_STATUS_FORMAT: "status", _PHOTO_FORMAT: "photos"}},
             source_profiles=_TWITTER_PROFILE,
-            cfg={"downloadLocations": ["/library"]},
+            cfg={},
         )
 
     status = resolve("https://twitter.com/DohaVT/status/2073635724684054528")
     photo = resolve("https://twitter.com/DohaVT/status/2073635724684054528/photo/1")
 
-    # Neither is the "/library/twitter" default, so both came from the matched format.
-    assert status.output_dir == "/library/twitter/status"
-    assert photo.output_dir == "/library/twitter/photos"
+    # Neither is the source root, so both came from the matched format.
+    assert status.output_dir == str(_TWITTER_ROOT / "status")
+    assert photo.output_dir == str(_TWITTER_ROOT / "photos")
 
 
 def test_resolve_task_settings_defaults_when_no_format_matches(monkeypatch):
-    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
     monkeypatch.setattr(
         planning_module,
         "get_effective_saved_settings",
         lambda cfg: {
             "source_profiles": [],
-            "site_locations": {},
+            "source_locations": {},
             "template_settings": {
                 "folder_template": "{{username}}",
                 "filename_template": "{{username}} - {{title}} [{{id}}]",
@@ -1026,22 +1027,21 @@ def test_resolve_task_settings_defaults_when_no_format_matches(monkeypatch):
 
     resolved = planning_module.resolve_task_settings(
         "https://twitter.com/i/broadcasts/1yNGaNzYqRPGj",
-        site_locations={"twitter": {_STATUS_FORMAT: "/library/twitter/status"}},
+        source_locations={"twitter": {_STATUS_FORMAT: "status"}},
         source_profiles=_TWITTER_PROFILE,
-        cfg={"downloadLocations": ["/library"]},
+        cfg={},
     )
 
-    assert resolved.output_dir == "/library/twitter"
+    assert resolved.output_dir == str(_TWITTER_ROOT)
 
 
 def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
-    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
     monkeypatch.setattr(
         planning_module,
         "get_effective_saved_settings",
         lambda cfg: {
             "source_profiles": [],
-            "site_locations": {},
+            "source_locations": {},
             "template_settings": {
                 "folder_template": "{{username}}",
                 "filename_template": "{{username}} - {{title}} [{{id}}]",
@@ -1064,7 +1064,7 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
 
     resolved = planning_module.resolve_task_settings(
         "https://twitter.com/DohaVT/status/2073635724684054528",
-        site_locations={"twitter": {"https://twitter.com/{creator}/status/{id}": "/library/twitter"}},
+        source_locations={"twitter": {"https://twitter.com/{creator}/status/{id}": ""}},
         template_settings={"folder_template": "{{username}}", "filename_template": "{{title}}"},
         source_profiles=[{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
         source_templates={
@@ -1075,11 +1075,11 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
                 }
             }
         },
-        cfg={"downloadLocations": ["/library"]},
+        cfg={},
     )
 
     assert resolved.source_key == "twitter"
-    assert resolved.output_dir == "/library/twitter"
+    assert resolved.output_dir == str(_TWITTER_ROOT)
     assert resolved.template_settings == {
         "folder_template": "{{username}}/{{id}}",
         "filename_template": "{{username}} - {{id}}",
@@ -1087,13 +1087,12 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
 
 
 def test_resolve_task_settings_matches_format(monkeypatch):
-    monkeypatch.setattr(settings_locations_module, "normalize_allowed_location", lambda raw: str(raw or "").strip())
     monkeypatch.setattr(
         planning_module,
         "get_effective_saved_settings",
         lambda cfg: {
             "source_profiles": [],
-            "site_locations": {},
+            "source_locations": {},
             "template_settings": {
                 "folder_template": "{{username}}",
                 "filename_template": "{{username}} - {{title}} [{{id}}]",
@@ -1116,7 +1115,7 @@ def test_resolve_task_settings_matches_format(monkeypatch):
 
     resolved = planning_module.resolve_task_settings(
         "https://twitter.com/DohaVT/status/2073635724684054528",
-        site_locations={"twitter": {"https://twitter.com/{creator}/status/{id}": "/library/twitter"}},
+        source_locations={"twitter": {"https://twitter.com/{creator}/status/{id}": ""}},
         template_settings={"folder_template": "{{username}}", "filename_template": "{{title}}"},
         source_profiles=[{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
         source_templates={
@@ -1127,7 +1126,7 @@ def test_resolve_task_settings_matches_format(monkeypatch):
                 }
             }
         },
-        cfg={"downloadLocations": ["/library"]},
+        cfg={},
     )
 
     assert resolved.source_key == "twitter"

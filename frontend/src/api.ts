@@ -202,7 +202,7 @@ export function probeUrl(url: string): Promise<ProbeResponse> {
 export function addTask(payload: {
   url?: string;
   urls?: string[];
-  site_locations: SavedSettings["site_locations"];
+  source_locations: SavedSettings["source_locations"];
   template_settings?: SavedSettings["template_settings"];
   source_profiles?: SavedSettings["source_profiles"];
   source_templates?: SavedSettings["source_templates"];

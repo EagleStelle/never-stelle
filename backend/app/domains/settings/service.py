@@ -5,9 +5,9 @@ from typing import Any
 
 from backend.app.core.config import (
     APP_CONFIG_KEY,
-    get_site_default_locations,
+    MEDIA_DIR,
     load_app_config,
-    normalize_download_locations,
+    source_location_options,
 )
 from backend.app.core.resolution import is_scoped, resolved
 
@@ -65,8 +65,8 @@ def _effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, An
     default_fields = normalize_default_fields(payload.get("default_fields"))
     return {
         "source_profiles": source_profiles,
-        "site_locations": normalize_source_location_selection(
-            payload.get("site_locations"),
+        "source_locations": normalize_source_location_selection(
+            payload.get("source_locations"),
             cfg,
             source_profiles,
         ),
@@ -96,7 +96,7 @@ def _effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, An
 
 def persist_settings(
     cfg: dict[str, Any],
-    raw_site_locations: Any,
+    raw_source_locations: Any,
     raw_template_settings: Any = None,
     raw_source_profiles: Any = None,
     raw_source_templates: Any = None,
@@ -123,7 +123,7 @@ def persist_settings(
                 or existing.get("source_profiles")
                 or {}
             ),
-            "site_locations": raw_site_locations,
+            "source_locations": raw_source_locations,
             "source_templates": raw_source_templates
             or existing.get("source_templates")
             or {},
@@ -162,7 +162,7 @@ def persist_settings(
     existing.update(
         {
             "source_profiles": managed_profiles,
-            "site_locations": normalize_source_location_selection(raw_site_locations, cfg, managed_profiles),
+            "source_locations": normalize_source_location_selection(raw_source_locations, cfg, managed_profiles),
             "template_settings": template_settings,
             "source_templates": normalize_source_template_selection(
                 raw_source_templates,
@@ -214,13 +214,11 @@ def build_settings_response(
     source_profiles = saved.get("source_profiles", get_effective_source_profiles(cfg))
     return {
         "auth": auth_public_payload(),
-        "download_locations": normalize_download_locations(cfg),
+        "media_root": str(MEDIA_DIR),
         "source_profiles": source_profiles,
-        "source_default_locations": saved.get("site_locations", {}),
-        "site_default_locations": saved.get("site_locations", {}),
-        "source_location_roots": get_site_default_locations(
-            cfg,
-            [profile.get("key") for profile in source_profiles if isinstance(profile, dict)],
+        "source_locations": saved.get("source_locations", {}),
+        "source_location_options": source_location_options(
+            profile.get("key") for profile in source_profiles if isinstance(profile, dict)
         ),
         "template_settings": saved.get("template_settings", normalize_template_settings({})),
         "source_templates": saved.get("source_templates", {}),

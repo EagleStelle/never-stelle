@@ -23,8 +23,10 @@ export type SettingsSection =
 export type ToastType = "success" | "error";
 
 // Download folder per source, keyed by the source's learned URL format.
+// Per source, per learned URL format: a subpath under `<media>/<source_key>`, "" being that root.
 export type SourceLocations = Record<string, Record<string, string>>;
-export type SourceLocationRoots = Record<string, string>;
+// Selectable subpaths under each source's root.
+export type SourceLocationOptions = Record<string, string[]>;
 
 export interface TemplateSettings {
   folder_template: string;
@@ -231,7 +233,7 @@ export interface AccountSettingsDraft {
 
 export interface SavedSettings {
   source_profiles: SourceProfile[];
-  site_locations: SourceLocations;
+  source_locations: SourceLocations;
   template_settings: TemplateSettings;
   source_templates: SourceTemplates;
   default_quality: QualitySelection;
@@ -259,8 +261,8 @@ export interface TemplateToken {
 
 export interface RuntimeSettings extends SavedSettings {
   auth: AuthSettings;
-  download_locations: string[];
-  source_location_roots: SourceLocationRoots;
+  media_root: string;
+  source_location_options: SourceLocationOptions;
   ytdlp_cookies: CookiesMap;
   cookie_policy_defaults: CookiePolicyDefaults;
   quality_options: QualityOptions;
@@ -274,11 +276,10 @@ export interface RuntimeSettings extends SavedSettings {
 
 export interface UiConfigResponse {
   auth?: Partial<AuthSettings>;
-  download_locations?: string[];
+  media_root?: string;
   source_profiles?: Array<Partial<SourceProfile>>;
-  source_default_locations?: SourceLocations;
-  site_default_locations?: SourceLocations;
-  source_location_roots?: SourceLocationRoots;
+  source_locations?: SourceLocations;
+  source_location_options?: SourceLocationOptions;
   template_settings?: Partial<TemplateSettings>;
   source_templates?: SourceTemplatesPayload;
   source_scrape_rules?: Record<string, Partial<PlatformScrapeRules>>;
@@ -303,7 +304,6 @@ export interface UiConfigResponse {
   template_tokens?: TemplateToken[];
   default_filename_template?: string;
   default_folder_template?: string;
-  default_general_location?: string;
   settings_loaded_at?: number;
 }
 

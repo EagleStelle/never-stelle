@@ -42,7 +42,7 @@ def test_unconfigured_source_uses_the_built_in_defaults(tmp_path, monkeypatch):
 
 def test_saving_settings_takes_effect_without_a_restart(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
-    cfg = {"downloadLocations": []}
+    cfg = {}
     profiles = [{"key": "instagram", "label": "Instagram", "hosts": ["instagram.com"]}]
 
     assert cookie_policy_for_source("instagram").limit == DEFAULT_COOKIE_POLICY.limit
@@ -73,7 +73,7 @@ def test_saving_settings_takes_effect_without_a_restart(tmp_path, monkeypatch):
 
 def test_configured_defaults_apply_to_every_source(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
-    cfg = {"downloadLocations": []}
+    cfg = {}
     profiles = [{"key": "instagram", "label": "Instagram", "hosts": ["instagram.com"]}]
 
     persist_settings(

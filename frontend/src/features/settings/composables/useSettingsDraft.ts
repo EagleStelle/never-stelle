@@ -49,9 +49,9 @@ export function useSettingsDraft(props: DraftSources): {
         if (!draft.source_slug_tokens[profile.key]) {
           draft.source_slug_tokens[profile.key] = [];
         }
-        if (!draft.site_locations[profile.key]) {
-          draft.site_locations[profile.key] = {
-            ...(props.settings.site_locations[profile.key] || {}),
+        if (!draft.source_locations[profile.key]) {
+          draft.source_locations[profile.key] = {
+            ...(props.settings.source_locations[profile.key] || {}),
           };
         }
       }

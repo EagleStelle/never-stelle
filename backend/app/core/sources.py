@@ -143,10 +143,6 @@ def normalize_source_profile(raw: Any, fallback_key: str = "") -> dict[str, Any]
         "icon_url": icon_url,
     }
     for source_name, target_name in (
-        ("default_download_location", "default_download_location"),
-        ("defaultDownloadLocation", "default_download_location"),
-        ("download_location", "default_download_location"),
-        ("downloadLocation", "default_download_location"),
         ("folder_template", "folder_template"),
         ("folderTemplate", "folder_template"),
         ("filename_template", "filename_template"),
