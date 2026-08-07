@@ -12,11 +12,7 @@ from backend.app.domains.downloads import history as history_module
 from backend.app.domains.downloads import serializers
 from backend.app.domains.downloads.formats import learn_download
 from backend.app.domains.downloads.templates import template_columns, template_settings_from_columns
-
-
-def use_temp_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+from tests.support import use_temp_db
 
 
 def test_fresh_schema_contains_current_tables(tmp_path, monkeypatch):

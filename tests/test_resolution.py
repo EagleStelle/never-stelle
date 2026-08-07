@@ -4,6 +4,7 @@ import backend.app.core.config as config_module
 import backend.app.domains.settings.storage as storage_module
 from backend.app.core.pacing import CpuPacer, available_cores, background_cpu_budget
 from backend.app.core.resolution import invalidate, resolution_scope, resolved, scope_active
+from tests.support import use_temp_db
 
 
 def _counter():
@@ -85,10 +86,8 @@ def test_invalidate_drops_matching_keys_by_prefix():
 
 
 def test_saving_settings_drops_the_scoped_snapshot(tmp_path, monkeypatch):
-    import backend.app.db.database as database_module
 
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    use_temp_db(tmp_path, monkeypatch)
 
     with resolution_scope():
         assert storage_module.load_saved_settings_file() == {}

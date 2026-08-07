@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-import backend.app.db.database as database_module
 import backend.app.domains.downloads.scan as scan_module
 from backend.app.db import repositories
 from backend.app.domains.downloads import cache as cache_module
 from backend.app.domains.downloads import operations as operations_module
 from backend.app.integrations.swaratelle import client as swaratelle
 from backend.app.main import app
+from tests.support import use_temp_db
 
 # No `with` block: lifespan (db init + worker thread) stays inert for these
 # read-only route checks.
@@ -16,8 +16,7 @@ client = TestClient(app)
 
 
 def use_temp_auth_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("NEVER_STELLE_USERNAME", "root")
     monkeypatch.setenv("NEVER_STELLE_PASSWORD", "test-password")
     client.cookies.clear()

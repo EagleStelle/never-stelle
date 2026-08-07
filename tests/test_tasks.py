@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-import backend.app.db.database as database_module
 import backend.app.domains.downloads.files as files_module
 import backend.app.domains.downloads.gallerydl as gallerydl_module
 import backend.app.domains.downloads.history as history_module
@@ -64,6 +63,7 @@ from backend.app.domains.downloads.ytdlp import (
     clean_filename_title,
     clean_social_title,
 )
+from tests.support import use_temp_db
 
 
 def _patch_worker_task_store(monkeypatch: pytest.MonkeyPatch, store: dict, update_task):
@@ -1369,9 +1369,7 @@ def test_gallerydl_sparse_single_output_enqueues_metadata_repair_without_inline_
 def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    database_module.close_database()
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setattr(enrichment_module, "ensure_enrichment_worker", lambda: None)
 
     enrichment_module.enqueue_completion_enrichment(
@@ -1448,9 +1446,7 @@ def test_complete_sidecar_metadata_skips_completion_enrichment(tmp_path: Path):
 def test_enrichment_repairs_sparse_creator_title_and_filename(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    database_module.close_database()
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    use_temp_db(tmp_path, monkeypatch)
     media_id = "DZwrrifkye4"
     raw_video = tmp_path / f"None - [{media_id}] [{media_id}].mp4"
     raw_video.write_bytes(b"video")
@@ -1512,9 +1508,7 @@ def test_enrichment_repairs_sparse_creator_title_and_filename(
 def test_enrichment_worker_deletes_stale_job_when_history_row_is_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    database_module.close_database()
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    use_temp_db(tmp_path, monkeypatch)
     store_module.enqueue_enrichment_job(
         "completion:missing",
         "completion",

@@ -1,4 +1,3 @@
-import backend.app.db.database as database_module
 import backend.app.domains.settings.cookie_policy as policy_module
 from backend.app.domains.settings import (
     DEFAULT_COOKIE_POLICY,
@@ -6,11 +5,11 @@ from backend.app.domains.settings import (
     normalize_source_cookie_policies,
     persist_settings,
 )
+from tests.support import use_temp_db as use_temp_db_rows
 
 
 def use_temp_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    use_temp_db_rows(tmp_path, monkeypatch)
     policy_module.invalidate_cookie_policies()
 
 

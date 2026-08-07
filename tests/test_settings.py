@@ -33,6 +33,7 @@ from backend.app.domains.settings import (
     normalize_source_token_roles,
     normalize_template_settings,
 )
+from tests.support import use_temp_db
 
 
 def test_normalize_template_defaults_when_empty():
@@ -450,11 +451,9 @@ def test_source_field_defaults_ignore_learned_url_fields(monkeypatch):
 
 
 def test_add_source_and_learn_format_returns_matched_template(tmp_path, monkeypatch):
-    import backend.app.db.database as database_module
     import backend.app.domains.downloads.learning as learning_mod
 
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setattr(
         settings_formats_module,
         "load_app_config",
@@ -476,11 +475,9 @@ def test_add_source_and_learn_format_returns_matched_template(tmp_path, monkeypa
 
 
 def test_clearing_last_format_clears_source_fields(tmp_path, monkeypatch):
-    import backend.app.db.database as database_module
     from backend.app.db import repositories
 
-    monkeypatch.setattr(database_module, "DATABASE_PATH", tmp_path / "never-stelle.sqlite3")
-    monkeypatch.setattr(database_module, "_INITIALIZED", False)
+    use_temp_db(tmp_path, monkeypatch)
     format_template = "https://www.tiktok.com/@{creator}/video/{id}"
     repositories.save_learned_formats_payload(
         {
