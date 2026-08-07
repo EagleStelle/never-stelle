@@ -10,6 +10,7 @@ from backend.app.core.time import utc_now
 from backend.app.domains.downloads.cache import drop_file_cache
 from backend.app.domains.downloads.constants import (
     FIELD_CANDIDATES,
+    RESOLVE_JOB_KIND,
     field_roles_from_probe_fields,
     normalize_quality_selection,
 )
@@ -244,6 +245,12 @@ def _run_enrichment_job(job: dict[str, Any]) -> None:
     payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
     task_id = str(payload.get("task_id") or "")
     if not task_id:
+        return
+    if str(job.get("kind") or "") == RESOLVE_JOB_KIND:
+        # Lazy: resolve reaches back through the scan, which this module already feeds.
+        from backend.app.domains.downloads.resolve import resolve_history_entry
+
+        resolve_history_entry(task_id, force=bool(payload.get("force")))
         return
     entry = load_history_entry(task_id)
     if not entry:

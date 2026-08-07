@@ -6,9 +6,11 @@ import {
   addTask as createTask,
   cancelTask as cancelTaskRequest,
   clearPendingTasks,
+  getResolveScope,
   getTasks,
   probeUrl,
   removeTask as removeTaskRequest,
+  resolveHistory as resolveHistoryRequest,
   retryTask as retryTaskRequest,
   scanMediaLibrary,
   setTaskSource as setTaskSourceRequest,
@@ -22,7 +24,7 @@ import {
   REUSED_TASK_MESSAGES,
   TASKS_QUERY_KEY,
 } from "@/ui";
-import type { PlaylistEntry, QualitySelection, SavedSettings, TaskItem, TaskStatus, TasksResponse, ToastType } from "@/types";
+import type { PlaylistEntry, QualitySelection, ResolveScope, SavedSettings, TaskItem, TaskStatus, TasksResponse, ToastType } from "@/types";
 import { countTasks, errorMessage, extractUrl, normalizeSourceKey } from "@/utils/dashboard";
 
 interface UseTaskQueueOptions {
@@ -56,6 +58,10 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   const playlistTitle = ref("");
   const playlistEntries = ref<PlaylistEntry[]>([]);
 
+  const resolveOpen = ref(false);
+  const resolveFlagged = ref(0);
+  const resolveTotal = ref(0);
+
   const tasksQuery = useQuery<TasksResponse>({
     queryKey: TASKS_QUERY_KEY,
     queryFn: getTasks,
@@ -65,6 +71,8 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   const addTaskMutation = useMutation({ mutationFn: createTask });
   const probeMutation = useMutation({ mutationFn: probeUrl });
   const scanMediaMutation = useMutation({ mutationFn: scanMediaLibrary });
+  const resolveScopeMutation = useMutation({ mutationFn: getResolveScope });
+  const resolveMutation = useMutation({ mutationFn: resolveHistoryRequest });
   const setSourceMutation = useMutation({
     mutationFn: (payload: { taskId: string; sourceKey: string }) =>
       setTaskSourceRequest(payload.taskId, payload.sourceKey),
@@ -77,6 +85,9 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   const tasksLoading = computed(() => tasksQuery.isPending.value);
   const tasksErrorMessage = computed(() => (tasksQuery.error.value ? errorMessage(tasksQuery.error.value, "Could not load tasks.") : ""));
   const historyRefreshing = computed(() => scanMediaMutation.isPending.value);
+  const historyResolving = computed(
+    () => resolveScopeMutation.isPending.value || resolveMutation.isPending.value,
+  );
 
   const { pause: pausePolling, resume: resumePolling, isActive: pollingActive } = useIntervalFn(
     () => void loadTasks(true),
@@ -257,6 +268,42 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     }
   }
 
+  function queuedMessage(queued: number): string {
+    return queued === 0
+      ? "Nothing left to resolve."
+      : `Resolving ${queued} item${queued === 1 ? "" : "s"} in the background.`;
+  }
+
+  async function openResolveDialog(): Promise<void> {
+    try {
+      const scope = await resolveScopeMutation.mutateAsync();
+      resolveFlagged.value = scope.flagged;
+      resolveTotal.value = scope.total;
+      resolveOpen.value = true;
+    } catch (error) {
+      toast(errorMessage(error, "Could not read resolve scope."), "error");
+    }
+  }
+
+  async function confirmResolve(scope: ResolveScope): Promise<void> {
+    resolveOpen.value = false;
+    try {
+      const result = await resolveMutation.mutateAsync({ scope });
+      toast(queuedMessage(result.queued));
+    } catch (error) {
+      toast(errorMessage(error, "Could not resolve history."), "error");
+    }
+  }
+
+  async function resolveTask(taskId: string): Promise<void> {
+    try {
+      const result = await resolveMutation.mutateAsync({ task_ids: [taskId] });
+      toast(result.queued === 0 ? "Nothing left to resolve." : "Resolving in the background.");
+    } catch (error) {
+      toast(errorMessage(error, "Could not resolve history."), "error");
+    }
+  }
+
   function handleVisibilityChange(): void {
     if (document.hidden) {
       pausePolling();
@@ -280,13 +327,20 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     cancelTask,
     clearPending,
     confirmPlaylistSelection,
+    confirmResolve,
     historyRefreshing,
+    historyResolving,
+    openResolveDialog,
     retryTask,
     playlistEntries,
     playlistOpen,
     playlistTitle,
     refreshHistory,
     removeTask,
+    resolveFlagged,
+    resolveOpen,
+    resolveTask,
+    resolveTotal,
     setTaskSource,
     taskItems,
     countsByMenu,

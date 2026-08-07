@@ -15,6 +15,8 @@ from backend.app.db.repositories import (
     count_active_download_tasks,
     count_history_by_source,
     count_history_by_source_and_media,
+    count_history_resolve_flagged,
+    count_history_rows,
     count_pending_enrichment_jobs_payload,
     count_pending_tasks,
     delete_history_row,
@@ -29,6 +31,8 @@ from backend.app.db.repositories import (
     load_history_entry_payload,
     load_history_page,
     load_history_payload,
+    load_history_resolve_flagged_ids,
+    load_history_row_ids,
     load_learned_formats_payload,
     load_task_payload,
     load_task_store_payload,
@@ -41,12 +45,19 @@ from backend.app.db.repositories import (
     save_history_rows,
     save_learned_formats_payload,
     upsert_enrichment_job_payload,
+    upsert_enrichment_jobs_payload,
+)
+from backend.app.db.repositories import (
+    clear_history_resolve_flags as clear_history_resolve_flag_rows,
 )
 from backend.app.db.repositories import (
     mark_downloads_seeded as mark_downloads_seeded_rows,
 )
 from backend.app.db.repositories import (
     seeded_download_ids as seeded_download_id_rows,
+)
+from backend.app.db.repositories import (
+    sync_history_resolve_flags as sync_history_resolve_flag_rows,
 )
 
 
@@ -111,6 +122,30 @@ def active_counts_by_source_and_media() -> dict[str, dict[str, dict[str, int]]]:
     return count_active_by_source_and_media()
 
 
+def sync_history_resolve_flags(task_ids: Any) -> None:
+    sync_history_resolve_flag_rows(task_ids)
+
+
+def clear_history_resolve_flags(task_ids: Any) -> None:
+    clear_history_resolve_flag_rows(task_ids)
+
+
+def history_resolve_flagged_ids() -> list[str]:
+    return load_history_resolve_flagged_ids()
+
+
+def history_entry_ids() -> list[str]:
+    return load_history_row_ids()
+
+
+def history_resolve_flagged_count() -> int:
+    return count_history_resolve_flagged()
+
+
+def history_entry_count() -> int:
+    return count_history_rows()
+
+
 def save_history_entry_row(task_id: str, entry: dict[str, Any]) -> None:
     save_history_row(task_id, entry)
 
@@ -142,6 +177,10 @@ def pending_enrichment_job_count() -> int:
 
 def enqueue_enrichment_job(job_id: str, kind: str, payload: dict[str, Any]) -> None:
     upsert_enrichment_job_payload(job_id, kind, payload)
+
+
+def enqueue_enrichment_jobs(kind: str, rows: list[tuple[str, dict[str, Any]]]) -> int:
+    return upsert_enrichment_jobs_payload(kind, rows)
 
 
 def claim_next_enrichment_job() -> dict[str, Any] | None:

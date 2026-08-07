@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import IconDownload from "~icons/material-symbols/download";
+import IconResolve from "~icons/material-symbols/cloud-sync";
 import IconX from "~icons/material-symbols/close";
 import IconStop from "~icons/material-symbols/stop";
 import IconRetry from "~icons/material-symbols/replay";
@@ -35,12 +36,17 @@ const props = defineProps<{
 const emit = defineEmits<{
   cancel: [taskId: string];
   remove: [taskId: string];
+  resolve: [taskId: string];
   retry: [taskId: string];
   "set-source": [payload: { taskId: string; sourceKey: string }];
 }>();
 
 function canDownload(task: TaskItem): boolean {
   return props.pageKind === "history" && task.can_download;
+}
+
+function canResolve(task: TaskItem): boolean {
+  return props.pageKind === "history" && Boolean(task.can_resolve);
 }
 
 function canRetry(task: TaskItem): boolean {
@@ -56,7 +62,7 @@ function canRemove(task: TaskItem): boolean {
 }
 
 function hasActions(task: TaskItem): boolean {
-  return canDownload(task) || canRetry(task) || canCancel(task) || canRemove(task);
+  return canResolve(task) || canDownload(task) || canRetry(task) || canCancel(task) || canRemove(task);
 }
 </script>
 
@@ -95,6 +101,18 @@ function hasActions(task: TaskItem): boolean {
           </span>
         </CardDescription>
         <CardAction v-if="hasActions(task)">
+          <Button
+            v-if="canResolve(task)"
+            variant="primary"
+            type="button"
+            aria-label="Fetch missing info"
+            title="Fetch missing info"
+            @click="emit('resolve', task.vid)"
+          >
+            <template #icon>
+              <IconResolve aria-hidden="true" />
+            </template>
+          </Button>
           <Button
             v-if="canDownload(task)"
             as="a"

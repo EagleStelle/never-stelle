@@ -25,6 +25,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   cancel: [taskId: string];
   remove: [taskId: string];
+  resolve: [taskId: string];
   retry: [taskId: string];
   "set-source": [payload: { taskId: string; sourceKey: string }];
   "load-more": [];
@@ -94,6 +95,7 @@ onUnmounted(() => observer?.disconnect());
         :source-profiles="sourceProfiles"
         @cancel="emit('cancel', $event)"
         @remove="emit('remove', $event)"
+        @resolve="emit('resolve', $event)"
         @retry="emit('retry', $event)"
         @set-source="emit('set-source', $event)"
       />
@@ -105,6 +107,7 @@ onUnmounted(() => observer?.disconnect());
         :source-profiles="sourceProfiles"
         @cancel="emit('cancel', $event)"
         @remove="emit('remove', $event)"
+        @resolve="emit('resolve', $event)"
         @retry="emit('retry', $event)"
         @set-source="emit('set-source', $event)"
       />

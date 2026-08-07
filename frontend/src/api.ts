@@ -7,6 +7,9 @@ import type {
   LoginPayload,
   ProbeFieldsResponse,
   ProbeResponse,
+  ResolveResponse,
+  ResolveScope,
+  ResolveScopeResponse,
   SavedSettings,
   ScanMediaResponse,
   ScrapeRule,
@@ -259,6 +262,22 @@ export function scanMediaLibrary(): Promise<ScanMediaResponse> {
     "/api/library/scan",
     { method: "POST" },
     "Could not refresh history.",
+  );
+}
+
+export function getResolveScope(): Promise<ResolveScopeResponse> {
+  return jsonRequest<ResolveScopeResponse>("/api/library/resolve", {}, "Could not read resolve scope.");
+}
+
+export function resolveHistory(payload: { scope?: ResolveScope; task_ids?: string[] }): Promise<ResolveResponse> {
+  return jsonRequest<ResolveResponse>(
+    "/api/library/resolve",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Could not resolve history.",
   );
 }
 

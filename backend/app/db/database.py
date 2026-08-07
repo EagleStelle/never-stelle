@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS download_history (
     scan_revision       TEXT    NOT NULL DEFAULT '',
     folder_template     TEXT    NOT NULL DEFAULT '',
     filename_template   TEXT    NOT NULL DEFAULT '',
+    needs_resolve       INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT    NOT NULL,
     updated_at          TEXT    NOT NULL,
     encoding            TEXT    NOT NULL DEFAULT '{}'
@@ -77,6 +78,8 @@ CREATE INDEX IF NOT EXISTS idx_history_path
     ON download_history(resolved_path_key);
 CREATE INDEX IF NOT EXISTS idx_history_media_id
     ON download_history(media_id);
+CREATE INDEX IF NOT EXISTS idx_history_needs_resolve
+    ON download_history(created_at DESC, id DESC) WHERE needs_resolve = 1;
 
 CREATE TABLE IF NOT EXISTS download_enrichment_jobs (
     id          TEXT PRIMARY KEY,

@@ -56,6 +56,10 @@ def _numbered_suffix(stem: str) -> str:
 def _row_fields(payload: dict[str, Any], stored_template: str, old_name: str) -> dict[str, str]:
     # Parsing the old name recovers tokens the row has no column for (scraped, URL-part).
     fields = dict(filename_template_fields(old_name, stored_template))
+    # Values a resolve probe recovered for those same column-less tokens.
+    resolved = payload.get("resolved_tokens")
+    if isinstance(resolved, dict):
+        fields.update({str(key): str(value) for key, value in resolved.items() if str(value or "").strip()})
     creator = str(payload.get("creator") or "").strip()
     if creator:
         fields.update(dict.fromkeys(CREATOR_FIELDS, creator))
@@ -85,6 +89,21 @@ def unsatisfied_tokens(filename_template: str, fields: dict[str, str], quality: 
             continue
         missing.append(token)
     return missing
+
+
+def entry_token_state(payload: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """``(tokens, unsatisfied)`` for the template the current settings would name this row with.
+
+    One settings resolve answers both: resolve needs the unsatisfied list for its default
+    scope and the full token list for a forced re-probe.
+    """
+    old_path_value = payload_path_string(payload)
+    if not old_path_value:
+        return [], []
+    source_url = str(payload.get("source_url") or "")
+    current = str(get_effective_template_settings(source_url).get("filename_template") or "")
+    fields = _row_fields(payload, str(payload.get("filename_template") or ""), Path(old_path_value).name)
+    return template_tokens(current), unsatisfied_tokens(current, fields, payload.get("quality") or {})
 
 
 def _free_target(target: Path, source: Path, claimed: set[str]) -> Path:

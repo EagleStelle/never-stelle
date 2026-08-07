@@ -191,6 +191,8 @@ The app authenticates with a session cookie set by `POST /api/auth/login`. All r
 | `GET`    | `/api/downloads/history?limit=50&cursor=&q=&source_key=` | Lists completed records, with cursor pagination and search. |
 | `POST`   | `/api/downloads/clear-pending`                           | Clears pending queue rows.                                  |
 | `POST`   | `/api/library/scan`                                      | Reconciles database history with files present in `/media`. |
+| `GET`    | `/api/library/resolve`                                   | Counts rows needing a resolve, and the whole library.       |
+| `POST`   | `/api/library/resolve`                                   | Queues background probes for missing template tokens.       |
 | `GET`    | `/api/settings`                                          | Returns settings metadata and saved preferences.            |
 | `PUT`    | `/api/settings`                                          | Saves settings.                                             |
 | `POST`   | `/api/settings/scrape-test`                              | Tests configured scrape rules against a sample URL.         |

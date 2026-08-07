@@ -329,6 +329,7 @@ export interface TaskItem {
   source_candidates?: string[];
   error: string;
   can_download: boolean;
+  can_resolve?: boolean;
   quality?: QualitySelection;
   external?: boolean;
   external_backend?: string;
@@ -391,6 +392,17 @@ export interface ScanMediaResponse {
   renamed: number;
   rename_failed: number;
   needs_resolve: number;
+}
+
+export type ResolveScope = "flagged" | "all";
+
+export interface ResolveScopeResponse {
+  flagged: number;
+  total: number;
+}
+
+export interface ResolveResponse {
+  queued: number;
 }
 
 export interface AuthSessionResponse {

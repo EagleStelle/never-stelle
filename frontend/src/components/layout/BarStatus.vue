@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import IconRefresh from "~icons/material-symbols/sync";
+import IconResolve from "~icons/material-symbols/cloud-sync";
 import IconTrash from "~icons/material-symbols/delete";
 import { Button } from "@/components/ui/button";
 import { useDashboard } from "@/composables/useDashboard";
@@ -11,6 +12,8 @@ const {
   clearPending,
   countCards,
   historyRefreshing,
+  historyResolving,
+  openResolveDialog,
   refreshHistory,
 } = useDashboard();
 
@@ -23,24 +26,42 @@ const isMobile = useIsMobile();
     class="z-40 glass glass-border-top py-2 px-3 flex items-center justify-between text-white in-[.light-mode]:text-black mb-(--nav-bottom-height) lg:mb-0 gap-3"
     aria-label="Task counts"
   >
-    <Button
-      v-if="isHistory"
-      type="button"
-      size="sm"
-      title="Refresh history"
-      aria-label="Refresh history"
-      :disabled="historyRefreshing"
-      @click="refreshHistory"
-    >
-      <template #icon>
-        <IconRefresh
-          aria-hidden="true"
-          class="group-hover:rotate-45"
-          :class="{ 'animate-spin': historyRefreshing }"
-        />
-      </template>
-      <template v-if="!isMobile">Refresh History</template>
-    </Button>
+    <div v-if="isHistory" class="flex shrink-0 items-center gap-2">
+      <Button
+        type="button"
+        size="sm"
+        title="Refresh history"
+        aria-label="Refresh history"
+        :disabled="historyRefreshing"
+        @click="refreshHistory"
+      >
+        <template #icon>
+          <IconRefresh
+            aria-hidden="true"
+            class="group-hover:rotate-45"
+            :class="{ 'animate-spin': historyRefreshing }"
+          />
+        </template>
+        <template v-if="!isMobile">Refresh History</template>
+      </Button>
+
+      <Button
+        type="button"
+        size="sm"
+        title="Resolve history"
+        aria-label="Resolve history"
+        :disabled="historyResolving"
+        @click="openResolveDialog"
+      >
+        <template #icon>
+          <IconResolve
+            aria-hidden="true"
+            :class="{ 'animate-spin': historyResolving }"
+          />
+        </template>
+        <template v-if="!isMobile">Resolve History</template>
+      </Button>
+    </div>
 
     <Button
       v-else

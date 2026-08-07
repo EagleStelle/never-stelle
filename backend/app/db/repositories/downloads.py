@@ -66,6 +66,7 @@ _HISTORY_COLUMNS = (
     "scan_revision",
     "folder_template",
     "filename_template",
+    "needs_resolve",
     "created_at",
     "updated_at",
     "encoding",
@@ -86,6 +87,17 @@ _ENRICHMENT_COLUMNS = (
 )
 _ENRICHMENT_SELECT = ", ".join(_ENRICHMENT_COLUMNS)
 _ENRICHMENT_STATUSES = {"pending", "running", "failed"}
+_ENRICHMENT_INSERT_SQL = """
+    INSERT INTO download_enrichment_jobs
+        (id, kind, status, attempts, error, payload, created_at, updated_at)
+    VALUES (?, ?, 'pending', 0, '', ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+        kind = excluded.kind,
+        status = 'pending',
+        error = '',
+        payload = excluded.payload,
+        updated_at = excluded.updated_at
+"""
 
 
 def _media_kind_sql() -> tuple[str, tuple[str, ...]]:
@@ -180,6 +192,7 @@ def _history_payload_from_row(row: Any) -> dict[str, Any]:
             "scan_revision": str(row["scan_revision"] or ""),
             "folder_template": str(row["folder_template"] or ""),
             "filename_template": str(row["filename_template"] or ""),
+            "needs_resolve": bool(safe_int(row["needs_resolve"])),
             "created_at": str(row["created_at"] or ""),
             "updated_at": str(row["updated_at"] or ""),
         }
@@ -249,6 +262,7 @@ def _history_row_values(task_id: str, payload: dict[str, Any], now: str) -> tupl
         _text(payload, "scan_revision"),
         _text(payload, "folder_template"),
         _text(payload, "filename_template"),
+        int(bool(payload.get("needs_resolve"))),
         str(payload.get("created_at") or now),
         str(payload.get("updated_at") or now),
         _encode(_compact_encoding(payload, _HISTORY_STORAGE_KEYS)),
@@ -470,19 +484,34 @@ def upsert_enrichment_job_payload(job_id: str, kind: str, payload: dict[str, Any
         raise ValueError("Enrichment job id is required.")
     with transaction() as connection:
         connection.execute(
-            """
-            INSERT INTO download_enrichment_jobs
-                (id, kind, status, attempts, error, payload, created_at, updated_at)
-            VALUES (?, ?, 'pending', 0, '', ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                kind = excluded.kind,
-                status = 'pending',
-                error = '',
-                payload = excluded.payload,
-                updated_at = excluded.updated_at
-            """,
+            _ENRICHMENT_INSERT_SQL,
             (job_id, str(kind or "completion"), _encode(payload if isinstance(payload, dict) else {}), now, now),
         )
+
+
+def upsert_enrichment_jobs_payload(kind: str, rows: list[tuple[str, dict[str, Any]]]) -> int:
+    """Queue many jobs of one kind, skipping ids that already spent their retries.
+
+    Re-queueing a job whose URL is known dead would probe it again on every run.
+    """
+    if not rows:
+        return 0
+    now = utc_now()
+    with transaction() as connection:
+        spent = {
+            str(row["id"])
+            for row in connection.execute(
+                "SELECT id FROM download_enrichment_jobs WHERE status = 'failed'"
+            ).fetchall()
+        }
+        prepared = [
+            (job_id, str(kind or "completion"), _encode(payload if isinstance(payload, dict) else {}), now, now)
+            for job_id, payload in rows
+            if str(job_id or "").strip() and str(job_id) not in spent
+        ]
+        if prepared:
+            connection.executemany(_ENRICHMENT_INSERT_SQL, prepared)
+    return len(prepared)
 
 
 def claim_next_enrichment_job_payload() -> dict[str, Any] | None:
@@ -702,6 +731,69 @@ def save_history_rows(rows: list[tuple[str, dict[str, Any]]]) -> None:
     ]
     with transaction() as connection:
         connection.executemany(_HISTORY_INSERT_SQL, prepared)
+
+
+def _write_resolve_flags(connection: Any, task_ids: set[str], flagged: bool) -> None:
+    if not task_ids:
+        return
+    connection.executemany(
+        "UPDATE download_history SET needs_resolve = ? WHERE id = ?",
+        [(int(flagged), task_id) for task_id in sorted(task_ids)],
+    )
+
+
+def sync_history_resolve_flags(task_ids: Any) -> None:
+    """Flag exactly these rows as needing a network resolve, clearing every other.
+
+    Only rows whose state actually changed are written, so a refresh that finds nothing
+    new costs one indexed read and no updates.
+    """
+    wanted = {str(task_id) for task_id in task_ids}
+    with transaction() as connection:
+        flagged = {
+            str(row["id"])
+            for row in connection.execute(
+                "SELECT id FROM download_history WHERE needs_resolve = 1"
+            ).fetchall()
+        }
+        _write_resolve_flags(connection, wanted - flagged, True)
+        _write_resolve_flags(connection, flagged - wanted, False)
+
+
+def clear_history_resolve_flags(task_ids: Any) -> None:
+    rows = {str(task_id) for task_id in task_ids}
+    if not rows:
+        return
+    with transaction() as connection:
+        _write_resolve_flags(connection, rows, False)
+
+
+def load_history_resolve_flagged_ids() -> list[str]:
+    with transaction() as connection:
+        rows = connection.execute(
+            "SELECT id FROM download_history WHERE needs_resolve = 1 ORDER BY created_at DESC, id DESC"
+        ).fetchall()
+    return [str(row["id"]) for row in rows]
+
+
+def load_history_row_ids() -> list[str]:
+    with transaction() as connection:
+        rows = connection.execute(
+            "SELECT id FROM download_history ORDER BY created_at DESC, id DESC"
+        ).fetchall()
+    return [str(row["id"]) for row in rows]
+
+
+def count_history_resolve_flagged() -> int:
+    with transaction() as connection:
+        row = connection.execute("SELECT COUNT(*) FROM download_history WHERE needs_resolve = 1").fetchone()
+    return int(row[0] or 0)
+
+
+def count_history_rows() -> int:
+    with transaction() as connection:
+        row = connection.execute("SELECT COUNT(*) FROM download_history").fetchone()
+    return int(row[0] or 0)
 
 
 def fail_running_tasks(error: str) -> int:

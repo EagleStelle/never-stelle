@@ -17,6 +17,7 @@ const {
   loadMoreHistory,
   mediaFilter,
   removeTask,
+  resolveTask,
   retryTask,
   setTaskSource,
   sourceProfiles,
@@ -47,6 +48,7 @@ const listKey = computed(
       :fetching-more="isHistory ? historyFetchingMore : undefined"
       @cancel="cancelTask"
       @remove="removeTask"
+      @resolve="resolveTask"
       @retry="retryTask"
       @set-source="setTaskSource"
       @load-more="loadMoreHistory"

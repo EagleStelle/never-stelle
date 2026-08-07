@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Literal
 
 STATUS_LABELS = {
     "pending": "Queued",
@@ -57,6 +57,15 @@ TEMPLATE_RE = re.compile(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}")
 # ({{username}}) and the display name ({{nickname}}). These creator fields feed
 # creator-cleaning and the folder/filename creator group.
 CREATOR_FIELDS = {"username", "nickname"}
+
+# Enrichment-queue kinds. 'completion' repairs a finished download; 'resolve' probes a
+# history row for the template tokens nothing on hand can supply.
+COMPLETION_JOB_KIND = "completion"
+RESOLVE_JOB_KIND = "resolve"
+
+# How wide a resolve pass reaches. 'flagged' is the rows the templates cannot name;
+# 'all' is the deliberate full re-probe.
+ResolveScope = Literal["flagged", "all"]
 
 # Video mode caps resolution and prefers codecs the merge container can play.
 # Audio Auto stays native-only; explicit audio/video format choices add ffmpeg

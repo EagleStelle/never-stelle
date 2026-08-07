@@ -9,6 +9,7 @@ import PageToolbar from "@/components/layout/PageToolbar.vue";
 import Login from "@/features/auth/Login.vue";
 import DownloadPanel from "@/features/downloads/Panel.vue";
 import PlaylistDialog from "@/features/downloads/PlaylistDialog.vue";
+import ResolveDialog from "@/features/downloads/ResolveDialog.vue";
 import SettingsView from "@/features/settings/View.vue";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -27,10 +28,15 @@ onMounted(() => {
 // receiving it as a prop.
 const {
   confirmPlaylistSelection,
+  confirmResolve,
+  historyResolving,
   isLightMode,
   playlistEntries,
   playlistOpen,
   playlistTitle,
+  resolveFlagged,
+  resolveOpen,
+  resolveTotal,
 } = provideDashboard();
 
 // Live status-bar height so toasts dock above it instead of covering it.
@@ -100,6 +106,14 @@ const { height: statusBarHeight } = useElementSize(
       :title="playlistTitle"
       :entries="playlistEntries"
       @confirm="confirmPlaylistSelection"
+    />
+
+    <ResolveDialog
+      v-model:open="resolveOpen"
+      :flagged="resolveFlagged"
+      :total="resolveTotal"
+      :pending="historyResolving"
+      @confirm="confirmResolve"
     />
 
     <Toaster

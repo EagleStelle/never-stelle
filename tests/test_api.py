@@ -166,6 +166,51 @@ def test_library_scan_returns_ok_when_subtree_scandir_fails(tmp_path, monkeypatc
     }
 
 
+def test_library_resolve_scope_reports_both_choices(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    repositories.save_history_row("disk:abc123", {"media_id": "abc123", "needs_resolve": True})
+    repositories.save_history_row("disk:def456", {"media_id": "def456"})
+
+    response = client.get("/api/library/resolve")
+
+    assert response.status_code == 200
+    assert response.json() == {"flagged": 1, "total": 2}
+
+
+def test_library_resolve_queues_only_the_flagged_rows(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    import backend.app.domains.downloads.resolve as resolve_module
+
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    repositories.save_history_row("disk:abc123", {"media_id": "abc123", "needs_resolve": True})
+    repositories.save_history_row("disk:def456", {"media_id": "def456"})
+
+    assert client.post("/api/library/resolve", json={}).json() == {"queued": 1}
+    assert client.post("/api/library/resolve", json={"scope": "all"}).json() == {"queued": 2}
+    assert client.post("/api/library/resolve", json={"task_ids": ["disk:def456"]}).json() == {"queued": 1}
+
+
+def test_library_resolve_rejects_an_unknown_scope(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+
+    # A typo must fail loudly rather than quietly running the narrower pass.
+    assert client.post("/api/library/resolve", json={"scope": "evrything"}).status_code == 422
+
+
+def test_library_resolve_task_ids_override_the_scope(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    import backend.app.domains.downloads.resolve as resolve_module
+
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    repositories.save_history_row("disk:abc123", {"media_id": "abc123"})
+    repositories.save_history_row("disk:def456", {"media_id": "def456"})
+
+    response = client.post("/api/library/resolve", json={"scope": "all", "task_ids": ["disk:abc123"]})
+
+    assert response.json() == {"queued": 1}
+    assert [job["id"] for job in repositories.load_enrichment_jobs_payload()] == ["resolve:disk:abc123"]
+
+
 def test_settings_put_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
     import backend.app.domains.downloads.store as store_module

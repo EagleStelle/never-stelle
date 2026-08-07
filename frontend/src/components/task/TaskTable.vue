@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import IconDownload from "~icons/material-symbols/download";
+import IconResolve from "~icons/material-symbols/cloud-sync";
 import IconX from "~icons/material-symbols/close";
 import IconStop from "~icons/material-symbols/stop";
 import IconRetry from "~icons/material-symbols/replay";
@@ -28,6 +29,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   cancel: [taskId: string];
   remove: [taskId: string];
+  resolve: [taskId: string];
   retry: [taskId: string];
   "set-source": [payload: { taskId: string; sourceKey: string }];
 }>();
@@ -109,6 +111,18 @@ function toggle(set: Set<string>, id: string): void {
         </TableCell>
         <TableCell class="w-px">
           <div class="flex items-center justify-end gap-1.5">
+            <Button
+              v-if="task.can_resolve"
+              variant="primary"
+              type="button"
+              aria-label="Fetch missing info"
+              title="Fetch missing info"
+              @click="emit('resolve', task.vid)"
+            >
+              <template #icon>
+                <IconResolve aria-hidden="true" />
+              </template>
+            </Button>
             <Button
               v-if="task.can_download"
               as="a"

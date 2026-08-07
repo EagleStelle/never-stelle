@@ -45,6 +45,7 @@ from .store import (
     save_history_entry_rows,
     save_learned_formats,
     seeded_download_ids,
+    sync_history_resolve_flags,
 )
 
 _scan_lock = threading.Lock()
@@ -877,6 +878,9 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
     plans, needs_resolve = plan_history_renames(records, pacer)
     rename_counts, renamed_rows = apply_history_renames(plans)
     records.update(renamed_rows)
+    # After the renames: a row this pass renamed carries the flag it was loaded with,
+    # and the write above would put it back.
+    sync_history_resolve_flags(needs_resolve)
     walked_media: list[tuple[Path, Path, os.stat_result | None, str]] = []
     seen_paths: set[str] = set()
     for root, path, stat_result, path_key in _iter_media_files(_iter_scan_roots(roots)):
