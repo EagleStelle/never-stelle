@@ -453,8 +453,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   const settingsOpen = ref(false);
   const settingsSection = ref<SettingsSection>("locations");
   const lastFocusedTrigger = ref<HTMLElement | null>(null);
-  const settingsDraftTouched = ref(false);
-  const accountDraftTouched = ref(false);
   let lastSavedSnapshot = "";
   let lastDraftSnapshot = "";
   let lastFormatDraftSnapshot = "";
@@ -768,17 +766,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     }
   }
 
-  function markSettingsDraftDirty(section: SettingsSection = settingsSection.value): void {
-    if (!draftSeeded.value) return;
-    if (section === "account") {
-      accountDraftTouched.value = true;
-    } else {
-      settingsDraftTouched.value = true;
-    }
-  }
-
   function clearSettingsDraftDirty(): void {
-    settingsDraftTouched.value = false;
     lastDraftSnapshot = draftSnapshot();
   }
 
@@ -791,7 +779,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     settingsDraft.account.current_password = "";
     settingsDraft.account.new_password = "";
     settingsDraft.account.confirm_password = "";
-    accountDraftTouched.value = false;
   }
 
   function accountDraftDirty(): boolean {
@@ -1179,6 +1166,14 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     );
     if (index >= 0) settingsDraft.source_profiles.splice(index, 1);
     delete learnedFormatsDraft[key];
+    delete settingsDraft.source_locations[key];
+    delete settingsDraft.source_templates[key];
+    delete settingsDraft.source_scrape_rules[key];
+    delete settingsDraft.source_token_roles[key];
+    delete settingsDraft.source_slug_tokens[key];
+    delete settingsDraft.source_fields[key];
+    delete settingsDraft.source_title_cleaning[key];
+    delete settingsDraft.source_cookie_policies[key];
   }
 
   function replaceDesiredTemplate(
@@ -1755,7 +1750,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     settingsSection,
     sourceProfiles,
     hasUnsavedChanges,
-    markSettingsDraftDirty,
     saveSettingsDraft,
     copySettingsToDraft,
   };

@@ -74,6 +74,7 @@ function getFolderTemplate(siteKey: string, format: string): string {
 function setFolderTemplate(siteKey: string, format: string, val: string): void {
   ensureFormatInitialized(siteKey, format);
   settingsDraft.source_templates[siteKey][format].folder_template = val;
+  pruneUnsetFormat(siteKey, format);
 }
 
 function getFilenameTemplate(siteKey: string, format: string): string {
@@ -91,6 +92,21 @@ function setFilenameTemplate(
 ): void {
   ensureFormatInitialized(siteKey, format);
   settingsDraft.source_templates[siteKey][format].filename_template = val;
+  pruneUnsetFormat(siteKey, format);
+}
+
+function pruneUnsetFormat(siteKey: string, format: string): void {
+  if (settings.source_templates[siteKey]?.[format]) return;
+  const entry = settingsDraft.source_templates[siteKey]?.[format];
+  if (!entry) return;
+  const folderUnset =
+    !entry.folder_template || entry.folder_template === defaultFolderTemplate();
+  const filenameUnset =
+    !entry.filename_template ||
+    entry.filename_template === defaultFilenameTemplate();
+  if (folderUnset && filenameUnset) {
+    delete settingsDraft.source_templates[siteKey][format];
+  }
 }
 
 function ensureFormatInitialized(siteKey: string, format: string): void {

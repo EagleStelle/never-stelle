@@ -20,7 +20,6 @@ const {
   hasUnsavedChanges,
   learnedFormatsDraft,
   learnFormat,
-  markSettingsDraftDirty,
   probeFields,
   removeCookies,
   reorderCookies,
@@ -70,7 +69,6 @@ provideSettingsContext({
   probeFields,
   reorderFormatTemplates,
   reorderCookies,
-  markSettingsDraftDirty,
   saveSettingsDraft,
   copySettingsToDraft,
   close: () => {
@@ -126,15 +124,6 @@ async function saveChanges() {
 function discardChanges() {
   copySettingsToDraft();
 }
-
-function markActivePaneDirty(event: Event): void {
-  if (!event.isTrusted) return;
-  const target = event.target;
-  if (target instanceof Element && target.closest("[data-settings-system]")) {
-    return;
-  }
-  markSettingsDraftDirty(settingsSection.value);
-}
 </script>
 
 <template>
@@ -178,8 +167,6 @@ function markActivePaneDirty(event: Event): void {
              or last row sitting flush would lose its ring. Rows are spaced by group gaps. -->
         <div
           class="flex-1 overflow-y-auto px-5 pb-6 pt-4 sm:pt-1 sm:px-8"
-          @input.capture="markActivePaneDirty"
-          @change.capture="markActivePaneDirty"
         >
           <TabsContent
             v-for="def in SETTINGS_SECTION_DEFS"

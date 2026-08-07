@@ -6,7 +6,6 @@ import type {
   ProbeFieldsResponse,
   RuntimeSettings,
   SettingsDraft,
-  SettingsSection,
   SourceProfile,
 } from "@/types";
 
@@ -29,7 +28,6 @@ export interface SettingsContext {
   probeFields: (url: string, sourceKey?: string) => Promise<ProbeFieldsResponse>;
   // Stage a source's learned URL templates in a new order (reorder or delete).
   reorderFormatTemplates: (sourceKey: string, templates: string[]) => Promise<void>;
-  markSettingsDraftDirty: (section?: SettingsSection) => void;
   saveSettingsDraft: () => Promise<void>;
   copySettingsToDraft: () => void;
   close: () => void;

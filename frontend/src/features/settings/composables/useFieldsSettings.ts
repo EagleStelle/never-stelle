@@ -248,18 +248,28 @@ export function useFieldsSettings(
     commit(key, role, list);
   }
 
+  function globalOrderList(role: FieldRole): string[] {
+    const configured = globalDefaults.value[role] || [];
+    if (configured.length) return configured;
+    return settings.field_defaults?.[role] || [];
+  }
+
+  function defaultOrdered(key: string, role: FieldRole): string[] {
+    const current = fieldList(key, role);
+    const order = withAssignedScraperFields(key, role, globalOrderList(role));
+    const rank = new Map(order.map((field, index) => [field, index]));
+    const rankOf = (field: string): number => rank.get(field) ?? order.length;
+    return [...current].sort((a, b) => rankOf(a) - rankOf(b));
+  }
+
   function resetRole(key: string, role: FieldRole): void {
-    const targetUnmodified = unmodifiedList(key, role);
-    commit(key, role, targetUnmodified);
+    commit(key, role, defaultOrdered(key, role));
   }
 
   function isConfigured(key: string, role: FieldRole): boolean {
     const current = fieldList(key, role);
-    const targetUnmodified = unmodifiedList(key, role);
-    return !(
-      current.length === targetUnmodified.length &&
-      current.every((val, i) => val === targetUnmodified[i])
-    );
+    const target = defaultOrdered(key, role);
+    return !current.every((val, i) => val === target[i]);
   }
 
   function learnedFields(values: string[]): string[] {
@@ -310,12 +320,11 @@ export function useFieldsSettings(
       const learned = createFieldRoles(response.field_roles || {});
       const targetKey = response.source_key || key;
       if (learned.username.length > 0 || learned.nickname.length > 0 || learned.title.length > 0) {
-        const draftRoles = fieldRoles(targetKey);
         for (const role of FIELD_ROLE_KEYS) {
-          draftRoles[role] = mergeLearnedFields(
+          commit(
             targetKey,
             role,
-            learned[role] || [],
+            mergeLearnedFields(targetKey, role, learned[role] || []),
           );
         }
       }

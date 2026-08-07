@@ -37,8 +37,7 @@ import {
   type FieldRole,
 } from "@/features/settings/composables/useFieldsSettings";
 
-const { settings, settingsDraft, markSettingsDraftDirty } =
-  useSettingsContext();
+const { settings, settingsDraft } = useSettingsContext();
 const {
   cleanupRules,
   titleLengthRule,
@@ -115,7 +114,6 @@ function setPolicyValue(field: CookiePolicyField, raw: string | number): void {
     if (!Number.isFinite(parsed)) return;
     settingsDraft.default_cookie_policy[field] = parsed;
   }
-  markSettingsDraftDirty("defaults");
 }
 
 function endPolicyEdit(field: CookiePolicyField): void {
@@ -148,7 +146,6 @@ function isFieldOrderConfigured(role: FieldRole): boolean {
 
 function resetFieldOrder(role: FieldRole): void {
   settingsDraft.default_fields[role] = [];
-  markSettingsDraftDirty("defaults");
 }
 
 function reorderField(role: FieldRole, from: number, to: number): void {
@@ -165,7 +162,6 @@ function reorderField(role: FieldRole, from: number, to: number): void {
   const [moved] = list.splice(from, 1);
   list.splice(to, 0, moved);
   settingsDraft.default_fields[role] = sameList(list, builtinFields(role)) ? [] : list;
-  markSettingsDraftDirty("defaults");
 }
 
 // Native drag-and-drop reordering, scoped to one role list at a time.

@@ -31,7 +31,6 @@ const {
   connectCookies,
   removeCookies,
   reorderCookies,
-  markSettingsDraftDirty,
 } = useSettingsContext();
 
 const policyEdits = reactive<Record<string, string>>({});
@@ -75,7 +74,6 @@ function setPolicyValue(key: string, field: CookiePolicyField, raw: string | num
     if (!Number.isFinite(parsed)) return;
     entry[field] = parsed;
   }
-  markSettingsDraftDirty("cookies");
 }
 
 function endPolicyEdit(key: string, field: CookiePolicyField): void {
