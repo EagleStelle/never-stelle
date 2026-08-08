@@ -97,6 +97,7 @@ _ENRICHMENT_INSERT_SQL = """
         error = '',
         payload = excluded.payload,
         updated_at = excluded.updated_at
+    WHERE download_enrichment_jobs.status != 'running'
 """
 
 
@@ -487,6 +488,19 @@ def count_enrichment_jobs_payload(statuses: tuple[str, ...], kind: str = "") -> 
     return int(row[0] or 0)
 
 
+def requeue_running_enrichment_jobs_payload() -> int:
+    """Hand 'running' jobs back to the queue; a fresh process is running none of them.
+
+    Their attempts are kept, so a job that crashes the worker still spends its budget.
+    """
+    with transaction() as connection:
+        cursor = connection.execute(
+            "UPDATE download_enrichment_jobs SET status = 'pending', updated_at = ? WHERE status = 'running'",
+            (utc_now(),),
+        )
+    return int(cursor.rowcount or 0)
+
+
 def load_failed_enrichment_job_ids() -> set[str]:
     """Ids whose jobs spent their retries."""
     with transaction() as connection:
@@ -495,10 +509,13 @@ def load_failed_enrichment_job_ids() -> set[str]:
 
 
 def upsert_enrichment_jobs_payload(kind: str, rows: list[tuple[str, dict[str, Any]]]) -> int:
-    """Queue many jobs of one kind, each on a fresh attempt budget.
+    """Queue many jobs of one kind, each on a fresh attempt budget, and count what queued.
 
     Dropping a spent row rather than flipping it to pending is what resets its
     attempts. Whether a spent id belongs in ``rows`` is the caller's backoff to apply.
+
+    A job already running is left alone: flipping it back to pending would let the run
+    in flight delete the requeue on its way out, losing the click that asked for it.
     """
     if not rows:
         return 0
@@ -510,13 +527,22 @@ def upsert_enrichment_jobs_payload(kind: str, rows: list[tuple[str, dict[str, An
     ]
     if not prepared:
         return 0
+    ids = [job[0] for job in prepared]
     with transaction() as connection:
+        placeholders = ", ".join("?" for _ in ids)
+        running = {
+            str(row["id"])
+            for row in connection.execute(
+                f"SELECT id FROM download_enrichment_jobs WHERE status = 'running' AND id IN ({placeholders})",
+                tuple(ids),
+            ).fetchall()
+        }
         connection.executemany(
             "DELETE FROM download_enrichment_jobs WHERE id = ? AND status = 'failed'",
-            [(job[0],) for job in prepared],
+            [(job_id,) for job_id in ids],
         )
         connection.executemany(_ENRICHMENT_INSERT_SQL, prepared)
-    return len(prepared)
+    return sum(1 for job_id in ids if job_id not in running)
 
 
 def upsert_enrichment_job_payload(job_id: str, kind: str, payload: dict[str, Any]) -> None:
@@ -573,7 +599,8 @@ def complete_enrichment_job_payload(job_id: str) -> None:
         connection.execute("DELETE FROM download_enrichment_jobs WHERE id = ?", (str(job_id),))
 
 
-def retry_enrichment_job_payload(job_id: str, error: str, *, max_attempts: int = 3) -> None:
+def retry_enrichment_job_payload(job_id: str, error: str, *, max_attempts: int = 3) -> bool:
+    """Hand a failed job back to the queue; ``True`` when that spent its last attempt."""
     now = utc_now()
     status = "pending"
     with transaction() as connection:
@@ -582,7 +609,7 @@ def retry_enrichment_job_payload(job_id: str, error: str, *, max_attempts: int =
             (str(job_id),),
         ).fetchone()
         if not row:
-            return
+            return False
         if safe_int(row["attempts"]) >= max(1, int(max_attempts)):
             status = "failed"
         connection.execute(
@@ -593,6 +620,7 @@ def retry_enrichment_job_payload(job_id: str, error: str, *, max_attempts: int =
             """,
             (status, str(error or ""), now, str(job_id)),
         )
+    return status == "failed"
 
 
 def load_enrichment_jobs_payload() -> list[dict[str, Any]]:

@@ -25,8 +25,7 @@ from tests.support import use_temp_db
 
 @pytest.fixture(autouse=True)
 def _fresh_pass_counts():
-    for key in resolve_module._pass_counts:
-        resolve_module._pass_counts[key] = 0
+    resolve_module._passes.clear()
 
 
 STORED_TEMPLATE = "{{title}} [{{id}}]"
@@ -152,7 +151,7 @@ def test_resolve_queues_nothing_when_nothing_is_flagged(tmp_path: Path, monkeypa
     _seed(tmp_path, creator="Creator")
     calls = _probe_recorder(monkeypatch, {})
 
-    assert resolve_module.start_resolve() == 0
+    assert resolve_module.start_resolve()["queued"] == 0
     assert load_enrichment_jobs() == []
     assert calls == []
 
@@ -165,7 +164,7 @@ def test_resolve_queues_only_the_flagged_rows(tmp_path: Path, monkeypatch: pytes
     monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
 
-    assert resolve_module.start_resolve() == 1
+    assert resolve_module.start_resolve()["queued"] == 1
     assert [job["id"] for job in load_enrichment_jobs()] == ["resolve:gallerydl:1"]
 
 
@@ -176,7 +175,7 @@ def test_resolve_everything_queues_every_row(tmp_path: Path, monkeypatch: pytest
     _seed(tmp_path, task_id="gallerydl:2", creator="Creator")
     monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
 
-    assert resolve_module.start_resolve("all") == 2
+    assert resolve_module.start_resolve("all")["queued"] == 2
     jobs = load_enrichment_jobs()
     assert {job["id"] for job in jobs} == {"resolve:gallerydl:1", "resolve:gallerydl:2"}
     # Everything is the deliberate full re-probe, so satisfied rows are probed too.
@@ -190,7 +189,7 @@ def test_resolve_one_row_queues_only_that_row(tmp_path: Path, monkeypatch: pytes
     _seed(tmp_path, task_id="gallerydl:2")
     monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
 
-    assert resolve_module.start_resolve(task_ids=["gallerydl:2"]) == 1
+    assert resolve_module.start_resolve(task_ids=["gallerydl:2"])["queued"] == 1
     jobs = load_enrichment_jobs()
     assert [job["id"] for job in jobs] == ["resolve:gallerydl:2"]
     # Clicking one row is as deliberate as asking for the library, so it forces.
@@ -280,7 +279,7 @@ def test_a_link_that_never_answers_stops_being_probed(tmp_path: Path, monkeypatc
 
     probes_so_far = len(calls)
     # A later run must not queue the dead link again.
-    assert resolve_module.start_resolve() == 0
+    assert resolve_module.start_resolve()["queued"] == 0
     assert claim_next_enrichment_job() is None
     assert len(calls) == probes_so_far
 
@@ -318,7 +317,7 @@ def test_forcing_one_row_hands_back_its_spent_retries(tmp_path: Path, monkeypatc
     _probe_recorder(monkeypatch, {})
     _spend_the_retries()
 
-    assert resolve_module.start_resolve(task_ids=["gallerydl:1"]) == 1
+    assert resolve_module.start_resolve(task_ids=["gallerydl:1"])["queued"] == 1
     jobs = load_enrichment_jobs()
     # A fresh budget, not a job that fails again on its first claim.
     assert [(job["status"], job["attempts"]) for job in jobs] == [("pending", 0)]
@@ -342,7 +341,7 @@ def test_resolving_everything_hands_back_spent_retries(tmp_path: Path, monkeypat
     _probe_recorder(monkeypatch, {})
     _spend_the_retries()
 
-    assert resolve_module.start_resolve("all") == 1
+    assert resolve_module.start_resolve("all")["queued"] == 1
     assert [(job["status"], job["attempts"]) for job in load_enrichment_jobs()] == [("pending", 0)]
 
 
@@ -357,10 +356,31 @@ def test_requeueing_an_unspent_job_keeps_the_attempts_it_has_used(
     _probe_recorder(monkeypatch, {})
 
     resolve_module.start_resolve()
-    assert claim_next_enrichment_job() is not None
+    job = claim_next_enrichment_job()
+    assert job is not None
+    enrichment_module._retry_job(job, "boom")
 
     # Resetting an in-flight job would let repeated clicks retry a dead link forever.
-    assert resolve_module.start_resolve("all") == 1
+    assert resolve_module.start_resolve("all")["queued"] == 1
+    assert [(job["status"], job["attempts"]) for job in load_enrichment_jobs()] == [("pending", 1)]
+
+
+def test_a_crashed_run_is_handed_back_to_the_queue(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {})
+
+    resolve_module.start_resolve()
+    assert claim_next_enrichment_job() is not None
+
+    # The process that claimed it is gone; nothing else would ever claim it again.
+    monkeypatch.setattr(enrichment_module, "_recovered", False)
+    monkeypatch.setattr(enrichment_module, "pending_enrichment_job_count", lambda: 0)
+    enrichment_module.ensure_enrichment_worker()
+
     assert [(job["status"], job["attempts"]) for job in load_enrichment_jobs()] == [("pending", 1)]
 
 
@@ -532,6 +552,18 @@ def test_activity_reports_queued_resolves_until_they_finish(tmp_path: Path, monk
     assert resolve_module.resolve_in_progress() == 0
 
 
+def _report(pass_id: int) -> dict[str, int]:
+    return resolve_module.resolve_pass_reports()[str(pass_id)]
+
+
+def _drain(limit: int = 8) -> None:
+    for _ in range(limit):
+        job = claim_next_enrichment_job()
+        if job is None:
+            return
+        enrichment_module._process_enrichment_job(job)
+
+
 def test_the_pass_report_counts_a_filled_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
@@ -540,12 +572,10 @@ def test_the_pass_report_counts_a_filled_row(tmp_path: Path, monkeypatch: pytest
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
 
-    resolve_module.start_resolve()
-    job = claim_next_enrichment_job()
-    assert job is not None
-    enrichment_module._process_enrichment_job(job)
+    started = resolve_module.start_resolve()
+    _drain(1)
 
-    assert resolve_module.resolve_pass_report() == {"queued": 1, "resolved": 1, "skipped": 0, "failed": 0}
+    assert _report(started["pass_id"]) == {"queued": 1, "resolved": 1, "skipped": 0, "failed": 0}
     # The count lands before the job row clears, so a client seeing 0 running reads a settled pass.
     assert resolve_module.resolve_in_progress() == 0
 
@@ -556,17 +586,15 @@ def test_a_row_that_no_longer_needs_anything_counts_as_skipped(tmp_path: Path, m
     _seed(tmp_path)
     monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
-    resolve_module.start_resolve()
+    started = resolve_module.start_resolve()
     entry = load_history_entry("gallerydl:1")
     entry["creator"] = "Creator"
     save_history_entry_row("gallerydl:1", entry)
     _probe_recorder(monkeypatch, {})
 
-    job = claim_next_enrichment_job()
-    assert job is not None
-    enrichment_module._process_enrichment_job(job)
+    _drain(1)
 
-    assert resolve_module.resolve_pass_report() == {"queued": 1, "resolved": 0, "skipped": 1, "failed": 0}
+    assert _report(started["pass_id"]) == {"queued": 1, "resolved": 0, "skipped": 1, "failed": 0}
 
 
 def test_a_dead_link_counts_once_its_retries_are_spent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -577,24 +605,36 @@ def test_a_dead_link_counts_once_its_retries_are_spent(tmp_path: Path, monkeypat
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {})
 
-    resolve_module.start_resolve()
-    job = claim_next_enrichment_job()
-    assert job is not None
-    enrichment_module._process_enrichment_job(job)
+    started = resolve_module.start_resolve()
+    _drain(1)
     # A retried attempt is not a result yet: the row is back on the queue.
-    assert resolve_module.resolve_pass_report()["failed"] == 0
+    assert _report(started["pass_id"])["failed"] == 0
 
-    for _ in range(enrichment_module._MAX_ATTEMPTS - 1):
-        job = claim_next_enrichment_job()
-        assert job is not None
-        enrichment_module._process_enrichment_job(job)
+    _drain(enrichment_module._MAX_ATTEMPTS - 1)
 
-    assert resolve_module.resolve_pass_report() == {"queued": 1, "resolved": 0, "skipped": 0, "failed": 1}
+    assert _report(started["pass_id"]) == {"queued": 1, "resolved": 0, "skipped": 0, "failed": 1}
 
 
-def test_a_click_during_a_pass_extends_it_and_a_later_one_starts_over(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_a_partly_filled_row_is_not_reported_as_resolved(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    # Wants a series the filename never carried, and only the creator ever comes back.
+    _pin_template(monkeypatch, "{{username}} - {{title}} [{{id}}] {{series}}")
+    _seed(tmp_path)
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    _refresh(load_history()["entries"])
+    _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
+
+    started = resolve_module.start_resolve()
+    _drain(enrichment_module._MAX_ATTEMPTS)
+
+    entry = load_history_entry("gallerydl:1")
+    # The creator is kept, but the row still cannot be named, so it stays flagged.
+    assert entry["creator"] == "Creator"
+    assert entry["needs_resolve"] is True
+    assert _report(started["pass_id"]) == {"queued": 1, "resolved": 0, "skipped": 0, "failed": 1}
+
+
+def test_each_click_reports_its_own_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path, task_id="gallerydl:1")
@@ -602,24 +642,45 @@ def test_a_click_during_a_pass_extends_it_and_a_later_one_starts_over(
     monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
 
-    resolve_module.start_resolve(task_ids=["gallerydl:1"])
-    resolve_module.start_resolve(task_ids=["gallerydl:2"])
-    assert resolve_module.resolve_pass_report()["queued"] == 2
+    first = resolve_module.start_resolve(task_ids=["gallerydl:1"])
+    second = resolve_module.start_resolve(task_ids=["gallerydl:2"])
+    _drain(2)
 
-    for _ in range(2):
-        job = claim_next_enrichment_job()
-        assert job is not None
-        enrichment_module._process_enrichment_job(job)
-    assert resolve_module.resolve_pass_report() == {"queued": 2, "resolved": 2, "skipped": 0, "failed": 0}
-
-    resolve_module.start_resolve(task_ids=["gallerydl:1"])
-    assert resolve_module.resolve_pass_report() == {"queued": 1, "resolved": 0, "skipped": 0, "failed": 0}
+    # A click landing mid-pass used to be told the running total of both.
+    assert _report(first["pass_id"]) == {"queued": 1, "resolved": 1, "skipped": 0, "failed": 0}
+    assert _report(second["pass_id"]) == {"queued": 1, "resolved": 1, "skipped": 0, "failed": 0}
 
 
-def test_activity_carries_the_pass_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_a_row_already_running_is_not_queued_twice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
 
-    assert library_activity()["resolve_pass"] == {"queued": 0, "resolved": 0, "skipped": 0, "failed": 0}
+    resolve_module.start_resolve(task_ids=["gallerydl:1"])
+    job = claim_next_enrichment_job()
+    assert job is not None
+
+    # Clicking the row again while its probe is in flight must not re-arm the job: the
+    # run finishing would delete the requeue, and the pass would wait on a row nobody runs.
+    again = resolve_module.start_resolve(task_ids=["gallerydl:1"])
+    assert again == {"queued": 0, "pass_id": 0}
+    assert [row["status"] for row in load_enrichment_jobs()] == ["running"]
+
+    enrichment_module._process_enrichment_job(job)
+    assert load_enrichment_jobs() == []
+
+
+def test_activity_carries_the_pass_reports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+
+    started = resolve_module.start_resolve(task_ids=["gallerydl:1"])
+
+    assert library_activity()["resolve_passes"][str(started["pass_id"])]["queued"] == 1
 
 
 def test_a_spent_resolve_is_not_reported_as_still_running(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

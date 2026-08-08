@@ -40,6 +40,7 @@ from backend.app.db.repositories import (
     merge_task_payload,
     next_pending_task_payload,
     open_rename_journal_entries,
+    requeue_running_enrichment_jobs_payload,
     resolution_settings_revision,
     retry_enrichment_job_payload,
     save_history_row,
@@ -191,6 +192,10 @@ def unfinished_enrichment_job_count(kind: str) -> int:
     return count_enrichment_jobs_payload(("pending", "running"), kind)
 
 
+def requeue_running_enrichment_jobs() -> int:
+    return requeue_running_enrichment_jobs_payload()
+
+
 def claim_next_enrichment_job() -> dict[str, Any] | None:
     return claim_next_enrichment_job_payload()
 
@@ -199,8 +204,8 @@ def complete_enrichment_job(job_id: str) -> None:
     complete_enrichment_job_payload(job_id)
 
 
-def retry_enrichment_job(job_id: str, error: str, *, max_attempts: int = 3) -> None:
-    retry_enrichment_job_payload(job_id, error, max_attempts=max_attempts)
+def retry_enrichment_job(job_id: str, error: str, *, max_attempts: int = 3) -> bool:
+    return retry_enrichment_job_payload(job_id, error, max_attempts=max_attempts)
 
 
 def load_enrichment_jobs() -> list[dict[str, Any]]:

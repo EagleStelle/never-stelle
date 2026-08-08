@@ -25,6 +25,7 @@ from backend.app.domains.downloads.store import (
     enqueue_enrichment_job,
     load_history_entry,
     pending_enrichment_job_count,
+    requeue_running_enrichment_jobs,
     retry_enrichment_job,
     save_history_entry_row,
 )
@@ -42,6 +43,7 @@ _MAX_ATTEMPTS = 3
 _worker_lock = threading.Lock()
 _worker_condition = threading.Condition(_worker_lock)
 _worker_running = False
+_recovered = False
 
 
 def _string_dict(value: Any) -> dict[str, str]:
@@ -102,8 +104,13 @@ def enqueue_completion_enrichment(
 
 
 def ensure_enrichment_worker() -> None:
-    global _worker_running
+    global _worker_running, _recovered
     with _worker_condition:
+        if not _recovered:
+            # A fresh process is running no job, so a 'running' row is crash debris. Left
+            # alone it would never be claimed again and would count as work forever.
+            requeue_running_enrichment_jobs()
+            _recovered = True
         if _worker_running:
             _worker_condition.notify()
             return
@@ -146,7 +153,7 @@ def _enrichment_loop() -> None:
                     return
                 continue
             if _library_busy():
-                retry_enrichment_job(str(job.get("id") or ""), "", max_attempts=_MAX_ATTEMPTS)
+                _retry_job(job, "")
                 _wait(_IDLE_SLEEP_SECONDS)
                 continue
             _process_enrichment_job(job)
@@ -163,11 +170,21 @@ def _stop_worker_if_drained() -> bool:
         return True
 
 
+def _retry_job(job: dict[str, Any], error: str) -> None:
+    """Hand a job back to the queue; spending its last attempt is a result to report."""
+    spent = retry_enrichment_job(str(job.get("id") or ""), error, max_attempts=_MAX_ATTEMPTS)
+    if spent and str(job.get("kind") or "") == RESOLVE_JOB_KIND:
+        from backend.app.domains.downloads.resolve import record_resolve_outcome
+
+        payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+        record_resolve_outcome(payload.get("pass"), "failed")
+
+
 def _process_enrichment_job(job: dict[str, Any]) -> None:
     try:
         _run_enrichment_job(job)
     except Exception as exc:
-        retry_enrichment_job(str(job.get("id") or ""), str(exc), max_attempts=_MAX_ATTEMPTS)
+        _retry_job(job, str(exc))
     else:
         complete_enrichment_job(str(job.get("id") or ""))
 
@@ -250,20 +267,16 @@ def _repair_history_metadata(task_id: str, entry: dict[str, Any], payload: dict[
 def _run_enrichment_job(job: dict[str, Any]) -> None:
     payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
     task_id = str(payload.get("task_id") or "")
-    if not task_id:
-        return
     if str(job.get("kind") or "") == RESOLVE_JOB_KIND:
         # Lazy: resolve reaches back through the scan, which this module already feeds.
         from backend.app.domains.downloads.resolve import record_resolve_outcome, resolve_history_entry
 
-        try:
-            filled = resolve_history_entry(task_id, force=bool(payload.get("force")))
-        except Exception:
-            # An earlier attempt goes back on the queue, so only a spent job is a result.
-            if int(job.get("attempts") or 0) >= _MAX_ATTEMPTS:
-                record_resolve_outcome("failed")
-            raise
-        record_resolve_outcome("resolved" if filled else "skipped")
+        # Every path here reports: a row the pass never hears back about is a pass that
+        # never finishes. A raise is left to _retry_job, since only a spent attempt is one.
+        filled = bool(task_id) and resolve_history_entry(task_id, force=bool(payload.get("force")))
+        record_resolve_outcome(payload.get("pass"), "resolved" if filled else "skipped")
+        return
+    if not task_id:
         return
     entry = load_history_entry(task_id)
     if not entry:
