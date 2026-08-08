@@ -550,7 +550,9 @@ def _scan_probe_metadata(url: str, *, with_cookies: bool = False) -> dict[str, s
     try:
         from .probe import probe_metadata
 
-        return probe_metadata(url, with_cookies=with_cookies)
+        # Library passes probe row after row, each a subprocess pair; at normal priority
+        # a long pass takes the whole box with it.
+        return probe_metadata(url, with_cookies=with_cookies, low_priority=True)
     except Exception:
         return {}
 
