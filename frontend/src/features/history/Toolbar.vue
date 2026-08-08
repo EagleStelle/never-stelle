@@ -11,7 +11,7 @@ const { historySearch, submitHistorySearch } = useDashboard();
 
 <template>
   <!-- Mobile reverses the rows so the search field sits closest to the keyboard. -->
-  <div class="flex flex-col-reverse lg:flex-col gap-2 w-full">
+  <div class="flex flex-col-reverse lg:flex-col gap-3 w-full">
     <form
       class="flex items-center gap-2"
       aria-label="Search history"
@@ -43,7 +43,7 @@ const { historySearch, submitHistorySearch } = useDashboard();
     </form>
 
     <div
-      class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-end gap-2 w-full py-1"
+      class="flex overflow-x-auto no-scrollbar items-end justify-between lg:justify-end gap-3 w-full py-1"
     >
       <TaskFilters class="shrink-0 lg:ml-auto" />
     </div>

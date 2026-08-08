@@ -3,6 +3,7 @@ import type { HTMLAttributes } from "vue"
 import { computed, nextTick, onMounted, ref, watch } from "vue"
 import { ComboboxRoot } from "reka-ui"
 import IconCheck from "~icons/material-symbols/check"
+import { Label } from "@/components/ui/label"
 import ComboboxAnchor from "@/components/ui/combobox/ComboboxAnchor.vue"
 import ComboboxEmpty from "@/components/ui/combobox/ComboboxEmpty.vue"
 import ComboboxGroup from "@/components/ui/combobox/ComboboxGroup.vue"
@@ -79,74 +80,85 @@ const handleOpenChange = (isOpen: boolean) => {
 </script>
 
 <template>
-  <ComboboxRoot
-    data-slot="combobox"
-    by="label"
-    v-model:search-term="searchTerm"
-    :model-value="activeItem ?? undefined"
-    :display-value="displayValue"
-    :open="open"
-    @update:open="handleOpenChange"
-    @update:model-value="handleModelValue"
-    :class="[props.class, props.layout === 'fill' ? 'w-full' : 'inline-block']"
+  <div
+    :class="[
+      props.layout === 'fill' ? 'w-full flex' : 'inline-flex',
+      'flex-col items-start gap-1 shrink-0',
+    ]"
   >
-    <ComboboxAnchor as-child>
-      <ComboboxTrigger as-child>
-        <ComboboxSelect
-          v-bind="$attrs"
-          :item="activeItem"
-          :items="items"
-          :placeholder="placeholder"
-          :layout="props.layout"
-        />
-      </ComboboxTrigger>
-    </ComboboxAnchor>
+    <Label v-if="props.label" class="select-none font-medium">
+      {{ props.label }}
+    </Label>
 
-    <ComboboxList :open="open" :label="label">
-      <ComboboxInput :placeholder="props.placeholder || 'Search...'" />
-      <ComboboxViewport>
-        <ComboboxEmpty>
-          {{ props.emptyText || "No items found." }}
-        </ComboboxEmpty>
+    <ComboboxRoot
+      data-slot="combobox"
+      by="label"
+      v-model:search-term="searchTerm"
+      :model-value="activeItem ?? undefined"
+      :display-value="displayValue"
+      :open="open"
+      @update:open="handleOpenChange"
+      @update:model-value="handleModelValue"
+      :class="[props.class, props.layout === 'fill' ? 'w-full' : 'inline-block']"
+    >
+      <ComboboxAnchor as-child>
+        <ComboboxTrigger as-child>
+          <ComboboxSelect
+            v-bind="$attrs"
+            :item="activeItem"
+            :items="items"
+            :placeholder="placeholder"
+            :layout="props.layout"
+          />
+        </ComboboxTrigger>
+      </ComboboxAnchor>
 
-        <ComboboxGroup class="p-0">
-          <ComboboxItem
-            v-for="item in items"
-            :key="item.key"
-            :value="item"
-            :disabled="item.disabled"
-          >
-            <ComboboxItemIndicator
-              class="absolute left-2 ml-0 flex h-4 w-4 items-center justify-center"
+      <ComboboxList :open="open" :label="label">
+        <ComboboxInput :placeholder="props.placeholder || 'Search...'" />
+        <ComboboxViewport>
+          <ComboboxEmpty>
+            {{ props.emptyText || "No items found." }}
+          </ComboboxEmpty>
+
+          <ComboboxGroup class="p-0">
+            <ComboboxItem
+              v-for="item in items"
+              :key="item.key"
+              :value="item"
+              :disabled="item.disabled"
             >
-              <IconCheck class="w-4 h-4" aria-hidden="true" />
-            </ComboboxItemIndicator>
-
-            <div class="flex items-center gap-2">
-              <img
-                v-if="item.iconUrl"
-                :src="item.iconUrl"
-                class="w-4 h-4 shrink-0 rounded-lg"
-                alt=""
-                aria-hidden="true"
-              />
-              <component
-                :is="item.icon"
-                v-else-if="item.icon"
-                class="w-4 h-4 shrink-0"
-                aria-hidden="true"
-              />
-              <span
-                v-else-if="item.initials"
-                class="inline-flex h-5 min-w-5 items-center justify-center rounded glass-soft px-1 text-[0.65rem] font-semibold"
+              <ComboboxItemIndicator
+                class="absolute left-2 ml-0 flex h-4 w-4 items-center justify-center"
               >
-                {{ item.initials }}
-              </span>
-              <span>{{ item.label }}</span>
-            </div>
-          </ComboboxItem>
-        </ComboboxGroup>
-      </ComboboxViewport>
-    </ComboboxList>
-  </ComboboxRoot>
+                <IconCheck class="w-4 h-4" aria-hidden="true" />
+              </ComboboxItemIndicator>
+
+              <div class="flex items-center gap-2">
+                <img
+                  v-if="item.iconUrl"
+                  :src="item.iconUrl"
+                  class="w-4 h-4 shrink-0 rounded-lg"
+                  alt=""
+                  aria-hidden="true"
+                />
+                <component
+                  :is="item.icon"
+                  v-else-if="item.icon"
+                  class="w-4 h-4 shrink-0"
+                  aria-hidden="true"
+                />
+                <span
+                  v-else-if="item.initials"
+                  class="inline-flex h-5 min-w-5 items-center justify-center rounded glass-soft px-1 text-[0.65rem] font-semibold"
+                >
+                  {{ item.initials }}
+                </span>
+                <span>{{ item.label }}</span>
+              </div>
+            </ComboboxItem>
+          </ComboboxGroup>
+        </ComboboxViewport>
+      </ComboboxList>
+    </ComboboxRoot>
+  </div>
 </template>

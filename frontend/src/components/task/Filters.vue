@@ -28,13 +28,14 @@ function selectViewMode(value: string | string[]): void {
 </script>
 
 <template>
-  <div class="flex flex-wrap items-center gap-2">
+  <div class="flex items-end gap-3 shrink-0">
     <Combobox
       :model-value="activeMenu"
       :items="navigationItems"
       @update:model-value="(val) => setActiveMenu(val as MenuKey)"
       class="shrink-0"
-      placeholder="Search platform..."
+      label="Platform"
+      placeholder="Select..."
       empty-text="No platforms found."
       aria-label="Platform"
     />
@@ -44,7 +45,8 @@ function selectViewMode(value: string | string[]): void {
       :items="mediaFilterItems"
       @update:model-value="(val) => setMediaFilter(val as MediaFilter)"
       class="shrink-0"
-      placeholder="Media type..."
+      label="Media"
+      placeholder="Select..."
       empty-text="No types."
       aria-label="Media type"
     />
@@ -52,14 +54,17 @@ function selectViewMode(value: string | string[]): void {
     <SegmentedControl
       :model-value="viewMode"
       @update:model-value="selectViewMode"
+      label="View"
       aria-label="View mode"
       class="shrink-0"
     >
-      <SegmentedControlItem value="grid" aria-label="Grid view">
-        <IconGrid class="w-4 h-4" aria-hidden="true" />
+      <SegmentedControlItem value="grid" aria-label="Grid view" title="Grid view">
+        <IconGrid class="w-3.5 h-3.5" aria-hidden="true" />
+        <span>Grid</span>
       </SegmentedControlItem>
-      <SegmentedControlItem value="table" aria-label="Table view">
-        <IconList class="w-4 h-4" aria-hidden="true" />
+      <SegmentedControlItem value="table" aria-label="Table view" title="Table view">
+        <IconList class="w-3.5 h-3.5" aria-hidden="true" />
+        <span>Table</span>
       </SegmentedControlItem>
     </SegmentedControl>
   </div>

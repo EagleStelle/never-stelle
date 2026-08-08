@@ -24,6 +24,18 @@ const qualityFields = computed(() =>
   qualityFieldsFor(selection, qualityOptions.value),
 );
 
+function getFieldLabel(key: string, fallback: string): string {
+  const map: Record<string, string> = {
+    video_quality: "Quality",
+    video_container: "Container",
+    video_codec: "Video Codec",
+    video_audio_codec: "Audio Codec",
+    audio_bitrate: "Bitrate",
+    audio_format: "Format",
+  };
+  return map[key] || fallback;
+}
+
 function update(patch: Partial<QualitySelection>): void {
   setDownloadQuality({ ...selection, ...patch });
 }
@@ -39,25 +51,28 @@ function setMode(value: string | string[]): void {
 
 <template>
   <!-- Mobile reverses the rows so the URL field sits closest to the keyboard. -->
-  <div class="flex flex-col-reverse lg:flex-col gap-2 w-full">
+  <div class="flex flex-col-reverse lg:flex-col gap-3 w-full">
     <UrlForm />
 
     <div
-      class="flex overflow-x-auto no-scrollbar items-center justify-between lg:justify-start gap-2 w-full py-1"
+      class="flex overflow-x-auto no-scrollbar items-end justify-between gap-3 w-full py-1"
     >
-      <div class="flex items-center gap-2 shrink-0">
+      <div class="flex items-end gap-3 shrink-0">
         <SegmentedControl
           v-if="qualityOptions.video.length"
           :model-value="selection.mode"
           @update:model-value="setMode"
-          aria-label="Media type"
+          label="Mode"
+          aria-label="Media mode"
           class="shrink-0"
         >
-          <SegmentedControlItem value="video" aria-label="Video">
-            <IconMovie class="w-4 h-4" aria-hidden="true" />
+          <SegmentedControlItem value="video" aria-label="Video" title="Video">
+            <IconMovie class="w-3.5 h-3.5" aria-hidden="true" />
+            <span>Video</span>
           </SegmentedControlItem>
-          <SegmentedControlItem value="audio" aria-label="Audio">
-            <IconMusic class="w-4 h-4" aria-hidden="true" />
+          <SegmentedControlItem value="audio" aria-label="Audio" title="Audio">
+            <IconMusic class="w-3.5 h-3.5" aria-hidden="true" />
+            <span>Audio</span>
           </SegmentedControlItem>
         </SegmentedControl>
 
@@ -68,6 +83,7 @@ function setMode(value: string | string[]): void {
           :items="field.items"
           @update:model-value="(val) => setField(field.key, val)"
           class="shrink-0"
+          :label="getFieldLabel(field.key, field.label)"
           :placeholder="field.placeholder"
           :empty-text="field.emptyText"
           :aria-label="field.label"
