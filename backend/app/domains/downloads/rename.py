@@ -70,7 +70,7 @@ def _row_fields(payload: dict[str, Any], stored_template: str, old_name: str) ->
     return fields
 
 
-def unsatisfied_tokens(filename_template: str, fields: dict[str, str], quality: Any) -> list[str]:
+def unsatisfied_tokens(filename_template: str, fields: dict[str, str]) -> list[str]:
     """Tokens the template needs that nothing can supply.
 
     Rendering anyway would drop the token, or fill a creator token from the other one,
@@ -78,11 +78,10 @@ def unsatisfied_tokens(filename_template: str, fields: dict[str, str], quality: 
     """
     missing: list[str] = []
     for token in template_tokens(filename_template):
-        if token == "quality":
-            if not quality:
-                missing.append(token)
-            continue
         if str(fields.get(token) or "").strip():
+            continue
+        # Quality always answers: no selection and nothing recorded still names itself source.
+        if token == "quality":
             continue
         # Either creator token stands in for the other: both name the same person.
         if token in CREATOR_FIELDS and any(str(fields.get(other) or "").strip() for other in CREATOR_FIELDS):
@@ -103,7 +102,7 @@ def entry_token_state(payload: dict[str, Any]) -> tuple[list[str], list[str]]:
     source_url = str(payload.get("source_url") or "")
     current = str(get_effective_template_settings(source_url).get("filename_template") or "")
     fields = _row_fields(payload, str(payload.get("filename_template") or ""), Path(old_path_value).name)
-    return template_tokens(current), unsatisfied_tokens(current, fields, payload.get("quality") or {})
+    return template_tokens(current), unsatisfied_tokens(current, fields)
 
 
 def _free_target(target: Path, source: Path, claimed: set[str]) -> Path:
@@ -158,9 +157,11 @@ def plan_history_renames(
         if not is_media_file(old_path):
             continue
 
-        quality = payload.get("quality") or {}
+        # None, not {}: a row that carries no selection must render the quality it was
+        # downloaded with, rather than relabel itself "source".
+        quality = payload.get("quality") or None
         fields = _row_fields(payload, stored, old_path.name)
-        if unsatisfied_tokens(current, fields, quality):
+        if unsatisfied_tokens(current, fields):
             needs_resolve.append(str(task_id))
             continue
 

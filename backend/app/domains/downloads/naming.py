@@ -543,8 +543,11 @@ def _render_template_stem(
                 if field in CREATOR_FIELDS:
                     override = _clean_creator_token(str(override), flags)
                 return styled(field, sanitize_path_literal(override, replacement))
-        if field == "quality" and quality is not None:
-            return styled(field, _quality_token(quality))
+        # Selection first; with none to apply (``None``) whatever the row recorded, and
+        # with neither the default label, which is what "no quality" is called.
+        if field == "quality":
+            recorded = "" if quality is not None else str(fields.get(field) or "").strip()
+            return styled(field, sanitize_path_literal(recorded, replacement) or _quality_token(quality))
         value = fields.get(field, "")
         if field in CREATOR_FIELDS:
             value = _clean_creator_token(value or _field_value(fields, "username", "nickname"), flags)

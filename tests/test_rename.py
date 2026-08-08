@@ -92,6 +92,27 @@ def test_template_change_renames_the_file_and_the_row(tmp_path: Path, monkeypatc
     assert row["filename_template"] == NEW_TEMPLATE
 
 
+@pytest.mark.parametrize(
+    ("recorded", "expected"),
+    [({"quality": "1080"}, "Clip [abc123] 1080.mp4"), ({}, "Clip [abc123] source.mp4")],
+)
+def test_a_quality_token_renders_what_the_row_has_or_calls_it_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recorded: dict, expected: str
+):
+    media_root, rows, _journal = _rename_env(tmp_path, monkeypatch, template="{{title}} [{{id}}] {{quality}}")
+    old_file = media_root / "Creator - Clip [abc123].mp4"
+    old_file.write_bytes(b"video")
+    # A history row carries no quality selection, only what its download recorded.
+    rows["gallerydl:1"] = _row(old_file, resolved_tokens=recorded)
+
+    result = scan_module.scan_media_library([media_root])
+
+    # Reading the absent selection as a selection stamped every row "source"; treating
+    # the token as unanswerable left rows flagged for something no probe can supply.
+    assert (media_root / expected).exists()
+    assert result["needs_resolve"] == 0
+
+
 def test_unchanged_template_renames_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     media_root, rows, _journal = _rename_env(tmp_path, monkeypatch, template=OLD_TEMPLATE)
     old_file = media_root / "Creator - Clip [abc123].mp4"
