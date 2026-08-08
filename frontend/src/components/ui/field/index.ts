@@ -17,6 +17,32 @@ export const fieldVariants = cva(
           "@md/field-group:[&>[data-slot=field-label]]:flex-auto",
           "@md/field-group:has-[>[data-slot=field-content]]:items-start @md/field-group:has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
         ],
+        // The two orientations below pin the label to the Label default leading, so a
+        // FieldLabel reads the same as the plain Labels used elsewhere.
+
+        // Toolbar caption: a tight stack that hugs its control instead of filling the row.
+        top: [
+          "flex-col items-start gap-1",
+          "*:data-[slot=field-label]:leading-normal",
+          "*:data-[slot=field-content]:w-full *:data-[slot=field-content]:flex-none",
+        ],
+        // Settings row: the label stacks above on phones, then takes a fixed column at the
+        // start of the row from sm up.
+        start: [
+          "flex-col gap-2 sm:flex-row sm:items-center sm:gap-3",
+          // Stacked, the label spans the row; beside the control it takes the label column.
+          "max-sm:*:data-[slot=field-label]:w-auto sm:*:data-[slot=field-label]:shrink-0",
+          "*:data-[slot=field-label]:leading-normal",
+          "*:data-[slot=field-content]:w-full *:data-[slot=field-content]:flex-none sm:*:data-[slot=field-content]:flex-auto",
+        ],
+      },
+      // Width of the label column, which only the `start` orientation lays out. Field
+      // applies `md` there by default.
+      labelWidth: {
+        xs: "sm:*:data-[slot=field-label]:w-16",
+        sm: "sm:*:data-[slot=field-label]:w-28",
+        md: "sm:*:data-[slot=field-label]:w-40",
+        lg: "sm:*:data-[slot=field-label]:w-48",
       },
     },
     defaultVariants: {

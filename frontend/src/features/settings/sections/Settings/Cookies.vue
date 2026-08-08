@@ -1,10 +1,11 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { reactive, ref } from "vue";
 import IconDrag from "~icons/material-symbols/drag-indicator";
 import IconTrash from "~icons/material-symbols/delete";
 import IconUpload from "~icons/material-symbols/upload";
 
 import { Button } from "@/components/ui/button";
+import { Field, FieldContent } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -168,12 +169,13 @@ function isDropTarget(key: string, index: number): boolean {
         <AccordionContent>
           <div class="flex flex-col gap-4">
             <div class="flex flex-col gap-3 w-full">
-              <div
+              <Field
                 v-for="field in COOKIE_POLICY_FIELDS"
                 :key="field.key"
-                class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 w-full"
+                orientation="start"
               >
-                <div class="flex items-center gap-1.5 sm:w-40 sm:shrink-0">
+                <!-- The help button cannot sit inside a label, so the cell wraps both. -->
+                <div data-slot="field-label" class="flex items-center gap-1.5">
                   <Label :for="`${site.key}Cookie${field.key}`">
                     {{ field.label }}
                   </Label>
@@ -192,7 +194,7 @@ function isDropTarget(key: string, index: number): boolean {
                     </TooltipContent>
                   </Tooltip>
                 </div>
-                <div class="w-full sm:flex-auto">
+                <FieldContent>
                   <Input
                     :id="`${site.key}Cookie${field.key}`"
                     data-settings-system
@@ -206,8 +208,8 @@ function isDropTarget(key: string, index: number): boolean {
                       (value: string | number) => setPolicyValue(site.key, field.key, value)
                     "
                   />
-                </div>
-              </div>
+                </FieldContent>
+              </Field>
             </div>
 
             <input

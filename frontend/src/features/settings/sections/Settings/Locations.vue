@@ -6,7 +6,6 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Combobox } from "@/components/ui/combobox";
-import { Label } from "@/components/ui/label";
 import { useSettingsContext } from "@/features/settings/context";
 import { displayUrlTemplate } from "@/utils/dashboard";
 
@@ -78,27 +77,18 @@ function locationItems(
         </p>
 
         <div v-else class="flex flex-col gap-4 py-2">
-          <div
+          <Combobox
             v-for="format in formatsFor(site.key)"
             :key="format"
-            class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
-          >
-            <Label class="sm:w-48 sm:shrink-0 break-all wrap-anywhere">
-              {{ displayUrlTemplate(format) }}
-            </Label>
-            <div class="w-full sm:flex-auto">
-              <Combobox
-                :model-value="location(site.key, format)"
-                :items="locationItems(site.key, format)"
-                @update:model-value="
-                  (val) => setLocation(site.key, format, val)
-                "
-                layout="fill"
-                placeholder="Choose a save path"
-                empty-text="No locations."
-              />
-            </div>
-          </div>
+            :model-value="location(site.key, format)"
+            :items="locationItems(site.key, format)"
+            @update:model-value="(val) => setLocation(site.key, format, val)"
+            :label="displayUrlTemplate(format)"
+            label-placement="start"
+            label-width="lg"
+            placeholder="Choose a save path"
+            empty-text="No locations."
+          />
         </div>
       </AccordionContent>
     </AccordionItem>

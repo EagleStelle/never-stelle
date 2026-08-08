@@ -11,6 +11,7 @@ export interface QualityField {
   items: QualityPreset[];
   placeholder: string;
   emptyText: string;
+  /** Visible caption and accessible name; the mode control supplies the rest of the context. */
   label: string;
 }
 
@@ -30,14 +31,14 @@ export function qualityFieldsFor(
               : options.audio_bitrates,
             placeholder: "Select...",
             emptyText: "No bitrates.",
-            label: "Audio bitrate",
+            label: "Bitrate",
           },
           {
             key: "audio_format",
             items: options.audio_formats,
             placeholder: "Select...",
             emptyText: "No formats.",
-            label: "Audio format",
+            label: "Format",
           },
         ]
       : [
@@ -46,14 +47,14 @@ export function qualityFieldsFor(
             items: options.video,
             placeholder: "Select...",
             emptyText: "No presets.",
-            label: "Video quality",
+            label: "Quality",
           },
           {
             key: "video_container",
             items: options.video_containers,
             placeholder: "Select...",
             emptyText: "No containers.",
-            label: "Video container",
+            label: "Container",
           },
           {
             key: "video_codec",

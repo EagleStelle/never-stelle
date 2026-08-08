@@ -1,6 +1,6 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
+import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useSettingsContext } from "@/features/settings/context";
 
@@ -9,9 +9,9 @@ const { settingsDraft, saveSettingsDraft } = useSettingsContext();
 
 <template>
   <form class="flex flex-col gap-4 py-2" @submit.prevent="saveSettingsDraft">
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-      <Label for="accountUsernameInput" class="sm:w-40 sm:shrink-0">Username</Label>
-      <div class="w-full sm:flex-auto">
+    <Field orientation="start">
+      <FieldLabel for="accountUsernameInput">Username</FieldLabel>
+      <FieldContent>
         <Input
           id="accountUsernameInput"
           v-model="settingsDraft.account.username"
@@ -20,12 +20,12 @@ const { settingsDraft, saveSettingsDraft } = useSettingsContext();
           autocomplete="username"
           placeholder="Username"
         />
-      </div>
-    </div>
+      </FieldContent>
+    </Field>
 
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-      <Label for="accountCurrentPasswordInput" class="sm:w-40 sm:shrink-0">Current Password</Label>
-      <div class="w-full sm:flex-auto">
+    <Field orientation="start">
+      <FieldLabel for="accountCurrentPasswordInput">Current Password</FieldLabel>
+      <FieldContent>
         <Input
           id="accountCurrentPasswordInput"
           v-model="settingsDraft.account.current_password"
@@ -34,12 +34,12 @@ const { settingsDraft, saveSettingsDraft } = useSettingsContext();
           autocomplete="current-password"
           placeholder="Current password"
         />
-      </div>
-    </div>
+      </FieldContent>
+    </Field>
 
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-      <Label for="accountNewPasswordInput" class="sm:w-40 sm:shrink-0">New Password</Label>
-      <div class="w-full sm:flex-auto">
+    <Field orientation="start">
+      <FieldLabel for="accountNewPasswordInput">New Password</FieldLabel>
+      <FieldContent>
         <Input
           id="accountNewPasswordInput"
           v-model="settingsDraft.account.new_password"
@@ -48,14 +48,14 @@ const { settingsDraft, saveSettingsDraft } = useSettingsContext();
           autocomplete="new-password"
           placeholder="New password"
         />
-      </div>
-    </div>
+      </FieldContent>
+    </Field>
 
     <Separator class="my-1" />
 
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-      <Label for="accountConfirmPasswordInput" class="sm:w-40 sm:shrink-0">Confirm Password</Label>
-      <div class="w-full sm:flex-auto">
+    <Field orientation="start">
+      <FieldLabel for="accountConfirmPasswordInput">Confirm Password</FieldLabel>
+      <FieldContent>
         <Input
           id="accountConfirmPasswordInput"
           v-model="settingsDraft.account.confirm_password"
@@ -64,7 +64,7 @@ const { settingsDraft, saveSettingsDraft } = useSettingsContext();
           autocomplete="new-password"
           placeholder="Confirm password"
         />
-      </div>
-    </div>
+      </FieldContent>
+    </Field>
   </form>
 </template>

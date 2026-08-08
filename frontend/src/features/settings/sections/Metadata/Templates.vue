@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, ref, nextTick } from "vue";
 import {
   Accordion,
@@ -13,9 +13,9 @@ import {
   CardTitle,
   CardFooter,
 } from "@/components/ui/card";
+import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { useSettingsContext } from "@/features/settings/context";
 import {
   displayUrlTemplate,
@@ -225,9 +225,11 @@ function insert(siteKey: string, format: string, token: string): void {
               </CardTitle>
             </CardHeader>
             <CardContent class="flex flex-col gap-3">
-              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                <Label class="sm:w-40 sm:shrink-0">Folder</Label>
-                <div class="w-full sm:flex-auto">
+              <Field orientation="start">
+                <FieldLabel :for="getFolderInputId(site.key, template)">
+                  Folder
+                </FieldLabel>
+                <FieldContent>
                   <Input
                     :id="getFolderInputId(site.key, template)"
                     :model-value="getFolderTemplate(site.key, template)"
@@ -237,12 +239,14 @@ function insert(siteKey: string, format: string, token: string): void {
                       (v) => setFolderTemplate(site.key, template, String(v))
                     "
                   />
-                </div>
-              </div>
+                </FieldContent>
+              </Field>
 
-              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                <Label class="sm:w-40 sm:shrink-0">Filename</Label>
-                <div class="w-full sm:flex-auto">
+              <Field orientation="start">
+                <FieldLabel :for="getFilenameInputId(site.key, template)">
+                  Filename
+                </FieldLabel>
+                <FieldContent>
                   <Input
                     :id="getFilenameInputId(site.key, template)"
                     :model-value="getFilenameTemplate(site.key, template)"
@@ -252,8 +256,8 @@ function insert(siteKey: string, format: string, token: string): void {
                       (v) => setFilenameTemplate(site.key, template, String(v))
                     "
                   />
-                </div>
-              </div>
+                </FieldContent>
+              </Field>
             </CardContent>
             <CardFooter
               v-if="baseTokens.length || customTokensFor(site.key).length"

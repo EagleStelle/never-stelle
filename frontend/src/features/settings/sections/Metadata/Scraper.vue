@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import IconAdd from "~icons/material-symbols/add";
 import IconSearch from "~icons/material-symbols/search";
 import IconSpinner from "~icons/material-symbols/sync";
@@ -33,7 +33,7 @@ import type { ScrapeRule, TokenRole } from "@/types";
 import { displayUrlTemplate, tokenLabel } from "@/utils/dashboard";
 import { useScrapeTests } from "@/features/settings/composables/useScrapeTests";
 import { useSettingsContext } from "@/features/settings/context";
-import { Label } from "@/components/ui/label";
+import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import {
   Accordion,
   AccordionContent,
@@ -101,16 +101,17 @@ const {
 
       <AccordionContent>
         <div class="flex flex-col gap-[0.85rem]">
-          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-            <Label class="sm:w-40 sm:shrink-0">Probe URL</Label>
-            <div class="flex items-center gap-2 w-full sm:flex-auto">
+          <Field orientation="start">
+            <FieldLabel :for="`${site.key}ScraperProbeInput`">
+              Probe URL
+            </FieldLabel>
+            <FieldContent class="flex-row items-center gap-2">
               <Input
                 :id="`${site.key}ScraperProbeInput`"
                 v-model="scrapeTests[site.key].url"
                 data-settings-system
                 type="text"
                 inputmode="url"
-                aria-label="Probe URL"
                 placeholder="Paste a link"
                 class="flex-1"
                 @keydown.enter.prevent="runScrapeTest(site.key)"
@@ -133,8 +134,8 @@ const {
                   <IconSearch v-else class="w-4 h-4" aria-hidden="true" />
                 </template>
               </Button>
-            </div>
-          </div>
+            </FieldContent>
+          </Field>
 
           <Card v-if="scrapeTests[site.key].message" class="px-6">
             <p class="text-[0.8125rem] text-muted-foreground">
@@ -256,91 +257,98 @@ const {
                   </div>
 
                   <div class="flex flex-col gap-3">
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                      <Label class="sm:w-28 sm:shrink-0">Token</Label>
-                      <div class="w-full sm:flex-auto">
+                    <Field orientation="start" label-width="sm">
+                      <FieldLabel :for="`${site.key}RuleToken${index}`">
+                        Token
+                      </FieldLabel>
+                      <FieldContent>
                         <Input
+                          :id="`${site.key}RuleToken${index}`"
                           :model-value="rule.token"
-                          aria-label="Token name"
                           @update:model-value="
                             (v) => setRuleToken(site.key, rule, index, String(v))
                           "
                         />
-                      </div>
-                    </div>
+                      </FieldContent>
+                    </Field>
 
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                      <Label class="sm:w-28 sm:shrink-0">Label</Label>
-                      <div class="w-full sm:flex-auto">
+                    <Field orientation="start" label-width="sm">
+                      <FieldLabel :for="`${site.key}RuleMatchLabel${index}`">
+                        Label
+                      </FieldLabel>
+                      <FieldContent>
                         <Input
+                          :id="`${site.key}RuleMatchLabel${index}`"
                           v-model="rule.match_label"
-                          aria-label="Label to anchor on"
                         />
-                      </div>
-                    </div>
+                      </FieldContent>
+                    </Field>
 
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                      <Label class="sm:w-28 sm:shrink-0">Selector</Label>
-                      <div class="w-full sm:flex-auto">
+                    <Field orientation="start" label-width="sm">
+                      <FieldLabel :for="`${site.key}RuleSelector${index}`">
+                        Selector
+                      </FieldLabel>
+                      <FieldContent>
                         <Input
+                          :id="`${site.key}RuleSelector${index}`"
                           v-model="rule.selector"
-                          aria-label="CSS selector"
                         />
-                      </div>
-                    </div>
+                      </FieldContent>
+                    </Field>
 
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                      <Label class="sm:w-28 sm:shrink-0">Attribute</Label>
-                      <div class="w-full sm:flex-auto">
-                        <Combobox
-                          :model-value="rule.attr"
-                          :items="SCRAPE_ATTR_ITEMS"
-                          @update:model-value="(val) => (rule.attr = val)"
-                          layout="fill"
-                          empty-text="No matches."
-                        />
-                      </div>
-                    </div>
+                    <Combobox
+                      :model-value="rule.attr"
+                      :items="SCRAPE_ATTR_ITEMS"
+                      @update:model-value="(val) => (rule.attr = val)"
+                      label="Attribute"
+                      label-placement="start"
+                      label-width="sm"
+                      empty-text="No matches."
+                    />
 
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
-                      <Label class="sm:w-28 sm:shrink-0 sm:pt-2">XPath (Optional)</Label>
-                      <div class="w-full sm:flex-auto">
+                    <Field
+                      orientation="start"
+                      label-width="sm"
+                      class="sm:items-start sm:*:data-[slot=field-label]:pt-2"
+                    >
+                      <FieldLabel :for="`${site.key}RuleXpath${index}`">
+                        XPath (Optional)
+                      </FieldLabel>
+                      <FieldContent>
                         <Textarea
+                          :id="`${site.key}RuleXpath${index}`"
                           v-model="rule.xpath"
-                          aria-label="XPath"
                           class="min-h-24"
                         />
-                      </div>
-                    </div>
+                      </FieldContent>
+                    </Field>
 
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                      <Label class="sm:w-28 sm:shrink-0">Role</Label>
-                      <div class="w-full sm:flex-auto">
-                        <SegmentedControl
-                          :model-value="
-                            tokenRole(site.key, rule.token || `var${index}`)
-                          "
-                          @update:model-value="
-                            (value) => updateRole(site.key, rule, index, value)
-                          "
-                        >
-                          <SegmentedControlItem
-                            v-for="role in ROLE_ITEMS"
-                            :key="role.key"
-                            :value="role.key"
-                            :disabled="
-                              isRoleDisabled(
-                                site.key,
-                                rule.token || `var${index}`,
-                                role.key,
-                              )
-                            "
-                          >
-                            {{ role.label }}
-                          </SegmentedControlItem>
-                        </SegmentedControl>
-                      </div>
-                    </div>
+                    <SegmentedControl
+                      label="Role"
+                      label-placement="start"
+                      label-width="sm"
+                      :model-value="
+                        tokenRole(site.key, rule.token || `var${index}`)
+                      "
+                      @update:model-value="
+                        (value) => updateRole(site.key, rule, index, value)
+                      "
+                    >
+                      <SegmentedControlItem
+                        v-for="role in ROLE_ITEMS"
+                        :key="role.key"
+                        :value="role.key"
+                        :disabled="
+                          isRoleDisabled(
+                            site.key,
+                            rule.token || `var${index}`,
+                            role.key,
+                          )
+                        "
+                      >
+                        {{ role.label }}
+                      </SegmentedControlItem>
+                    </SegmentedControl>
 
                     <div class="flex items-center gap-2 text-sm pt-1">
                       <Checkbox

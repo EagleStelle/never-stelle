@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { Input } from "@/components/ui/input";
 import {
   SegmentedControl,
@@ -20,7 +20,7 @@ import { Separator } from "@/components/ui/separator";
 import type { LearnedSegment, TokenRole } from "@/types";
 import { useSlugTokens } from "@/features/settings/composables/useSlugTokens";
 import { useSettingsContext } from "@/features/settings/context";
-import { Label } from "@/components/ui/label";
+import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 
 const ROLE_ITEMS: { key: TokenRole; label: string }[] = [
   { key: "ignore", label: "None" },
@@ -132,40 +132,40 @@ function roleDisabled(
                   </span>
 
                   <div class="flex flex-col gap-3">
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                      <Label class="sm:w-16 sm:shrink-0">Token</Label>
-                      <div class="w-full sm:flex-auto">
+                    <Field orientation="start" label-width="xs">
+                      <FieldLabel :for="`${site.key}SlugToken${segment.part}`">
+                        Token
+                      </FieldLabel>
+                      <FieldContent>
                         <Input
+                          :id="`${site.key}SlugToken${segment.part}`"
                           :model-value="tokenForPart(site.key, segment.part, segment)"
-                          aria-label="Token name"
                           @update:model-value="
                             (v) =>
                               setTokenName(site.key, segment.part, String(v), segment)
                           "
                         />
-                      </div>
-                    </div>
+                      </FieldContent>
+                    </Field>
 
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                      <Label class="sm:w-16 sm:shrink-0">Role</Label>
-                      <div class="w-full sm:flex-auto">
-                        <SegmentedControl
-                          :model-value="roleValue(site.key, segment)"
-                          @update:model-value="
-                            (value) => updateRole(site.key, segment, value)
-                          "
-                        >
-                          <SegmentedControlItem
-                            v-for="role in ROLE_ITEMS"
-                            :key="role.key"
-                            :value="role.key"
-                            :disabled="roleDisabled(site.key, segment, role.key)"
-                          >
-                            {{ role.label }}
-                          </SegmentedControlItem>
-                        </SegmentedControl>
-                      </div>
-                    </div>
+                    <SegmentedControl
+                      label="Role"
+                      label-placement="start"
+                      label-width="xs"
+                      :model-value="roleValue(site.key, segment)"
+                      @update:model-value="
+                        (value) => updateRole(site.key, segment, value)
+                      "
+                    >
+                      <SegmentedControlItem
+                        v-for="role in ROLE_ITEMS"
+                        :key="role.key"
+                        :value="role.key"
+                        :disabled="roleDisabled(site.key, segment, role.key)"
+                      >
+                        {{ role.label }}
+                      </SegmentedControlItem>
+                    </SegmentedControl>
                   </div>
                 </div>
               </template>

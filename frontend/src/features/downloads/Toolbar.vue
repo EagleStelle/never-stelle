@@ -24,18 +24,6 @@ const qualityFields = computed(() =>
   qualityFieldsFor(selection, qualityOptions.value),
 );
 
-function getFieldLabel(key: string, fallback: string): string {
-  const map: Record<string, string> = {
-    video_quality: "Quality",
-    video_container: "Container",
-    video_codec: "Video Codec",
-    video_audio_codec: "Audio Codec",
-    audio_bitrate: "Bitrate",
-    audio_format: "Format",
-  };
-  return map[key] || fallback;
-}
-
 function update(patch: Partial<QualitySelection>): void {
   setDownloadQuality({ ...selection, ...patch });
 }
@@ -63,7 +51,6 @@ function setMode(value: string | string[]): void {
           :model-value="selection.mode"
           @update:model-value="setMode"
           label="Mode"
-          aria-label="Media mode"
           class="shrink-0"
         >
           <SegmentedControlItem value="video" aria-label="Video" title="Video">
@@ -83,10 +70,9 @@ function setMode(value: string | string[]): void {
           :items="field.items"
           @update:model-value="(val) => setField(field.key, val)"
           class="shrink-0"
-          :label="getFieldLabel(field.key, field.label)"
+          :label="field.label"
           :placeholder="field.placeholder"
           :empty-text="field.emptyText"
-          :aria-label="field.label"
         />
       </div>
 

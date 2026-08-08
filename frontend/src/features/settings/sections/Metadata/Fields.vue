@@ -1,10 +1,11 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { reactive } from "vue";
 import IconDrag from "~icons/material-symbols/drag-indicator";
 import IconSearch from "~icons/material-symbols/search";
 import IconSpinner from "~icons/material-symbols/sync";
 
 import { Button } from "@/components/ui/button";
+import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -125,16 +126,17 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
       </AccordionTrigger>
       <AccordionContent>
         <div class="flex flex-col gap-[0.85rem]">
-          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-            <Label class="sm:w-40 sm:shrink-0">Probe URL</Label>
-            <div class="flex items-center gap-2 w-full sm:flex-auto">
+          <Field orientation="start">
+            <FieldLabel :for="`${site.key}FieldsProbeInput`">
+              Probe URL
+            </FieldLabel>
+            <FieldContent class="flex-row items-center gap-2">
               <Input
                 :id="`${site.key}FieldsProbeInput`"
                 v-model="probes[site.key].url"
                 data-settings-system
                 type="text"
                 inputmode="url"
-                aria-label="Probe URL"
                 placeholder="Paste a link"
                 class="flex-1"
                 @keydown.enter.prevent="runProbe(site.key)"
@@ -157,8 +159,8 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
                   <IconSearch v-else class="w-4 h-4" aria-hidden="true" />
                 </template>
               </Button>
-            </div>
-          </div>
+            </FieldContent>
+          </Field>
 
           <Card v-if="probes[site.key].message" class="px-6">
             <p class="text-[0.8125rem] text-muted-foreground">

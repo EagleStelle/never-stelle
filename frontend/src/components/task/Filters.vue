@@ -37,7 +37,6 @@ function selectViewMode(value: string | string[]): void {
       label="Platform"
       placeholder="Select..."
       empty-text="No platforms found."
-      aria-label="Platform"
     />
 
     <Combobox
@@ -48,14 +47,12 @@ function selectViewMode(value: string | string[]): void {
       label="Media"
       placeholder="Select..."
       empty-text="No types."
-      aria-label="Media type"
     />
 
     <SegmentedControl
       :model-value="viewMode"
       @update:model-value="selectViewMode"
       label="View"
-      aria-label="View mode"
       class="shrink-0"
     >
       <SegmentedControlItem value="grid" aria-label="Grid view" title="Grid view">

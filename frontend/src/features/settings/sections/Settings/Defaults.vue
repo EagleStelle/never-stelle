@@ -1,11 +1,18 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, nextTick, reactive, ref } from "vue";
 import IconDrag from "~icons/material-symbols/drag-indicator";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
-import { FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field";
+import {
+  Field,
+  FieldContent,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -262,65 +269,48 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
           Video
         </FieldLegend>
         <FieldGroup class="gap-4">
-          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-            <Label class="sm:w-40 sm:shrink-0">Quality</Label>
-            <div class="w-full sm:flex-auto">
-              <Combobox
-                :model-value="settingsDraft.default_quality.video_quality"
-                :items="settings.quality_options.video"
-                @update:model-value="
-                  (val) => (settingsDraft.default_quality.video_quality = val)
-                "
-                layout="fill"
-                placeholder="Choose a quality"
-                empty-text="No presets."
-              />
-            </div>
-          </div>
-          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-            <Label class="sm:w-40 sm:shrink-0">Container</Label>
-            <div class="w-full sm:flex-auto">
-              <Combobox
-                :model-value="settingsDraft.default_quality.video_container"
-                :items="settings.quality_options.video_containers"
-                @update:model-value="(val) => updateContainer(val)"
-                layout="fill"
-                placeholder="Choose a container"
-                empty-text="No containers."
-              />
-            </div>
-          </div>
-          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-            <Label class="sm:w-40 sm:shrink-0">Video codec</Label>
-            <div class="w-full sm:flex-auto">
-              <Combobox
-                :model-value="settingsDraft.default_quality.video_codec"
-                :items="videoCodecItems"
-                @update:model-value="
-                  (val) => (settingsDraft.default_quality.video_codec = val)
-                "
-                layout="fill"
-                placeholder="Video codec..."
-                empty-text="No codecs."
-              />
-            </div>
-          </div>
-          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-            <Label class="sm:w-40 sm:shrink-0">Audio codec</Label>
-            <div class="w-full sm:flex-auto">
-              <Combobox
-                :model-value="settingsDraft.default_quality.video_audio_codec"
-                :items="videoAudioCodecItems"
-                @update:model-value="
-                  (val) =>
-                    (settingsDraft.default_quality.video_audio_codec = val)
-                "
-                layout="fill"
-                placeholder="Choose an audio codec"
-                empty-text="No audio codecs."
-              />
-            </div>
-          </div>
+          <Combobox
+            :model-value="settingsDraft.default_quality.video_quality"
+            :items="settings.quality_options.video"
+            @update:model-value="
+              (val) => (settingsDraft.default_quality.video_quality = val)
+            "
+            label="Quality"
+            label-placement="start"
+            placeholder="Choose a quality"
+            empty-text="No presets."
+          />
+          <Combobox
+            :model-value="settingsDraft.default_quality.video_container"
+            :items="settings.quality_options.video_containers"
+            @update:model-value="(val) => updateContainer(val)"
+            label="Container"
+            label-placement="start"
+            placeholder="Choose a container"
+            empty-text="No containers."
+          />
+          <Combobox
+            :model-value="settingsDraft.default_quality.video_codec"
+            :items="videoCodecItems"
+            @update:model-value="
+              (val) => (settingsDraft.default_quality.video_codec = val)
+            "
+            label="Video codec"
+            label-placement="start"
+            placeholder="Video codec..."
+            empty-text="No codecs."
+          />
+          <Combobox
+            :model-value="settingsDraft.default_quality.video_audio_codec"
+            :items="videoAudioCodecItems"
+            @update:model-value="
+              (val) => (settingsDraft.default_quality.video_audio_codec = val)
+            "
+            label="Audio codec"
+            label-placement="start"
+            placeholder="Choose an audio codec"
+            empty-text="No audio codecs."
+          />
         </FieldGroup>
       </FieldSet>
 
@@ -332,39 +322,29 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
         </FieldLegend>
         <FieldGroup class="gap-4">
           <!-- Bitrate leads, the way video quality does; format takes the container slot. -->
-          <div
+          <Combobox
             v-if="!isLosslessAudioFormat(settingsDraft.default_quality.audio_format)"
-            class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
-          >
-            <Label class="sm:w-40 sm:shrink-0">Bitrate</Label>
-            <div class="w-full sm:flex-auto">
-              <Combobox
-                :model-value="settingsDraft.default_quality.audio_bitrate"
-                :items="settings.quality_options.audio_bitrates"
-                @update:model-value="
-                  (val) => (settingsDraft.default_quality.audio_bitrate = val)
-                "
-                layout="fill"
-                placeholder="Choose a bitrate"
-                empty-text="No bitrates."
-              />
-            </div>
-          </div>
-          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-            <Label class="sm:w-40 sm:shrink-0">Format</Label>
-            <div class="w-full sm:flex-auto">
-              <Combobox
-                :model-value="settingsDraft.default_quality.audio_format"
-                :items="settings.quality_options.audio_formats"
-                @update:model-value="
-                  (val) => (settingsDraft.default_quality.audio_format = val)
-                "
-                layout="fill"
-                placeholder="Choose a format"
-                empty-text="No formats."
-              />
-            </div>
-          </div>
+            :model-value="settingsDraft.default_quality.audio_bitrate"
+            :items="settings.quality_options.audio_bitrates"
+            @update:model-value="
+              (val) => (settingsDraft.default_quality.audio_bitrate = val)
+            "
+            label="Bitrate"
+            label-placement="start"
+            placeholder="Choose a bitrate"
+            empty-text="No bitrates."
+          />
+          <Combobox
+            :model-value="settingsDraft.default_quality.audio_format"
+            :items="settings.quality_options.audio_formats"
+            @update:model-value="
+              (val) => (settingsDraft.default_quality.audio_format = val)
+            "
+            label="Format"
+            label-placement="start"
+            placeholder="Choose a format"
+            empty-text="No formats."
+          />
         </FieldGroup>
       </FieldSet>
 
@@ -375,12 +355,13 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
           Cookies
         </FieldLegend>
         <FieldGroup class="gap-4">
-          <div
+          <Field
             v-for="field in COOKIE_POLICY_FIELDS"
             :key="field.key"
-            class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 w-full"
+            orientation="start"
           >
-            <div class="flex items-center gap-1.5 sm:w-40 sm:shrink-0">
+            <!-- The help button cannot sit inside a label, so the cell wraps both. -->
+            <div data-slot="field-label" class="flex items-center gap-1.5">
               <Label :for="`defaultCookie${field.key}`">{{
                 field.label
               }}</Label>
@@ -399,7 +380,7 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
                 </TooltipContent>
               </Tooltip>
             </div>
-            <div class="w-full sm:flex-auto">
+            <FieldContent>
               <Input
                 :id="`defaultCookie${field.key}`"
                 data-settings-system
@@ -413,8 +394,8 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
                   (value: string | number) => setPolicyValue(field.key, value)
                 "
               />
-            </div>
-          </div>
+            </FieldContent>
+          </Field>
         </FieldGroup>
       </FieldSet>
 
@@ -479,11 +460,9 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
           Templates
         </FieldLegend>
         <FieldGroup class="gap-4">
-          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-            <Label class="sm:w-40 sm:shrink-0" :for="FOLDER_INPUT_ID"
-              >Folder</Label
-            >
-            <div class="w-full sm:flex-auto">
+          <Field orientation="start">
+            <FieldLabel :for="FOLDER_INPUT_ID">Folder</FieldLabel>
+            <FieldContent>
               <Input
                 :id="FOLDER_INPUT_ID"
                 :model-value="settingsDraft.template_settings.folder_template"
@@ -493,13 +472,11 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
                   (v) => setTemplate(FOLDER_INPUT_ID, String(v))
                 "
               />
-            </div>
-          </div>
-          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-            <Label class="sm:w-40 sm:shrink-0" :for="FILENAME_INPUT_ID"
-              >Filename</Label
-            >
-            <div class="w-full sm:flex-auto">
+            </FieldContent>
+          </Field>
+          <Field orientation="start">
+            <FieldLabel :for="FILENAME_INPUT_ID">Filename</FieldLabel>
+            <FieldContent>
               <Input
                 :id="FILENAME_INPUT_ID"
                 :model-value="settingsDraft.template_settings.filename_template"
@@ -509,8 +486,8 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
                   (v) => setTemplate(FILENAME_INPUT_ID, String(v))
                 "
               />
-            </div>
-          </div>
+            </FieldContent>
+          </Field>
           <div v-if="templateTokens.length" class="flex flex-wrap gap-1.5">
             <Button
               v-for="token in templateTokens"
@@ -551,29 +528,28 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
               <span>{{ rule.label }}</span>
             </label>
           </div>
-          <div
+          <Field
             v-if="ruleEnabled(GLOBAL_NAMING_KEY, titleLengthRule)"
-            class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
+            orientation="start"
           >
-            <Label class="sm:w-40 sm:shrink-0">Maximum length</Label>
-            <div class="w-full sm:flex-auto">
-              <div class="flex items-center gap-2">
-                <Input
-                  type="number"
-                  min="12"
-                  :model-value="String(maxChars(GLOBAL_NAMING_KEY))"
-                  class="w-24 shrink-0"
-                  @update:model-value="
-                    (v: string | number) =>
-                      setMaxChars(GLOBAL_NAMING_KEY, Number(v))
-                  "
-                />
-                <span class="text-white/55 in-[.light-mode]:text-black/55">
-                  characters
-                </span>
-              </div>
-            </div>
-          </div>
+            <FieldLabel for="defaultTitleMaxChars">Maximum length</FieldLabel>
+            <FieldContent class="flex-row items-center gap-2">
+              <Input
+                id="defaultTitleMaxChars"
+                type="number"
+                min="12"
+                :model-value="String(maxChars(GLOBAL_NAMING_KEY))"
+                class="w-24 shrink-0"
+                @update:model-value="
+                  (v: string | number) =>
+                    setMaxChars(GLOBAL_NAMING_KEY, Number(v))
+                "
+              />
+              <span class="text-white/55 in-[.light-mode]:text-black/55">
+                characters
+              </span>
+            </FieldContent>
+          </Field>
         </FieldGroup>
       </FieldSet>
 
@@ -584,55 +560,47 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
           Filename
         </FieldLegend>
         <FieldGroup class="gap-4">
-          <div
+          <SegmentedControl
             v-for="choice in namingChoices"
             :key="choice.key"
-            class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
+            class="max-w-full overflow-x-auto"
+            :label="choice.label"
+            label-placement="start"
+            :model-value="choiceValue(GLOBAL_NAMING_KEY, choice)"
+            @update:model-value="(v: string | string[]) => onChoice(choice, v)"
           >
-            <Label class="sm:w-40 sm:shrink-0">{{ choice.label }}</Label>
-            <div class="w-full sm:flex-auto">
-              <SegmentedControl
-                class="max-w-full overflow-x-auto"
-                :model-value="choiceValue(GLOBAL_NAMING_KEY, choice)"
-                @update:model-value="
-                  (v: string | string[]) => onChoice(choice, v)
+            <SegmentedControlItem
+              v-for="option in choice.options"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </SegmentedControlItem>
+          </SegmentedControl>
+          <Field orientation="start">
+            <FieldLabel for="defaultStemMaxChars">Maximum length</FieldLabel>
+            <FieldContent class="flex-row items-center gap-2">
+              <Input
+                id="defaultStemMaxChars"
+                type="number"
+                min="0"
+                placeholder="Off"
+                :model-value="
+                  stemMaxChars(GLOBAL_NAMING_KEY)
+                    ? String(stemMaxChars(GLOBAL_NAMING_KEY))
+                    : ''
                 "
-              >
-                <SegmentedControlItem
-                  v-for="option in choice.options"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </SegmentedControlItem>
-              </SegmentedControl>
-            </div>
-          </div>
-          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-            <Label class="sm:w-40 sm:shrink-0">Maximum length</Label>
-            <div class="w-full sm:flex-auto">
-              <div class="flex items-center gap-2">
-                <Input
-                  type="number"
-                  min="0"
-                  placeholder="Off"
-                  :model-value="
-                    stemMaxChars(GLOBAL_NAMING_KEY)
-                      ? String(stemMaxChars(GLOBAL_NAMING_KEY))
-                      : ''
-                  "
-                  class="w-24 shrink-0"
-                  @update:model-value="
-                    (v: string | number) =>
-                      setStemMaxChars(GLOBAL_NAMING_KEY, Number(v || 0))
-                  "
-                />
-                <span class="text-white/55 in-[.light-mode]:text-black/55">
-                  characters
-                </span>
-              </div>
-            </div>
-          </div>
+                class="w-24 shrink-0"
+                @update:model-value="
+                  (v: string | number) =>
+                    setStemMaxChars(GLOBAL_NAMING_KEY, Number(v || 0))
+                "
+              />
+              <span class="text-white/55 in-[.light-mode]:text-black/55">
+                characters
+              </span>
+            </FieldContent>
+          </Field>
         </FieldGroup>
       </FieldSet>
     </div>
