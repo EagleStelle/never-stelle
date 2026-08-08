@@ -349,6 +349,7 @@ export interface TasksResponse {
   tasks: TaskItem[];
   scanning?: number;
   resolving?: number;
+  resolve_pass?: ResolvePassReport;
   counts?: TaskCounts;
   counts_by_menu?: Partial<Record<string, TaskCounts>>;
   counts_by_media_menu?: Partial<Record<MediaFilter, Partial<Record<string, TaskCounts>>>>;
@@ -406,6 +407,13 @@ export interface ResolveScopeResponse {
 
 export interface ResolveResponse {
   queued: number;
+}
+
+export interface ResolvePassReport {
+  queued: number;
+  resolved: number;
+  skipped: number;
+  failed: number;
 }
 
 export interface AuthSessionResponse {

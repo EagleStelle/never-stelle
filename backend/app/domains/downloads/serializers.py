@@ -407,16 +407,21 @@ def build_counts() -> dict[str, Any]:
     return {"counts": totals, "counts_by_menu": by_menu, "counts_by_media_menu": by_media_menu}
 
 
-def library_activity() -> dict[str, int]:
+def library_activity() -> dict[str, Any]:
     """What is still running, read from the server rather than from whoever started it.
 
     Rides the task poll the client already runs, so a reload rejoins a pass it did not
     start and the spinner clears when the work is done, not when a request returned.
+    ``resolve_pass`` rides along because the POST that starts one only queues it.
     """
-    from .resolve import resolve_in_progress
+    from .resolve import resolve_in_progress, resolve_pass_report
     from .scan import scan_in_progress
 
-    return {"scanning": int(scan_in_progress()), "resolving": resolve_in_progress()}
+    return {
+        "scanning": int(scan_in_progress()),
+        "resolving": resolve_in_progress(),
+        "resolve_pass": resolve_pass_report(),
+    }
 
 
 def count_tasks(tasks: list[dict[str, Any]]) -> dict[str, int]:

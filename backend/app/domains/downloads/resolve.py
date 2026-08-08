@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from backend.app.core.resolution import resolution_scope
@@ -41,6 +42,36 @@ from .workers.enrichment import ensure_enrichment_worker
 
 # Tokens with no column of their own ride in the encoding blob.
 _TOKEN_COLUMNS = {"title": "title", "id": "media_id"}
+
+_OUTCOMES = ("resolved", "skipped", "failed")
+_pass_lock = threading.Lock()
+_pass_counts: dict[str, int] = {"queued": 0, "resolved": 0, "skipped": 0, "failed": 0}
+
+
+def _pass_settled(counts: dict[str, int]) -> bool:
+    return sum(counts[outcome] for outcome in _OUTCOMES) >= counts["queued"]
+
+
+def _note_pass_queued(queued: int) -> None:
+    """Extend the running pass, or open a fresh one once the last has settled."""
+    with _pass_lock:
+        if _pass_settled(_pass_counts):
+            for key in _pass_counts:
+                _pass_counts[key] = 0
+        _pass_counts["queued"] += int(queued)
+
+
+def record_resolve_outcome(outcome: str) -> None:
+    """Count one finished row, before its job row clears and the pass reads as done."""
+    if outcome not in _OUTCOMES:
+        return
+    with _pass_lock:
+        _pass_counts[outcome] += 1
+
+
+def resolve_pass_report() -> dict[str, int]:
+    with _pass_lock:
+        return dict(_pass_counts)
 
 
 def _probe_urls(entry: dict[str, Any]) -> list[str]:
@@ -211,6 +242,7 @@ def enqueue_resolve(task_ids: list[str], *, force: bool = False) -> int:
         ],
     )
     if queued:
+        _note_pass_queued(queued)
         ensure_enrichment_worker()
     return queued
 

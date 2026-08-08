@@ -24,7 +24,17 @@ import {
   REUSED_TASK_MESSAGES,
   TASKS_QUERY_KEY,
 } from "@/ui";
-import type { PlaylistEntry, QualitySelection, ResolveScope, SavedSettings, TaskItem, TaskStatus, TasksResponse, ToastType } from "@/types";
+import type {
+  PlaylistEntry,
+  QualitySelection,
+  ResolvePassReport,
+  ResolveScope,
+  SavedSettings,
+  TaskItem,
+  TaskStatus,
+  TasksResponse,
+  ToastType,
+} from "@/types";
 import { countTasks, errorMessage, extractUrl, normalizeSourceKey } from "@/utils/dashboard";
 
 interface UseTaskQueueOptions {
@@ -53,10 +63,20 @@ function reusedMessage(status?: TaskStatus): string {
 const plural = (count: number) => (count === 1 ? "" : "s");
 const pluralVerb = (count: number) => (count === 1 ? "s" : "");
 
-function queuedMessage(queued: number): string {
-  return queued === 0
-    ? "Nothing left to resolve."
-    : `Resolving ${queued} item${plural(queued)} in the background.`;
+// "Added 2 files, renamed 1 and could not rename 3."
+function sentence(parts: string[]): string {
+  const summary = parts.join(", ").replace(/, ([^,]*)$/, " and $1");
+  return `${summary.charAt(0).toUpperCase()}${summary.slice(1)}.`;
+}
+
+const EMPTY_RESOLVE_PASS: ResolvePassReport = { queued: 0, resolved: 0, skipped: 0, failed: 0 };
+
+function resolvedMessage(report: ResolvePassReport): string {
+  const parts: string[] = [];
+  if (report.resolved > 0) parts.push(`resolved ${report.resolved} item${plural(report.resolved)}`);
+  if (report.skipped > 0) parts.push(`skipped ${report.skipped}`);
+  if (report.failed > 0) parts.push(`could not resolve ${report.failed}`);
+  return parts.length === 0 ? "Nothing changed." : sentence(parts);
 }
 
 export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTaskQueueOptions) {
@@ -71,6 +91,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   const resolveOpen = ref(false);
   const resolveFlagged = ref(0);
   const resolveTotal = ref(0);
+  const awaitingResolveReport = ref(false);
 
   const tasksQuery = useQuery<TasksResponse>({
     queryKey: TASKS_QUERY_KEY,
@@ -106,6 +127,9 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
       Number(tasksQuery.data.value?.resolving || 0) > 0,
   );
   const libraryBusy = computed<boolean>(() => historyRefreshing.value || historyResolving.value);
+  const resolvePassReport = computed<ResolvePassReport>(
+    () => tasksQuery.data.value?.resolve_pass || EMPTY_RESOLVE_PASS,
+  );
 
   const { pause: pausePolling, resume: resumePolling, isActive: pollingActive } = useIntervalFn(
     () => void loadTasks(true),
@@ -184,7 +208,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   async function addDownloadTask(): Promise<void> {
     const sourceUrl = extractUrl(url.value);
     if (!sourceUrl) {
-      toast("Paste a supported URL first.", "error");
+      toast("Enter a valid URL.", "error");
       return;
     }
     try {
@@ -223,7 +247,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   async function removeTask(taskId: string): Promise<void> {
     try {
       await removeTaskRequest(taskId);
-      toast("Task removed from the list.");
+      toast("Task removed.");
       await loadTasks(true);
     } catch (error) {
       toast(errorMessage(error, "Could not remove task."), "error");
@@ -265,7 +289,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   async function clearPending(): Promise<void> {
     try {
       const data = await clearPendingTasks();
-      toast(data.cleared === 0 ? "No queued tasks to clear." : `Cleared ${data.cleared} queued task${plural(data.cleared)}.`);
+      toast(data.cleared === 0 ? "No queued tasks." : `Cleared ${data.cleared} queued task${plural(data.cleared)}.`);
       await loadTasks(true);
     } catch (error) {
       toast(errorMessage(error, "Could not clear queue."), "error");
@@ -278,20 +302,22 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
       await loadTasks(true);
       const parts: string[] = [];
       if (result.added > 0) parts.push(`added ${result.added} file${plural(result.added)}`);
-      if (result.missing > 0) parts.push(`removed ${result.missing} missing item${plural(result.missing)}`);
+      if (result.missing > 0) parts.push(`removed ${result.missing} missing file${plural(result.missing)}`);
       if (result.renamed > 0) parts.push(`renamed ${result.renamed} file${plural(result.renamed)}`);
       if (result.rename_failed > 0) parts.push(`could not rename ${result.rename_failed}`);
-      // Its own sentence, not part of the summary: it is work waiting on Resolve, not a result.
+
       const pending =
         result.needs_resolve > 0
-          ? ` ${result.needs_resolve} item${plural(result.needs_resolve)} need${pluralVerb(result.needs_resolve)} resolving.`
+          ? `${result.needs_resolve} item${plural(result.needs_resolve)} need${pluralVerb(result.needs_resolve)} resolution.`
           : "";
+
       if (parts.length === 0) {
-        toast(`History refreshed. Checked ${result.checked} file${plural(result.checked)}.${pending}`);
+        toast(pending ? `History up to date. ${pending}` : "History up to date.");
         return;
       }
-      const summary = parts.join(", ").replace(/, ([^,]*)$/, " and $1");
-      toast(`History refreshed. ${summary.charAt(0).toUpperCase()}${summary.slice(1)}.${pending}`);
+
+      const summary = sentence(parts);
+      toast(pending ? `${summary} ${pending}` : summary);
     } catch (error) {
       toast(errorMessage(error, "Could not refresh history."), "error");
     }
@@ -308,27 +334,38 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     }
   }
 
-  async function confirmResolve(scope: ResolveScope): Promise<void> {
-    resolveOpen.value = false;
+  function reportResolve(): void {
+    if (!awaitingResolveReport.value) return;
+    awaitingResolveReport.value = false;
+    toast(resolvedMessage(resolvePassReport.value));
+  }
+
+  async function startResolve(payload: { scope?: ResolveScope; task_ids?: string[] }): Promise<void> {
     try {
-      const result = await resolveMutation.mutateAsync({ scope });
+      const result = await resolveMutation.mutateAsync(payload);
+      if (result.queued === 0) {
+        toast("Nothing to resolve.");
+        return;
+      }
+      awaitingResolveReport.value = true;
       // The POST only queues, so the poll has to be started here or the spinner would
       // not appear until whatever tick happened to come next.
       await loadTasks(true);
-      toast(queuedMessage(result.queued));
+      // A pass short enough to end before that poll leaves the watcher no transition.
+      if (!historyResolving.value) reportResolve();
     } catch (error) {
+      awaitingResolveReport.value = false;
       toast(errorMessage(error, "Could not resolve history."), "error");
     }
   }
 
+  async function confirmResolve(scope: ResolveScope): Promise<void> {
+    resolveOpen.value = false;
+    await startResolve({ scope });
+  }
+
   async function resolveTask(taskId: string): Promise<void> {
-    try {
-      const result = await resolveMutation.mutateAsync({ task_ids: [taskId] });
-      await loadTasks(true);
-      toast(queuedMessage(result.queued));
-    } catch (error) {
-      toast(errorMessage(error, "Could not resolve history."), "error");
-    }
+    await startResolve({ task_ids: [taskId] });
   }
 
   function handleVisibilityChange(): void {
@@ -349,6 +386,10 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   // A finished pass has renamed rows, so the list they came from is stale.
   watch(libraryBusy, (busy, wasBusy) => {
     if (wasBusy && !busy) void loadTasks(true);
+  });
+
+  watch(historyResolving, (resolving, wasResolving) => {
+    if (wasResolving && !resolving) reportResolve();
   });
 
   useEventListener(document, "visibilitychange", handleVisibilityChange);

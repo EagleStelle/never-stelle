@@ -28,7 +28,7 @@ const format = (count: number) => count.toLocaleString();
   <Dialog
     v-model:open="openModel"
     title="Resolve History"
-    description="Looks up missing details from each source so these files can be named. Runs in the background."
+    description="Looks up missing details from each source so these files can be named. Reports back when the pass finishes."
     content-class="fixed left-1/2 top-1/2 z-70 flex w-[min(460px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
   >
     <div

@@ -254,9 +254,16 @@ def _run_enrichment_job(job: dict[str, Any]) -> None:
         return
     if str(job.get("kind") or "") == RESOLVE_JOB_KIND:
         # Lazy: resolve reaches back through the scan, which this module already feeds.
-        from backend.app.domains.downloads.resolve import resolve_history_entry
+        from backend.app.domains.downloads.resolve import record_resolve_outcome, resolve_history_entry
 
-        resolve_history_entry(task_id, force=bool(payload.get("force")))
+        try:
+            filled = resolve_history_entry(task_id, force=bool(payload.get("force")))
+        except Exception:
+            # An earlier attempt goes back on the queue, so only a spent job is a result.
+            if int(job.get("attempts") or 0) >= _MAX_ATTEMPTS:
+                record_resolve_outcome("failed")
+            raise
+        record_resolve_outcome("resolved" if filled else "skipped")
         return
     entry = load_history_entry(task_id)
     if not entry:
