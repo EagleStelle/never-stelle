@@ -414,13 +414,13 @@ def library_activity() -> dict[str, Any]:
     start and the spinner clears when the work is done, not when a request returned.
     ``resolve_pass`` rides along because the POST that starts one only queues it.
     """
-    from .resolve import resolve_in_progress, resolve_pass_report
+    from .resolve import resolve_in_progress, resolve_pass_reports
     from .scan import scan_in_progress
 
     return {
         "scanning": int(scan_in_progress()),
         "resolving": resolve_in_progress(),
-        "resolve_pass": resolve_pass_report(),
+        "resolve_passes": resolve_pass_reports(),
     }
 
 

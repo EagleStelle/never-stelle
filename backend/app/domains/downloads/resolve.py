@@ -44,34 +44,48 @@ from .workers.enrichment import ensure_enrichment_worker
 _TOKEN_COLUMNS = {"title": "title", "id": "media_id"}
 
 _OUTCOMES = ("resolved", "skipped", "failed")
+# Passes are reported per click, so a few have to outlive their own completion for the
+# client polling behind them.
+_KEPT_PASSES = 8
 _pass_lock = threading.Lock()
-_pass_counts: dict[str, int] = {"queued": 0, "resolved": 0, "skipped": 0, "failed": 0}
+_passes: dict[int, dict[str, int]] = {}
+_pass_serial = 0
 
 
-def _pass_settled(counts: dict[str, int]) -> bool:
-    return sum(counts[outcome] for outcome in _OUTCOMES) >= counts["queued"]
-
-
-def _note_pass_queued(queued: int) -> None:
-    """Extend the running pass, or open a fresh one once the last has settled."""
+def _open_pass() -> int:
+    global _pass_serial
     with _pass_lock:
-        if _pass_settled(_pass_counts):
-            for key in _pass_counts:
-                _pass_counts[key] = 0
-        _pass_counts["queued"] += int(queued)
+        _pass_serial += 1
+        _passes[_pass_serial] = {"queued": 0, "resolved": 0, "skipped": 0, "failed": 0}
+        for stale in list(_passes)[:-_KEPT_PASSES]:
+            del _passes[stale]
+        return _pass_serial
 
 
-def record_resolve_outcome(outcome: str) -> None:
-    """Count one finished row, before its job row clears and the pass reads as done."""
+def _size_pass(pass_id: int, queued: int) -> None:
+    """Stamp what the pass actually took on, or drop it when it took on nothing."""
+    with _pass_lock:
+        if pass_id not in _passes:
+            return
+        if queued:
+            _passes[pass_id]["queued"] = int(queued)
+        else:
+            del _passes[pass_id]
+
+
+def record_resolve_outcome(pass_id: Any, outcome: str) -> None:
+    """Count one finished row against the pass that queued it."""
     if outcome not in _OUTCOMES:
         return
     with _pass_lock:
-        _pass_counts[outcome] += 1
+        counts = _passes.get(int(pass_id or 0))
+        if counts:
+            counts[outcome] += 1
 
 
-def resolve_pass_report() -> dict[str, int]:
+def resolve_pass_reports() -> dict[str, dict[str, int]]:
     with _pass_lock:
-        return dict(_pass_counts)
+        return {str(pass_id): dict(counts) for pass_id, counts in _passes.items()}
 
 
 def _probe_urls(entry: dict[str, Any]) -> list[str]:
@@ -150,7 +164,6 @@ def _token_value(
 
 def _filled_entry(entry: dict[str, Any], filled: dict[str, str], matched_url: str) -> dict[str, Any]:
     updated = dict(entry)
-    updated["needs_resolve"] = False
     tokens = dict(updated.get("resolved_tokens") or {})
     for token, value in filled.items():
         column = _TOKEN_COLUMNS.get(token)
@@ -202,6 +215,10 @@ def resolve_history_entry(task_id: str, *, force: bool = False) -> bool:
             raise LookupError(f"Probe supplied none of {', '.join(wanted)} for {task_id}.")
 
         updated = _filled_entry(entry, filled, matched_url)
+        # What came back may still not name the row; the flag follows that, not the fact
+        # that something was filled.
+        still_missing = entry_token_state(updated)[1]
+        updated["needs_resolve"] = bool(still_missing)
         # The probe is done; from here on this is the same rename a scan does, so it
         # takes the same lock. A scan planning from a snapshot would otherwise write
         # its pre-probe copy of this row back over the values just found.
@@ -209,6 +226,8 @@ def resolve_history_entry(task_id: str, *, force: bool = False) -> bool:
             save_history_entry_row(task_id, updated)
             plans, _ = plan_history_renames({str(task_id): updated})
             apply_history_renames(plans)
+        if still_missing:
+            raise LookupError(f"{task_id} still needs {', '.join(still_missing)}.")
         return True
 
 
@@ -233,22 +252,31 @@ def resolve_in_progress() -> int:
     return unfinished_enrichment_job_count(RESOLVE_JOB_KIND)
 
 
-def enqueue_resolve(task_ids: list[str], *, force: bool = False) -> int:
+def enqueue_resolve(task_ids: list[str], *, force: bool = False) -> dict[str, int]:
+    """Queue one pass and return ``{queued, pass_id}``, the pass being what it reports as.
+
+    Each call is its own pass: a click that lands while another is running gets its own
+    count, instead of being told the running total of everything queued before it.
+    """
+    pass_id = _open_pass()
     queued = enqueue_enrichment_jobs(
         RESOLVE_JOB_KIND,
         [
-            (enrichment_job_id(RESOLVE_JOB_KIND, task_id), {"task_id": task_id, "force": force})
+            (
+                enrichment_job_id(RESOLVE_JOB_KIND, task_id),
+                {"task_id": task_id, "force": force, "pass": pass_id},
+            )
             for task_id in task_ids
         ],
     )
+    _size_pass(pass_id, queued)
     if queued:
-        _note_pass_queued(queued)
         ensure_enrichment_worker()
-    return queued
+    return {"queued": queued, "pass_id": pass_id if queued else 0}
 
 
-def start_resolve(scope: ResolveScope = "flagged", task_ids: list[str] | None = None) -> int:
-    """Queue a resolve pass and return how many rows it will probe.
+def start_resolve(scope: ResolveScope = "flagged", task_ids: list[str] | None = None) -> dict[str, int]:
+    """Queue a resolve pass and report how many rows it will probe, under which pass id.
 
     ``task_ids`` wins over ``scope`` and forces: clicking one row is deliberate, and that
     row is usually one the templates can already name. Forcing skips the backoff, so it

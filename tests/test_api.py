@@ -184,9 +184,9 @@ def test_library_resolve_queues_only_the_flagged_rows(tmp_path, monkeypatch):
     repositories.save_history_row("disk:abc123", {"media_id": "abc123", "needs_resolve": True})
     repositories.save_history_row("disk:def456", {"media_id": "def456"})
 
-    assert client.post("/api/library/resolve", json={}).json() == {"queued": 1}
-    assert client.post("/api/library/resolve", json={"scope": "all"}).json() == {"queued": 2}
-    assert client.post("/api/library/resolve", json={"task_ids": ["disk:def456"]}).json() == {"queued": 1}
+    assert client.post("/api/library/resolve", json={}).json()["queued"] == 1
+    assert client.post("/api/library/resolve", json={"scope": "all"}).json()["queued"] == 2
+    assert client.post("/api/library/resolve", json={"task_ids": ["disk:def456"]}).json()["queued"] == 1
 
 
 def test_library_resolve_rejects_an_unknown_scope(tmp_path, monkeypatch):
@@ -206,7 +206,9 @@ def test_library_resolve_task_ids_override_the_scope(tmp_path, monkeypatch):
 
     response = client.post("/api/library/resolve", json={"scope": "all", "task_ids": ["disk:abc123"]})
 
-    assert response.json() == {"queued": 1}
+    # pass_id is how the client finds this pass on the task poll.
+    assert response.json()["queued"] == 1
+    assert response.json()["pass_id"] > 0
     assert [job["id"] for job in repositories.load_enrichment_jobs_payload()] == ["resolve:disk:abc123"]
 
 

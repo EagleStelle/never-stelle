@@ -69,13 +69,11 @@ function sentence(parts: string[]): string {
   return `${summary.charAt(0).toUpperCase()}${summary.slice(1)}.`;
 }
 
-const EMPTY_RESOLVE_PASS: ResolvePassReport = { queued: 0, resolved: 0, skipped: 0, failed: 0 };
-
 function resolvedMessage(report: ResolvePassReport): string {
   const parts: string[] = [];
   if (report.resolved > 0) parts.push(`resolved ${report.resolved} item${plural(report.resolved)}`);
-  if (report.skipped > 0) parts.push(`skipped ${report.skipped}`);
-  if (report.failed > 0) parts.push(`could not resolve ${report.failed}`);
+  if (report.skipped > 0) parts.push(`skipped ${report.skipped} item${plural(report.skipped)}`);
+  if (report.failed > 0) parts.push(`could not resolve ${report.failed} item${plural(report.failed)}`);
   return parts.length === 0 ? "Nothing changed." : sentence(parts);
 }
 
@@ -91,7 +89,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
   const resolveOpen = ref(false);
   const resolveFlagged = ref(0);
   const resolveTotal = ref(0);
-  const awaitingResolveReport = ref(false);
+  const pendingResolvePasses = ref<number[]>([]);
 
   const tasksQuery = useQuery<TasksResponse>({
     queryKey: TASKS_QUERY_KEY,
@@ -127,9 +125,6 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
       Number(tasksQuery.data.value?.resolving || 0) > 0,
   );
   const libraryBusy = computed<boolean>(() => historyRefreshing.value || historyResolving.value);
-  const resolvePassReport = computed<ResolvePassReport>(
-    () => tasksQuery.data.value?.resolve_pass || EMPTY_RESOLVE_PASS,
-  );
 
   const { pause: pausePolling, resume: resumePolling, isActive: pollingActive } = useIntervalFn(
     () => void loadTasks(true),
@@ -334,10 +329,28 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     }
   }
 
-  function reportResolve(): void {
-    if (!awaitingResolveReport.value) return;
-    awaitingResolveReport.value = false;
-    toast(resolvedMessage(resolvePassReport.value));
+  // Each click waits on its own pass, so a click landing mid-pass is never told the
+  // running total of everything queued before it.
+  function reportSettledResolves(): void {
+    if (pendingResolvePasses.value.length === 0) return;
+    const reports = tasksQuery.data.value?.resolve_passes || {};
+    const idle = !historyResolving.value;
+    const waiting: number[] = [];
+    for (const passId of pendingResolvePasses.value) {
+      const report = reports[String(passId)];
+      // Gone with the process that ran it, so there is nothing left to report.
+      if (!report) {
+        if (!idle) waiting.push(passId);
+        continue;
+      }
+      // Idle with rows still unaccounted for means their jobs left with a deleted row.
+      if (report.resolved + report.skipped + report.failed < report.queued && !idle) {
+        waiting.push(passId);
+        continue;
+      }
+      toast(resolvedMessage(report));
+    }
+    pendingResolvePasses.value = waiting;
   }
 
   async function startResolve(payload: { scope?: ResolveScope; task_ids?: string[] }): Promise<void> {
@@ -347,14 +360,14 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
         toast("Nothing to resolve.");
         return;
       }
-      awaitingResolveReport.value = true;
       // The POST only queues, so the poll has to be started here or the spinner would
       // not appear until whatever tick happened to come next.
       await loadTasks(true);
-      // A pass short enough to end before that poll leaves the watcher no transition.
-      if (!historyResolving.value) reportResolve();
+      // Joined only once a poll can see it: an older payload would read as a pass the
+      // server never heard of and be dropped unreported.
+      pendingResolvePasses.value = [...pendingResolvePasses.value, result.pass_id];
+      reportSettledResolves();
     } catch (error) {
-      awaitingResolveReport.value = false;
       toast(errorMessage(error, "Could not resolve history."), "error");
     }
   }
@@ -388,9 +401,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
     if (wasBusy && !busy) void loadTasks(true);
   });
 
-  watch(historyResolving, (resolving, wasResolving) => {
-    if (wasResolving && !resolving) reportResolve();
-  });
+  watch(tasksQuery.data, () => reportSettledResolves());
 
   useEventListener(document, "visibilitychange", handleVisibilityChange);
   onBeforeUnmount(() => pausePolling());
