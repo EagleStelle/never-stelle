@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -24,20 +24,6 @@ const { settingsDraft, saveSettingsDraft } = useSettingsContext();
     </Field>
 
     <Field orientation="start">
-      <FieldLabel for="accountCurrentPasswordInput">Current Password</FieldLabel>
-      <FieldContent>
-        <Input
-          id="accountCurrentPasswordInput"
-          v-model="settingsDraft.account.current_password"
-          data-settings-system
-          type="password"
-          autocomplete="current-password"
-          placeholder="Current password"
-        />
-      </FieldContent>
-    </Field>
-
-    <Field orientation="start">
       <FieldLabel for="accountNewPasswordInput">New Password</FieldLabel>
       <FieldContent>
         <Input
@@ -51,8 +37,6 @@ const { settingsDraft, saveSettingsDraft } = useSettingsContext();
       </FieldContent>
     </Field>
 
-    <Separator class="my-1" />
-
     <Field orientation="start">
       <FieldLabel for="accountConfirmPasswordInput">Confirm Password</FieldLabel>
       <FieldContent>
@@ -63,6 +47,22 @@ const { settingsDraft, saveSettingsDraft } = useSettingsContext();
           type="password"
           autocomplete="new-password"
           placeholder="Confirm password"
+        />
+      </FieldContent>
+    </Field>
+
+    <Separator class="my-1" />
+
+    <Field orientation="start">
+      <FieldLabel for="accountCurrentPasswordInput">Current Password</FieldLabel>
+      <FieldContent>
+        <Input
+          id="accountCurrentPasswordInput"
+          v-model="settingsDraft.account.current_password"
+          data-settings-system
+          type="password"
+          autocomplete="current-password"
+          placeholder="Current password"
         />
       </FieldContent>
     </Field>
