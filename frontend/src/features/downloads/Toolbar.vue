@@ -61,9 +61,11 @@ function setMode(value: string | string[]): void {
     <UrlForm />
 
     <div
-      class="flex overflow-x-auto no-scrollbar items-center justify-between gap-3 w-full py-1"
+      class="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 w-full py-1"
     >
-      <div class="flex items-center gap-3 shrink-0">
+      <div
+        class="flex items-center gap-3 overflow-x-auto no-scrollbar shrink-0 max-w-full"
+      >
         <SegmentedControl
           v-if="qualityOptions.video.length"
           :model-value="selection.mode"
@@ -73,11 +75,11 @@ function setMode(value: string | string[]): void {
         >
           <SegmentedControlItem value="video" aria-label="Video" title="Video">
             <IconMovie class="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Video</span>
+            <span class="hidden lg:inline">Video</span>
           </SegmentedControlItem>
           <SegmentedControlItem value="audio" aria-label="Audio" title="Audio">
             <IconMusic class="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Audio</span>
+            <span class="hidden lg:inline">Audio</span>
           </SegmentedControlItem>
         </SegmentedControl>
 
@@ -107,7 +109,7 @@ function setMode(value: string | string[]): void {
         </Button>
       </div>
 
-      <TaskFilters class="shrink-0 lg:ml-auto" />
+      <TaskFilters class="shrink-0 lg:ml-auto overflow-x-auto no-scrollbar max-w-full" />
     </div>
 
     <Dialog

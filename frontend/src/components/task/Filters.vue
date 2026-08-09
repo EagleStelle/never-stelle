@@ -57,11 +57,11 @@ function selectViewMode(value: string | string[]): void {
     >
       <SegmentedControlItem value="grid" aria-label="Grid view" title="Grid view">
         <IconGrid class="w-3.5 h-3.5" aria-hidden="true" />
-        <span>Grid</span>
+        <span class="hidden lg:inline">Grid</span>
       </SegmentedControlItem>
       <SegmentedControlItem value="table" aria-label="Table view" title="Table view">
         <IconList class="w-3.5 h-3.5" aria-hidden="true" />
-        <span>Table</span>
+        <span class="hidden lg:inline">Table</span>
       </SegmentedControlItem>
     </SegmentedControl>
   </div>
