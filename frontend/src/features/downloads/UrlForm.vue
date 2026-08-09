@@ -52,18 +52,22 @@ async function pasteFromClipboard(): Promise<void> {
         />
       </template>
       <template #action>
-        <button
+        <Button
           type="button"
-          class="flex items-center justify-center shrink-0 w-8 h-8 rounded-lg mr-0.5 text-white in-[.light-mode]:text-black hover:bg-white/10 in-[.light-mode]:hover:bg-black/5 transition-all duration-300 ease-glass active:scale-[0.96]"
+          variant="ghost"
+          size="icon-sm"
+          class="mr-0.5"
           aria-label="Paste from clipboard"
           @click="pasteFromClipboard"
         >
-          <IconPaste class="w-5 h-5" aria-hidden="true" />
-        </button>
+          <template #icon>
+            <IconPaste aria-hidden="true" class="group-hover:scale-110" />
+          </template>
+        </Button>
       </template>
     </Input>
 
-    <Button variant="primary" type="submit" aria-label="Download">
+    <Button variant="primary" size="icon" type="submit" aria-label="Download">
       <template #icon>
         <IconDownload
           aria-hidden="true"

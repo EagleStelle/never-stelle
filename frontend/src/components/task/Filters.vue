@@ -28,13 +28,13 @@ function selectViewMode(value: string | string[]): void {
 </script>
 
 <template>
-  <div class="flex items-end gap-3 shrink-0">
+  <div class="flex items-center gap-3 shrink-0">
     <Combobox
       :model-value="activeMenu"
       :items="navigationItems"
       @update:model-value="(val) => setActiveMenu(val as MenuKey)"
       class="shrink-0"
-      label="Platform"
+      aria-label="Platform"
       placeholder="Select..."
       empty-text="No platforms found."
     />
@@ -44,7 +44,7 @@ function selectViewMode(value: string | string[]): void {
       :items="mediaFilterItems"
       @update:model-value="(val) => setMediaFilter(val as MediaFilter)"
       class="shrink-0"
-      label="Media"
+      aria-label="Media"
       placeholder="Select..."
       empty-text="No types."
     />
@@ -52,7 +52,7 @@ function selectViewMode(value: string | string[]): void {
     <SegmentedControl
       :model-value="viewMode"
       @update:model-value="selectViewMode"
-      label="View"
+      aria-label="View mode"
       class="shrink-0"
     >
       <SegmentedControlItem value="grid" aria-label="Grid view" title="Grid view">

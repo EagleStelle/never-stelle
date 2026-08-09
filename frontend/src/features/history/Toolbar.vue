@@ -32,6 +32,7 @@ const { historySearch, submitHistorySearch } = useDashboard();
 
       <Button
         variant="primary"
+        size="icon"
         type="submit"
         aria-label="Search history"
         title="Search history"

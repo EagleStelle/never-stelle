@@ -78,9 +78,7 @@ def test_quality_options_expose_all_pickers():
     assert {o["key"] for o in options["video"]} == {
         "best",
         "2160p60",
-        "2160p",
         "1440p60",
-        "1440p",
         "1080p60",
         "1080p",
         "720p",

@@ -23,16 +23,51 @@ const props = withDefaults(
 
 const placeholderText = computed(() => props.placeholder || "Search...")
 
-const sizerLabels = computed(() => [
-  ...(props.items ?? []).map((item) => item.label),
-  placeholderText.value,
-])
-
-const hasItemVisual = computed(() =>
-  (props.items ?? []).some((item) => item.icon || item.iconUrl || item.initials),
-)
-
 const activeLabel = computed(() => props.item?.label || "")
+
+interface SizerItem {
+  key: string
+  label: string
+  icon?: any
+  iconUrl?: string
+  initials?: string
+}
+
+const sizerItems = computed<SizerItem[]>(() => {
+  const list: SizerItem[] = []
+  const existingKeys = new Set<string>()
+
+  if (props.items) {
+    for (const item of props.items) {
+      list.push({
+        key: item.key,
+        label: item.label,
+        icon: item.icon,
+        iconUrl: item.iconUrl,
+        initials: item.initials,
+      })
+      existingKeys.add(item.key)
+    }
+  }
+
+  if (props.item && !existingKeys.has(props.item.key)) {
+    list.push({
+      key: props.item.key,
+      label: props.item.label,
+      icon: props.item.icon,
+      iconUrl: props.item.iconUrl,
+      initials: props.item.initials,
+    })
+  }
+
+  // Include placeholder text as a candidate sizer item
+  list.push({
+    key: "__placeholder__",
+    label: placeholderText.value,
+  })
+
+  return list
+})
 </script>
 
 <template>
@@ -47,17 +82,36 @@ const activeLabel = computed(() => props.item?.label || "")
       props.class,
     ]"
   >
-    <span
-      v-for="(label, index) in sizerLabels"
-      :key="index"
+    <!-- Invisible sizers for every item so button width always equals the longest item -->
+    <div
+      v-for="sizer in sizerItems"
+      :key="sizer.key"
       aria-hidden="true"
-      :class="[
-        'pointer-events-none invisible col-start-1 row-start-1 block max-w-[min(28rem,calc(100vw-5rem))] overflow-hidden whitespace-nowrap',
-        hasItemVisual && 'pr-4',
-      ]"
+      class="pointer-events-none invisible col-start-1 row-start-1 min-w-0 max-w-[min(28rem,calc(100vw-5rem))] flex items-center gap-2 text-left whitespace-nowrap"
     >
-      {{ label }}
-    </span>
+      <img
+        v-if="sizer.iconUrl"
+        :src="sizer.iconUrl"
+        class="w-4 h-4 shrink-0 rounded-lg"
+        alt=""
+        aria-hidden="true"
+      />
+      <component
+        :is="sizer.icon"
+        v-else-if="sizer.icon"
+        class="w-4 h-4 shrink-0"
+        aria-hidden="true"
+      />
+      <span
+        v-else-if="sizer.initials"
+        class="inline-flex h-5 min-w-5 items-center justify-center rounded glass-soft px-1 text-[0.65rem] font-semibold"
+      >
+        {{ sizer.initials }}
+      </span>
+      <span>{{ sizer.label }}</span>
+    </div>
+
+    <!-- Active selected item face -->
     <div
       :class="[
         'col-start-1 row-start-1 min-w-0 max-w-[min(28rem,calc(100vw-5rem))] flex items-center gap-2 text-left',

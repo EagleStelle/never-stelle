@@ -89,9 +89,7 @@ DEFAULT_AUDIO_BITRATE = "best"
 VIDEO_QUALITY_PRESETS: dict[str, dict[str, Any]] = {
     "best": {"label": "Best", "height": 0, "fps": 0},
     "2160p60": {"label": "2160p60", "height": 2160, "fps": 59},
-    "2160p": {"label": "2160p", "height": 2160, "fps": 0},
     "1440p60": {"label": "1440p60", "height": 1440, "fps": 59},
-    "1440p": {"label": "1440p", "height": 1440, "fps": 0},
     "1080p60": {"label": "1080p60", "height": 1080, "fps": 59},
     "1080p": {"label": "1080p", "height": 1080, "fps": 0},
     "720p": {"label": "720p", "height": 720, "fps": 0},

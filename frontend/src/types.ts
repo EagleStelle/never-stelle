@@ -1,3 +1,5 @@
+import type { Component } from "vue";
+
 export const PAGE_KEYS = ["downloads", "history", "settings"] as const;
 
 export type SourceKey = string;
@@ -167,6 +169,7 @@ export interface ScrapeTestResponse {
 export interface QualityPreset {
   key: string;
   label: string;
+  icon?: Component;
   // Container presets carry codecs they can play back; codec pickers filter on them.
   codecs?: string[];
   audio_codecs?: string[];

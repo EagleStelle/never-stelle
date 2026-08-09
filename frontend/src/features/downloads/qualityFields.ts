@@ -13,6 +13,8 @@ export interface QualityField {
   emptyText: string;
   /** Visible caption and accessible name; the mode control supplies the rest of the context. */
   label: string;
+  /** Technical setting that belongs in the Advanced Settings dialog rather than main toolbar strip. */
+  isAdvanced?: boolean;
 }
 
 /** The pickers the current mode can offer, minus any the backend has no presets for. */
@@ -32,6 +34,7 @@ export function qualityFieldsFor(
             placeholder: "Select...",
             emptyText: "No bitrates.",
             label: "Bitrate",
+            isAdvanced: false,
           },
           {
             key: "audio_format",
@@ -39,6 +42,7 @@ export function qualityFieldsFor(
             placeholder: "Select...",
             emptyText: "No formats.",
             label: "Format",
+            isAdvanced: true,
           },
         ]
       : [
@@ -48,6 +52,7 @@ export function qualityFieldsFor(
             placeholder: "Select...",
             emptyText: "No presets.",
             label: "Quality",
+            isAdvanced: false,
           },
           {
             key: "video_container",
@@ -55,6 +60,7 @@ export function qualityFieldsFor(
             placeholder: "Select...",
             emptyText: "No containers.",
             label: "Container",
+            isAdvanced: true,
           },
           {
             key: "video_codec",
@@ -67,6 +73,7 @@ export function qualityFieldsFor(
             placeholder: "Select...",
             emptyText: "No codecs.",
             label: "Video codec",
+            isAdvanced: true,
           },
           {
             key: "video_audio_codec",
@@ -77,6 +84,7 @@ export function qualityFieldsFor(
             placeholder: "Select...",
             emptyText: "No audio codecs.",
             label: "Audio codec",
+            isAdvanced: true,
           },
         ];
 

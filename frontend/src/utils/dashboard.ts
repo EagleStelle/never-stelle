@@ -1,3 +1,15 @@
+import type { Component } from "vue";
+import IconHighQuality from "~icons/material-symbols/high-quality";
+import Icon4k from "~icons/material-symbols/4k";
+import Icon2k from "~icons/material-symbols/2k";
+import IconHd from "~icons/material-symbols/hd";
+import IconSd from "~icons/material-symbols/sd";
+import IconGraphicEq from "~icons/material-symbols/graphic-eq";
+import IconAudioFile from "~icons/material-symbols/audio-file";
+import IconVideoFile from "~icons/material-symbols/video-file";
+import IconMemory from "~icons/material-symbols/memory";
+import IconAutoAwesome from "~icons/material-symbols/auto-awesome";
+
 import { DEFAULT_SOURCE_PROFILES } from "@/ui";
 import {
   PAGE_KEYS,
@@ -244,72 +256,101 @@ export function isLosslessAudioFormat(format: string): boolean {
   return LOSSLESS_AUDIO_FORMATS.has(String(format || "").toLowerCase());
 }
 
+const QUALITY_PRESET_ICONS: Record<string, Component> = {
+  best: IconHighQuality,
+  "2160p60": Icon4k,
+  "1440p60": Icon2k,
+  "1080p60": IconHd,
+  "1080p": IconHd,
+  "720p": IconHd,
+  "480p": IconSd,
+  "320": IconGraphicEq,
+  "192": IconGraphicEq,
+  "128": IconGraphicEq,
+  auto: IconAutoAwesome,
+  mp3: IconAudioFile,
+  m4a: IconAudioFile,
+  opus: IconAudioFile,
+  aac: IconAudioFile,
+  flac: IconAudioFile,
+  wav: IconAudioFile,
+  mp4: IconVideoFile,
+  mkv: IconVideoFile,
+  webm: IconVideoFile,
+  av1: IconMemory,
+  vp9: IconMemory,
+  h264: IconMemory,
+  h265: IconMemory,
+};
+
 const DEFAULT_QUALITY_OPTIONS: QualityOptions = {
   video: [
-    { key: "best", label: "Best" },
-    { key: "2160p60", label: "2160p60" },
-    { key: "2160p", label: "2160p" },
-    { key: "1440p60", label: "1440p60" },
-    { key: "1440p", label: "1440p" },
-    { key: "1080p60", label: "1080p60" },
-    { key: "1080p", label: "1080p" },
-    { key: "720p", label: "720p" },
-    { key: "480p", label: "480p" },
+    { key: "best", label: "Best", icon: IconHighQuality },
+    { key: "2160p60", label: "2160p60", icon: Icon4k },
+    { key: "1440p60", label: "1440p60", icon: Icon2k },
+    { key: "1080p60", label: "1080p60", icon: IconHd },
+    { key: "1080p", label: "1080p", icon: IconHd },
+    { key: "720p", label: "720p", icon: IconHd },
+    { key: "480p", label: "480p", icon: IconSd },
   ],
   video_containers: [
     {
       key: "auto",
       label: "Auto",
+      icon: IconAutoAwesome,
       codecs: ["av1", "vp9", "h264", "h265"],
       audio_codecs: ["aac", "opus", "mp3", "flac"],
     },
     {
       key: "mp4",
       label: "MP4",
+      icon: IconVideoFile,
       codecs: ["av1", "h264", "h265"],
       audio_codecs: ["aac", "mp3"],
     },
     {
       key: "mkv",
       label: "MKV",
+      icon: IconVideoFile,
       codecs: ["av1", "vp9", "h264", "h265"],
       audio_codecs: ["aac", "opus", "mp3", "flac"],
     },
     {
       key: "webm",
       label: "WebM",
+      icon: IconVideoFile,
       codecs: ["av1", "vp9"],
       audio_codecs: ["opus"],
     },
   ],
   video_codecs: [
-    { key: "auto", label: "Auto" },
-    { key: "av1", label: "AV1" },
-    { key: "vp9", label: "VP9" },
-    { key: "h264", label: "H.264" },
-    { key: "h265", label: "H.265" },
+    { key: "auto", label: "Auto", icon: IconAutoAwesome },
+    { key: "av1", label: "AV1", icon: IconMemory },
+    { key: "vp9", label: "VP9", icon: IconMemory },
+    { key: "h264", label: "H.264", icon: IconMemory },
+    { key: "h265", label: "H.265", icon: IconMemory },
   ],
   video_audio_codecs: [
-    { key: "auto", label: "Auto" },
-    { key: "aac", label: "AAC" },
-    { key: "opus", label: "Opus" },
-    { key: "mp3", label: "MP3" },
-    { key: "flac", label: "FLAC" },
+    { key: "auto", label: "Auto", icon: IconAutoAwesome },
+    { key: "aac", label: "AAC", icon: IconAudioFile },
+    { key: "opus", label: "Opus", icon: IconAudioFile },
+    { key: "mp3", label: "MP3", icon: IconAudioFile },
+    { key: "flac", label: "FLAC", icon: IconAudioFile },
   ],
   audio_formats: [
-    { key: "auto", label: "Auto" },
-    { key: "mp3", label: "MP3" },
-    { key: "m4a", label: "M4A" },
-    { key: "opus", label: "Opus" },
-    { key: "aac", label: "AAC" },
-    { key: "flac", label: "FLAC" },
-    { key: "wav", label: "WAV" },
+    { key: "auto", label: "Auto", icon: IconAutoAwesome },
+    { key: "mp3", label: "MP3", icon: IconAudioFile },
+    { key: "m4a", label: "M4A", icon: IconAudioFile },
+    { key: "opus", label: "Opus", icon: IconAudioFile },
+    { key: "aac", label: "AAC", icon: IconAudioFile },
+    { key: "flac", label: "FLAC", icon: IconAudioFile },
+    { key: "wav", label: "WAV", icon: IconAudioFile },
   ],
   audio_bitrates: [
-    { key: "best", label: "Best" },
-    { key: "320", label: "320 kbps" },
-    { key: "192", label: "192 kbps" },
-    { key: "128", label: "128 kbps" },
+    { key: "best", label: "Best", icon: IconHighQuality },
+    { key: "320", label: "320 kbps", icon: IconGraphicEq },
+    { key: "192", label: "192 kbps", icon: IconGraphicEq },
+    { key: "128", label: "128 kbps", icon: IconGraphicEq },
   ],
 };
 
@@ -320,6 +361,7 @@ function createQualityPreset(source: Partial<QualityPreset>): QualityPreset {
   const preset: QualityPreset = {
     key,
     label: String(source.label || key || "Unknown"),
+    icon: source.icon || QUALITY_PRESET_ICONS[key],
   };
   if (Array.isArray(source.codecs)) {
     preset.codecs = source.codecs

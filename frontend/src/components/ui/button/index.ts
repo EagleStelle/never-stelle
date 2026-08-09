@@ -18,7 +18,7 @@ export const buttonVariants = cva(
         primary:
           "border border-(--glass-border) bg-accent text-black hover:bg-accent/45",
         secondary:
-          "border border-(--glass-border) bg-secondary text-secondary-foreground hover:bg-secondary/80",
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 shadow-sm",
         ghost:
           "border border-transparent bg-transparent text-white/70 hover:bg-white/10 hover:text-white in-[.light-mode]:text-black/70 in-[.light-mode]:hover:bg-black/5 in-[.light-mode]:hover:text-black",
         cancel:
@@ -28,11 +28,11 @@ export const buttonVariants = cva(
         link: "h-auto p-0 text-accent underline-offset-4 hover:underline active:scale-100",
       },
       size: {
-        default: "h-9 px-4",
+        default: "h-9 px-4 text-sm",
         sm: "h-8 px-3 text-xs",
-        lg: "h-10 px-5",
-        icon: "h-9 w-9 p-0",
-        "icon-sm": "h-8 w-8 p-0",
+        lg: "h-10 px-5 text-base",
+        icon: "h-9 w-9 p-0 text-sm",
+        "icon-sm": "h-8 w-8 p-0 text-xs",
       },
     },
     defaultVariants: {
