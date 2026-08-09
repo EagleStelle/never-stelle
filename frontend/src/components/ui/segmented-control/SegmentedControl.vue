@@ -65,7 +65,7 @@ const forwarded = useForwardProps(delegatedProps);
         @update:model-value="emit('update:modelValue', $event)"
         :class="
           cn(
-            'inline-flex h-9 w-fit items-center gap-1 rounded-xl border border-(--glass-border) bg-black/25 px-1 py-1 text-sm shadow-inner backdrop-blur-md in-[.light-mode]:bg-white/40',
+            'inline-flex h-9 w-fit items-center gap-1 rounded-lg border border-(--glass-border) bg-black/20 p-1 text-sm shadow-inner transition-all duration-300 ease-glass in-[.light-mode]:bg-white/40',
             props.class,
           )
         "
