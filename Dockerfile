@@ -35,18 +35,33 @@ ARG FFMPEG_VERSION
 
 WORKDIR /build/ffmpeg
 
-RUN apk add --no-cache \
+RUN --mount=type=cache,id=never-stelle-ffmpeg-source,target=/var/cache/ffmpeg \
+    apk add --no-cache \
     build-base \
+    curl \
     lame-dev \
     nasm \
     openssl-dev \
     opus-dev \
     pkgconf \
-    wget \
     xz \
     zlib-dev \
-    && wget -O /tmp/ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
-    && tar -xJf /tmp/ffmpeg.tar.xz --strip-components=1 \
+    && archive="/var/cache/ffmpeg/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
+    && if ! tar -tJf "$archive" >/dev/null 2>&1; then \
+        rm -f "$archive" "$archive.tmp"; \
+        curl --fail --location \
+            --retry 8 \
+            --retry-all-errors \
+            --retry-delay 2 \
+            --connect-timeout 20 \
+            --speed-limit 1024 \
+            --speed-time 30 \
+            --output "$archive.tmp" \
+            "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"; \
+        tar -tJf "$archive.tmp" >/dev/null; \
+        mv "$archive.tmp" "$archive"; \
+    fi \
+    && tar -xJf "$archive" --strip-components=1 \
     && ./configure \
     --prefix=/opt/ffmpeg \
     --disable-autodetect \
