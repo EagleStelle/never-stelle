@@ -378,9 +378,10 @@ function createQualityPreset(source: Partial<QualityPreset>): QualityPreset {
   if (Array.isArray(source.embed_capabilities)) {
     const valid = new Set<PostProcessingCapability>([
       "metadata",
-      "thumbnail",
       "subtitles",
       "automatic_subtitles",
+      "chapters",
+      "thumbnail",
     ]);
     preset.embed_capabilities = source.embed_capabilities.filter((capability) =>
       valid.has(capability),
@@ -530,9 +531,10 @@ export function createPostProcessingSelection(
 ): PostProcessingSelection {
   return {
     metadata: Boolean(source.metadata),
-    thumbnail: Boolean(source.thumbnail),
     subtitles: Boolean(source.subtitles),
     automatic_subtitles: Boolean(source.automatic_subtitles),
+    chapters: Boolean(source.chapters),
+    thumbnail: Boolean(source.thumbnail),
     save_as: source.save_as === "embed" ? "embed" : "sidecar",
   };
 }
@@ -544,16 +546,18 @@ export const POST_PROCESSING_FIELDS: Array<{
   label: string;
 }> = [
   { key: "metadata", label: "Metadata" },
-  { key: "thumbnail", label: "Thumbnail" },
   { key: "subtitles", label: "Subtitles" },
   { key: "automatic_subtitles", label: "Subtitles (auto-generated)" },
+  { key: "chapters", label: "Chapters" },
+  { key: "thumbnail", label: "Thumbnail" },
 ];
 
 const ALL_POST_PROCESSING_CAPABILITIES: PostProcessingCapabilities = {
   metadata: true,
-  thumbnail: true,
   subtitles: true,
   automatic_subtitles: true,
+  chapters: true,
+  thumbnail: true,
 };
 
 function embedCapabilitiesForPreset(
@@ -569,9 +573,10 @@ function embedCapabilitiesForPreset(
   const supported = new Set(preset.embed_capabilities);
   return {
     metadata: supported.has("metadata"),
-    thumbnail: supported.has("thumbnail"),
     subtitles: supported.has("subtitles"),
     automatic_subtitles: supported.has("automatic_subtitles"),
+    chapters: supported.has("chapters"),
+    thumbnail: supported.has("thumbnail"),
   };
 }
 
@@ -598,9 +603,10 @@ export function postProcessingCapabilitiesForDefaults(
     // Defaults are shared by the independent video and audio modes. A feature
     // remains selectable when either configured output can carry it.
     metadata: video.metadata || audio.metadata,
-    thumbnail: video.thumbnail || audio.thumbnail,
     subtitles: video.subtitles || audio.subtitles,
     automatic_subtitles: video.automatic_subtitles || audio.automatic_subtitles,
+    chapters: video.chapters || audio.chapters,
+    thumbnail: video.thumbnail || audio.thumbnail,
   };
 }
 
@@ -611,10 +617,11 @@ export function constrainPostProcessingSelection(
   return createPostProcessingSelection({
     ...selection,
     metadata: capabilities.metadata && selection.metadata,
-    thumbnail: capabilities.thumbnail && selection.thumbnail,
     subtitles: capabilities.subtitles && selection.subtitles,
     automatic_subtitles:
       capabilities.automatic_subtitles && selection.automatic_subtitles,
+    chapters: capabilities.chapters && selection.chapters,
+    thumbnail: capabilities.thumbnail && selection.thumbnail,
   });
 }
 

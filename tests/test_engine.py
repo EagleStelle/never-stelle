@@ -94,28 +94,43 @@ def test_normalize_quality_selection_defaults_and_validates():
 def test_normalize_post_processing_defaults_and_validates():
     assert normalize_post_processing(None) == {
         "metadata": False,
-        "thumbnail": False,
         "subtitles": False,
         "automatic_subtitles": False,
+        "chapters": False,
+        "thumbnail": False,
         "save_as": "sidecar",
     }
     assert normalize_post_processing({"metadata": True, "save_as": "embed"}) == {
         "metadata": True,
-        "thumbnail": False,
         "subtitles": False,
         "automatic_subtitles": False,
+        "chapters": False,
+        "thumbnail": False,
         "save_as": "embed",
     }
-    assert normalize_post_processing({"subtitles": True, "automatic_subtitles": True}) == {
+    assert normalize_post_processing(
+        {"subtitles": True, "automatic_subtitles": True, "chapters": True}
+    ) == {
         "metadata": False,
-        "thumbnail": False,
         "subtitles": True,
         "automatic_subtitles": True,
+        "chapters": True,
+        "thumbnail": False,
         "save_as": "sidecar",
     }
     assert normalize_post_processing({"save_as": "invalid"})["save_as"] == "sidecar"
     assert not post_processing_requested({"save_as": "embed"})
     assert post_processing_requested({"automatic_subtitles": True})
+    assert post_processing_requested({"chapters": True})
+
+
+def test_container_ffmpeg_build_includes_chapter_metadata_demuxer():
+    dockerfile = (Path(__file__).parents[1] / "Dockerfile").read_text(encoding="utf-8")
+    demuxer_line = next(
+        line for line in dockerfile.splitlines() if line.strip().startswith("--enable-demuxer=")
+    )
+    enabled = set(demuxer_line.partition("=")[2].rstrip(" \\").split(","))
+    assert "ffmetadata" in enabled
 
 
 def test_metadata_sidecar_options_cover_gallerydl_and_integrated_ytdlp():
@@ -227,6 +242,33 @@ def test_subtitle_options_capture_extractor_payload_for_finalization():
     assert "--embed-subs" not in fallback
 
 
+def test_chapter_options_capture_extractor_payload_for_finalization():
+    processing = {"chapters": True, "save_as": "embed"}
+    cmd = gallerydl.build_gallerydl_command(
+        "https://example.test/post/1",
+        "/media",
+        "\x1f{id}.{extension}",
+        metadata_sidecar="/scratch/task/downloads.tsv",
+        post_processing=processing,
+    )
+    expected_capture = {
+        "key": "NeverStelleCapture",
+        "directory": "/scratch/task/extractor",
+    }
+    assert _gallerydl_raw_option(cmd, "downloader.ytdl.raw-options.postprocessors")[-1] == expected_capture
+    assert _gallerydl_raw_option(cmd, "extractor.ytdl.raw-options.postprocessors")[-1] == expected_capture
+
+    fallback = ytdlp.build_ytdlp_command(
+        "https://example.test/post/1",
+        "/usr/bin/ffmpeg",
+        "/media/%(id)s.%(ext)s",
+        post_processing=processing,
+    )
+    assert "--write-info-json" in fallback
+    assert "--no-clean-info-json" in fallback
+    assert "--embed-chapters" not in fallback
+
+
 def test_quality_options_expose_all_pickers():
     options = quality_options()
     assert {o["key"] for o in options["video"]} == {
@@ -247,11 +289,12 @@ def test_quality_options_expose_all_pickers():
         "metadata",
         "subtitles",
         "automatic_subtitles",
+        "chapters",
     }
     aac = next(o for o in options["audio_formats"] if o["key"] == "aac")
     assert aac["embed_capabilities"] == []
     mp3 = next(o for o in options["audio_formats"] if o["key"] == "mp3")
-    assert set(mp3["embed_capabilities"]) == {"metadata", "thumbnail"}
+    assert set(mp3["embed_capabilities"]) == {"metadata", "chapters", "thumbnail"}
     assert "aac" in mp4["audio_codecs"] and "opus" not in mp4["audio_codecs"]
     assert {o["key"] for o in options["video_codecs"]} == {"auto", "av1", "vp9", "h264", "h265"}
     assert {o["key"] for o in options["video_audio_codecs"]} == {"auto", "aac", "opus", "mp3", "flac"}

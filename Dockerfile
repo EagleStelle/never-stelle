@@ -82,7 +82,7 @@ RUN --mount=type=cache,id=never-stelle-ffmpeg-source,target=/var/cache/ffmpeg \
     --enable-avfilter \
     --enable-filter=aresample,aformat,anull,format,scale \
     --enable-protocol=concat,crypto,data,file,http,https,pipe,subfile,tcp,tls,udp \
-    --enable-demuxer=aac,ass,concat,flac,flv,gif,hls,image2,matroska,mov,mp3,mpegts,ogg,srt,wav,webvtt \
+    --enable-demuxer=aac,ass,concat,ffmetadata,flac,flv,gif,hls,image2,matroska,mov,mp3,mpegts,ogg,srt,wav,webvtt \
     --enable-muxer=adts,flac,image2,ipod,matroska,mp3,mp4,ogg,opus,wav,webm \
     --enable-parser=aac,aac_latm,av1,flac,h264,hevc,mpegaudio,opus,vorbis,vp8,vp9 \
     --enable-bsfs \

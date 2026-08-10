@@ -174,7 +174,7 @@ export interface QualityPreset {
   codecs?: string[];
   audio_codecs?: string[];
   embed_capabilities?: Array<
-    "metadata" | "thumbnail" | "subtitles" | "automatic_subtitles"
+    "metadata" | "subtitles" | "automatic_subtitles" | "chapters" | "thumbnail"
   >;
 }
 
@@ -201,9 +201,10 @@ export type PostProcessingSaveAs = "sidecar" | "embed";
 
 export interface PostProcessingSelection {
   metadata: boolean;
-  thumbnail: boolean;
   subtitles: boolean;
   automatic_subtitles: boolean;
+  chapters: boolean;
+  thumbnail: boolean;
   save_as: PostProcessingSaveAs;
 }
 

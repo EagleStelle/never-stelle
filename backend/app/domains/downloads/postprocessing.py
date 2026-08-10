@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import subprocess
 import urllib.error
 import urllib.request
@@ -47,6 +48,7 @@ _METADATA_EMBED_EXTENSIONS = {
     ".webm",
 }
 _SUBTITLE_EMBED_EXTENSIONS = {".mkv", ".mp4", ".m4v", ".mov", ".webm"}
+_CHAPTER_EMBED_EXTENSIONS = {".m4a", ".m4v", ".mka", ".mkv", ".mov", ".mp3", ".mp4", ".webm"}
 _THUMBNAIL_CONTENT_EXTENSIONS = {
     "image/avif": ".avif",
     "image/gif": ".gif",
@@ -1108,6 +1110,185 @@ def apply_subtitle_post_processing(
         _remove_source_sidecars(source_sidecars, output_root)
 
 
+def _chapter_time(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if math.isfinite(seconds) and seconds >= 0 else None
+
+
+def _chapter_title(value: Any, index: int) -> str:
+    title = _tag_text(value).replace("\r", " ").replace("\n", " ").strip()
+    return title or f"Chapter {index + 1}"
+
+
+def prepare_chapter_post_processing(
+    metadata: dict[str, str],
+    *,
+    sidecars: list[Path] | None = None,
+    extractor_payload: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    payload = (
+        extractor_payload
+        if extractor_payload is not None
+        else _extractor_payload(list(sidecars or []), metadata)
+    )
+    raw_chapters = payload.get("chapters")
+    if not isinstance(raw_chapters, list):
+        return []
+
+    candidates: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_chapters):
+        if not isinstance(raw, dict):
+            continue
+        start = _chapter_time(raw.get("start_time", raw.get("start")))
+        if start is None:
+            continue
+        candidates.append(
+            {
+                "start_time": start,
+                "end_time": _chapter_time(raw.get("end_time", raw.get("end"))),
+                "title": _chapter_title(raw.get("title", raw.get("name")), index),
+            }
+        )
+    candidates.sort(key=lambda chapter: chapter["start_time"])
+
+    duration = _chapter_time(payload.get("duration"))
+    chapters: list[dict[str, Any]] = []
+    for index, chapter in enumerate(candidates):
+        start = chapter["start_time"]
+        end = chapter["end_time"]
+        if end is None:
+            next_start = candidates[index + 1]["start_time"] if index + 1 < len(candidates) else None
+            end = next_start if next_start is not None and next_start > start else duration
+        if end is None or end <= start:
+            continue
+        chapters.append({**chapter, "end_time": end})
+    return chapters
+
+
+def _write_chapter_sidecar(path: Path, chapters: list[dict[str, Any]]) -> Path:
+    target = path.with_name(f"{path.stem}.chapters.json")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with scratch_file(prefix="nvs-chapter-sidecar-", suffix=".json") as temporary:
+        temporary.write_text(
+            json.dumps({"chapters": chapters}, ensure_ascii=False, indent=2, default=str) + "\n",
+            encoding="utf-8",
+        )
+        publish_scratch_file(temporary, target)
+    return target
+
+
+def _ffmetadata_escape(value: str) -> str:
+    escaped = str(value).replace("\\", "\\\\")
+    for character in ("=", ";", "#"):
+        escaped = escaped.replace(character, f"\\{character}")
+    return escaped
+
+
+def _materialize_chapters(chapters: list[dict[str, Any]]) -> Path:
+    lines = [";FFMETADATA1"]
+    for chapter in chapters:
+        start = int(round(float(chapter["start_time"]) * 1000))
+        end = max(start + 1, int(round(float(chapter["end_time"]) * 1000)))
+        lines.extend(
+            [
+                "[CHAPTER]",
+                "TIMEBASE=1/1000",
+                f"START={start}",
+                f"END={end}",
+                f"title={_ffmetadata_escape(str(chapter['title']))}",
+            ]
+        )
+    chapter_path = scratch_temp_path(prefix="nvs-chapter-input-", suffix=".ffmetadata")
+    chapter_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return chapter_path
+
+
+def _embed_chapters(
+    path: Path,
+    chapters: list[dict[str, Any]],
+    *,
+    silent_unsupported: bool = False,
+) -> bool:
+    if path.suffix.lower() not in _CHAPTER_EMBED_EXTENSIONS:
+        if not silent_unsupported:
+            logger.warning("Chapter embed skipped for %s: unsupported media container", path)
+        return False
+    ffmpeg = detect_ffmpeg_location()
+    if not ffmpeg:
+        logger.warning("Chapter embed skipped for %s: ffmpeg was not found", path)
+        return False
+
+    chapter_path = _materialize_chapters(chapters)
+    output_path = scratch_temp_path(prefix="nvs-chapter-embed-", suffix=path.suffix)
+    try:
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(path),
+            "-f",
+            "ffmetadata",
+            "-i",
+            str(chapter_path),
+            "-map",
+            "0",
+            "-map_metadata",
+            "0",
+            "-map_chapters",
+            "1",
+            "-c",
+            "copy",
+            str(output_path),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0 or not output_path.is_file() or output_path.stat().st_size <= 0:
+            detail = (result.stderr or result.stdout or "ffmpeg returned no output").strip()
+            logger.warning("Chapter embed skipped for %s: %s", path, detail)
+            return False
+        publish_scratch_file(output_path, path)
+        return True
+    except (OSError, subprocess.SubprocessError, KeyError, TypeError, ValueError) as exc:
+        logger.warning("Chapter embed skipped for %s: %s", path, exc)
+        return False
+    finally:
+        remove_scratch_path(chapter_path)
+        remove_scratch_path(output_path)
+
+
+def apply_chapter_post_processing(
+    paths: list[Path],
+    metadata: dict[str, str],
+    *,
+    save_as: str,
+    sidecars: list[Path] | None = None,
+    output_root: Path | None = None,
+    cleanup_sidecars: bool = True,
+    prepared_chapters: list[dict[str, Any]] | None = None,
+    silent_unsupported: bool = False,
+) -> None:
+    source_sidecars = list(sidecars or [])
+    chapters = prepared_chapters
+    if chapters is None:
+        chapters = prepare_chapter_post_processing(metadata, sidecars=source_sidecars)
+    if not chapters:
+        logger.warning("Chapter extraction skipped: the extractor returned no usable chapters")
+    elif save_as == "embed":
+        for path in paths:
+            _embed_chapters(path, chapters, silent_unsupported=silent_unsupported)
+    else:
+        for path in paths:
+            _write_chapter_sidecar(path, chapters)
+    if cleanup_sidecars:
+        _remove_source_sidecars(source_sidecars, output_root)
+
+
 def apply_metadata_post_processing(
     paths: list[Path],
     metadata: dict[str, str],
@@ -1190,6 +1371,15 @@ def apply_finalized_post_processing(
         if subtitles_requested
         else None
     )
+    prepared_chapters = (
+        prepare_chapter_post_processing(
+            metadata,
+            sidecars=source_sidecars,
+            extractor_payload=extractor_payload,
+        )
+        if processing["chapters"]
+        else None
+    )
 
     canonical_sidecars: set[Path] = set()
     if processing["metadata"]:
@@ -1217,11 +1407,22 @@ def apply_finalized_post_processing(
             prepared_subtitles=prepared_subtitles,
             silent_unsupported=silent_unsupported,
         )
+    if processing["chapters"]:
+        apply_chapter_post_processing(
+            paths,
+            metadata,
+            save_as=processing["save_as"],
+            sidecars=source_sidecars,
+            output_root=output_root,
+            cleanup_sidecars=False,
+            prepared_chapters=prepared_chapters,
+            silent_unsupported=silent_unsupported,
+        )
     if processing["thumbnail"]:
         # FFmpeg's Matroska muxer turns an existing attached-picture stream
-        # into a regular MJPEG/PNG video stream during a later subtitle remux.
-        # Attach artwork last so it retains attached_pic=1 and media players
-        # recognize the image as the file's cover rather than another video.
+        # into a regular MJPEG/PNG video stream during a later subtitle or
+        # chapter remux. Attach artwork last so it retains attached_pic=1 and
+        # media players recognize the image as the file's cover.
         apply_thumbnail_post_processing(
             paths,
             metadata,

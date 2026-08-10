@@ -53,7 +53,13 @@ AUDIO_EXTENSIONS = {
 MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS | AUDIO_EXTENSIONS
 
 POST_PROCESSING_MODES = {"sidecar", "embed"}
-POST_PROCESSING_FEATURES = ("metadata", "thumbnail", "subtitles", "automatic_subtitles")
+POST_PROCESSING_FEATURES = (
+    "metadata",
+    "subtitles",
+    "automatic_subtitles",
+    "chapters",
+    "thumbnail",
+)
 
 
 def normalize_post_processing(raw: Any) -> dict[str, Any]:
@@ -61,9 +67,10 @@ def normalize_post_processing(raw: Any) -> dict[str, Any]:
     mode = str(data.get("save_as") or "").strip().lower()
     return {
         "metadata": bool(data.get("metadata", False)),
-        "thumbnail": bool(data.get("thumbnail", False)),
         "subtitles": bool(data.get("subtitles", False)),
         "automatic_subtitles": bool(data.get("automatic_subtitles", False)),
+        "chapters": bool(data.get("chapters", False)),
+        "thumbnail": bool(data.get("thumbnail", False)),
         "save_as": mode if mode in POST_PROCESSING_MODES else "sidecar",
     }
 
@@ -140,7 +147,7 @@ VIDEO_CONTAINER_PRESETS: dict[str, dict[str, Any]] = {
     "webm": {
         "label": "WebM",
         "codecs": ["av1", "vp9"],
-        "embed_capabilities": ("metadata", "subtitles", "automatic_subtitles"),
+        "embed_capabilities": ("metadata", "subtitles", "automatic_subtitles", "chapters"),
     },
 }
 # `sort` is the `-S vcodec:<value>` preference; empty means no preference (auto).
@@ -297,8 +304,8 @@ def video_format_selector(
 
 AUDIO_FORMAT_PRESETS: dict[str, dict[str, Any]] = {
     "auto": {"label": "Auto", "embed_capabilities": POST_PROCESSING_FEATURES},
-    "mp3": {"label": "MP3", "embed_capabilities": ("metadata", "thumbnail")},
-    "m4a": {"label": "M4A", "embed_capabilities": ("metadata", "thumbnail")},
+    "mp3": {"label": "MP3", "embed_capabilities": ("metadata", "chapters", "thumbnail")},
+    "m4a": {"label": "M4A", "embed_capabilities": ("metadata", "chapters", "thumbnail")},
     "opus": {"label": "Opus", "embed_capabilities": ("metadata", "thumbnail")},
     "aac": {"label": "AAC", "embed_capabilities": ()},
     "flac": {"label": "FLAC", "embed_capabilities": ("metadata", "thumbnail")},

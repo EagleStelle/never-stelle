@@ -158,11 +158,12 @@ def _ytdl_downloader_options(
         if merger_args:
             postprocessor_args["Merger+ffmpeg_o"] = merger_args
         ffmpeg_location = detect_ffmpeg_location()
-    if processing["subtitles"] or processing["automatic_subtitles"]:
+    if processing["subtitles"] or processing["automatic_subtitles"] or processing["chapters"]:
         # gallery-dl removes its private `_ytdl_info_dict` after the delegated
-        # download, so its own metadata postprocessor cannot expose yt-dlp's
-        # subtitle URLs to the app's finalization stage. Capture that untouched
-        # yt-dlp payload in task scratch before gallery-dl discards it.
+        # download, so its own metadata postprocessor cannot reliably expose
+        # yt-dlp's subtitle URLs or chapters to the app's finalization stage.
+        # Capture that untouched payload in task scratch before gallery-dl
+        # discards it.
         postprocessors.append(
             {
                 "key": "NeverStelleCapture",

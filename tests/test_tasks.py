@@ -328,9 +328,10 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     }
     assert captured["task"]["post_processing"] == {
         "metadata": False,
-        "thumbnail": False,
         "subtitles": False,
         "automatic_subtitles": False,
+        "chapters": False,
+        "thumbnail": False,
         "save_as": "sidecar",
     }
 
@@ -343,9 +344,10 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     )
     assert captured["task"]["post_processing"] == {
         "metadata": True,
-        "thumbnail": False,
         "subtitles": False,
         "automatic_subtitles": False,
+        "chapters": False,
+        "thumbnail": False,
         "save_as": "embed",
     }
 
@@ -606,6 +608,78 @@ def test_subtitles_collect_every_manual_and_auto_caption_language():
     assert tracks[3]["data"].endswith(b"Original ASR")
 
 
+def test_chapter_sidecar_uses_final_name_and_normalizes_boundaries(tmp_path: Path):
+    media = tmp_path / "Creator - Title [abc].mp4"
+    media.write_bytes(b"video")
+    extractor_sidecar = media.with_suffix(".info.json")
+    extractor_sidecar.write_text(
+        json.dumps(
+            {
+                "duration": 30,
+                "chapters": [
+                    {"start_time": 0, "end_time": 5.5, "title": "Intro"},
+                    {"start_time": 5.5, "title": "Main"},
+                    {"start_time": 20, "title": ""},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    postprocessing_module.apply_chapter_post_processing(
+        [media],
+        {},
+        save_as="sidecar",
+        sidecars=[extractor_sidecar],
+        output_root=tmp_path,
+    )
+
+    sidecar = media.with_name(f"{media.stem}.chapters.json")
+    assert json.loads(sidecar.read_text(encoding="utf-8")) == {
+        "chapters": [
+            {"start_time": 0.0, "end_time": 5.5, "title": "Intro"},
+            {"start_time": 5.5, "end_time": 20.0, "title": "Main"},
+            {"start_time": 20.0, "end_time": 30.0, "title": "Chapter 3"},
+        ]
+    }
+    assert not extractor_sidecar.exists()
+
+
+def test_chapters_embed_from_the_same_normalized_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media = tmp_path / "Creator - Title [abc].mkv"
+    media.write_bytes(b"video")
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        chapter_input = Path(cmd[cmd.index("ffmetadata") + 2])
+        captured["chapters"] = chapter_input.read_text(encoding="utf-8")
+        Path(cmd[-1]).write_bytes(b"embedded")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(postprocessing_module.subprocess, "run", fake_run)
+
+    postprocessing_module.apply_chapter_post_processing(
+        [media],
+        {},
+        save_as="embed",
+        prepared_chapters=[
+            {"start_time": 0.0, "end_time": 12.345, "title": "Intro; #1 = ready"}
+        ],
+    )
+
+    assert media.read_bytes() == b"embedded"
+    cmd = captured["cmd"]
+    assert cmd[cmd.index("-map_chapters") + 1] == "1"
+    assert cmd.count("-i") == 2
+    assert "START=0" in captured["chapters"]
+    assert "END=12345" in captured["chapters"]
+    assert r"title=Intro\; \#1 \= ready" in captured["chapters"]
+
+
 def test_finalized_post_processing_reads_extractor_payload_once_for_all_sidecars(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -621,6 +695,7 @@ def test_finalized_post_processing_reads_extractor_payload_once_for_all_sidecars
                 "automatic_captions": {
                     "en": [{"ext": "vtt", "data": "WEBVTT\n\nautomatic"}]
                 },
+                "chapters": [{"start_time": 0, "end_time": 10, "title": "Intro"}],
             }
         ),
         encoding="utf-8",
@@ -659,6 +734,7 @@ def test_finalized_post_processing_reads_extractor_payload_once_for_all_sidecars
             "thumbnail": True,
             "subtitles": True,
             "automatic_subtitles": True,
+            "chapters": True,
             "save_as": "sidecar",
         },
         quality={"mode": "video", "video_container": "mp4"},
@@ -671,6 +747,7 @@ def test_finalized_post_processing_reads_extractor_payload_once_for_all_sidecars
     assert media.with_suffix(".jpg").read_bytes() == b"cover"
     assert media.with_name(f"{media.stem}.en.vtt").is_file()
     assert media.with_name(f"{media.stem}.en.auto.vtt").is_file()
+    assert media.with_name(f"{media.stem}.chapters.json").is_file()
     assert not extractor_sidecar.exists()
 
 
@@ -705,6 +782,11 @@ def test_finalized_embed_attaches_thumbnail_after_subtitle_remux(
     )
     monkeypatch.setattr(
         postprocessing_module,
+        "prepare_chapter_post_processing",
+        lambda *args, **kwargs: [{"start_time": 0, "end_time": 1, "title": "Intro"}],
+    )
+    monkeypatch.setattr(
+        postprocessing_module,
         "apply_metadata_post_processing",
         lambda *args, **kwargs: calls.append("metadata") or set(),
     )
@@ -712,6 +794,11 @@ def test_finalized_embed_attaches_thumbnail_after_subtitle_remux(
         postprocessing_module,
         "apply_subtitle_post_processing",
         lambda *args, **kwargs: calls.append("subtitles"),
+    )
+    monkeypatch.setattr(
+        postprocessing_module,
+        "apply_chapter_post_processing",
+        lambda *args, **kwargs: calls.append("chapters"),
     )
     monkeypatch.setattr(
         postprocessing_module,
@@ -728,6 +815,7 @@ def test_finalized_embed_attaches_thumbnail_after_subtitle_remux(
             "thumbnail": True,
             "subtitles": True,
             "automatic_subtitles": False,
+            "chapters": True,
             "save_as": "embed",
         },
         quality={"mode": "video", "video_container": "mkv"},
@@ -735,7 +823,7 @@ def test_finalized_embed_attaches_thumbnail_after_subtitle_remux(
         extractor_payload={},
     )
 
-    assert calls == ["metadata", "subtitles", "thumbnail"]
+    assert calls == ["metadata", "subtitles", "chapters", "thumbnail"]
 
 
 def test_manual_and_auto_subtitles_embed_as_distinct_streams(
@@ -2114,9 +2202,10 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
         "token_roles": {"example": {"artist": "username"}},
         "post_processing": {
             "metadata": True,
-            "thumbnail": False,
             "subtitles": False,
             "automatic_subtitles": False,
+            "chapters": False,
+            "thumbnail": False,
             "save_as": "sidecar",
         },
         "needs_metadata_probe": True,
