@@ -93,6 +93,8 @@ def test_settings_response_exposes_supported_template_tokens_only(monkeypatch):
     assert response["default_post_processing"] == {
         "metadata": False,
         "thumbnail": False,
+        "subtitles": False,
+        "automatic_subtitles": False,
         "save_as": "sidecar",
     }
 

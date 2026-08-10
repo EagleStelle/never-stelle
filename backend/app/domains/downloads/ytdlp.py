@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from backend.app.core.config import SCRATCH_DIR
 from backend.app.domains.settings import (
     get_effective_fields,
     get_effective_template_settings,
@@ -21,6 +22,7 @@ from .constants import (
     audio_postprocess_quality,
     normalize_post_processing,
     normalize_quality_selection,
+    post_processing_requested,
     video_format_selector,
     video_merge_output_format,
     video_merger_args,
@@ -180,6 +182,7 @@ def build_ytdlp_command(
     ffmpeg_location: str,
     output_template: str,
     *,
+    output_dir: str = "",
     cookies_file: str = "",
     creator_sidecar: str = "",
     metadata_sidecar: str = "",
@@ -212,6 +215,25 @@ def build_ytdlp_command(
         "--format",
         selected_format,
     ]
+    task_scratch = Path(metadata_sidecar).parent if metadata_sidecar else SCRATCH_DIR
+    part_directory = str(task_scratch / "parts").replace("\\", "/")
+    extractor_directory = str(task_scratch / "extractor").replace("\\", "/")
+    final_output_template = output_template
+    if output_dir:
+        try:
+            final_output_template = str(Path(output_template).relative_to(Path(output_dir)))
+        except ValueError:
+            pass
+        else:
+            final_output_template = final_output_template.replace("\\", "/")
+            cmd.extend(
+                [
+                    "--paths",
+                    f"home:{output_dir}",
+                    "--paths",
+                    f"temp:{part_directory}",
+                ]
+            )
     if audio_mode:
         target_format = audio_postprocess_format(selection)
         if target_format:
@@ -237,11 +259,18 @@ def build_ytdlp_command(
             recode_args = video_recode_args(selection)
             if recode_args:
                 cmd.extend(["--postprocessor-args", f"VideoConvertor+ffmpeg_o:{' '.join(recode_args)}"])
-    if processing["metadata"] or processing["thumbnail"]:
+    if post_processing_requested(processing):
         # This is an extraction input for the app's final metadata stage, not
-        # a user-facing sidecar. Metadata and thumbnail processing consume it
-        # after the app has finalized the output name.
-        cmd.extend(["--write-info-json", "--no-clean-info-json"])
+        # a user-facing sidecar. Post-processing consumes it after the app has
+        # finalized the output name.
+        cmd.extend(
+            [
+                "--paths",
+                f"infojson:{extractor_directory}",
+                "--write-info-json",
+                "--no-clean-info-json",
+            ]
+        )
     cmd.extend(["--js-runtimes", "node", "--remote-components", "ejs:github"])
     # --print-to-file (unlike --print) keeps normal progress output intact; the
     # after_move stage runs on real downloads, never in simulate mode.
@@ -297,5 +326,5 @@ def build_ytdlp_command(
                 "linear=1::2",
             ]
         )
-    cmd.extend(["--output", output_template, source_url])
+    cmd.extend(["--output", final_output_template, source_url])
     return cmd

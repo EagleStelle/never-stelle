@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-import tempfile
 import time
 from contextlib import closing
 from pathlib import Path
@@ -14,15 +12,15 @@ from backend.app.domains.downloads.cache import drop_file_cache
 from backend.app.domains.downloads.constants import (
     normalize_post_processing,
     normalize_quality_selection,
+    post_processing_requested,
     quality_needs_ffmpeg,
 )
 from backend.app.domains.downloads.engine import Engine, all_engines, select_engine
 from backend.app.domains.downloads.history import save_history_entry
 from backend.app.domains.downloads.naming import detect_ffmpeg_location
 from backend.app.domains.downloads.postprocessing import (
-    apply_metadata_post_processing,
-    apply_thumbnail_post_processing,
-    prepare_thumbnail_post_processing,
+    apply_finalized_post_processing,
+    extractor_payload_from_sidecars,
 )
 from backend.app.domains.downloads.postprocessing import (
     metadata_sidecars_for as _metadata_sidecars_for,
@@ -33,15 +31,16 @@ from backend.app.domains.downloads.urls import canonicalize_source_url, detect_s
 from backend.app.domains.downloads.workers.completion import (
     _attempt_output_paths,
     _child_task_id,
-    _cleanup_file,
     _dedupe_output_records,
     _download_groups,
     _existing_output_paths,
+    _extractor_metadata_fields,
     _filename_template,
     _finalize_completed_output,
     _has_output_media,
     _learn_field_roles_from_download,
     _learn_source_format,
+    _metadata_output_paths,
     _probe_single_output_metadata_inline,
     _read_metadata_sidecar,
     _resolved_task_creator,
@@ -61,6 +60,7 @@ from backend.app.domains.settings import (
     load_token_roles,
     looks_rate_limited,
 )
+from backend.app.runtime.scratch import remove_scratch_path, scratch_temp_dir
 
 # Log markers meaning the backend has no extractor or no downloadable media
 # formats for the URL. These are engine capability signals, not platform routes.
@@ -208,6 +208,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
     template_settings = _task_template_settings(task)
     quality = normalize_quality_selection(task.get("quality"))
     post_processing = normalize_post_processing(task.get("post_processing"))
+    has_post_processing = post_processing_requested(post_processing)
     raw_source_key = normalize_source_key(task.get("source_key"))
     task_source_key = raw_source_key or detect_source_key(source_url)
     cookie_source_key = raw_source_key or detect_cookie_source(source_url)
@@ -240,10 +241,9 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
         )
     )
 
-    sidecar_handle, creator_sidecar = tempfile.mkstemp(prefix="nvs-creator-", suffix=".txt")
-    os.close(sidecar_handle)
-    metadata_handle, metadata_sidecar = tempfile.mkstemp(prefix="nvs-downloads-", suffix=".tsv")
-    os.close(metadata_handle)
+    task_scratch = scratch_temp_dir(prefix="nvs-download-task-")
+    creator_sidecar = str(task_scratch / "creator.txt")
+    metadata_sidecar = str(task_scratch / "downloads.tsv")
 
     rc = 1
     last_dest = ""
@@ -339,7 +339,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
         if rc == 0 or output_records:
             filename_template = _filename_template(template_settings)
             metadata_by_path = _read_metadata_sidecar(metadata_sidecar)
-            if post_processing["metadata"] or post_processing["thumbnail"]:
+            if has_post_processing:
                 _probe_single_output_metadata_inline(
                     output_records,
                     metadata_by_path,
@@ -357,6 +357,8 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 source_url,
             )
             output_paths = [Path(record["path"]) for record in output_records]
+            if not output_paths:
+                output_paths = _metadata_output_paths(metadata_by_path)
             if not output_paths:
                 output_paths = _existing_output_paths(
                     emitted_paths,
@@ -402,12 +404,20 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                         dict.fromkeys(
                             sidecar
                             for group_path in raw_group_paths
-                            for sidecar in _metadata_sidecars_for(group_path)
+                            for sidecar in _metadata_sidecars_for(
+                                group_path,
+                                scratch_root=task_scratch / "extractor",
+                                output_root=output_root,
+                            )
                         )
                     )
-                    if post_processing["metadata"] or post_processing["thumbnail"]
+                    if has_post_processing
                     else []
                 )
+                extractor_payload = extractor_payload_from_sidecars(extraction_sidecars, metadata)
+                # Complete extractor values re-enter the normal Fields namespace;
+                # the compact after_move row remains authoritative where present.
+                metadata = {**_extractor_metadata_fields(extractor_payload), **metadata}
                 finalized = _finalize_completed_output(
                     source_url=source_url,
                     source_key=task_source_key,
@@ -428,33 +438,16 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     ),
                     cache_dropper=drop_file_cache,
                 )
-                prepared_thumbnail = (
-                    prepare_thumbnail_post_processing(metadata, sidecars=extraction_sidecars)
-                    if post_processing["thumbnail"]
-                    else None
-                )
-                if post_processing["metadata"]:
-                    apply_metadata_post_processing(
-                        finalized.keep_paths,
-                        metadata,
-                        finalized,
-                        save_as=post_processing["save_as"],
-                        extra_tokens=extra_tokens,
-                        quality=quality,
-                        sidecars=extraction_sidecars,
-                        output_root=output_root,
-                    )
-                if post_processing["thumbnail"]:
-                    apply_thumbnail_post_processing(
-                        finalized.keep_paths,
-                        metadata,
-                        save_as=post_processing["save_as"],
-                        sidecars=extraction_sidecars,
-                        output_root=output_root,
-                        cleanup_sidecars=not post_processing["metadata"],
-                        prepared_thumbnail=prepared_thumbnail,
-                    )
-                if post_processing["metadata"] or post_processing["thumbnail"]:
+                if apply_finalized_post_processing(
+                    finalized.keep_paths,
+                    metadata,
+                    finalized,
+                    post_processing=post_processing,
+                    quality=quality,
+                    sidecars=extraction_sidecars,
+                    output_root=output_root,
+                    extractor_payload=extractor_payload,
+                ):
                     drop_file_cache(finalized.keep_paths)
                 row_task_id = task_id if index == 0 else _child_task_id(
                     task_id,
@@ -543,5 +536,6 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
         else:
             update_task(task_id, status="failed", error=str(exc))
     finally:
-        _cleanup_file(creator_sidecar)
-        _cleanup_file(metadata_sidecar)
+        # Downloader fragments, extractor payloads and worker sidecars all live
+        # below this task-owned directory, so every exit path has one cleanup.
+        remove_scratch_path(task_scratch)

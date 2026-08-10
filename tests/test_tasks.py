@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from yt_dlp import YoutubeDL
 
 import backend.app.domains.downloads.files as files_module
 import backend.app.domains.downloads.gallerydl as gallerydl_module
@@ -18,12 +19,14 @@ import backend.app.domains.downloads.serializers as serializers_module
 import backend.app.domains.downloads.urls as urls_module
 import backend.app.domains.downloads.workers.completion as completion_module
 import backend.app.domains.downloads.workers.completion_creators as completion_creators_module
+import backend.app.domains.downloads.workers.completion_finalization as completion_finalization_module
 import backend.app.domains.downloads.workers.completion_learning as completion_learning_module
 import backend.app.domains.downloads.workers.completion_metadata as completion_metadata_module
 import backend.app.domains.downloads.workers.completion_outputs as completion_outputs_module
 import backend.app.domains.downloads.workers.enrichment as enrichment_module
 import backend.app.domains.downloads.workers.execution as worker_module
 import backend.app.domains.downloads.workers.runner as runner_module
+import backend.app.domains.settings as settings_module
 from backend.app.core.paths import path_key
 from backend.app.core.sources import source_label_from_key
 from backend.app.domains.downloads import (
@@ -67,6 +70,7 @@ from backend.app.domains.downloads.ytdlp import (
     clean_social_title,
 )
 from tests.support import use_temp_db
+from yt_dlp_plugins.postprocessor.never_stelle_capture import NeverStelleCapturePP
 
 
 def _patch_worker_task_store(monkeypatch: pytest.MonkeyPatch, store: dict, update_task):
@@ -325,6 +329,8 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     assert captured["task"]["post_processing"] == {
         "metadata": False,
         "thumbnail": False,
+        "subtitles": False,
+        "automatic_subtitles": False,
         "save_as": "sidecar",
     }
 
@@ -338,6 +344,8 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     assert captured["task"]["post_processing"] == {
         "metadata": True,
         "thumbnail": False,
+        "subtitles": False,
+        "automatic_subtitles": False,
         "save_as": "embed",
     }
 
@@ -350,6 +358,46 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     )
     assert captured["task"]["quality"]["video_container"] == "webm"
     assert captured["task"]["quality"]["video_codec"] == "vp9"
+
+
+def test_extractor_metadata_sidecars_are_discovered_in_task_scratch(tmp_path: Path):
+    output_root = tmp_path / "media"
+    raw = output_root / "creator" / "raw.mp4"
+    raw.parent.mkdir(parents=True)
+    raw.write_bytes(b"media")
+    extractor_root = tmp_path / "scratch" / "task" / "extractor"
+    nested = extractor_root / "creator"
+    nested.mkdir(parents=True)
+    sidecar = nested / "raw.info.json"
+    sidecar.write_text('{"title":"Raw title"}', encoding="utf-8")
+
+    assert worker_module._metadata_sidecars_for(
+        raw,
+        scratch_root=extractor_root,
+        output_root=output_root,
+    ) == [sidecar]
+
+
+def test_delegated_ytdlp_payload_capture_preserves_subtitles_for_gallerydl(tmp_path: Path):
+    media = tmp_path / "media" / "clip.mkv"
+    media.parent.mkdir()
+    media.write_bytes(b"media")
+    extractor_root = tmp_path / "extractor"
+
+    processor = NeverStelleCapturePP(YoutubeDL({"quiet": True}), str(extractor_root))
+    _, captured = processor.run(
+        {
+            "filepath": str(media),
+            "subtitles": {"en": [{"ext": "vtt", "url": "https://example.test/en.vtt"}]},
+            "automatic_captions": {
+                "ja-orig": [{"ext": "vtt", "url": "https://example.test/ja.vtt"}]
+            },
+        }
+    )
+
+    sidecars = postprocessing_module.metadata_sidecars_for(media, scratch_root=extractor_root)
+    assert len(sidecars) == 1
+    assert postprocessing_module.extractor_payload_from_sidecars(sidecars) == captured
 
 
 def test_user_metadata_sidecar_uses_the_final_settings_pipeline_values(tmp_path: Path):
@@ -381,7 +429,6 @@ def test_user_metadata_sidecar_uses_the_final_settings_pipeline_values(tmp_path:
         {"description": "Description"},
         finalized,
         save_as="sidecar",
-        extra_tokens={"slug": "resolved-slug", "scraped": "resolved-scraper"},
         sidecars=sidecars,
         output_root=tmp_path,
     )
@@ -488,6 +535,312 @@ def test_thumbnail_sidecar_never_overwrites_an_image_download(tmp_path: Path, mo
     assert media.with_name(f"{media.stem}.thumbnail.webp").read_bytes() == b"thumbnail-bytes"
 
 
+def test_manual_and_auto_subtitle_sidecars_are_separate_and_use_final_name(tmp_path: Path):
+    media = tmp_path / "Creator - Title [abc].mp4"
+    media.write_bytes(b"video")
+    extractor_sidecar = media.with_suffix(".info.json")
+    extractor_sidecar.write_text(
+        json.dumps(
+            {
+                "subtitles": {"en": [{"ext": "vtt", "data": "WEBVTT\n\nmanual"}]},
+                "automatic_captions": {
+                    "en": [{"ext": "vtt", "data": "WEBVTT\n\nautomatic"}]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    postprocessing_module.apply_subtitle_post_processing(
+        [media],
+        {},
+        manual=True,
+        automatic=True,
+        save_as="sidecar",
+        sidecars=[extractor_sidecar],
+        output_root=tmp_path,
+    )
+
+    assert media.with_name(f"{media.stem}.en.vtt").read_text(encoding="utf-8").endswith("manual")
+    assert media.with_name(f"{media.stem}.en.auto.vtt").read_text(encoding="utf-8").endswith("automatic")
+    assert not extractor_sidecar.exists()
+
+
+def test_subtitles_collect_every_manual_and_auto_caption_language():
+    payload = {
+        "language": "ja",
+        "subtitles": {
+            "en": [{"ext": "vtt", "data": "WEBVTT\n\nEnglish"}],
+            "ja": [{"ext": "vtt", "data": "WEBVTT\n\nJapanese"}],
+            "fr": [{"ext": "vtt", "data": "WEBVTT\n\nFrench"}],
+        },
+        "automatic_captions": {
+            "en": [{"ext": "vtt", "data": "WEBVTT\n\nTranslated"}],
+            "ja-orig": [{"ext": "vtt", "data": "WEBVTT\n\nOriginal ASR"}],
+            "fr": [{"ext": "vtt", "data": "WEBVTT\n\nFrench auto"}],
+            "de": [{"ext": "vtt", "data": "WEBVTT\n\nGerman auto"}],
+            "es": [{"ext": "vtt", "data": "WEBVTT\n\nSpanish auto"}],
+            "zh-Hans": [{"ext": "vtt", "data": "WEBVTT\n\nChinese auto"}],
+        },
+    }
+
+    tracks = postprocessing_module.prepare_subtitle_post_processing(
+        {},
+        manual=True,
+        automatic=True,
+        extractor_payload=payload,
+    )
+
+    assert [(track["language"], track["automatic"]) for track in tracks] == [
+        ("ja", False),
+        ("en", False),
+        ("fr", False),
+        ("ja-orig", True),
+        ("en", True),
+        ("fr", True),
+        ("de", True),
+        ("es", True),
+        ("zh-Hans", True),
+    ]
+    assert tracks[0]["data"].endswith(b"Japanese")
+    assert tracks[3]["data"].endswith(b"Original ASR")
+
+
+def test_finalized_post_processing_reads_extractor_payload_once_for_all_sidecars(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media = tmp_path / "Creator - Title [abc].mp4"
+    media.write_bytes(b"video")
+    extractor_sidecar = media.with_suffix(".info.json")
+    extractor_sidecar.write_text(
+        json.dumps(
+            {
+                "title": "Extractor title",
+                "thumbnail": "https://cdn.example.test/cover.jpg",
+                "subtitles": {"en": [{"ext": "vtt", "data": "WEBVTT\n\nmanual"}]},
+                "automatic_captions": {
+                    "en": [{"ext": "vtt", "data": "WEBVTT\n\nautomatic"}]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    finalized = FinalizedCompletionOutput(
+        source_url="https://example.test/post/abc",
+        source_key="example",
+        creator="Creator",
+        media_id="abc",
+        final_path=media,
+        display_filename=media.name,
+        title="Title",
+        keep_paths=[media],
+    )
+    original_extract = postprocessing_module._extractor_payload
+    calls = 0
+
+    def count_extract(sidecars, metadata):
+        nonlocal calls
+        calls += 1
+        return original_extract(sidecars, metadata)
+
+    monkeypatch.setattr(postprocessing_module, "_extractor_payload", count_extract)
+    monkeypatch.setattr(
+        postprocessing_module,
+        "_download_thumbnail",
+        lambda payload: (b"cover", ".jpg"),
+    )
+
+    assert postprocessing_module.apply_finalized_post_processing(
+        [media],
+        {},
+        finalized,
+        post_processing={
+            "metadata": True,
+            "thumbnail": True,
+            "subtitles": True,
+            "automatic_subtitles": True,
+            "save_as": "sidecar",
+        },
+        quality={"mode": "video", "video_container": "mp4"},
+        sidecars=[extractor_sidecar],
+        output_root=tmp_path,
+    )
+
+    assert calls == 1
+    assert Path(f"{media}.json").is_file()
+    assert media.with_suffix(".jpg").read_bytes() == b"cover"
+    assert media.with_name(f"{media.stem}.en.vtt").is_file()
+    assert media.with_name(f"{media.stem}.en.auto.vtt").is_file()
+    assert not extractor_sidecar.exists()
+
+
+def test_finalized_embed_attaches_thumbnail_after_subtitle_remux(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media = tmp_path / "Creator - Title [abc].mkv"
+    media.write_bytes(b"video")
+    finalized = FinalizedCompletionOutput(
+        source_url="https://example.test/post/abc",
+        source_key="example",
+        creator="Creator",
+        media_id="abc",
+        final_path=media,
+        display_filename=media.name,
+        title="Title",
+        keep_paths=[media],
+    )
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        postprocessing_module,
+        "prepare_thumbnail_post_processing",
+        lambda *args, **kwargs: (b"cover", ".jpg"),
+    )
+    monkeypatch.setattr(
+        postprocessing_module,
+        "prepare_subtitle_post_processing",
+        lambda *args, **kwargs: [
+            {"language": "en", "automatic": False, "extension": "vtt", "data": b"WEBVTT\n"}
+        ],
+    )
+    monkeypatch.setattr(
+        postprocessing_module,
+        "apply_metadata_post_processing",
+        lambda *args, **kwargs: calls.append("metadata") or set(),
+    )
+    monkeypatch.setattr(
+        postprocessing_module,
+        "apply_subtitle_post_processing",
+        lambda *args, **kwargs: calls.append("subtitles"),
+    )
+    monkeypatch.setattr(
+        postprocessing_module,
+        "apply_thumbnail_post_processing",
+        lambda *args, **kwargs: calls.append("thumbnail"),
+    )
+
+    assert postprocessing_module.apply_finalized_post_processing(
+        [media],
+        {},
+        finalized,
+        post_processing={
+            "metadata": True,
+            "thumbnail": True,
+            "subtitles": True,
+            "automatic_subtitles": False,
+            "save_as": "embed",
+        },
+        quality={"mode": "video", "video_container": "mkv"},
+        output_root=tmp_path,
+        extractor_payload={},
+    )
+
+    assert calls == ["metadata", "subtitles", "thumbnail"]
+
+
+def test_manual_and_auto_subtitles_embed_as_distinct_streams(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media = tmp_path / "Creator - Title [abc].mkv"
+    media.write_bytes(b"video")
+    tracks = [
+        {"language": "en", "automatic": False, "extension": "vtt", "data": b"WEBVTT\n"},
+        {"language": "en", "automatic": True, "extension": "vtt", "data": b"WEBVTT\n"},
+    ]
+    captured: list[list[str]] = []
+    stream_counts: dict[Path, int] = {media: 0}
+
+    def fake_run(cmd, **kwargs):
+        captured.append(cmd)
+        output = Path(cmd[-1])
+        output.write_bytes(b"embedded")
+        stream_counts[output] = 2
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(
+        postprocessing_module,
+        "_subtitle_stream_count",
+        lambda ffmpeg, path: stream_counts.get(path, 0),
+    )
+    monkeypatch.setattr(postprocessing_module.subprocess, "run", fake_run)
+
+    postprocessing_module.apply_subtitle_post_processing(
+        [media],
+        {},
+        manual=True,
+        automatic=True,
+        save_as="embed",
+        prepared_subtitles=tracks,
+    )
+
+    assert media.read_bytes() == b"embedded"
+    assert len(captured) == 1
+    embed_cmd = captured[0]
+    assert embed_cmd.count("-i") == 3
+    assert embed_cmd[embed_cmd.index("-c:s") + 1] == "copy"
+    assert "title=en" in embed_cmd
+    assert "title=en (auto-generated)" in embed_cmd
+
+
+def test_many_subtitles_embed_through_bounded_bundle_batches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media = tmp_path / "Creator - Title [abc].webm"
+    media.write_bytes(b"video")
+    tracks = [
+        {
+            "language": f"translated-{index:03d}",
+            "automatic": True,
+            "extension": "vtt",
+            "data": f"WEBVTT\n\ncaption {index}".encode(),
+        }
+        for index in range(100)
+    ]
+    calls: list[list[str]] = []
+    stream_counts: dict[Path, int] = {media: 0}
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        output = Path(cmd[-1])
+        output.write_bytes(b"muxed")
+        if "nvs-subtitle-bundle-" in output.name:
+            prior = next(
+                (
+                    stream_counts[Path(cmd[index + 1])]
+                    for index, value in enumerate(cmd)
+                    if value == "-i" and Path(cmd[index + 1]) in stream_counts
+                ),
+                0,
+            )
+            new_tracks = sum(1 for value in cmd if "nvs-subtitle-input-" in value)
+            stream_counts[output] = prior + new_tracks
+        else:
+            bundle = next(
+                Path(cmd[index + 1])
+                for index, value in enumerate(cmd)
+                if value == "-i" and "nvs-subtitle-bundle-" in cmd[index + 1]
+            )
+            stream_counts[output] = stream_counts[bundle]
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(
+        postprocessing_module,
+        "_subtitle_stream_count",
+        lambda ffmpeg, path: stream_counts.get(path, 0),
+    )
+    monkeypatch.setattr(postprocessing_module.subprocess, "run", fake_run)
+
+    assert postprocessing_module._embed_subtitles(media, tracks)
+
+    bundle_calls = [cmd for cmd in calls if "nvs-subtitle-bundle-" in cmd[-1]]
+    assert len(bundle_calls) == 5
+    assert all(cmd.count("-i") <= postprocessing_module._SUBTITLE_BUNDLE_BATCH_SIZE + 1 for cmd in bundle_calls)
+    assert len(calls[-1]) < 40
+    assert media.read_bytes() == b"muxed"
+
+
 def test_thumbnail_embed_uses_container_aware_tags_after_finalization(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -584,6 +937,53 @@ def test_unsupported_metadata_embed_does_not_fail_the_download(
 
     assert media.read_bytes() == b"original"
     assert "unsupported metadata" in caplog.text
+
+
+def test_auto_output_silently_skips_unsupported_embed_targets(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    media = tmp_path / "Title [abc].aac"
+    media.write_bytes(b"audio")
+    cover = tmp_path / "cover.jpg"
+    cover.write_bytes(b"cover")
+    tracks = [
+        {"language": "en", "automatic": False, "extension": "vtt", "data": b"WEBVTT\n"}
+    ]
+
+    assert not postprocessing_module._embed_metadata(
+        media,
+        {"title": "Title"},
+        silent_unsupported=True,
+    )
+    assert not postprocessing_module._embed_thumbnail(
+        media,
+        cover,
+        silent_unsupported=True,
+    )
+    assert not postprocessing_module._embed_subtitles(
+        media,
+        tracks,
+        silent_unsupported=True,
+    )
+
+    assert not caplog.text
+
+
+def test_explicit_unsupported_embed_targets_remain_diagnostic(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    media = tmp_path / "Title [abc].aac"
+    media.write_bytes(b"audio")
+    cover = tmp_path / "cover.jpg"
+    cover.write_bytes(b"cover")
+
+    assert not postprocessing_module._embed_metadata(media, {"title": "Title"})
+    assert not postprocessing_module._embed_thumbnail(media, cover)
+    assert not postprocessing_module._embed_subtitles(media, [])
+
+    assert "Metadata embed skipped" in caplog.text
+    assert "Thumbnail embed skipped" in caplog.text
+    assert "Subtitle embed skipped" in caplog.text
 
 
 def test_retry_task_rebuilds_with_selected_engine(monkeypatch: pytest.MonkeyPatch):
@@ -1266,6 +1666,56 @@ def test_clean_resolved_filename_rerenders_selected_quality(tmp_path: Path):
     assert not media_file.exists()
 
 
+def test_finalization_runs_scraper_fields_templates_and_naming_in_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    raw = tmp_path / "Extractor title [abc123].mp4"
+    raw.write_bytes(b"video")
+    monkeypatch.setattr(
+        completion_finalization_module,
+        "get_effective_title_cleaning",
+        lambda source_url: {"strip_hashtags": True},
+    )
+
+    finalized = completion_module._finalize_completed_output(
+        source_url="https://example.test/watch/abc123",
+        source_key="example",
+        output_root=tmp_path,
+        raw_path=raw,
+        metadata={"id": "abc123", "title": "Extractor title"},
+        template_settings={
+            "folder_template": "{{title}}",
+            "filename_template": "{{title}} [{{id}}]",
+        },
+        extra_tokens={"page_title": "Scraped title #ignored"},
+        token_roles={"example": {"page_title": "title"}},
+        cache_dropper=None,
+    )
+
+    expected = tmp_path / "Scraped title" / "Scraped title [abc123].mp4"
+    assert finalized.final_path == expected
+    assert finalized.display_filename == expected.name
+    assert finalized.title == "Scraped title"
+    assert expected.is_file()
+    assert not raw.exists()
+
+
+def test_configured_title_fields_are_authoritative(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        settings_module,
+        "get_effective_fields",
+        lambda source_url: {"title": ["headline", "title"]},
+    )
+
+    assert completion_module._metadata_title(
+        completion_module._extractor_metadata_fields(
+            {"headline": "Configured headline", "title": "Extractor title"}
+        ),
+        "https://example.test/watch/abc123",
+    ) == "Configured headline"
+
+
 def test_coerce_audio_output_extension_prefers_postprocessed_target(tmp_path: Path):
     raw = tmp_path / "clip.webm"
     final = tmp_path / "clip.opus"
@@ -1662,7 +2112,13 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
         "metadata": {"id": "abc123", "username": "creator"},
         "extra_tokens": {"artist": "creator"},
         "token_roles": {"example": {"artist": "username"}},
-        "post_processing": {"metadata": True, "thumbnail": False, "save_as": "sidecar"},
+        "post_processing": {
+            "metadata": True,
+            "thumbnail": False,
+            "subtitles": False,
+            "automatic_subtitles": False,
+            "save_as": "sidecar",
+        },
         "needs_metadata_probe": True,
         "needs_field_probe": True,
     }
@@ -2038,6 +2494,28 @@ def test_read_metadata_sidecar_accepts_gallerydl_jsonl(tmp_path: Path):
     assert row["id"] == "child-a"
     assert row["user[name]"] == "poster"
     assert row["tags"] == "one, two"
+
+
+def test_after_move_metadata_path_wins_over_scratch_progress_paths(tmp_path: Path):
+    final = tmp_path / "Templated Creator" / "Templated title [abc123].webm"
+    final.parent.mkdir()
+    final.write_bytes(b"video")
+    missing_scratch_intermediate = tmp_path / "scratch" / "raw.f399.webm"
+
+    paths = completion_metadata_module._metadata_output_paths(
+        {
+            path_key(final): {
+                "filepath": str(final),
+                "id": "abc123",
+                "title": "Templated title",
+            },
+            path_key(missing_scratch_intermediate): {
+                "filepath": str(missing_scratch_intermediate),
+            },
+        }
+    )
+
+    assert paths == [final]
 
 
 def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(

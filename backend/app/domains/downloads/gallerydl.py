@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from backend.app.core.config import SCRATCH_DIR
 from backend.app.domains.settings import (
     get_effective_fields,
     get_effective_template_settings,
@@ -24,6 +25,7 @@ from .constants import (
     audio_postprocess_quality,
     normalize_post_processing,
     normalize_quality_selection,
+    post_processing_requested,
     video_format_selector,
     video_merge_output_format,
     video_merger_args,
@@ -86,12 +88,13 @@ _YTDL_EXTRACTOR_ENABLED_OPTION = "extractor.ytdl.enabled=true"
 _YTDL_EXTRACTOR_MODULE_OPTION = "extractor.ytdl.module=yt_dlp"
 _YTDL_JS_RUNTIMES = json.dumps({"node": {}}, separators=(",", ":"))
 _YTDL_REMOTE_COMPONENTS = json.dumps(["ejs:github"], separators=(",", ":"))
-
-
 def _ytdl_downloader_options(
     quality: dict[str, str] | None = None,
+    post_processing: dict[str, Any] | None = None,
+    extractor_directory: str = "",
 ) -> list[str]:
     selection = normalize_quality_selection(quality)
+    processing = normalize_post_processing(post_processing)
     audio_mode = selection["mode"] == "audio"
     format_string = (
         audio_format_selector(selection["audio_format"], selection["audio_bitrate"])
@@ -155,6 +158,17 @@ def _ytdl_downloader_options(
         if merger_args:
             postprocessor_args["Merger+ffmpeg_o"] = merger_args
         ffmpeg_location = detect_ffmpeg_location()
+    if processing["subtitles"] or processing["automatic_subtitles"]:
+        # gallery-dl removes its private `_ytdl_info_dict` after the delegated
+        # download, so its own metadata postprocessor cannot expose yt-dlp's
+        # subtitle URLs to the app's finalization stage. Capture that untouched
+        # yt-dlp payload in task scratch before gallery-dl discards it.
+        postprocessors.append(
+            {
+                "key": "NeverStelleCapture",
+                "directory": extractor_directory,
+            }
+        )
     if postprocessors:
         serialized = json.dumps(postprocessors, separators=(",", ":"))
         options.extend(["-o", f"downloader.ytdl.raw-options.postprocessors={serialized}"])
@@ -176,6 +190,36 @@ def gallerydl_metadata_sidecar_format() -> str:
         '\fE std.json.dumps(dict(locals(), filepath=str(_path.realpath or _path.path or _path)), '
         'default=str, ensure_ascii=False) + "\\n"'
     )
+
+
+def _gallerydl_postprocessors(
+    metadata_sidecar: str,
+    extractor_directory: str,
+    *,
+    capture_extractor_payload: bool,
+) -> list[dict[str, Any]]:
+    postprocessors: list[dict[str, Any]] = []
+    if metadata_sidecar:
+        sidecar = Path(metadata_sidecar)
+        postprocessors.append(
+            {
+                "name": "metadata",
+                "event": "after",
+                "filename": sidecar.name,
+                "base-directory": str(sidecar.parent).replace("\\", "/"),
+                "content-format": gallerydl_metadata_sidecar_format(),
+                "open": "a",
+            }
+        )
+    if capture_extractor_payload:
+        postprocessors.append(
+            {
+                "name": "metadata",
+                "private": True,
+                "directory": extractor_directory,
+            }
+        )
+    return postprocessors
 
 
 def _directory_segments(folder: str) -> list[str]:
@@ -324,6 +368,10 @@ def build_gallerydl_command(
 ) -> list[str]:
     folder, _, filename = str(output_template or "").partition(_TEMPLATE_SEP)
     directory = json.dumps(_directory_segments(folder), ensure_ascii=False)
+    task_scratch = Path(metadata_sidecar).parent if metadata_sidecar else SCRATCH_DIR
+    part_directory = str(task_scratch / "parts").replace("\\", "/")
+    extractor_directory = str(task_scratch / "extractor").replace("\\", "/")
+    processing = normalize_post_processing(post_processing)
     cmd = [
         "gallery-dl",
         "--destination",
@@ -331,19 +379,24 @@ def build_gallerydl_command(
         "-o",
         _TIKTOK_NO_AUDIO_OPTION,
         "-o",
+        f"downloader.part-directory={part_directory}",
+        "-o",
         f"directory={directory}",
-        *_ytdl_downloader_options(quality),
+        *_ytdl_downloader_options(quality, processing, extractor_directory),
     ]
     if filename:
         cmd.extend(["--filename", filename])
-    if metadata_sidecar:
-        cmd.extend(["--Print-to-file", f"after:{gallerydl_metadata_sidecar_format()}", metadata_sidecar])
-    processing = normalize_post_processing(post_processing)
-    if processing["metadata"] or processing["thumbnail"]:
-        # Capture gallery-dl's complete extractor payload for the final
-        # post-processing stage. It is consumed and removed after the app has
-        # resolved the final output name and values.
-        cmd.extend(["--write-metadata", "--postprocessor-option", "private=true"])
+    postprocessors = _gallerydl_postprocessors(
+        metadata_sidecar,
+        extractor_directory,
+        capture_extractor_payload=post_processing_requested(processing),
+    )
+    if postprocessors:
+        # Configure each metadata processor independently. gallery-dl's
+        # --postprocessor-option is global and would otherwise redirect the
+        # app's after-move metadata row into the extractor-payload directory.
+        serialized = json.dumps(postprocessors, ensure_ascii=False, separators=(",", ":"))
+        cmd.extend(["-o", f"postprocessors={serialized}"])
     filter_expr = _excluded_extension_filter(excluded_extensions)
     if filter_expr:
         cmd.extend(["--filter", filter_expr])

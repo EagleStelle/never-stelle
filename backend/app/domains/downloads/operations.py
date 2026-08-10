@@ -10,7 +10,7 @@ from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
 from backend.app.domains.settings import get_effective_saved_settings, get_effective_title_cleaning
 from backend.app.integrations.swaratelle import client as swaratelle
-from backend.app.runtime.scratch import scratch_temp_path
+from backend.app.runtime.scratch import remove_scratch_path, scratch_temp_path
 
 from .constants import normalize_post_processing, normalize_quality_selection
 from .engine import select_engine
@@ -265,9 +265,13 @@ def set_task_source(task_id: str, source_key: str) -> str:
 
 def _build_slideshow_archive(files: list[Path]) -> Path:
     archive_path = scratch_temp_path(prefix="nvs-slideshow-", suffix=".zip")
-    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for file in files:
-            archive.write(file, arcname=file.name)
+    try:
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for file in files:
+                archive.write(file, arcname=file.name)
+    except Exception:
+        remove_scratch_path(archive_path)
+        raise
     return archive_path
 
 

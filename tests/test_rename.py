@@ -323,7 +323,6 @@ def test_case_only_rename_lands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
     landed = [path.name for path in media_root.iterdir()]
     assert landed == ["Creator - Clip [abc123].mp4"]
-    assert not any(name.endswith(rename_module._CASE_SWAP_SUFFIX) for name in landed)
 
 
 def test_resolution_revision_ignores_template_edits(monkeypatch: pytest.MonkeyPatch):

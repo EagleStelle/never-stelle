@@ -95,6 +95,7 @@ class YtdlpEngine(Engine):
             source_url,
             ffmpeg_location,
             output_template,
+            output_dir=output_dir,
             cookies_file=cookies_file,
             creator_sidecar=creator_sidecar,
             metadata_sidecar=metadata_sidecar,

@@ -128,7 +128,12 @@ def _finalize_completed_output(
     )
     display_creator_hint = configured_display or _display_creator_candidate(creator_hint, item_cleaning) or creator_hint
     display_nickname_hint = _display_creator_candidate(nickname_hint, item_cleaning) or nickname_hint
-    title_hint = _metadata_title(metadata)
+    # Slug/scraper tokens first pass through their configured Fields role. The
+    # resolved canonical title then feeds Templates and, finally, Naming.
+    title_hint = _role_token_value(extra_tokens, token_roles, item_source_key, "title") or _metadata_title(
+        metadata,
+        item_source_url,
+    )
     final_path, display_filename = _clean_resolved_filename(
         item_source_url,
         raw_path,
@@ -144,6 +149,7 @@ def _finalize_completed_output(
         creator_authoritative=bool(configured_username),
         quality=quality,
     )
+    resolved_title = filename_template_fields(display_filename, filename_template).get("title", "") or title_hint
     media_id = media_id or parse_filename_media_id(display_filename)[0] or media_id_from_url(item_source_url)
     move_paths = group_paths if len(group_paths) > 1 else [final_path]
     final_path = _move_group_to_template_folder(
@@ -156,6 +162,7 @@ def _finalize_completed_output(
         extra_tokens,
         item_cleaning,
         quality,
+        title=resolved_title,
         group_paths=move_paths,
     )
     keep_paths = _unique_known_keep_paths(final_path, move_paths)
@@ -170,7 +177,6 @@ def _finalize_completed_output(
         or str(existing_creator or "")
         or nickname_hint
     )
-    title = filename_template_fields(display_filename, filename_template).get("title", "")
     return FinalizedCompletionOutput(
         source_url=item_source_url,
         source_key=item_source_key,
@@ -178,6 +184,6 @@ def _finalize_completed_output(
         media_id=media_id,
         final_path=final_path,
         display_filename=display_filename,
-        title=title,
+        title=resolved_title,
         keep_paths=keep_paths,
     )

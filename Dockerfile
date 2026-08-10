@@ -82,12 +82,12 @@ RUN --mount=type=cache,id=never-stelle-ffmpeg-source,target=/var/cache/ffmpeg \
     --enable-avfilter \
     --enable-filter=aresample,aformat,anull,format,scale \
     --enable-protocol=concat,crypto,data,file,http,https,pipe,subfile,tcp,tls,udp \
-    --enable-demuxer=aac,concat,flac,flv,gif,hls,image2,matroska,mov,mp3,mpegts,ogg,wav \
+    --enable-demuxer=aac,ass,concat,flac,flv,gif,hls,image2,matroska,mov,mp3,mpegts,ogg,srt,wav,webvtt \
     --enable-muxer=adts,flac,image2,ipod,matroska,mp3,mp4,ogg,opus,wav,webm \
     --enable-parser=aac,aac_latm,av1,flac,h264,hevc,mpegaudio,opus,vorbis,vp8,vp9 \
     --enable-bsfs \
-    --enable-decoder=aac,aac_fixed,aac_latm,alac,av1,flac,gif,mjpeg,mp3,mp3float,opus,pcm_f32le,pcm_s16le,pcm_s24le,pcm_s32le,png,vorbis,webp \
-    --enable-encoder=aac,flac,libmp3lame,libopus,mjpeg,pcm_s16le,png \
+    --enable-decoder=aac,aac_fixed,aac_latm,alac,ass,av1,flac,gif,mjpeg,movtext,mp3,mp3float,opus,pcm_f32le,pcm_s16le,pcm_s24le,pcm_s32le,png,subrip,vorbis,webp,webvtt \
+    --enable-encoder=aac,ass,flac,libmp3lame,libopus,mjpeg,movtext,pcm_s16le,png,subrip,webvtt \
     --enable-libmp3lame \
     --enable-libopus \
     --enable-zlib \
@@ -154,6 +154,7 @@ RUN --mount=type=bind,from=python-wheels,source=/wheels,target=/wheels \
     /usr/local/bin/pydoc*
 
 COPY --link backend ./backend
+COPY --link yt_dlp_plugins ./yt_dlp_plugins
 COPY --link --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 EXPOSE 8840

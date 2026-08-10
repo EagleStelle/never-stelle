@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from backend.app.domains.settings import (
     get_effective_title_cleaning,
     possible_filename_templates,
 )
+from backend.app.runtime.scratch import publish_scratch_file, scratch_file
 
 from .constants import CREATOR_FIELDS
 from .files import is_media_file, payload_path_string
@@ -33,7 +35,6 @@ from .store import (
 
 _ROW_TOKEN_FIELDS = {"title": "title", "id": "media_id"}
 _WRITE_BATCH = 200
-_CASE_SWAP_SUFFIX = ".ns-rename-tmp"
 
 
 @dataclass(frozen=True)
@@ -194,10 +195,17 @@ def plan_history_renames(
 
 def _swap_on_disk(old: Path, new: Path) -> None:
     if _path_key(old) == _path_key(new):
-        # Case-only change; Windows no-ops it without an intermediate name.
-        staging = old.with_name(f"{old.name}{_CASE_SWAP_SUFFIX}")
-        os.rename(old, staging)
-        os.rename(staging, new)
+        # Case-only changes need an intermediate name on Windows. Keep that
+        # intermediate in scratch, never beside the user's media.
+        with scratch_file(prefix="nvs-case-rename-", suffix=old.suffix) as staging:
+            staging.unlink(missing_ok=True)
+            shutil.move(old, staging)
+            try:
+                publish_scratch_file(staging, new)
+            except Exception:
+                if staging.is_file():
+                    publish_scratch_file(staging, old)
+                raise
         return
     if new.exists():
         raise FileExistsError(str(new))

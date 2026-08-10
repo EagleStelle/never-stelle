@@ -16,15 +16,11 @@ from backend.app.domains.downloads.constants import (
     field_roles_from_probe_fields,
     normalize_post_processing,
     normalize_quality_selection,
+    post_processing_requested,
 )
 from backend.app.domains.downloads.files import is_media_file
 from backend.app.domains.downloads.learning import learn_missing_fields_for_format, save_missing_learned_fields
-from backend.app.domains.downloads.postprocessing import (
-    apply_metadata_post_processing,
-    apply_thumbnail_post_processing,
-    metadata_sidecars_for,
-    prepare_thumbnail_post_processing,
-)
+from backend.app.domains.downloads.postprocessing import apply_finalized_post_processing, metadata_sidecars_for
 from backend.app.domains.downloads.store import (
     active_download_task_count,
     claim_next_enrichment_job,
@@ -239,9 +235,10 @@ def _repair_history_metadata(task_id: str, entry: dict[str, Any], payload: dict[
     token_roles = _nested_string_dict(payload.get("token_roles"))
     output_root = Path(str(payload.get("output_root") or entry.get("resolved_folder") or path.parent))
     post_processing = normalize_post_processing(payload.get("post_processing"))
+    has_post_processing = post_processing_requested(post_processing)
     metadata_sidecars = (
         metadata_sidecars_for(path)
-        if post_processing["metadata"] or post_processing["thumbnail"]
+        if has_post_processing
         else []
     )
     finalized = _finalize_completed_output(
@@ -259,33 +256,15 @@ def _repair_history_metadata(task_id: str, entry: dict[str, Any], payload: dict[
         existing_creator=str(entry.get("creator") or ""),
         cache_dropper=drop_file_cache,
     )
-    prepared_thumbnail = (
-        prepare_thumbnail_post_processing(metadata, sidecars=metadata_sidecars)
-        if post_processing["thumbnail"]
-        else None
-    )
-    if post_processing["metadata"]:
-        apply_metadata_post_processing(
-            finalized.keep_paths,
-            metadata,
-            finalized,
-            save_as=post_processing["save_as"],
-            extra_tokens=extra_tokens,
-            quality=quality,
-            sidecars=metadata_sidecars,
-            output_root=output_root,
-        )
-    if post_processing["thumbnail"]:
-        apply_thumbnail_post_processing(
-            finalized.keep_paths,
-            metadata,
-            save_as=post_processing["save_as"],
-            sidecars=metadata_sidecars,
-            output_root=output_root,
-            cleanup_sidecars=not post_processing["metadata"],
-            prepared_thumbnail=prepared_thumbnail,
-        )
-    if post_processing["metadata"] or post_processing["thumbnail"]:
+    if apply_finalized_post_processing(
+        finalized.keep_paths,
+        metadata,
+        finalized,
+        post_processing=post_processing,
+        quality=quality,
+        sidecars=metadata_sidecars,
+        output_root=output_root,
+    ):
         drop_file_cache(finalized.keep_paths)
 
     updated = dict(entry)

@@ -7,6 +7,9 @@
 !backend/
 !backend/**
 
+!yt_dlp_plugins/
+!yt_dlp_plugins/**
+
 !frontend/
 !frontend/package.json
 !frontend/package-lock.json

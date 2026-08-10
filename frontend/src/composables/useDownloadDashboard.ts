@@ -32,6 +32,7 @@ import type {
 import {
   createQualitySelection,
   createPostProcessingSelection,
+  constrainPostProcessingSelection,
   countTasks,
   isFilterKey,
   isMediaFilter,
@@ -41,6 +42,7 @@ import {
   faviconUrlForHost,
   hostFromUrl,
   mergeSourceProfiles,
+  postProcessingCapabilitiesForQuality,
   sourceLabelFromKey,
 } from "@/utils/dashboard";
 import { mediaKindForTask } from "@/utils/task";
@@ -131,7 +133,14 @@ export function useDownloadDashboard() {
     getQuality: () =>
       createQualitySelection(downloadSelection, qualityOptions.value),
     getPostProcessing: () =>
-      createPostProcessingSelection(downloadPostProcessing),
+      constrainPostProcessingSelection(
+        downloadPostProcessing,
+        postProcessingCapabilitiesForQuality(
+          downloadSelection,
+          qualityOptions.value,
+          downloadPostProcessing.save_as,
+        ),
+      ),
     toast: sonner.toast,
     url,
   });

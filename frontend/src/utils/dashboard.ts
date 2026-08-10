@@ -375,6 +375,17 @@ function createQualityPreset(source: Partial<QualityPreset>): QualityPreset {
       .map((codec) => String(codec || "").trim().toLowerCase())
       .filter(Boolean);
   }
+  if (Array.isArray(source.embed_capabilities)) {
+    const valid = new Set<PostProcessingCapability>([
+      "metadata",
+      "thumbnail",
+      "subtitles",
+      "automatic_subtitles",
+    ]);
+    preset.embed_capabilities = source.embed_capabilities.filter((capability) =>
+      valid.has(capability),
+    );
+  }
   return preset;
 }
 
@@ -515,16 +526,96 @@ export function createQualitySelection(
 }
 
 export function createPostProcessingSelection(
-  source: Partial<PostProcessingSelection> & { metadata_mode?: PostProcessingSaveAs } = {},
+  source: Partial<PostProcessingSelection> = {},
 ): PostProcessingSelection {
   return {
     metadata: Boolean(source.metadata),
     thumbnail: Boolean(source.thumbnail),
-    save_as:
-      source.save_as === "embed" || source.metadata_mode === "embed"
-        ? "embed"
-        : "sidecar",
+    subtitles: Boolean(source.subtitles),
+    automatic_subtitles: Boolean(source.automatic_subtitles),
+    save_as: source.save_as === "embed" ? "embed" : "sidecar",
   };
+}
+
+export type PostProcessingCapability = Exclude<keyof PostProcessingSelection, "save_as">;
+export type PostProcessingCapabilities = Record<PostProcessingCapability, boolean>;
+export const POST_PROCESSING_FIELDS: Array<{
+  key: PostProcessingCapability;
+  label: string;
+}> = [
+  { key: "metadata", label: "Metadata" },
+  { key: "thumbnail", label: "Thumbnail" },
+  { key: "subtitles", label: "Subtitles" },
+  { key: "automatic_subtitles", label: "Subtitles (auto-generated)" },
+];
+
+const ALL_POST_PROCESSING_CAPABILITIES: PostProcessingCapabilities = {
+  metadata: true,
+  thumbnail: true,
+  subtitles: true,
+  automatic_subtitles: true,
+};
+
+function embedCapabilitiesForPreset(
+  presets: QualityPreset[],
+  key: string,
+): PostProcessingCapabilities {
+  const preset = presets.find((candidate) => candidate.key === key);
+  // Older/cached settings payloads have no capability metadata. Keep controls
+  // available until the authoritative backend options arrive.
+  if (!preset || preset.embed_capabilities === undefined) {
+    return { ...ALL_POST_PROCESSING_CAPABILITIES };
+  }
+  const supported = new Set(preset.embed_capabilities);
+  return {
+    metadata: supported.has("metadata"),
+    thumbnail: supported.has("thumbnail"),
+    subtitles: supported.has("subtitles"),
+    automatic_subtitles: supported.has("automatic_subtitles"),
+  };
+}
+
+export function postProcessingCapabilitiesForQuality(
+  quality: QualitySelection,
+  options: QualityOptions,
+  saveAs: PostProcessingSaveAs,
+): PostProcessingCapabilities {
+  if (saveAs === "sidecar") return { ...ALL_POST_PROCESSING_CAPABILITIES };
+  return quality.mode === "audio"
+    ? embedCapabilitiesForPreset(options.audio_formats, quality.audio_format)
+    : embedCapabilitiesForPreset(options.video_containers, quality.video_container);
+}
+
+export function postProcessingCapabilitiesForDefaults(
+  quality: QualitySelection,
+  options: QualityOptions,
+  saveAs: PostProcessingSaveAs,
+): PostProcessingCapabilities {
+  if (saveAs === "sidecar") return { ...ALL_POST_PROCESSING_CAPABILITIES };
+  const video = embedCapabilitiesForPreset(options.video_containers, quality.video_container);
+  const audio = embedCapabilitiesForPreset(options.audio_formats, quality.audio_format);
+  return {
+    // Defaults are shared by the independent video and audio modes. A feature
+    // remains selectable when either configured output can carry it.
+    metadata: video.metadata || audio.metadata,
+    thumbnail: video.thumbnail || audio.thumbnail,
+    subtitles: video.subtitles || audio.subtitles,
+    automatic_subtitles: video.automatic_subtitles || audio.automatic_subtitles,
+  };
+}
+
+export function constrainPostProcessingSelection(
+  selection: PostProcessingSelection,
+  capabilities: PostProcessingCapabilities,
+): PostProcessingSelection {
+  return createPostProcessingSelection({
+    ...selection,
+    metadata: capabilities.metadata && selection.metadata,
+    thumbnail: capabilities.thumbnail && selection.thumbnail,
+    subtitles: capabilities.subtitles && selection.subtitles,
+    automatic_subtitles:
+      capabilities.automatic_subtitles && selection.automatic_subtitles,
+  });
 }
 
 export function createSourceTemplates(

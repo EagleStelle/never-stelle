@@ -7,6 +7,7 @@ from typing import Any
 
 from backend.app.core.paths import path_key as _path_key
 from backend.app.domains.downloads.constants import CREATOR_FIELDS, FIELD_ROLE_CHAINS, TEMPLATE_RE
+from backend.app.domains.downloads.files import is_media_file
 from backend.app.domains.downloads.naming import filename_template_fields
 from backend.app.domains.downloads.scan import parse_filename_media_id
 from backend.app.domains.downloads.workers.completion_values import (
@@ -277,3 +278,27 @@ def _read_metadata_sidecar(path: str) -> dict[str, dict[str, str]]:
             metadata[key] = _json_sidecar_value(parts[index]) if len(parts) > index else ""
         out[_path_key(filepath)] = metadata
     return out
+
+
+def _metadata_output_paths(metadata_by_path: dict[str, dict[str, str]]) -> list[Path]:
+    """Return yt-dlp/gallery-dl's authoritative post-move media paths.
+
+    Downloader progress may name a scratch/intermediate file. The metadata row is
+    emitted at ``after_move``, after the configured output template has landed, so
+    it must win over log parsing and timestamp-based directory scans.
+    """
+    paths: list[Path] = []
+    seen: set[str] = set()
+    for metadata in metadata_by_path.values():
+        path = Path(str(metadata.get("filepath") or "").strip())
+        key = _path_key(path)
+        if not str(path) or key in seen or not is_media_file(path):
+            continue
+        seen.add(key)
+        paths.append(path)
+    return paths
+
+
+def _extractor_metadata_fields(payload: dict[str, Any]) -> dict[str, str]:
+    """Flatten complete extractor data into the same field namespace as probes."""
+    return _flatten_json_metadata(payload)

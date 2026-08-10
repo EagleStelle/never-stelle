@@ -700,8 +700,12 @@ def clean_template_filename(
         )
     )
     # The on-disk creator segment often holds the display name; redact it from the title too.
+    # A title resolved by the Fields pipeline (including scraper-token roles) is
+    # authoritative over the extractor-rendered title already present on disk.
+    # The old behavior only used this hint for sparse filenames, effectively
+    # bypassing Fields, Templates and Naming whenever yt-dlp supplied a title.
     cleaned_title = clean_filename_title(
-        raw_title,
+        fallback_title or raw_title,
         resolved_username or resolved_nickname,
         resolved_media_id,
         source_key,

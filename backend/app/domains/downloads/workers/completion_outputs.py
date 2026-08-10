@@ -548,6 +548,7 @@ def _render_template_folder(
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
     quality: dict[str, str] | None = None,
+    title: str = "",
 ) -> Path | None:
     folder_template = str((template_settings or {}).get("folder_template") or "").strip()
     if not folder_template:
@@ -570,6 +571,8 @@ def _render_template_folder(
             return creator
         if field == "id":
             return media_id
+        if field == "title":
+            return sanitize_path_literal(title)
         if field == "quality" and quality is not None:
             return quality_label(quality)
         return ""
@@ -609,10 +612,19 @@ def _move_group_to_template_folder(
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
     quality: dict[str, str] | None = None,
+    title: str = "",
     group_paths: list[Path] | None = None,
 ) -> Path:
     target_dir = _render_template_folder(
-        output_root, template_settings, creator, media_id, nickname, extra_tokens, cleaning, quality
+        output_root,
+        template_settings,
+        creator,
+        media_id,
+        nickname,
+        extra_tokens,
+        cleaning,
+        quality,
+        title,
     )
     if target_dir is None:
         target_dir = _placeholder_creator_escape(selected_path, output_root)

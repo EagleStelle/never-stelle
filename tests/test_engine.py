@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from backend.app.domains.downloads.constants import (
     merge_output_format,
     normalize_post_processing,
     normalize_quality_selection,
+    post_processing_requested,
     quality_options,
     template_tokens,
     video_format_selector,
@@ -23,6 +25,21 @@ from backend.app.domains.downloads.constants import (
 from backend.app.domains.downloads.engine import all_engines
 from backend.app.domains.downloads.workers.execution import _looks_unsupported, _should_try_next_engine
 from backend.app.domains.downloads.workers.runner import _count_progress
+
+
+def _gallerydl_postprocessors(cmd: list[str]) -> list[dict[str, object]]:
+    for index, value in enumerate(cmd[:-1]):
+        if value == "-o" and cmd[index + 1].startswith("postprocessors="):
+            return json.loads(cmd[index + 1].partition("=")[2])
+    return []
+
+
+def _gallerydl_raw_option(cmd: list[str], key: str) -> object:
+    prefix = f"{key}="
+    for index, value in enumerate(cmd[:-1]):
+        if value == "-o" and cmd[index + 1].startswith(prefix):
+            return json.loads(cmd[index + 1].partition("=")[2])
+    return None
 
 
 def test_normalize_quality_selection_defaults_and_validates():
@@ -78,15 +95,27 @@ def test_normalize_post_processing_defaults_and_validates():
     assert normalize_post_processing(None) == {
         "metadata": False,
         "thumbnail": False,
+        "subtitles": False,
+        "automatic_subtitles": False,
         "save_as": "sidecar",
     }
     assert normalize_post_processing({"metadata": True, "save_as": "embed"}) == {
         "metadata": True,
         "thumbnail": False,
+        "subtitles": False,
+        "automatic_subtitles": False,
         "save_as": "embed",
     }
-    assert normalize_post_processing({"metadata_mode": "embed"})["save_as"] == "embed"
+    assert normalize_post_processing({"subtitles": True, "automatic_subtitles": True}) == {
+        "metadata": False,
+        "thumbnail": False,
+        "subtitles": True,
+        "automatic_subtitles": True,
+        "save_as": "sidecar",
+    }
     assert normalize_post_processing({"save_as": "invalid"})["save_as"] == "sidecar"
+    assert not post_processing_requested({"save_as": "embed"})
+    assert post_processing_requested({"automatic_subtitles": True})
 
 
 def test_metadata_sidecar_options_cover_gallerydl_and_integrated_ytdlp():
@@ -98,8 +127,9 @@ def test_metadata_sidecar_options_cover_gallerydl_and_integrated_ytdlp():
         post_processing=processing,
     )
 
-    assert "--write-metadata" in cmd
-    assert "private=true" in cmd
+    postprocessors = _gallerydl_postprocessors(cmd)
+    assert postprocessors[-1]["name"] == "metadata"
+    assert postprocessors[-1]["private"] is True
     assert not any("writeinfojson" in part for part in cmd)
     assert not any("getcomments" in part for part in cmd)
 
@@ -124,8 +154,9 @@ def test_metadata_embed_waits_for_the_app_finalization_stage():
     )
     assert not any("FFmpegMetadata" in part for part in cmd)
     assert not any("writeinfojson" in part for part in cmd)
-    assert "--write-metadata" in cmd
-    assert "private=true" in cmd
+    postprocessors = _gallerydl_postprocessors(cmd)
+    assert postprocessors[-1]["name"] == "metadata"
+    assert postprocessors[-1]["private"] is True
 
     fallback = ytdlp.build_ytdlp_command(
         "https://example.test/post/1",
@@ -148,8 +179,9 @@ def test_thumbnail_options_capture_extractor_payload_for_finalization():
         "\x1f{id}.{extension}",
         post_processing=processing,
     )
-    assert "--write-metadata" in cmd
-    assert "private=true" in cmd
+    postprocessors = _gallerydl_postprocessors(cmd)
+    assert postprocessors[-1]["name"] == "metadata"
+    assert postprocessors[-1]["private"] is True
 
     fallback = ytdlp.build_ytdlp_command(
         "https://example.test/post/1",
@@ -161,6 +193,38 @@ def test_thumbnail_options_capture_extractor_payload_for_finalization():
     assert "--no-clean-info-json" in fallback
     assert "--write-thumbnail" not in fallback
     assert "--embed-thumbnail" not in fallback
+
+
+def test_subtitle_options_capture_extractor_payload_for_finalization():
+    processing = {"subtitles": True, "automatic_subtitles": True, "save_as": "embed"}
+    cmd = gallerydl.build_gallerydl_command(
+        "https://example.test/post/1",
+        "/media",
+        "\x1f{id}.{extension}",
+        metadata_sidecar="/scratch/task/downloads.tsv",
+        post_processing=processing,
+    )
+    postprocessors = _gallerydl_postprocessors(cmd)
+    assert postprocessors[-1]["name"] == "metadata"
+    assert postprocessors[-1]["private"] is True
+    expected_capture = {
+        "key": "NeverStelleCapture",
+        "directory": "/scratch/task/extractor",
+    }
+    assert _gallerydl_raw_option(cmd, "downloader.ytdl.raw-options.postprocessors")[-1] == expected_capture
+    assert _gallerydl_raw_option(cmd, "extractor.ytdl.raw-options.postprocessors")[-1] == expected_capture
+
+    fallback = ytdlp.build_ytdlp_command(
+        "https://example.test/post/1",
+        "/usr/bin/ffmpeg",
+        "/media/%(id)s.%(ext)s",
+        post_processing=processing,
+    )
+    assert "--write-info-json" in fallback
+    assert "--no-clean-info-json" in fallback
+    assert "--write-subs" not in fallback
+    assert "--write-auto-subs" not in fallback
+    assert "--embed-subs" not in fallback
 
 
 def test_quality_options_expose_all_pickers():
@@ -178,6 +242,16 @@ def test_quality_options_expose_all_pickers():
     # Containers expose their playable codecs so the UI can hide incompatible picks (e.g. VP9 in MP4).
     mp4 = next(o for o in options["video_containers"] if o["key"] == "mp4")
     assert "vp9" not in mp4["codecs"] and "h264" in mp4["codecs"]
+    webm = next(o for o in options["video_containers"] if o["key"] == "webm")
+    assert set(webm["embed_capabilities"]) == {
+        "metadata",
+        "subtitles",
+        "automatic_subtitles",
+    }
+    aac = next(o for o in options["audio_formats"] if o["key"] == "aac")
+    assert aac["embed_capabilities"] == []
+    mp3 = next(o for o in options["audio_formats"] if o["key"] == "mp3")
+    assert set(mp3["embed_capabilities"]) == {"metadata", "thumbnail"}
     assert "aac" in mp4["audio_codecs"] and "opus" not in mp4["audio_codecs"]
     assert {o["key"] for o in options["video_codecs"]} == {"auto", "av1", "vp9", "h264", "h265"}
     assert {o["key"] for o in options["video_audio_codecs"]} == {"auto", "aac", "opus", "mp3", "flac"}
@@ -758,13 +832,18 @@ def test_build_gallerydl_command_can_write_metadata_sidecar():
         metadata_sidecar="/tmp/meta.tsv",
     )
 
-    index = cmd.index("--Print-to-file")
-    metadata_format = cmd[index + 1]
-    assert metadata_format.startswith("after:\fE ")
+    postprocessors = _gallerydl_postprocessors(cmd)
+    assert len(postprocessors) == 1
+    metadata_processor = postprocessors[0]
+    metadata_format = metadata_processor["content-format"]
+    assert metadata_processor["event"] == "after"
+    assert metadata_processor["filename"] == "meta.tsv"
+    assert metadata_processor["base-directory"] == "/tmp"
+    assert metadata_processor["open"] == "a"
+    assert metadata_format.startswith("\fE ")
     assert "std.json.dumps(dict(locals()" in metadata_format
     assert "sidecar" not in metadata_format
     assert "post_shortcode" not in metadata_format
-    assert cmd[index + 2] == "/tmp/meta.tsv"
 
 
 def test_build_gallerydl_command_routes_streams_through_ytdlp(monkeypatch):
@@ -1152,3 +1231,37 @@ def test_downloader_commands_use_the_leased_cookie_file():
 
     assert ytdlp_cmd[ytdlp_cmd.index("--cookies") + 1] == "/cookies/twitter-2.txt"
     assert gallery_cmd[gallery_cmd.index("--cookies") + 1] == "/cookies/twitter-2.txt"
+
+
+def test_downloader_commands_route_intermediates_and_extractor_payloads_to_task_scratch():
+    ytdlp_cmd = ytdlp.build_ytdlp_command(
+        "https://example.test/watch/1",
+        "/usr/bin/ffmpeg",
+        "/media/creator/clip.%(ext)s",
+        output_dir="/media",
+        metadata_sidecar="/scratch/nvs-download-task-1/downloads.tsv",
+        post_processing={"metadata": True},
+    )
+    gallery_cmd = gallerydl.build_gallerydl_command(
+        "https://example.test/post/1",
+        "/media",
+        f"creator{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        metadata_sidecar="/scratch/nvs-download-task-1/downloads.tsv",
+        post_processing={"metadata": True},
+    )
+
+    ytdlp_paths = [ytdlp_cmd[index + 1] for index, value in enumerate(ytdlp_cmd) if value == "--paths"]
+    assert "home:/media" in ytdlp_paths
+    assert "temp:/scratch/nvs-download-task-1/parts" in ytdlp_paths
+    assert "infojson:/scratch/nvs-download-task-1/extractor" in ytdlp_paths
+    assert ytdlp_cmd[ytdlp_cmd.index("--output") + 1] == "creator/clip.%(ext)s"
+    assert _has_cli_pair(
+        gallery_cmd,
+        "-o",
+        "downloader.part-directory=/scratch/nvs-download-task-1/parts",
+    )
+    gallery_postprocessors = _gallerydl_postprocessors(gallery_cmd)
+    assert gallery_postprocessors[0]["base-directory"] == "/scratch/nvs-download-task-1"
+    assert gallery_postprocessors[0]["filename"] == "downloads.tsv"
+    assert gallery_postprocessors[1]["directory"] == "/scratch/nvs-download-task-1/extractor"
+    assert "--postprocessor-option" not in gallery_cmd

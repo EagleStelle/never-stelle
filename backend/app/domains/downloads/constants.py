@@ -53,18 +53,24 @@ AUDIO_EXTENSIONS = {
 MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS | AUDIO_EXTENSIONS
 
 POST_PROCESSING_MODES = {"sidecar", "embed"}
+POST_PROCESSING_FEATURES = ("metadata", "thumbnail", "subtitles", "automatic_subtitles")
 
 
 def normalize_post_processing(raw: Any) -> dict[str, Any]:
     data = raw if isinstance(raw, dict) else {}
-    # `metadata_mode` was the first implementation's field name. Accept it while
-    # promoting the output choice to the whole post-processing group.
-    mode = str(data.get("save_as") or data.get("metadata_mode") or "").strip().lower()
+    mode = str(data.get("save_as") or "").strip().lower()
     return {
         "metadata": bool(data.get("metadata", False)),
         "thumbnail": bool(data.get("thumbnail", False)),
+        "subtitles": bool(data.get("subtitles", False)),
+        "automatic_subtitles": bool(data.get("automatic_subtitles", False)),
         "save_as": mode if mode in POST_PROCESSING_MODES else "sidecar",
     }
+
+
+def post_processing_requested(raw: Any) -> bool:
+    processing = normalize_post_processing(raw)
+    return any(processing[feature] for feature in POST_PROCESSING_FEATURES)
 
 
 def default_post_processing() -> dict[str, Any]:
@@ -116,10 +122,26 @@ VIDEO_QUALITY_PRESETS: dict[str, dict[str, Any]] = {
 # Keys are `--merge-output-format` values; `codecs` are the video codecs the container
 # can remux and play back, which `--format` is filtered to even on Auto.
 VIDEO_CONTAINER_PRESETS: dict[str, dict[str, Any]] = {
-    "auto": {"label": "Auto", "codecs": ["av1", "vp9", "h264", "h265"]},
-    "mp4": {"label": "MP4", "codecs": ["av1", "h264", "h265"]},
-    "mkv": {"label": "MKV", "codecs": ["av1", "vp9", "h264", "h265"]},
-    "webm": {"label": "WebM", "codecs": ["av1", "vp9"]},
+    "auto": {
+        "label": "Auto",
+        "codecs": ["av1", "vp9", "h264", "h265"],
+        "embed_capabilities": POST_PROCESSING_FEATURES,
+    },
+    "mp4": {
+        "label": "MP4",
+        "codecs": ["av1", "h264", "h265"],
+        "embed_capabilities": POST_PROCESSING_FEATURES,
+    },
+    "mkv": {
+        "label": "MKV",
+        "codecs": ["av1", "vp9", "h264", "h265"],
+        "embed_capabilities": POST_PROCESSING_FEATURES,
+    },
+    "webm": {
+        "label": "WebM",
+        "codecs": ["av1", "vp9"],
+        "embed_capabilities": ("metadata", "subtitles", "automatic_subtitles"),
+    },
 }
 # `sort` is the `-S vcodec:<value>` preference; empty means no preference (auto).
 VIDEO_CODEC_PRESETS: dict[str, dict[str, str]] = {
@@ -273,14 +295,14 @@ def video_format_selector(
     return "/".join(dict.fromkeys(branches))
 
 
-AUDIO_FORMAT_PRESETS: dict[str, dict[str, str]] = {
-    "auto": {"label": "Auto"},
-    "mp3": {"label": "MP3"},
-    "m4a": {"label": "M4A"},
-    "opus": {"label": "Opus"},
-    "aac": {"label": "AAC"},
-    "flac": {"label": "FLAC"},
-    "wav": {"label": "WAV"},
+AUDIO_FORMAT_PRESETS: dict[str, dict[str, Any]] = {
+    "auto": {"label": "Auto", "embed_capabilities": POST_PROCESSING_FEATURES},
+    "mp3": {"label": "MP3", "embed_capabilities": ("metadata", "thumbnail")},
+    "m4a": {"label": "M4A", "embed_capabilities": ("metadata", "thumbnail")},
+    "opus": {"label": "Opus", "embed_capabilities": ("metadata", "thumbnail")},
+    "aac": {"label": "AAC", "embed_capabilities": ()},
+    "flac": {"label": "FLAC", "embed_capabilities": ("metadata", "thumbnail")},
+    "wav": {"label": "WAV", "embed_capabilities": ("metadata", "thumbnail")},
 }
 # Bitrate is meaningless for these; the UI hides the bitrate picker for them.
 LOSSLESS_AUDIO_FORMATS = {"flac", "wav"}
@@ -511,7 +533,7 @@ def quality_label(selection: Any = None) -> str:
     return "source" if key == "best" else VIDEO_QUALITY_PRESETS[key]["label"]
 
 
-def _options(table: dict[str, dict[str, str]]) -> list[dict[str, str]]:
+def _options(table: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
     return [{"key": key, "label": preset["label"]} for key, preset in table.items()]
 
 
@@ -526,12 +548,20 @@ def quality_options() -> dict[str, list[dict[str, Any]]]:
                 "label": preset["label"],
                 "codecs": list(preset.get("codecs") or []),
                 "audio_codecs": list(VIDEO_CONTAINER_AUDIO_CODECS.get(key) or []),
+                "embed_capabilities": list(preset.get("embed_capabilities") or []),
             }
             for key, preset in VIDEO_CONTAINER_PRESETS.items()
         ],
         "video_codecs": _options(VIDEO_CODEC_PRESETS),
         "video_audio_codecs": _options(VIDEO_AUDIO_CODEC_PRESETS),
-        "audio_formats": _options(AUDIO_FORMAT_PRESETS),
+        "audio_formats": [
+            {
+                "key": key,
+                "label": preset["label"],
+                "embed_capabilities": list(preset.get("embed_capabilities") or []),
+            }
+            for key, preset in AUDIO_FORMAT_PRESETS.items()
+        ],
         "audio_bitrates": _options(AUDIO_BITRATE_PRESETS),
     }
 

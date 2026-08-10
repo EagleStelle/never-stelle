@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import subprocess
-import tempfile
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
@@ -12,13 +10,43 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from backend.app.domains.downloads.constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS
+from backend.app.domains.downloads.constants import (
+    AUDIO_EXTENSIONS,
+    IMAGE_EXTENSIONS,
+    normalize_post_processing,
+    normalize_quality_selection,
+    post_processing_requested,
+)
 from backend.app.domains.downloads.naming import detect_ffmpeg_location
+from backend.app.runtime.scratch import (
+    publish_scratch_file,
+    remove_scratch_path,
+    scratch_file,
+    scratch_temp_path,
+)
 
 logger = logging.getLogger(__name__)
 
 _MAX_TAG_CHARS = 8192
 _MAX_THUMBNAIL_BYTES = 50 * 1024 * 1024
+_MAX_SUBTITLE_BYTES = 20 * 1024 * 1024
+_SUBTITLE_BUNDLE_BATCH_SIZE = 24
+_SUBTITLE_FORMAT_PREFERENCE = ("vtt", "srt", "ass", "ssa", "ttml")
+_METADATA_EMBED_EXTENSIONS = {
+    ".flac",
+    ".m4a",
+    ".m4v",
+    ".mka",
+    ".mkv",
+    ".mov",
+    ".mp3",
+    ".mp4",
+    ".ogg",
+    ".opus",
+    ".wav",
+    ".webm",
+}
+_SUBTITLE_EMBED_EXTENSIONS = {".mkv", ".mp4", ".m4v", ".mov", ".webm"}
 _THUMBNAIL_CONTENT_EXTENSIONS = {
     "image/avif": ".avif",
     "image/gif": ".gif",
@@ -28,7 +56,12 @@ _THUMBNAIL_CONTENT_EXTENSIONS = {
 }
 
 
-def metadata_sidecars_for(path: Path) -> list[Path]:
+def metadata_sidecars_for(
+    path: Path,
+    *,
+    scratch_root: Path | None = None,
+    output_root: Path | None = None,
+) -> list[Path]:
     candidates = [
         Path(f"{path}.json"),
         path.with_suffix(".json"),
@@ -39,6 +72,23 @@ def metadata_sidecars_for(path: Path) -> list[Path]:
         path.with_suffix(".meta"),
         Path(f"{path}.meta"),
     ]
+    if scratch_root is not None:
+        adjacent_names = list(dict.fromkeys(candidate.name for candidate in candidates))
+        scratch_parents = [scratch_root]
+        if output_root is not None:
+            try:
+                relative_parent = path.parent.resolve().relative_to(output_root.resolve())
+            except (OSError, ValueError):
+                pass
+            else:
+                scratch_parents.insert(0, scratch_root / relative_parent)
+        candidates.extend(parent / name for parent in scratch_parents for name in adjacent_names)
+        # Extractors differ on whether they preserve output subdirectories. A
+        # task owns its extractor directory, so an exact-name fallback cannot
+        # accidentally consume another download's payload.
+        if scratch_root.is_dir():
+            for name in adjacent_names:
+                candidates.extend(scratch_root.rglob(name))
     return list(dict.fromkeys(candidate for candidate in candidates if candidate.is_file()))
 
 
@@ -63,6 +113,14 @@ def _extractor_payload(sidecars: list[Path], metadata: dict[str, str]) -> dict[s
         if str(key or "").strip() and str(value or "").strip():
             payload.setdefault(str(key), value)
     return payload
+
+
+def extractor_payload_from_sidecars(
+    sidecars: list[Path],
+    metadata: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Load the extractor payload once for finalization and post-processing."""
+    return _extractor_payload(sidecars, metadata or {})
 
 
 def _tag_text(value: Any) -> str:
@@ -112,16 +170,18 @@ def _metadata_year(payload: dict[str, Any]) -> str:
 
 
 def finalized_metadata_payload(
-    path: Path,
     metadata: dict[str, str],
     finalized: Any,
     *,
-    extra_tokens: dict[str, str] | None = None,
-    quality: dict[str, str] | None = None,
     sidecars: list[Path] | None = None,
+    extractor_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return only stable tags that the app can also attempt to embed."""
-    extractor = _extractor_payload(sidecars or [], metadata)
+    extractor = (
+        extractor_payload
+        if extractor_payload is not None
+        else _extractor_payload(sidecars or [], metadata)
+    )
     artist = _tag_text(finalized.creator) or _first_tag(
         extractor,
         "artist",
@@ -151,12 +211,12 @@ def finalized_metadata_payload(
 def _write_sidecar(path: Path, payload: dict[str, Any]) -> Path:
     target = Path(f"{path}.json")
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(f".{target.name}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(target)
+    with scratch_file(prefix="nvs-metadata-sidecar-", suffix=".json") as temporary:
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+            encoding="utf-8",
+        )
+        publish_scratch_file(temporary, target)
     return target
 
 
@@ -242,18 +302,9 @@ def _write_thumbnail_sidecar(path: Path, data: bytes, extension: str) -> Path:
         else path.with_suffix(extension)
     )
     target.parent.mkdir(parents=True, exist_ok=True)
-    output_handle, output_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
-    try:
-        with os.fdopen(output_handle, "wb") as handle:
-            handle.write(data)
-        Path(output_name).replace(target)
-    except Exception:
-        try:
-            os.close(output_handle)
-        except OSError:
-            pass
-        Path(output_name).unlink(missing_ok=True)
-        raise
+    with scratch_file(prefix="nvs-thumbnail-sidecar-", suffix=extension) as temporary:
+        temporary.write_bytes(data)
+        publish_scratch_file(temporary, target)
     return target
 
 
@@ -272,13 +323,7 @@ def _thumbnail_mime_type(path: Path) -> str:
 def _convert_thumbnail_for_embedding(ffmpeg: str, thumbnail: Path) -> Path | None:
     if thumbnail.suffix.lower() in {".jpg", ".jpeg", ".jfif", ".png"}:
         return thumbnail
-    output_handle, output_name = tempfile.mkstemp(
-        prefix=".never-stelle-cover-",
-        suffix=".png",
-        dir=thumbnail.parent,
-    )
-    os.close(output_handle)
-    output_path = Path(output_name)
+    output_path = scratch_temp_path(prefix="nvs-converted-cover-", suffix=".png")
     try:
         result = subprocess.run(
             [
@@ -303,7 +348,7 @@ def _convert_thumbnail_for_embedding(ffmpeg: str, thumbnail: Path) -> Path | Non
         logger.warning("Thumbnail conversion skipped for %s: %s", thumbnail, detail)
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("Thumbnail conversion skipped for %s: %s", thumbnail, exc)
-    output_path.unlink(missing_ok=True)
+    remove_scratch_path(output_path)
     return None
 
 
@@ -440,13 +485,7 @@ def _embed_matroska_thumbnail(ffmpeg: str, path: Path, thumbnail: Path) -> bool:
         elif is_attachment:
             retained_attachments += 1
 
-    output_handle, output_name = tempfile.mkstemp(
-        prefix=f".{path.stem}-thumbnail-",
-        suffix=path.suffix,
-        dir=path.parent,
-    )
-    os.close(output_handle)
-    output_path = Path(output_name)
+    output_path = scratch_temp_path(prefix="nvs-thumbnail-embed-", suffix=path.suffix)
     try:
         cmd = [
             ffmpeg,
@@ -482,27 +521,29 @@ def _embed_matroska_thumbnail(ffmpeg: str, path: Path, thumbnail: Path) -> bool:
             detail = (result.stderr or result.stdout or "ffmpeg returned no output").strip()
             logger.warning("Thumbnail embed skipped for %s: %s", path, detail)
             return False
-        output_path.replace(path)
+        publish_scratch_file(output_path, path)
         return True
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("Thumbnail embed skipped for %s: %s", path, exc)
         return False
     finally:
         try:
-            output_path.unlink(missing_ok=True)
+            remove_scratch_path(output_path)
         except OSError:
             pass
 
 
-def _embed_thumbnail(path: Path, thumbnail: Path) -> bool:
+def _embed_thumbnail(path: Path, thumbnail: Path, *, silent_unsupported: bool = False) -> bool:
     suffix = path.suffix.lower()
     if suffix in IMAGE_EXTENSIONS:
         return True
     if suffix == ".aac":
-        logger.warning("Thumbnail embed skipped for %s: raw AAC does not support portable cover artwork", path)
+        if not silent_unsupported:
+            logger.warning("Thumbnail embed skipped for %s: raw AAC does not support portable cover artwork", path)
         return False
     if suffix == ".webm":
-        logger.warning("Thumbnail embed skipped for %s: WebM does not support cover-art attachments", path)
+        if not silent_unsupported:
+            logger.warning("Thumbnail embed skipped for %s: WebM does not support cover-art attachments", path)
         return False
 
     ffmpeg = detect_ffmpeg_location()
@@ -524,32 +565,36 @@ def _embed_thumbnail(path: Path, thumbnail: Path) -> bool:
                 logger.warning("Thumbnail embed skipped for %s: ffmpeg was not found", path)
                 return False
             return _embed_matroska_thumbnail(ffmpeg, path, embed_thumbnail)
-        logger.warning("Thumbnail embed skipped for %s: unsupported media container", path)
+        if not silent_unsupported:
+            logger.warning("Thumbnail embed skipped for %s: unsupported media container", path)
         return False
     finally:
         if converted_thumbnail is not None:
-            converted_thumbnail.unlink(missing_ok=True)
+            remove_scratch_path(converted_thumbnail)
 
 
 def _embedded_tags(payload: dict[str, Any]) -> dict[str, str]:
     return {key: _tag_text(value) for key, value in payload.items() if _tag_text(value)}
 
 
-def _embed_metadata(path: Path, payload: dict[str, Any]) -> bool:
-    if not payload or path.suffix.lower() in IMAGE_EXTENSIONS:
+def _embed_metadata(
+    path: Path,
+    payload: dict[str, Any],
+    *,
+    silent_unsupported: bool = False,
+) -> bool:
+    if not payload:
         return True
+    if path.suffix.lower() not in _METADATA_EMBED_EXTENSIONS:
+        if not silent_unsupported and path.suffix.lower() not in IMAGE_EXTENSIONS:
+            logger.warning("Metadata embed skipped for %s: unsupported media container", path)
+        return False
     ffmpeg = detect_ffmpeg_location()
     if not ffmpeg:
         logger.warning("Metadata embed skipped for %s: ffmpeg was not found", path)
         return False
 
-    output_handle, output_name = tempfile.mkstemp(
-        prefix=f".{path.stem}-metadata-",
-        suffix=path.suffix,
-        dir=path.parent,
-    )
-    os.close(output_handle)
-    output_path = Path(output_name)
+    output_path = scratch_temp_path(prefix="nvs-metadata-embed-", suffix=path.suffix)
     try:
         cmd = [
             ffmpeg,
@@ -575,14 +620,14 @@ def _embed_metadata(path: Path, payload: dict[str, Any]) -> bool:
             detail = (result.stderr or result.stdout or "ffmpeg returned no output").strip()
             logger.warning("Metadata embed skipped for %s: %s", path, detail)
             return False
-        output_path.replace(path)
+        publish_scratch_file(output_path, path)
         return True
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("Metadata embed skipped for %s: %s", path, exc)
         return False
     finally:
         try:
-            output_path.unlink(missing_ok=True)
+            remove_scratch_path(output_path)
         except OSError:
             pass
 
@@ -630,8 +675,14 @@ def prepare_thumbnail_post_processing(
     metadata: dict[str, str],
     *,
     sidecars: list[Path] | None = None,
+    extractor_payload: dict[str, Any] | None = None,
 ) -> tuple[bytes, str]:
-    return _download_thumbnail(_extractor_payload(list(sidecars or []), metadata))
+    payload = (
+        extractor_payload
+        if extractor_payload is not None
+        else _extractor_payload(list(sidecars or []), metadata)
+    )
+    return _download_thumbnail(payload)
 
 
 def apply_thumbnail_post_processing(
@@ -643,6 +694,7 @@ def apply_thumbnail_post_processing(
     output_root: Path | None = None,
     cleanup_sidecars: bool = True,
     prepared_thumbnail: tuple[bytes, str] | None = None,
+    silent_unsupported: bool = False,
 ) -> None:
     source_sidecars = list(sidecars or [])
     data, extension = prepared_thumbnail or prepare_thumbnail_post_processing(
@@ -655,25 +707,403 @@ def apply_thumbnail_post_processing(
         temporary_thumbnail: Path | None = None
         try:
             if save_as == "embed":
-                output_handle, output_name = tempfile.mkstemp(
-                    prefix=".never-stelle-thumbnail-",
+                temporary_thumbnail = scratch_temp_path(
+                    prefix="nvs-thumbnail-input-",
                     suffix=extension,
-                    dir=paths[0].parent if paths else None,
                 )
-                with os.fdopen(output_handle, "wb") as handle:
-                    handle.write(data)
-                temporary_thumbnail = Path(output_name)
+                temporary_thumbnail.write_bytes(data)
                 for path in paths:
-                    _embed_thumbnail(path, temporary_thumbnail)
+                    _embed_thumbnail(path, temporary_thumbnail, silent_unsupported=silent_unsupported)
             else:
                 for path in paths:
                     _write_thumbnail_sidecar(path, data, extension)
         finally:
             if temporary_thumbnail is not None:
-                try:
-                    temporary_thumbnail.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                remove_scratch_path(temporary_thumbnail)
+    if cleanup_sidecars:
+        _remove_source_sidecars(source_sidecars, output_root)
+
+
+def _ordered_subtitle_languages(
+    payload: dict[str, Any],
+    captions: dict[str, Any],
+    *,
+    automatic: bool,
+) -> list[str]:
+    languages = [
+        str(language).strip()
+        for language in captions
+        if str(language).strip() and str(language).strip().lower() != "live_chat"
+    ]
+    ordered: list[str] = []
+
+    def add(candidate: str) -> None:
+        match = next((language for language in languages if language.casefold() == candidate.casefold()), "")
+        if match and match not in ordered:
+            ordered.append(match)
+
+    source_language = str(payload.get("language") or "").strip()
+    # yt-dlp exposes translated automatic captions for hundreds of languages.
+    # The `*-orig` track is the actual ASR output; preferring English selected a
+    # translated endpoint that commonly responds with HTTP 429 or empty content.
+    if automatic:
+        if source_language:
+            add(f"{source_language}-orig")
+        for language in languages:
+            if language.lower().endswith("-orig"):
+                add(language)
+    if source_language:
+        add(source_language)
+    add("en")
+    for language in languages:
+        if language.lower().startswith("en"):
+            add(language)
+    for language in languages:
+        add(language)
+    return ordered
+
+
+def _ordered_subtitle_formats(formats: Any) -> list[dict[str, Any]]:
+    candidates = [item for item in formats if isinstance(item, dict)] if isinstance(formats, list) else []
+    ordered: list[dict[str, Any]] = []
+    for extension in _SUBTITLE_FORMAT_PREFERENCE:
+        matches = [item for item in candidates if str(item.get("ext") or "").lower() == extension]
+        ordered.extend(reversed(matches))
+    ordered.extend(item for item in reversed(candidates) if item not in ordered)
+    return ordered
+
+
+def _subtitle_extension(item: dict[str, Any]) -> str:
+    extension = str(item.get("ext") or "").strip().lower().lstrip(".")
+    if not extension:
+        extension = Path(urlparse(str(item.get("url") or "")).path).suffix.lower().lstrip(".")
+    extension = "".join(character for character in extension if character.isalnum())
+    return extension or "vtt"
+
+
+def _subtitle_headers(payload: dict[str, Any], item: dict[str, Any]) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    for raw_headers in (payload.get("http_headers"), item.get("http_headers")):
+        if not isinstance(raw_headers, dict):
+            continue
+        headers.update(
+            {
+                str(key): str(value)
+                for key, value in raw_headers.items()
+                if str(key).strip() and str(value).strip()
+            }
+        )
+    headers.setdefault("User-Agent", "Mozilla/5.0")
+    if source_url := str(payload.get("webpage_url") or payload.get("original_url") or "").strip():
+        headers.setdefault("Referer", source_url)
+    # urllib does not transparently decode every content encoding yt-dlp may
+    # advertise. Request the subtitle bytes in their original text form.
+    headers["Accept-Encoding"] = "identity"
+    return headers
+
+
+def _download_subtitle(
+    payload: dict[str, Any],
+    language: str,
+    item: dict[str, Any],
+    *,
+    automatic: bool,
+) -> dict[str, Any] | None:
+    raw_data = item.get("data")
+    if isinstance(raw_data, str):
+        data = raw_data.encode("utf-8")
+    else:
+        url = str(item.get("url") or "").strip()
+        if not url or urlparse(url).scheme.lower() not in {"http", "https"}:
+            return None
+        try:
+            request = urllib.request.Request(url, headers=_subtitle_headers(payload, item))
+            with urllib.request.urlopen(request, timeout=30) as response:
+                content_length = str(response.headers.get("Content-Length") or "").strip()
+                if content_length and int(content_length) > _MAX_SUBTITLE_BYTES:
+                    raise ValueError("subtitle exceeds the 20 MiB limit")
+                data = response.read(_MAX_SUBTITLE_BYTES + 1)
+                if len(data) > _MAX_SUBTITLE_BYTES:
+                    raise ValueError("subtitle exceeds the 20 MiB limit")
+        except (OSError, TypeError, ValueError, urllib.error.URLError) as exc:
+            label = "auto-generated subtitle" if automatic else "subtitle"
+            logger.warning("%s extraction skipped for %s: %s", label.capitalize(), language, exc)
+            return None
+    if not data:
+        return None
+    return {
+        "language": language,
+        "automatic": automatic,
+        "extension": _subtitle_extension(item),
+        "data": data,
+    }
+
+
+def _prepare_subtitle_category(
+    payload: dict[str, Any],
+    key: str,
+    *,
+    automatic: bool,
+) -> list[dict[str, Any]]:
+    captions = payload.get(key)
+    if not isinstance(captions, dict):
+        return []
+    tracks: list[dict[str, Any]] = []
+    for language in _ordered_subtitle_languages(payload, captions, automatic=automatic):
+        # Download one preferred representation per language. Multiple entries
+        # for a language are alternate formats rather than distinct captions.
+        for item in _ordered_subtitle_formats(captions.get(language))[:2]:
+            track = _download_subtitle(payload, language, item, automatic=automatic)
+            if track is not None:
+                tracks.append(track)
+                break
+    return tracks
+
+
+def prepare_subtitle_post_processing(
+    metadata: dict[str, str],
+    *,
+    manual: bool,
+    automatic: bool,
+    sidecars: list[Path] | None = None,
+    extractor_payload: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    payload = (
+        extractor_payload
+        if extractor_payload is not None
+        else _extractor_payload(list(sidecars or []), metadata)
+    )
+    tracks: list[dict[str, Any]] = []
+    if manual:
+        tracks.extend(_prepare_subtitle_category(payload, "subtitles", automatic=False))
+    if automatic:
+        tracks.extend(_prepare_subtitle_category(payload, "automatic_captions", automatic=True))
+    return tracks
+
+
+def _safe_subtitle_language(language: str) -> str:
+    value = "".join(
+        character if character.isalnum() or character in {"-", "_"} else "-"
+        for character in str(language).strip()
+    ).strip("-_")
+    return value or "und"
+
+
+def _write_subtitle_sidecar(path: Path, track: dict[str, Any]) -> Path:
+    language = _safe_subtitle_language(str(track.get("language") or ""))
+    automatic = ".auto" if track.get("automatic") else ""
+    extension = str(track.get("extension") or "vtt").lower().lstrip(".") or "vtt"
+    target = path.with_name(f"{path.stem}.{language}{automatic}.{extension}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = _materialize_subtitle_track(track)
+    try:
+        publish_scratch_file(temporary, target)
+    finally:
+        remove_scratch_path(temporary)
+    return target
+
+
+def _materialize_subtitle_track(track: dict[str, Any]) -> Path:
+    """Write the exact acquired sidecar payload to a temporary subtitle file."""
+    extension = str(track.get("extension") or "vtt").lower().lstrip(".") or "vtt"
+    subtitle_path = scratch_temp_path(
+        prefix="nvs-subtitle-input-",
+        suffix=f".{extension}",
+    )
+    subtitle_path.write_bytes(bytes(track["data"]))
+    return subtitle_path
+
+
+def _subtitle_codec(path: Path) -> str:
+    if path.suffix.lower() in {".mp4", ".m4v", ".mov"}:
+        # ISO BMFF cannot mux WebVTT/SRT/ASS subtitle codecs. mov_text is the
+        # one unavoidable container conversion; Matroska and WebM keep the
+        # exact codec acquired for the sidecar path.
+        return "mov_text"
+    return "copy"
+
+
+def _subtitle_stream_count(ffmpeg: str, path: Path) -> int:
+    return sum(
+        1 for stream in _ffprobe_streams(ffmpeg, path) if stream.get("codec_type") == "subtitle"
+    )
+
+
+def _subtitle_stream_metadata(cmd: list[str], stream_index: int, track: dict[str, Any]) -> None:
+    language = _safe_subtitle_language(str(track.get("language") or ""))
+    title = language + (" (auto-generated)" if track.get("automatic") else "")
+    cmd.extend([f"-metadata:s:s:{stream_index}", f"language={language}"])
+    cmd.extend([f"-metadata:s:s:{stream_index}", f"title={title}"])
+    # MP4/MOV exposes the subtitle picker label through handler_name rather
+    # than the generic title tag. Matroska/WebM safely preserve it as well.
+    cmd.extend([f"-metadata:s:s:{stream_index}", f"handler_name={title}"])
+
+
+def _build_subtitle_bundle(ffmpeg: str, tracks: list[dict[str, Any]]) -> Path | None:
+    """Package every acquired track without exceeding Windows' command-line limit."""
+    bundle_path: Path | None = None
+    for start in range(0, len(tracks), _SUBTITLE_BUNDLE_BATCH_SIZE):
+        batch = tracks[start : start + _SUBTITLE_BUNDLE_BATCH_SIZE]
+        subtitle_paths: list[Path] = []
+        next_bundle: Path | None = scratch_temp_path(prefix="nvs-subtitle-bundle-", suffix=".mkv")
+        try:
+            subtitle_paths = [_materialize_subtitle_track(track) for track in batch]
+            cmd = [ffmpeg, "-y", "-loglevel", "error"]
+            if bundle_path is not None:
+                cmd.extend(["-i", str(bundle_path)])
+            for subtitle_path in subtitle_paths:
+                cmd.extend(["-i", str(subtitle_path)])
+            if bundle_path is not None:
+                cmd.extend(["-map", "0:s"])
+            first_input = 1 if bundle_path is not None else 0
+            for offset in range(len(subtitle_paths)):
+                cmd.extend(["-map", f"{first_input + offset}:0"])
+            # The bundle is only a compact carrier used to stay below Windows'
+            # command-line limit. Copy the sidecar codec and packets unchanged;
+            # do not normalize every subtitle to SRT.
+            cmd.extend(["-c:s", "copy"])
+            for offset, track in enumerate(batch):
+                _subtitle_stream_metadata(cmd, start + offset, track)
+            cmd.append(str(next_bundle))
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            expected = start + len(batch)
+            if (
+                result.returncode != 0
+                or not next_bundle.is_file()
+                or next_bundle.stat().st_size <= 0
+                or _subtitle_stream_count(ffmpeg, next_bundle) != expected
+            ):
+                detail = (result.stderr or result.stdout or "ffmpeg returned no subtitle bundle").strip()
+                logger.warning("Subtitle embed skipped: %s", detail)
+                if bundle_path is not None:
+                    remove_scratch_path(bundle_path)
+                return None
+            if bundle_path is not None:
+                remove_scratch_path(bundle_path)
+            bundle_path = next_bundle
+            next_bundle = None
+        except (OSError, subprocess.SubprocessError, KeyError, TypeError, ValueError) as exc:
+            logger.warning("Subtitle embed skipped: %s", exc)
+            if bundle_path is not None:
+                remove_scratch_path(bundle_path)
+            return None
+        finally:
+            for subtitle_path in subtitle_paths:
+                remove_scratch_path(subtitle_path)
+            if next_bundle is not None:
+                remove_scratch_path(next_bundle)
+    return bundle_path
+
+
+def _embed_subtitles(
+    path: Path,
+    tracks: list[dict[str, Any]],
+    *,
+    silent_unsupported: bool = False,
+) -> bool:
+    if path.suffix.lower() not in _SUBTITLE_EMBED_EXTENSIONS:
+        if not silent_unsupported:
+            logger.warning("Subtitle embed skipped for %s: unsupported media container", path)
+        return False
+    ffmpeg = detect_ffmpeg_location()
+    if not ffmpeg:
+        logger.warning("Subtitle embed skipped for %s: ffmpeg was not found", path)
+        return False
+
+    bundle_path: Path | None = None
+    subtitle_paths: list[Path] = []
+    output_path = scratch_temp_path(prefix="nvs-subtitle-embed-", suffix=path.suffix)
+    try:
+        existing_subtitles = _subtitle_stream_count(ffmpeg, path)
+        cmd = [ffmpeg, "-y", "-loglevel", "error", "-i", str(path)]
+        if len(tracks) <= _SUBTITLE_BUNDLE_BATCH_SIZE:
+            # This is deliberately the same materialization used by Sidecar.
+            # Feed those exact files straight to ffmpeg; no intermediate format
+            # normalization is necessary for an ordinary manual/auto set.
+            subtitle_paths = [_materialize_subtitle_track(track) for track in tracks]
+            for subtitle_path in subtitle_paths:
+                cmd.extend(["-i", str(subtitle_path)])
+            cmd.extend(["-map", "0"])
+            for offset in range(len(subtitle_paths)):
+                cmd.extend(["-map", f"{offset + 1}:0"])
+        else:
+            bundle_path = _build_subtitle_bundle(ffmpeg, tracks)
+            if bundle_path is None:
+                return False
+            cmd.extend(["-i", str(bundle_path), "-map", "0", "-map", "1:s"])
+        cmd.extend(
+            [
+                "-map_metadata",
+                "0",
+                "-map_chapters",
+                "0",
+                "-c",
+                "copy",
+                "-c:s",
+                _subtitle_codec(path),
+            ]
+        )
+        if subtitle_paths:
+            for offset, track in enumerate(tracks):
+                _subtitle_stream_metadata(cmd, existing_subtitles + offset, track)
+        cmd.append(str(output_path))
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if (
+            result.returncode != 0
+            or not output_path.is_file()
+            or output_path.stat().st_size <= 0
+            or _subtitle_stream_count(ffmpeg, output_path) < existing_subtitles + len(tracks)
+        ):
+            detail = (result.stderr or result.stdout or "ffmpeg returned no output").strip()
+            logger.warning("Subtitle embed skipped for %s: %s", path, detail)
+            return False
+        publish_scratch_file(output_path, path)
+        return True
+    except (OSError, subprocess.SubprocessError, KeyError, TypeError, ValueError) as exc:
+        logger.warning("Subtitle embed skipped for %s: %s", path, exc)
+        return False
+    finally:
+        for subtitle_path in subtitle_paths:
+            remove_scratch_path(subtitle_path)
+        if bundle_path is not None:
+            remove_scratch_path(bundle_path)
+        remove_scratch_path(output_path)
+
+
+def apply_subtitle_post_processing(
+    paths: list[Path],
+    metadata: dict[str, str],
+    *,
+    manual: bool,
+    automatic: bool,
+    save_as: str,
+    sidecars: list[Path] | None = None,
+    output_root: Path | None = None,
+    cleanup_sidecars: bool = True,
+    prepared_subtitles: list[dict[str, Any]] | None = None,
+    silent_unsupported: bool = False,
+) -> None:
+    source_sidecars = list(sidecars or [])
+    tracks = prepared_subtitles
+    if tracks is None:
+        tracks = prepare_subtitle_post_processing(
+            metadata,
+            manual=manual,
+            automatic=automatic,
+            sidecars=source_sidecars,
+        )
+    if manual and not any(not track.get("automatic") for track in tracks):
+        logger.warning("Subtitle extraction skipped: the extractor returned no usable manual subtitles")
+    if automatic and not any(track.get("automatic") for track in tracks):
+        logger.warning("Auto-generated subtitle extraction skipped: the extractor returned no usable captions")
+    if tracks:
+        if save_as == "embed":
+            for path in paths:
+                _embed_subtitles(path, tracks, silent_unsupported=silent_unsupported)
+        else:
+            for path in paths:
+                for track in tracks:
+                    _write_subtitle_sidecar(path, track)
     if cleanup_sidecars:
         _remove_source_sidecars(source_sidecars, output_root)
 
@@ -684,25 +1114,123 @@ def apply_metadata_post_processing(
     finalized: Any,
     *,
     save_as: str,
-    extra_tokens: dict[str, str] | None = None,
-    quality: dict[str, str] | None = None,
     sidecars: list[Path] | None = None,
     output_root: Path | None = None,
-) -> None:
+    silent_unsupported: bool = False,
+    extractor_payload: dict[str, Any] | None = None,
+    cleanup_sidecars: bool = True,
+) -> set[Path]:
     source_sidecars = list(sidecars or [])
     canonical_sidecars: set[Path] = set()
     for path in paths:
         payload = finalized_metadata_payload(
-            path,
             metadata,
             finalized,
-            extra_tokens=extra_tokens,
-            quality=quality,
             sidecars=source_sidecars,
+            extractor_payload=extractor_payload,
         )
         if save_as == "embed":
-            _embed_metadata(path, payload)
+            _embed_metadata(path, payload, silent_unsupported=silent_unsupported)
         else:
             canonical_sidecars.add(_write_sidecar(path, payload))
 
+    if cleanup_sidecars:
+        _remove_source_sidecars(source_sidecars, output_root, keep=canonical_sidecars)
+    return canonical_sidecars
+
+
+def apply_finalized_post_processing(
+    paths: list[Path],
+    metadata: dict[str, str],
+    finalized: Any,
+    *,
+    post_processing: dict[str, Any] | None,
+    quality: dict[str, str] | None,
+    sidecars: list[Path] | None = None,
+    output_root: Path | None = None,
+    extractor_payload: dict[str, Any] | None = None,
+) -> bool:
+    """Apply every selected final-output processor through one ordered pipeline."""
+    processing = normalize_post_processing(post_processing)
+    if not post_processing_requested(processing):
+        return False
+
+    selection = normalize_quality_selection(quality)
+    source_sidecars = list(sidecars or [])
+    extractor_payload = (
+        extractor_payload
+        if extractor_payload is not None
+        else extractor_payload_from_sidecars(source_sidecars, metadata)
+    )
+    subtitles_requested = processing["subtitles"] or processing["automatic_subtitles"]
+    auto_output = (
+        selection["video_container"] == "auto"
+        if selection["mode"] == "video"
+        else selection["audio_format"] == "auto"
+    )
+    silent_unsupported = processing["save_as"] == "embed" and auto_output
+
+    prepared_thumbnail = (
+        prepare_thumbnail_post_processing(
+            metadata,
+            sidecars=source_sidecars,
+            extractor_payload=extractor_payload,
+        )
+        if processing["thumbnail"]
+        else None
+    )
+    prepared_subtitles = (
+        prepare_subtitle_post_processing(
+            metadata,
+            manual=processing["subtitles"],
+            automatic=processing["automatic_subtitles"],
+            sidecars=source_sidecars,
+            extractor_payload=extractor_payload,
+        )
+        if subtitles_requested
+        else None
+    )
+
+    canonical_sidecars: set[Path] = set()
+    if processing["metadata"]:
+        canonical_sidecars = apply_metadata_post_processing(
+            paths,
+            metadata,
+            finalized,
+            save_as=processing["save_as"],
+            sidecars=source_sidecars,
+            output_root=output_root,
+            silent_unsupported=silent_unsupported,
+            extractor_payload=extractor_payload,
+            cleanup_sidecars=False,
+        )
+    if subtitles_requested:
+        apply_subtitle_post_processing(
+            paths,
+            metadata,
+            manual=processing["subtitles"],
+            automatic=processing["automatic_subtitles"],
+            save_as=processing["save_as"],
+            sidecars=source_sidecars,
+            output_root=output_root,
+            cleanup_sidecars=False,
+            prepared_subtitles=prepared_subtitles,
+            silent_unsupported=silent_unsupported,
+        )
+    if processing["thumbnail"]:
+        # FFmpeg's Matroska muxer turns an existing attached-picture stream
+        # into a regular MJPEG/PNG video stream during a later subtitle remux.
+        # Attach artwork last so it retains attached_pic=1 and media players
+        # recognize the image as the file's cover rather than another video.
+        apply_thumbnail_post_processing(
+            paths,
+            metadata,
+            save_as=processing["save_as"],
+            sidecars=source_sidecars,
+            output_root=output_root,
+            cleanup_sidecars=False,
+            prepared_thumbnail=prepared_thumbnail,
+            silent_unsupported=silent_unsupported,
+        )
     _remove_source_sidecars(source_sidecars, output_root, keep=canonical_sidecars)
+    return True

@@ -27,9 +27,11 @@ import {
 } from "@/components/ui/tooltip";
 import type { CookiePolicyField, NamingChoice } from "@/types";
 import {
+  POST_PROCESSING_FIELDS,
   isAudioCodecCompatibleWithVideoContainer,
   isCodecCompatibleWithContainer,
   isLosslessAudioFormat,
+  postProcessingCapabilitiesForDefaults,
   videoAudioCodecOptionsForContainer,
   videoCodecOptionsForContainer,
 } from "@/utils/dashboard";
@@ -72,6 +74,29 @@ const videoAudioCodecItems = computed(() =>
     settingsDraft.default_quality.video_container,
   ),
 );
+
+const defaultEmbedCapabilities = computed(() =>
+  postProcessingCapabilitiesForDefaults(
+    settingsDraft.default_quality,
+    settings.quality_options,
+    settingsDraft.default_post_processing.save_as,
+  ),
+);
+
+function setDefaultPostProcessing(next: typeof settingsDraft.default_post_processing): void {
+  // Defaults cover both the video and audio pickers. Do not erase a compatible
+  // video choice merely because the currently configured audio format cannot
+  // carry it; the download toolbar filters only the task being submitted.
+  Object.assign(settingsDraft.default_post_processing, next);
+}
+
+function setDefaultPostProcessingSaveAs(value: string | string[]): void {
+  if (value !== "sidecar" && value !== "embed") return;
+  setDefaultPostProcessing({
+    ...settingsDraft.default_post_processing,
+    save_as: value,
+  });
+}
 
 function updateContainer(container: string): void {
   settingsDraft.default_quality.video_container = container;
@@ -355,36 +380,34 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
           Post-Processing
         </FieldLegend>
         <FieldGroup class="gap-4">
-          <FieldLabel class="items-center cursor-pointer select-none text-sm">
+          <FieldLabel
+            v-for="field in POST_PROCESSING_FIELDS"
+            :key="field.key"
+            class="items-center select-none text-sm"
+            :class="
+              defaultEmbedCapabilities[field.key]
+                ? 'cursor-pointer'
+                : 'cursor-not-allowed opacity-60'
+            "
+          >
             <Checkbox
-              :checked="settingsDraft.default_post_processing.metadata"
+              :checked="settingsDraft.default_post_processing[field.key]"
+              :disabled="!defaultEmbedCapabilities[field.key]"
               @update:checked="
                 (value: boolean) =>
-                  (settingsDraft.default_post_processing.metadata = Boolean(value))
+                  setDefaultPostProcessing({
+                    ...settingsDraft.default_post_processing,
+                    [field.key]: Boolean(value),
+                  })
               "
             />
-            <span>Metadata</span>
-          </FieldLabel>
-          <FieldLabel class="items-center cursor-pointer select-none text-sm">
-            <Checkbox
-              :checked="settingsDraft.default_post_processing.thumbnail"
-              @update:checked="
-                (value: boolean) =>
-                  (settingsDraft.default_post_processing.thumbnail = Boolean(value))
-              "
-            />
-            <span>Thumbnail</span>
+            <span>{{ field.label }}</span>
           </FieldLabel>
           <SegmentedControl
             :model-value="settingsDraft.default_post_processing.save_as"
             label="Save as"
             label-placement="start"
-            @update:model-value="
-              (value) => {
-                if (value === 'sidecar' || value === 'embed')
-                  settingsDraft.default_post_processing.save_as = value;
-              }
-            "
+            @update:model-value="setDefaultPostProcessingSaveAs"
           >
             <SegmentedControlItem value="sidecar">Sidecar</SegmentedControlItem>
             <SegmentedControlItem value="embed">Embed</SegmentedControlItem>

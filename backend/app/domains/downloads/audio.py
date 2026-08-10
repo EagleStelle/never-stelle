@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from backend.app.runtime.scratch import publish_scratch_file, remove_scratch_path, scratch_temp_path
+
 from .constants import (
     AUDIO_BITRATE_PRESETS,
     audio_output_extension,
@@ -76,8 +78,17 @@ def convert_audio_output(source: Path, target: Path, quality: dict[str, str] | N
     selection = normalize_quality_selection(quality)
     if not audio_output_extension(selection) or not (ffmpeg := detect_ffmpeg_location()):
         return False
-    # `target`'s extension picks the muxer, and on the encode pass its default encoder.
-    if _run_ffmpeg(ffmpeg, source, target, ["-c:a", "copy"]):
+    temporary = scratch_temp_path(prefix="nvs-audio-convert-", suffix=target.suffix)
+    try:
+        # The scratch file's extension picks the muxer, and on the encode pass
+        # its default encoder. Publish only after ffmpeg produced a valid file.
+        converted = _run_ffmpeg(ffmpeg, source, temporary, ["-c:a", "copy"])
+        if not converted:
+            # The stream is in another codec, so the postprocessor never converted it.
+            converted = _run_ffmpeg(ffmpeg, source, temporary, _encode_args(selection))
+        if not converted:
+            return False
+        publish_scratch_file(temporary, target)
         return True
-    # The stream is in another codec, so the postprocessor never converted it.
-    return _run_ffmpeg(ffmpeg, source, target, _encode_args(selection))
+    finally:
+        remove_scratch_path(temporary)

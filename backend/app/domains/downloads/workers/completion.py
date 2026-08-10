@@ -24,10 +24,12 @@ from backend.app.domains.downloads.workers.completion_learning import (
     _learn_source_format,
 )
 from backend.app.domains.downloads.workers.completion_metadata import (
+    _extractor_metadata_fields,
     _filename_satisfies_template_metadata,
     _filename_template,
     _fill_single_output_metadata_fallback,
     _json_sidecar_value,
+    _metadata_output_paths,
     _metadata_title_has_value,
     _probe_output_metadata,
     _probe_single_output_metadata_inline,
@@ -83,6 +85,7 @@ __all__ = [
     "_distinct_metadata_item_url",
     "_download_groups",
     "_existing_output_paths",
+    "_extractor_metadata_fields",
     "_finalize_completed_output",
     "_field_value",
     "_filename_creator",
@@ -100,6 +103,7 @@ __all__ = [
     "_looks_like_opaque_identifier",
     "_metadata_creator",
     "_metadata_nickname",
+    "_metadata_output_paths",
     "_metadata_title",
     "_metadata_title_has_value",
     "_move_group_to_template_folder",

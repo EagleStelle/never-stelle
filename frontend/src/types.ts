@@ -173,6 +173,9 @@ export interface QualityPreset {
   // Container presets carry codecs they can play back; codec pickers filter on them.
   codecs?: string[];
   audio_codecs?: string[];
+  embed_capabilities?: Array<
+    "metadata" | "thumbnail" | "subtitles" | "automatic_subtitles"
+  >;
 }
 
 export interface QualitySelection {
@@ -199,6 +202,8 @@ export type PostProcessingSaveAs = "sidecar" | "embed";
 export interface PostProcessingSelection {
   metadata: boolean;
   thumbnail: boolean;
+  subtitles: boolean;
+  automatic_subtitles: boolean;
   save_as: PostProcessingSaveAs;
 }
 

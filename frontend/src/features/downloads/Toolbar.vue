@@ -18,7 +18,11 @@ import UrlForm from "@/features/downloads/UrlForm.vue";
 import { qualityFieldsFor, type QualityField } from "@/features/downloads/qualityFields";
 import { useDashboard } from "@/composables/useDashboard";
 import { useIsMobile } from "@/composables/useBreakpoints";
-import type { QualitySelection } from "@/types";
+import type { PostProcessingSelection, QualitySelection } from "@/types";
+import {
+  POST_PROCESSING_FIELDS,
+  postProcessingCapabilitiesForQuality,
+} from "@/utils/dashboard";
 
 const {
   downloadSelection: selection,
@@ -45,6 +49,14 @@ const advancedQualityFields = computed(() =>
 
 const hasAdvancedFields = computed(() => advancedQualityFields.value.length > 0);
 
+const embedCapabilities = computed(() =>
+  postProcessingCapabilitiesForQuality(
+    selection,
+    qualityOptions.value,
+    postProcessing.save_as,
+  ),
+);
+
 function update(patch: Partial<QualitySelection>): void {
   setDownloadQuality({ ...selection, ...patch });
 }
@@ -57,10 +69,18 @@ function setMode(value: string | string[]): void {
   if (value === "video" || value === "audio") update({ mode: value });
 }
 
+function setPostProcessing(next: PostProcessingSelection): void {
+  // Keep the user's choices when switching mode, format, or save target. The
+  // unsupported choices are filtered only when a task is queued, so returning
+  // to a compatible video target restores the exact manual/auto subtitle state.
+  setDownloadPostProcessing(next);
+}
+
 function setPostProcessingSaveAs(value: string | string[]): void {
   if (value !== "sidecar" && value !== "embed") return;
-  setDownloadPostProcessing({ ...postProcessing, save_as: value });
+  setPostProcessing({ ...postProcessing, save_as: value });
 }
+
 </script>
 
 <template>
@@ -139,31 +159,28 @@ function setPostProcessingSaveAs(value: string | string[]): void {
             :empty-text="field.emptyText"
             layout="fill"
           />
-          <label class="flex items-center gap-2 cursor-pointer select-none text-sm">
+          <label
+            v-for="field in POST_PROCESSING_FIELDS"
+            :key="field.key"
+            class="flex items-center gap-2 select-none text-sm"
+            :class="
+              embedCapabilities[field.key]
+                ? 'cursor-pointer'
+                : 'cursor-not-allowed opacity-60'
+            "
+          >
             <Checkbox
-              :checked="postProcessing.metadata"
+              :checked="postProcessing[field.key]"
+              :disabled="!embedCapabilities[field.key]"
               @update:checked="
                 (value: boolean) =>
-                  setDownloadPostProcessing({
+                  setPostProcessing({
                     ...postProcessing,
-                    metadata: Boolean(value),
+                    [field.key]: Boolean(value),
                   })
               "
             />
-            <span>Metadata</span>
-          </label>
-          <label class="flex items-center gap-2 cursor-pointer select-none text-sm">
-            <Checkbox
-              :checked="postProcessing.thumbnail"
-              @update:checked="
-                (value: boolean) =>
-                  setDownloadPostProcessing({
-                    ...postProcessing,
-                    thumbnail: Boolean(value),
-                  })
-              "
-            />
-            <span>Thumbnail</span>
+            <span>{{ field.label }}</span>
           </label>
           <SegmentedControl
             :model-value="postProcessing.save_as"
