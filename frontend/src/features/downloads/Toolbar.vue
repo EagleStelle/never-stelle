@@ -139,15 +139,6 @@ function setPostProcessingSaveAs(value: string | string[]): void {
             :empty-text="field.emptyText"
             layout="fill"
           />
-          <SegmentedControl
-            :model-value="postProcessing.save_as"
-            label="Save as"
-            label-placement="start"
-            @update:model-value="setPostProcessingSaveAs"
-          >
-            <SegmentedControlItem value="sidecar">Sidecar</SegmentedControlItem>
-            <SegmentedControlItem value="embed">Embed</SegmentedControlItem>
-          </SegmentedControl>
           <label class="flex items-center gap-2 cursor-pointer select-none text-sm">
             <Checkbox
               :checked="postProcessing.metadata"
@@ -161,6 +152,28 @@ function setPostProcessingSaveAs(value: string | string[]): void {
             />
             <span>Metadata</span>
           </label>
+          <label class="flex items-center gap-2 cursor-pointer select-none text-sm">
+            <Checkbox
+              :checked="postProcessing.thumbnail"
+              @update:checked="
+                (value: boolean) =>
+                  setDownloadPostProcessing({
+                    ...postProcessing,
+                    thumbnail: Boolean(value),
+                  })
+              "
+            />
+            <span>Thumbnail</span>
+          </label>
+          <SegmentedControl
+            :model-value="postProcessing.save_as"
+            label="Save as"
+            label-placement="start"
+            @update:model-value="setPostProcessingSaveAs"
+          >
+            <SegmentedControlItem value="sidecar">Sidecar</SegmentedControlItem>
+            <SegmentedControlItem value="embed">Embed</SegmentedControlItem>
+          </SegmentedControl>
         </FieldGroup>
       </div>
     </Dialog>

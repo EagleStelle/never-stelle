@@ -519,6 +519,7 @@ export function createPostProcessingSelection(
 ): PostProcessingSelection {
   return {
     metadata: Boolean(source.metadata),
+    thumbnail: Boolean(source.thumbnail),
     save_as:
       source.save_as === "embed" || source.metadata_mode === "embed"
         ? "embed"

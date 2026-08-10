@@ -355,6 +355,26 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
           Post-Processing
         </FieldLegend>
         <FieldGroup class="gap-4">
+          <FieldLabel class="items-center cursor-pointer select-none text-sm">
+            <Checkbox
+              :checked="settingsDraft.default_post_processing.metadata"
+              @update:checked="
+                (value: boolean) =>
+                  (settingsDraft.default_post_processing.metadata = Boolean(value))
+              "
+            />
+            <span>Metadata</span>
+          </FieldLabel>
+          <FieldLabel class="items-center cursor-pointer select-none text-sm">
+            <Checkbox
+              :checked="settingsDraft.default_post_processing.thumbnail"
+              @update:checked="
+                (value: boolean) =>
+                  (settingsDraft.default_post_processing.thumbnail = Boolean(value))
+              "
+            />
+            <span>Thumbnail</span>
+          </FieldLabel>
           <SegmentedControl
             :model-value="settingsDraft.default_post_processing.save_as"
             label="Save as"
@@ -369,16 +389,6 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
             <SegmentedControlItem value="sidecar">Sidecar</SegmentedControlItem>
             <SegmentedControlItem value="embed">Embed</SegmentedControlItem>
           </SegmentedControl>
-          <FieldLabel class="items-center cursor-pointer select-none text-sm">
-            <Checkbox
-              :checked="settingsDraft.default_post_processing.metadata"
-              @update:checked="
-                (value: boolean) =>
-                  (settingsDraft.default_post_processing.metadata = Boolean(value))
-              "
-            />
-            <span>Metadata</span>
-          </FieldLabel>
         </FieldGroup>
       </FieldSet>
 

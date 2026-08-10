@@ -324,6 +324,7 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     }
     assert captured["task"]["post_processing"] == {
         "metadata": False,
+        "thumbnail": False,
         "save_as": "sidecar",
     }
 
@@ -336,6 +337,7 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     )
     assert captured["task"]["post_processing"] == {
         "metadata": True,
+        "thumbnail": False,
         "save_as": "embed",
     }
 
@@ -446,6 +448,113 @@ def test_embedded_metadata_uses_the_final_settings_pipeline_values(
     assert "description=Full extractor value" in captured["cmd"]
     assert "comment=https://example.test/post/abc" in captured["cmd"]
     assert not raw_sidecar.exists()
+
+
+def test_thumbnail_sidecar_uses_the_final_media_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media = tmp_path / "Creator - Title [abc].mp4"
+    media.write_bytes(b"media")
+    extractor_sidecar = media.with_suffix(".info.json")
+    extractor_sidecar.write_text('{"thumbnail":"https://cdn.example.test/cover.webp"}', encoding="utf-8")
+
+    monkeypatch.setattr(
+        postprocessing_module,
+        "_download_thumbnail",
+        lambda payload: (b"thumbnail-bytes", ".webp"),
+    )
+    postprocessing_module.apply_thumbnail_post_processing(
+        [media],
+        {},
+        save_as="sidecar",
+        sidecars=[extractor_sidecar],
+        output_root=tmp_path,
+    )
+
+    assert media.with_suffix(".webp").read_bytes() == b"thumbnail-bytes"
+    assert not extractor_sidecar.exists()
+
+
+def test_thumbnail_sidecar_never_overwrites_an_image_download(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media = tmp_path / "Creator - Image [abc].webp"
+    media.write_bytes(b"original-image")
+    monkeypatch.setattr(
+        postprocessing_module,
+        "_download_thumbnail",
+        lambda payload: (b"thumbnail-bytes", ".webp"),
+    )
+
+    postprocessing_module.apply_thumbnail_post_processing([media], {}, save_as="sidecar")
+
+    assert media.read_bytes() == b"original-image"
+    assert media.with_name(f"{media.stem}.thumbnail.webp").read_bytes() == b"thumbnail-bytes"
+
+
+def test_thumbnail_embed_uses_container_aware_tags_after_finalization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media = tmp_path / "Creator - Title [abc].mp3"
+    media.write_bytes(b"original")
+    captured: dict[str, Path] = {}
+
+    def fake_embed(path: Path, thumbnail: Path) -> bool:
+        captured["path"] = path
+        captured["thumbnail"] = thumbnail
+        assert thumbnail.read_bytes() == b"thumbnail-bytes"
+        path.write_bytes(b"embedded")
+        return True
+
+    monkeypatch.setattr(postprocessing_module, "_download_thumbnail", lambda payload: (b"thumbnail-bytes", ".jpg"))
+    monkeypatch.setattr(postprocessing_module, "_embed_thumbnail_with_mutagen", fake_embed)
+
+    postprocessing_module.apply_thumbnail_post_processing([media], {}, save_as="embed")
+
+    assert media.read_bytes() == b"embedded"
+    assert captured["path"] == media
+    assert captured["thumbnail"].suffix == ".jpg"
+    assert not media.with_suffix(".jpg").exists()
+
+
+def test_webp_thumbnail_is_converted_before_mp4_embedding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media = tmp_path / "Title [abc].mp4"
+    media.write_bytes(b"video")
+    cover = tmp_path / "cover.webp"
+    cover.write_bytes(b"webp")
+    converted = tmp_path / "converted.png"
+    converted.write_bytes(b"png")
+    captured: dict[str, Path] = {}
+
+    monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(
+        postprocessing_module,
+        "_convert_thumbnail_for_embedding",
+        lambda ffmpeg, thumbnail: converted,
+    )
+    monkeypatch.setattr(
+        postprocessing_module,
+        "_embed_thumbnail_with_mutagen",
+        lambda path, thumbnail: captured.update(path=path, thumbnail=thumbnail) is None,
+    )
+
+    assert postprocessing_module._embed_thumbnail(media, cover)
+    assert captured == {"path": media, "thumbnail": converted}
+    assert not converted.exists()
+
+
+def test_mp3_thumbnail_is_written_as_a_real_front_cover_tag(tmp_path: Path):
+    from mutagen.id3 import ID3, PictureType
+
+    media = tmp_path / "Title [abc].mp3"
+    media.write_bytes(b"audio-payload")
+    cover = tmp_path / "cover.jpg"
+    cover.write_bytes(b"jpeg-payload")
+
+    assert postprocessing_module._embed_thumbnail_with_mutagen(media, cover)
+
+    pictures = ID3(media).getall("APIC")
+    assert len(pictures) == 1
+    assert pictures[0].type == PictureType.COVER_FRONT
+    assert pictures[0].mime == "image/jpeg"
+    assert pictures[0].data == b"jpeg-payload"
+    assert media.read_bytes().endswith(b"audio-payload")
 
 
 def test_unsupported_metadata_embed_does_not_fail_the_download(
@@ -1553,7 +1662,7 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
         "metadata": {"id": "abc123", "username": "creator"},
         "extra_tokens": {"artist": "creator"},
         "token_roles": {"example": {"artist": "username"}},
-        "post_processing": {"metadata": True, "save_as": "sidecar"},
+        "post_processing": {"metadata": True, "thumbnail": False, "save_as": "sidecar"},
         "needs_metadata_probe": True,
         "needs_field_probe": True,
     }

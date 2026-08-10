@@ -75,9 +75,14 @@ def test_normalize_quality_selection_defaults_and_validates():
 
 
 def test_normalize_post_processing_defaults_and_validates():
-    assert normalize_post_processing(None) == {"metadata": False, "save_as": "sidecar"}
+    assert normalize_post_processing(None) == {
+        "metadata": False,
+        "thumbnail": False,
+        "save_as": "sidecar",
+    }
     assert normalize_post_processing({"metadata": True, "save_as": "embed"}) == {
         "metadata": True,
+        "thumbnail": False,
         "save_as": "embed",
     }
     assert normalize_post_processing({"metadata_mode": "embed"})["save_as"] == "embed"
@@ -133,6 +138,29 @@ def test_metadata_embed_waits_for_the_app_finalization_stage():
     assert "--embed-metadata" not in fallback
     assert "--embed-chapters" not in fallback
     assert "--embed-info-json" not in fallback
+
+
+def test_thumbnail_options_capture_extractor_payload_for_finalization():
+    processing = {"thumbnail": True, "save_as": "sidecar"}
+    cmd = gallerydl.build_gallerydl_command(
+        "https://example.test/post/1",
+        "/media",
+        "\x1f{id}.{extension}",
+        post_processing=processing,
+    )
+    assert "--write-metadata" in cmd
+    assert "private=true" in cmd
+
+    fallback = ytdlp.build_ytdlp_command(
+        "https://example.test/post/1",
+        "/usr/bin/ffmpeg",
+        "/media/%(id)s.%(ext)s",
+        post_processing=processing,
+    )
+    assert "--write-info-json" in fallback
+    assert "--no-clean-info-json" in fallback
+    assert "--write-thumbnail" not in fallback
+    assert "--embed-thumbnail" not in fallback
 
 
 def test_quality_options_expose_all_pickers():

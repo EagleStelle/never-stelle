@@ -62,6 +62,7 @@ def normalize_post_processing(raw: Any) -> dict[str, Any]:
     mode = str(data.get("save_as") or data.get("metadata_mode") or "").strip().lower()
     return {
         "metadata": bool(data.get("metadata", False)),
+        "thumbnail": bool(data.get("thumbnail", False)),
         "save_as": mode if mode in POST_PROCESSING_MODES else "sidecar",
     }
 

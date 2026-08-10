@@ -237,9 +237,10 @@ def build_ytdlp_command(
             recode_args = video_recode_args(selection)
             if recode_args:
                 cmd.extend(["--postprocessor-args", f"VideoConvertor+ffmpeg_o:{' '.join(recode_args)}"])
-    if processing["metadata"]:
+    if processing["metadata"] or processing["thumbnail"]:
         # This is an extraction input for the app's final metadata stage, not
-        # the user-facing sidecar. It is consumed after naming in either mode.
+        # a user-facing sidecar. Metadata and thumbnail processing consume it
+        # after the app has finalized the output name.
         cmd.extend(["--write-info-json", "--no-clean-info-json"])
     cmd.extend(["--js-runtimes", "node", "--remote-components", "ejs:github"])
     # --print-to-file (unlike --print) keeps normal progress output intact; the

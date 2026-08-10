@@ -198,6 +198,7 @@ export type PostProcessingSaveAs = "sidecar" | "embed";
 
 export interface PostProcessingSelection {
   metadata: boolean;
+  thumbnail: boolean;
   save_as: PostProcessingSaveAs;
 }
 

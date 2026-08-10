@@ -21,6 +21,8 @@ from backend.app.domains.downloads.history import save_history_entry
 from backend.app.domains.downloads.naming import detect_ffmpeg_location
 from backend.app.domains.downloads.postprocessing import (
     apply_metadata_post_processing,
+    apply_thumbnail_post_processing,
+    prepare_thumbnail_post_processing,
 )
 from backend.app.domains.downloads.postprocessing import (
     metadata_sidecars_for as _metadata_sidecars_for,
@@ -337,7 +339,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
         if rc == 0 or output_records:
             filename_template = _filename_template(template_settings)
             metadata_by_path = _read_metadata_sidecar(metadata_sidecar)
-            if post_processing["metadata"]:
+            if post_processing["metadata"] or post_processing["thumbnail"]:
                 _probe_single_output_metadata_inline(
                     output_records,
                     metadata_by_path,
@@ -395,7 +397,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                         break
                 metadata = dict(group.get("metadata") or {})
                 raw_group_paths = [Path(path) for path in list(group.get("paths") or [raw_path])]
-                user_metadata_sidecars = (
+                extraction_sidecars = (
                     list(
                         dict.fromkeys(
                             sidecar
@@ -403,7 +405,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                             for sidecar in _metadata_sidecars_for(group_path)
                         )
                     )
-                    if post_processing["metadata"]
+                    if post_processing["metadata"] or post_processing["thumbnail"]
                     else []
                 )
                 finalized = _finalize_completed_output(
@@ -426,6 +428,11 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     ),
                     cache_dropper=drop_file_cache,
                 )
+                prepared_thumbnail = (
+                    prepare_thumbnail_post_processing(metadata, sidecars=extraction_sidecars)
+                    if post_processing["thumbnail"]
+                    else None
+                )
                 if post_processing["metadata"]:
                     apply_metadata_post_processing(
                         finalized.keep_paths,
@@ -434,9 +441,20 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                         save_as=post_processing["save_as"],
                         extra_tokens=extra_tokens,
                         quality=quality,
-                        sidecars=user_metadata_sidecars,
+                        sidecars=extraction_sidecars,
                         output_root=output_root,
                     )
+                if post_processing["thumbnail"]:
+                    apply_thumbnail_post_processing(
+                        finalized.keep_paths,
+                        metadata,
+                        save_as=post_processing["save_as"],
+                        sidecars=extraction_sidecars,
+                        output_root=output_root,
+                        cleanup_sidecars=not post_processing["metadata"],
+                        prepared_thumbnail=prepared_thumbnail,
+                    )
+                if post_processing["metadata"] or post_processing["thumbnail"]:
                     drop_file_cache(finalized.keep_paths)
                 row_task_id = task_id if index == 0 else _child_task_id(
                     task_id,

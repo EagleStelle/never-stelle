@@ -7,3 +7,4 @@ gallery-dl
 httpx
 lxml
 cssselect
+mutagen

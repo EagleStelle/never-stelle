@@ -69,7 +69,7 @@ RUN --mount=type=cache,id=never-stelle-ffmpeg-source,target=/var/cache/ffmpeg \
     --disable-doc \
     --disable-avdevice \
     --disable-programs \
-    --disable-swscale \
+    --enable-swscale \
     --disable-everything \
     --disable-static \
     --disable-stripping \
@@ -80,14 +80,14 @@ RUN --mount=type=cache,id=never-stelle-ffmpeg-source,target=/var/cache/ffmpeg \
     --enable-openssl \
     --enable-swresample \
     --enable-avfilter \
-    --enable-filter=aresample,aformat,anull \
+    --enable-filter=aresample,aformat,anull,format,scale \
     --enable-protocol=concat,crypto,data,file,http,https,pipe,subfile,tcp,tls,udp \
-    --enable-demuxer=aac,concat,flac,flv,hls,matroska,mov,mp3,mpegts,ogg,wav \
-    --enable-muxer=adts,flac,ipod,matroska,mp3,mp4,ogg,opus,wav,webm \
+    --enable-demuxer=aac,concat,flac,flv,gif,hls,image2,matroska,mov,mp3,mpegts,ogg,wav \
+    --enable-muxer=adts,flac,image2,ipod,matroska,mp3,mp4,ogg,opus,wav,webm \
     --enable-parser=aac,aac_latm,av1,flac,h264,hevc,mpegaudio,opus,vorbis,vp8,vp9 \
     --enable-bsfs \
-    --enable-decoder=aac,aac_fixed,aac_latm,alac,flac,mp3,mp3float,opus,pcm_f32le,pcm_s16le,pcm_s24le,pcm_s32le,vorbis \
-    --enable-encoder=aac,flac,libmp3lame,libopus,pcm_s16le \
+    --enable-decoder=aac,aac_fixed,aac_latm,alac,av1,flac,gif,mjpeg,mp3,mp3float,opus,pcm_f32le,pcm_s16le,pcm_s24le,pcm_s32le,png,vorbis,webp \
+    --enable-encoder=aac,flac,libmp3lame,libopus,mjpeg,pcm_s16le,png \
     --enable-libmp3lame \
     --enable-libopus \
     --enable-zlib \

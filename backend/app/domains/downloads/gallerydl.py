@@ -339,10 +339,10 @@ def build_gallerydl_command(
     if metadata_sidecar:
         cmd.extend(["--Print-to-file", f"after:{gallerydl_metadata_sidecar_format()}", metadata_sidecar])
     processing = normalize_post_processing(post_processing)
-    if processing["metadata"]:
+    if processing["metadata"] or processing["thumbnail"]:
         # Capture gallery-dl's complete extractor payload for the final
-        # post-processing stage. Embed mode consumes and removes this temporary
-        # sidecar after the app's metadata pipeline has resolved the final values.
+        # post-processing stage. It is consumed and removed after the app has
+        # resolved the final output name and values.
         cmd.extend(["--write-metadata", "--postprocessor-option", "private=true"])
     filter_expr = _excluded_extension_filter(excluded_extensions)
     if filter_expr:
