@@ -6,6 +6,7 @@ import IconMusic from "~icons/material-symbols/music-note";
 import IconTune from "~icons/material-symbols/tune";
 import TaskFilters from "@/components/task/Filters.vue";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
 import { DialogShell as Dialog } from "@/components/ui/dialog";
 import { FieldGroup } from "@/components/ui/field";
@@ -21,8 +22,10 @@ import type { QualitySelection } from "@/types";
 
 const {
   downloadSelection: selection,
+  downloadPostProcessing: postProcessing,
   qualityOptions,
   setDownloadQuality,
+  setDownloadPostProcessing,
 } = useDashboard();
 
 const isMobile = useIsMobile();
@@ -52,6 +55,11 @@ function setField(key: QualityField["key"], value: string): void {
 
 function setMode(value: string | string[]): void {
   if (value === "video" || value === "audio") update({ mode: value });
+}
+
+function setPostProcessingSaveAs(value: string | string[]): void {
+  if (value !== "sidecar" && value !== "embed") return;
+  setDownloadPostProcessing({ ...postProcessing, save_as: value });
 }
 </script>
 
@@ -131,6 +139,28 @@ function setMode(value: string | string[]): void {
             :empty-text="field.emptyText"
             layout="fill"
           />
+          <SegmentedControl
+            :model-value="postProcessing.save_as"
+            label="Save as"
+            label-placement="start"
+            @update:model-value="setPostProcessingSaveAs"
+          >
+            <SegmentedControlItem value="sidecar">Sidecar</SegmentedControlItem>
+            <SegmentedControlItem value="embed">Embed</SegmentedControlItem>
+          </SegmentedControl>
+          <label class="flex items-center gap-2 cursor-pointer select-none text-sm">
+            <Checkbox
+              :checked="postProcessing.metadata"
+              @update:checked="
+                (value: boolean) =>
+                  setDownloadPostProcessing({
+                    ...postProcessing,
+                    metadata: Boolean(value),
+                  })
+              "
+            />
+            <span>Metadata</span>
+          </label>
         </FieldGroup>
       </div>
     </Dialog>

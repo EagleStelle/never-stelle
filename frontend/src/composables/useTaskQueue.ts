@@ -27,6 +27,7 @@ import {
 import type {
   PlaylistEntry,
   QualitySelection,
+  PostProcessingSelection,
   ResolvePassReport,
   ResolveScope,
   SavedSettings,
@@ -40,6 +41,7 @@ import { countTasks, errorMessage, extractUrl, normalizeSourceKey } from "@/util
 interface UseTaskQueueOptions {
   getSavedSettings: () => SavedSettings;
   getQuality: () => QualitySelection;
+  getPostProcessing: () => PostProcessingSelection;
   toast: (message: string, type?: ToastType) => void;
   url: Ref<string>;
 }
@@ -77,7 +79,13 @@ function resolvedMessage(report: ResolvePassReport): string {
   return parts.length === 0 ? "Nothing changed." : sentence(parts);
 }
 
-export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTaskQueueOptions) {
+export function useTaskQueue({
+  getSavedSettings,
+  getQuality,
+  getPostProcessing,
+  toast,
+  url,
+}: UseTaskQueueOptions) {
   const auth = useAuth();
   const taskCache = new Map<string, Partial<TaskItem>>();
   const pollingIntervalMs = ref(POLL_PENDING_MS);
@@ -186,6 +194,7 @@ export function useTaskQueue({ getSavedSettings, getQuality, toast, url }: UseTa
       source_profiles: currentSettings.source_profiles,
       source_templates: currentSettings.source_templates,
       quality: getQuality(),
+      post_processing: getPostProcessing(),
     });
     const created = Array.isArray(data.created) ? data.created : [];
     if (urls.length > 1) {

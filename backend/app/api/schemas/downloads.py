@@ -12,7 +12,8 @@ class AddDownloadPayload(BaseModel):
     template_settings: dict[str, str] | None = None
     source_profiles: list[dict[str, Any]] | dict[str, Any] | None = None
     source_templates: dict[str, Any] | None = None
-    quality: dict[str, str] | None = None
+    quality: dict[str, Any] | None = None
+    post_processing: dict[str, Any] | None = None
 
 
 class ProbePayload(BaseModel):

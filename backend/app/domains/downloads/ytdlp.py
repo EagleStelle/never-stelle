@@ -19,6 +19,7 @@ from .constants import (
     audio_format_selector,
     audio_postprocess_format,
     audio_postprocess_quality,
+    normalize_post_processing,
     normalize_quality_selection,
     video_format_selector,
     video_merge_output_format,
@@ -183,8 +184,10 @@ def build_ytdlp_command(
     creator_sidecar: str = "",
     metadata_sidecar: str = "",
     quality: dict[str, str] | None = None,
+    post_processing: dict[str, Any] | None = None,
 ) -> list[str]:
     selection = normalize_quality_selection(quality)
+    processing = normalize_post_processing(post_processing)
     audio_mode = selection["mode"] == "audio"
     selected_format = (
         audio_format_selector(selection["audio_format"], selection["audio_bitrate"])
@@ -234,6 +237,10 @@ def build_ytdlp_command(
             recode_args = video_recode_args(selection)
             if recode_args:
                 cmd.extend(["--postprocessor-args", f"VideoConvertor+ffmpeg_o:{' '.join(recode_args)}"])
+    if processing["metadata"]:
+        # This is an extraction input for the app's final metadata stage, not
+        # the user-facing sidecar. It is consumed after naming in either mode.
+        cmd.extend(["--write-info-json", "--no-clean-info-json"])
     cmd.extend(["--js-runtimes", "node", "--remote-components", "ejs:github"])
     # --print-to-file (unlike --print) keeps normal progress output intact; the
     # after_move stage runs on real downloads, never in simulate mode.

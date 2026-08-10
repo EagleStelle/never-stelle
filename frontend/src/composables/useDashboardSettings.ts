@@ -43,6 +43,7 @@ import {
   createCookiePolicyDefaults,
   createCookiesStatus,
   createNamingFlags,
+  createPostProcessingSelection,
   createSourceCookiePolicies,
   createQualityOptions,
   createFieldRoles,
@@ -384,6 +385,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
     default_quality: createQualitySelection(),
+    default_post_processing: createPostProcessingSelection(),
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
     source_slug_tokens: createSourceSlugTokens(),
@@ -401,6 +403,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
     default_quality: createQualitySelection(),
+    default_post_processing: createPostProcessingSelection(),
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
     source_slug_tokens: createSourceSlugTokens(),
@@ -434,6 +437,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
     default_quality: createQualitySelection(),
+    default_post_processing: createPostProcessingSelection(),
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
     source_slug_tokens: createSourceSlugTokens(),
@@ -538,6 +542,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         source.default_quality,
         settings.quality_options,
       ),
+      default_post_processing: createPostProcessingSelection(
+        source.default_post_processing,
+      ),
       source_scrape_rules: createSourceScrapeRules(
         recordForProfiles(source.source_scrape_rules, profiles),
         profiles,
@@ -620,6 +627,10 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         },
         settings.quality_options,
       ),
+      default_post_processing: createPostProcessingSelection({
+        ...defaults.default_post_processing,
+        ...settings.default_post_processing,
+      }),
       source_scrape_rules: createSourceScrapeRules(
         recordForProfiles(
           { ...defaults.source_scrape_rules, ...settings.source_scrape_rules },
@@ -710,6 +721,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         template_settings: settingsDraft.template_settings,
         source_templates: settingsDraft.source_templates,
         default_quality: settingsDraft.default_quality,
+        default_post_processing: settingsDraft.default_post_processing,
         source_scrape_rules: settingsDraft.source_scrape_rules,
         source_token_roles: settingsDraft.source_token_roles,
         source_slug_tokens: settingsDraft.source_slug_tokens,
@@ -945,6 +957,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     );
     Object.assign(defaults.default_quality, defaultQuality);
     Object.assign(settings.default_quality, defaultQuality);
+    const defaultPostProcessing = createPostProcessingSelection(
+      data.default_post_processing || {},
+    );
+    Object.assign(defaults.default_post_processing, defaultPostProcessing);
+    Object.assign(settings.default_post_processing, defaultPostProcessing);
 
     settings.template_tokens = Array.isArray(data.template_tokens)
       ? data.template_tokens
@@ -1048,6 +1065,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       settingsDraft.default_quality,
       previous.default_quality,
       server.default_quality,
+    );
+    mergeCleanObjectProps(
+      settingsDraft.default_post_processing,
+      previous.default_post_processing,
+      server.default_post_processing,
     );
     mergeCleanRecordEntries(
       settingsDraft.source_scrape_rules,
@@ -1315,6 +1337,10 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     );
     replaceRecord(settingsDraft.source_templates, normalized.source_templates);
     Object.assign(settingsDraft.default_quality, normalized.default_quality);
+    Object.assign(
+      settingsDraft.default_post_processing,
+      normalized.default_post_processing,
+    );
     replaceRecord(
       settingsDraft.source_scrape_rules,
       normalized.source_scrape_rules,

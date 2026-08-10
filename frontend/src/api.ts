@@ -207,6 +207,7 @@ export function addTask(payload: {
   source_profiles?: SavedSettings["source_profiles"];
   source_templates?: SavedSettings["source_templates"];
   quality?: SavedSettings["default_quality"];
+  post_processing?: SavedSettings["default_post_processing"];
 }): Promise<AddTaskResponse> {
   return jsonRequest<AddTaskResponse>(
     "/api/downloads",

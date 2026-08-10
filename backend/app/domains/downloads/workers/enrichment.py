@@ -14,10 +14,12 @@ from backend.app.domains.downloads.constants import (
     RESOLVE_JOB_KIND,
     enrichment_job_id,
     field_roles_from_probe_fields,
+    normalize_post_processing,
     normalize_quality_selection,
 )
 from backend.app.domains.downloads.files import is_media_file
 from backend.app.domains.downloads.learning import learn_missing_fields_for_format, save_missing_learned_fields
+from backend.app.domains.downloads.postprocessing import apply_metadata_post_processing, metadata_sidecars_for
 from backend.app.domains.downloads.store import (
     active_download_task_count,
     claim_next_enrichment_job,
@@ -83,6 +85,7 @@ def enqueue_completion_enrichment(
     output_root: str = "",
     extra_tokens: dict[str, str] | None = None,
     token_roles: dict[str, dict[str, str]] | None = None,
+    post_processing: dict[str, Any] | None = None,
     needs_metadata_probe: bool = False,
     needs_field_probe: bool = False,
 ) -> None:
@@ -96,6 +99,7 @@ def enqueue_completion_enrichment(
         "metadata": metadata or {},
         "extra_tokens": extra_tokens or {},
         "token_roles": token_roles or {},
+        "post_processing": normalize_post_processing(post_processing),
         "needs_metadata_probe": bool(needs_metadata_probe),
         "needs_field_probe": bool(needs_field_probe),
     }
@@ -229,6 +233,8 @@ def _repair_history_metadata(task_id: str, entry: dict[str, Any], payload: dict[
     extra_tokens = _string_dict(payload.get("extra_tokens"))
     token_roles = _nested_string_dict(payload.get("token_roles"))
     output_root = Path(str(payload.get("output_root") or entry.get("resolved_folder") or path.parent))
+    post_processing = normalize_post_processing(payload.get("post_processing"))
+    metadata_sidecars = metadata_sidecars_for(path) if post_processing["metadata"] else []
     finalized = _finalize_completed_output(
         source_url=source_url,
         source_key=source_key,
@@ -244,6 +250,18 @@ def _repair_history_metadata(task_id: str, entry: dict[str, Any], payload: dict[
         existing_creator=str(entry.get("creator") or ""),
         cache_dropper=drop_file_cache,
     )
+    if post_processing["metadata"]:
+        apply_metadata_post_processing(
+            finalized.keep_paths,
+            metadata,
+            finalized,
+            save_as=post_processing["save_as"],
+            extra_tokens=extra_tokens,
+            quality=quality,
+            sidecars=metadata_sidecars,
+            output_root=output_root,
+        )
+        drop_file_cache(finalized.keep_paths)
 
     updated = dict(entry)
     updated.update(

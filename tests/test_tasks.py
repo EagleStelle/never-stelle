@@ -4,6 +4,7 @@ import json
 import time
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,6 +12,7 @@ import backend.app.domains.downloads.files as files_module
 import backend.app.domains.downloads.gallerydl as gallerydl_module
 import backend.app.domains.downloads.history as history_module
 import backend.app.domains.downloads.operations as operations_module
+import backend.app.domains.downloads.postprocessing as postprocessing_module
 import backend.app.domains.downloads.scan as scan_module
 import backend.app.domains.downloads.serializers as serializers_module
 import backend.app.domains.downloads.urls as urls_module
@@ -57,6 +59,7 @@ from backend.app.domains.downloads.naming import (
     strip_placeholder_title,
 )
 from backend.app.domains.downloads.serializers import history_to_api, task_to_api
+from backend.app.domains.downloads.workers.completion_finalization import FinalizedCompletionOutput
 from backend.app.domains.downloads.ytdlp import (
     YTDLP_NICKNAME_FIELD,
     YTDLP_USERNAME_FIELD,
@@ -319,6 +322,22 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
         "audio_format": "opus",
         "audio_bitrate": "320",
     }
+    assert captured["task"]["post_processing"] == {
+        "metadata": False,
+        "save_as": "sidecar",
+    }
+
+    operations_module.queue_task(
+        "https://example.test/watch?v=metadata",
+        quality={
+            "mode": "video",
+            "_post_processing": {"metadata": True, "save_as": "embed"},
+        },
+    )
+    assert captured["task"]["post_processing"] == {
+        "metadata": True,
+        "save_as": "embed",
+    }
 
     operations_module.queue_task("https://example.test/watch?v=2", quality=None)
     assert captured["task"]["quality"] == saved_default
@@ -329,6 +348,133 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     )
     assert captured["task"]["quality"]["video_container"] == "webm"
     assert captured["task"]["quality"]["video_codec"] == "vp9"
+
+
+def test_user_metadata_sidecar_uses_the_final_settings_pipeline_values(tmp_path: Path):
+    raw_folder = tmp_path / "@raw.creator"
+    raw_folder.mkdir()
+    raw = raw_folder / "raw.mp4"
+    gallery_sidecar = Path(f"{raw}.json")
+    ytdlp_sidecar = raw.with_suffix(".info.json")
+    gallery_sidecar.write_text(
+        '{"private":"kept","title":"Raw title","upload_date":"20260801"}',
+        encoding="utf-8",
+    )
+    ytdlp_sidecar.write_text('{"comments":[{"text":"kept too"}]}', encoding="utf-8")
+    sidecars = worker_module._metadata_sidecars_for(raw)
+
+    final = tmp_path / "Creator" / "Creator - Title [abc].mp4"
+    finalized = FinalizedCompletionOutput(
+        source_url="https://example.test/post/abc",
+        source_key="example",
+        creator="Creator",
+        media_id="abc",
+        final_path=final,
+        display_filename=final.name,
+        title="Title",
+        keep_paths=[final],
+    )
+    postprocessing_module.apply_metadata_post_processing(
+        [final],
+        {"description": "Description"},
+        finalized,
+        save_as="sidecar",
+        extra_tokens={"slug": "resolved-slug", "scraped": "resolved-scraper"},
+        sidecars=sidecars,
+        output_root=tmp_path,
+    )
+
+    output = final.with_name(f"{final.name}.json")
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload == {
+        "title": "Title",
+        "artist": "Creator",
+        "album_artist": "Creator",
+        "date": "2026",
+        "description": "Description",
+        "comment": "https://example.test/post/abc",
+    }
+    assert not gallery_sidecar.exists()
+    assert not ytdlp_sidecar.exists()
+    assert not raw_folder.exists()
+
+
+def test_embedded_metadata_uses_the_final_settings_pipeline_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media = tmp_path / "Creator - Title [abc].mkv"
+    media.write_bytes(b"original")
+    raw_sidecar = Path(f"{media}.json")
+    raw_sidecar.write_text(
+        '{"description":"Full extractor value","timestamp":1785542400}',
+        encoding="utf-8",
+    )
+    finalized = FinalizedCompletionOutput(
+        source_url="https://example.test/post/abc",
+        source_key="example",
+        creator="Creator",
+        media_id="abc",
+        final_path=media,
+        display_filename=media.name,
+        title="Title",
+        keep_paths=[media],
+    )
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        Path(cmd[-1]).write_bytes(b"embedded")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(postprocessing_module.subprocess, "run", fake_run)
+
+    postprocessing_module.apply_metadata_post_processing(
+        [media],
+        {},
+        finalized,
+        save_as="embed",
+        sidecars=[raw_sidecar],
+    )
+
+    assert media.read_bytes() == b"embedded"
+    assert captured["cmd"].count("-i") == 1
+    assert "title=Title" in captured["cmd"]
+    assert "artist=Creator" in captured["cmd"]
+    assert "album_artist=Creator" in captured["cmd"]
+    assert "date=2026" in captured["cmd"]
+    assert "description=Full extractor value" in captured["cmd"]
+    assert "comment=https://example.test/post/abc" in captured["cmd"]
+    assert not raw_sidecar.exists()
+
+
+def test_unsupported_metadata_embed_does_not_fail_the_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    media = tmp_path / "Title [abc].mkv"
+    media.write_bytes(b"original")
+    finalized = FinalizedCompletionOutput(
+        source_url="https://example.test/post/abc",
+        source_key="example",
+        creator="Creator",
+        media_id="abc",
+        final_path=media,
+        display_filename=media.name,
+        title="Title",
+        keep_paths=[media],
+    )
+
+    monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(
+        postprocessing_module.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=1, stderr="unsupported metadata", stdout=""),
+    )
+
+    postprocessing_module.apply_metadata_post_processing([media], {}, finalized, save_as="embed")
+
+    assert media.read_bytes() == b"original"
+    assert "unsupported metadata" in caplog.text
 
 
 def test_retry_task_rebuilds_with_selected_engine(monkeypatch: pytest.MonkeyPatch):
@@ -1380,6 +1526,7 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
         output_root=str(tmp_path),
         extra_tokens={"artist": "creator"},
         token_roles={"example": {"artist": "username"}},
+        post_processing={"metadata": True, "save_as": "sidecar"},
         needs_metadata_probe=True,
         needs_field_probe=True,
     )
@@ -1406,6 +1553,7 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
         "metadata": {"id": "abc123", "username": "creator"},
         "extra_tokens": {"artist": "creator"},
         "token_roles": {"example": {"artist": "username"}},
+        "post_processing": {"metadata": True, "save_as": "sidecar"},
         "needs_metadata_probe": True,
         "needs_field_probe": True,
     }

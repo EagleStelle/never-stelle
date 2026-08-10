@@ -194,6 +194,13 @@ export interface QualityOptions {
   audio_bitrates: QualityPreset[];
 }
 
+export type PostProcessingSaveAs = "sidecar" | "embed";
+
+export interface PostProcessingSelection {
+  metadata: boolean;
+  save_as: PostProcessingSaveAs;
+}
+
 export interface CookieFile {
   id: string;
   filename: string;
@@ -240,6 +247,7 @@ export interface SavedSettings {
   template_settings: TemplateSettings;
   source_templates: SourceTemplates;
   default_quality: QualitySelection;
+  default_post_processing: PostProcessingSelection;
   source_scrape_rules: SourceScrapeRules;
   source_token_roles: SourceTokenRoles;
   source_slug_tokens: SourceSlugTokens;
@@ -303,6 +311,7 @@ export interface UiConfigResponse {
   default_fields?: Partial<FieldRoles>;
   default_naming?: NamingDefaults;
   default_quality?: Partial<QualitySelection>;
+  default_post_processing?: Partial<PostProcessingSelection>;
   quality_options?: Partial<QualityOptions>;
   template_tokens?: TemplateToken[];
   default_filename_template?: string;
@@ -335,6 +344,7 @@ export interface TaskItem {
   can_resolve?: boolean;
   resolve_failed?: boolean;
   quality?: QualitySelection;
+  post_processing?: PostProcessingSelection;
   external?: boolean;
   external_backend?: string;
   created_at?: string;

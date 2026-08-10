@@ -12,7 +12,7 @@ from backend.app.domains.settings import get_effective_saved_settings, get_effec
 from backend.app.integrations.swaratelle import client as swaratelle
 from backend.app.runtime.scratch import scratch_temp_path
 
-from .constants import normalize_quality_selection
+from .constants import normalize_post_processing, normalize_quality_selection
 from .engine import select_engine
 from .files import find_numbered_media_siblings, recover_task_path
 from .formats import reconstruct_url_candidates
@@ -41,7 +41,7 @@ def queue_task(
     template_settings: dict[str, str] | None = None,
     source_profiles: list[dict[str, Any]] | dict[str, Any] | None = None,
     source_templates: dict[str, Any] | None = None,
-    quality: dict[str, str] | None = None,
+    quality: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     source_url = canonicalize_source_url(source_url)
     if not source_url:
@@ -71,7 +71,20 @@ def queue_task(
     )
     # An empty request quality falls back to the saved default; frontend normally
     # sends the effective value already, so this only guards direct API callers.
-    quality = normalize_quality_selection(quality or get_effective_saved_settings(cfg).get("default_quality"))
+    saved_settings = get_effective_saved_settings(cfg)
+    requested_post_processing = quality.get("_post_processing") if isinstance(quality, dict) else None
+    requested_quality = (
+        {key: value for key, value in quality.items() if key != "_post_processing"}
+        if isinstance(quality, dict)
+        else {}
+    )
+    raw_quality = requested_quality or saved_settings.get("default_quality")
+    post_processing = normalize_post_processing(
+        requested_post_processing
+        if requested_post_processing is not None
+        else saved_settings.get("default_post_processing")
+    )
+    quality = normalize_quality_selection(raw_quality)
     source_key = resolved_settings.source_key
     output_dir = resolved_settings.output_dir
     if not is_allowed_location(output_dir):
@@ -93,6 +106,7 @@ def queue_task(
         "output_template": output_template,
         **template_columns(resolved_settings.template_settings),
         "quality": quality,
+        "post_processing": post_processing,
         "resolved_folder": output_dir,
         "resolved_filename": "",
         "resolved_full_path": "",

@@ -11,10 +11,20 @@ from backend.app.core.paths import path_key as _path_key
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
 from backend.app.domains.downloads.cache import drop_file_cache
-from backend.app.domains.downloads.constants import normalize_quality_selection, quality_needs_ffmpeg
+from backend.app.domains.downloads.constants import (
+    normalize_post_processing,
+    normalize_quality_selection,
+    quality_needs_ffmpeg,
+)
 from backend.app.domains.downloads.engine import Engine, all_engines, select_engine
 from backend.app.domains.downloads.history import save_history_entry
 from backend.app.domains.downloads.naming import detect_ffmpeg_location
+from backend.app.domains.downloads.postprocessing import (
+    apply_metadata_post_processing,
+)
+from backend.app.domains.downloads.postprocessing import (
+    metadata_sidecars_for as _metadata_sidecars_for,
+)
 from backend.app.domains.downloads.store import load_learned_formats, load_task, remove_task_record, update_task
 from backend.app.domains.downloads.templates import template_columns, template_settings_from_columns
 from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
@@ -30,6 +40,7 @@ from backend.app.domains.downloads.workers.completion import (
     _has_output_media,
     _learn_field_roles_from_download,
     _learn_source_format,
+    _probe_single_output_metadata_inline,
     _read_metadata_sidecar,
     _resolved_task_creator,
     _single_output_metadata_enrichment_needed,
@@ -115,6 +126,7 @@ def _run_engine_attempts(
     total_items: int,
     excluded_extensions: set[str] | None = None,
     quality: dict[str, str] | None = None,
+    post_processing: dict[str, Any] | None = None,
 ) -> tuple[int, str, list[str]]:
     def _attempt(cookies_file: str) -> tuple[int, str, list[str]]:
         cmd = engine.build_command(
@@ -127,6 +139,7 @@ def _run_engine_attempts(
             metadata_sidecar=metadata_sidecar,
             excluded_extensions=excluded_extensions,
             quality=quality,
+            post_processing=post_processing,
         )
         run_kwargs: dict[str, Any] = {"total_items": total_items}
         if quality and quality.get("mode") == "audio":
@@ -192,6 +205,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
 
     template_settings = _task_template_settings(task)
     quality = normalize_quality_selection(task.get("quality"))
+    post_processing = normalize_post_processing(task.get("post_processing"))
     raw_source_key = normalize_source_key(task.get("source_key"))
     task_source_key = raw_source_key or detect_source_key(source_url)
     cookie_source_key = raw_source_key or detect_cookie_source(source_url)
@@ -290,6 +304,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 total_items,
                 excluded_extensions,
                 quality,
+                post_processing,
             )
             if _cancel_pending(task_id):
                 break
@@ -322,10 +337,16 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
         if rc == 0 or output_records:
             filename_template = _filename_template(template_settings)
             metadata_by_path = _read_metadata_sidecar(metadata_sidecar)
+            if post_processing["metadata"]:
+                _probe_single_output_metadata_inline(
+                    output_records,
+                    metadata_by_path,
+                    source_url,
+                    task_source_key,
+                    template_settings,
+                )
             metadata_enrichment_needed = _single_output_metadata_enrichment_needed(
-                output_records,
-                metadata_by_path,
-                template_settings,
+                output_records, metadata_by_path, template_settings
             )
             output_records = _dedupe_output_records(
                 output_records,
@@ -373,6 +394,18 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                         row_engine = record["engine"].name
                         break
                 metadata = dict(group.get("metadata") or {})
+                raw_group_paths = [Path(path) for path in list(group.get("paths") or [raw_path])]
+                user_metadata_sidecars = (
+                    list(
+                        dict.fromkeys(
+                            sidecar
+                            for group_path in raw_group_paths
+                            for sidecar in _metadata_sidecars_for(group_path)
+                        )
+                    )
+                    if post_processing["metadata"]
+                    else []
+                )
                 finalized = _finalize_completed_output(
                     source_url=source_url,
                     source_key=task_source_key,
@@ -384,7 +417,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     quality=quality,
                     extra_tokens=extra_tokens,
                     token_roles=token_roles,
-                    group_paths=list(group.get("paths") or [raw_path]),
+                    group_paths=raw_group_paths,
                     creator_fallback=lambda item_url, filename: _resolved_task_creator(
                         used_engine,
                         creator_sidecar,
@@ -393,6 +426,18 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     ),
                     cache_dropper=drop_file_cache,
                 )
+                if post_processing["metadata"]:
+                    apply_metadata_post_processing(
+                        finalized.keep_paths,
+                        metadata,
+                        finalized,
+                        save_as=post_processing["save_as"],
+                        extra_tokens=extra_tokens,
+                        quality=quality,
+                        sidecars=user_metadata_sidecars,
+                        output_root=output_root,
+                    )
+                    drop_file_cache(finalized.keep_paths)
                 row_task_id = task_id if index == 0 else _child_task_id(
                     task_id,
                     finalized.media_id,
@@ -461,6 +506,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     output_root=str(output_root),
                     extra_tokens=extra_tokens,
                     token_roles=token_roles,
+                    post_processing=post_processing,
                     needs_metadata_probe=needs_metadata_probe,
                     needs_field_probe=needs_field_probe,
                 )

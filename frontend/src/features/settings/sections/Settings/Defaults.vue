@@ -352,6 +352,40 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
         <FieldLegend
           class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2"
         >
+          Post-Processing
+        </FieldLegend>
+        <FieldGroup class="gap-4">
+          <SegmentedControl
+            :model-value="settingsDraft.default_post_processing.save_as"
+            label="Save as"
+            label-placement="start"
+            @update:model-value="
+              (value) => {
+                if (value === 'sidecar' || value === 'embed')
+                  settingsDraft.default_post_processing.save_as = value;
+              }
+            "
+          >
+            <SegmentedControlItem value="sidecar">Sidecar</SegmentedControlItem>
+            <SegmentedControlItem value="embed">Embed</SegmentedControlItem>
+          </SegmentedControl>
+          <FieldLabel class="items-center cursor-pointer select-none text-sm">
+            <Checkbox
+              :checked="settingsDraft.default_post_processing.metadata"
+              @update:checked="
+                (value: boolean) =>
+                  (settingsDraft.default_post_processing.metadata = Boolean(value))
+              "
+            />
+            <span>Metadata</span>
+          </FieldLabel>
+        </FieldGroup>
+      </FieldSet>
+
+      <FieldSet class="mt-3">
+        <FieldLegend
+          class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2"
+        >
           Cookies
         </FieldLegend>
         <FieldGroup class="gap-4">

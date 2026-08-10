@@ -51,6 +51,23 @@ AUDIO_EXTENSIONS = {
     ".wav",
 }
 MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS | AUDIO_EXTENSIONS
+
+POST_PROCESSING_MODES = {"sidecar", "embed"}
+
+
+def normalize_post_processing(raw: Any) -> dict[str, Any]:
+    data = raw if isinstance(raw, dict) else {}
+    # `metadata_mode` was the first implementation's field name. Accept it while
+    # promoting the output choice to the whole post-processing group.
+    mode = str(data.get("save_as") or data.get("metadata_mode") or "").strip().lower()
+    return {
+        "metadata": bool(data.get("metadata", False)),
+        "save_as": mode if mode in POST_PROCESSING_MODES else "sidecar",
+    }
+
+
+def default_post_processing() -> dict[str, Any]:
+    return normalize_post_processing({})
 PROGRESS_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%")
 TEMPLATE_RE = re.compile(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}")
 # Template placeholders that identify the uploader across engines: the handle

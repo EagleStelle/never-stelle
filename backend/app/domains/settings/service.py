@@ -54,7 +54,7 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
 
 
 def _effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
-    from backend.app.domains.downloads.constants import normalize_quality_selection
+    from backend.app.domains.downloads.constants import normalize_post_processing, normalize_quality_selection
 
     cfg = cfg or load_app_config()
     payload = load_saved_settings_file()
@@ -78,6 +78,7 @@ def _effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, An
             token_roles,
         ),
         "default_quality": normalize_quality_selection(payload.get("default_quality")),
+        "default_post_processing": normalize_post_processing(payload.get("default_post_processing")),
         "ytdlp_cookies": get_ytdlp_cookies_status(source_profiles),
         "source_scrape_rules": get_effective_scrape_rules(payload),
         "source_token_roles": token_roles,
@@ -110,8 +111,9 @@ def persist_settings(
     raw_default_cookie_policy: Any = None,
     raw_default_fields: Any = None,
     raw_default_naming: Any = None,
+    raw_default_post_processing: Any = None,
 ) -> dict[str, Any]:
-    from backend.app.domains.downloads.constants import normalize_quality_selection
+    from backend.app.domains.downloads.constants import normalize_post_processing, normalize_quality_selection
 
     existing = load_saved_settings_file()
     source_profiles = get_effective_source_profiles(
@@ -173,6 +175,11 @@ def persist_settings(
             "default_quality": normalize_quality_selection(
                 raw_default_quality if raw_default_quality is not None else existing.get("default_quality")
             ),
+            "default_post_processing": normalize_post_processing(
+                raw_default_post_processing
+                if raw_default_post_processing is not None
+                else existing.get("default_post_processing")
+            ),
             "source_scrape_rules": normalized_scrape_rules,
             "source_token_roles": normalized_token_roles,
             "source_slug_tokens": normalized_slug_tokens,
@@ -201,6 +208,7 @@ def build_settings_response(
 ) -> dict[str, Any]:
     from backend.app.domains.auth import auth_public_payload
     from backend.app.domains.downloads.constants import (
+        default_post_processing,
         default_quality_selection,
         field_defaults,
         naming_choices,
@@ -223,6 +231,7 @@ def build_settings_response(
         "template_settings": saved.get("template_settings", normalize_template_settings({})),
         "source_templates": saved.get("source_templates", {}),
         "default_quality": saved.get("default_quality", default_quality_selection()),
+        "default_post_processing": saved.get("default_post_processing", default_post_processing()),
         "quality_options": quality_options(),
         "template_tokens": template_tokens(),
         "ytdlp_cookies": saved.get("ytdlp_cookies", get_ytdlp_cookies_status(saved.get("source_profiles"))),

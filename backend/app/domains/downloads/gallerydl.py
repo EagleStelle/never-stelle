@@ -22,6 +22,7 @@ from .constants import (
     audio_format_selector,
     audio_postprocess_format,
     audio_postprocess_quality,
+    normalize_post_processing,
     normalize_quality_selection,
     video_format_selector,
     video_merge_output_format,
@@ -87,7 +88,9 @@ _YTDL_JS_RUNTIMES = json.dumps({"node": {}}, separators=(",", ":"))
 _YTDL_REMOTE_COMPONENTS = json.dumps(["ejs:github"], separators=(",", ":"))
 
 
-def _ytdl_downloader_options(quality: dict[str, str] | None = None) -> list[str]:
+def _ytdl_downloader_options(
+    quality: dict[str, str] | None = None,
+) -> list[str]:
     selection = normalize_quality_selection(quality)
     audio_mode = selection["mode"] == "audio"
     format_string = (
@@ -317,6 +320,7 @@ def build_gallerydl_command(
     metadata_sidecar: str = "",
     excluded_extensions: set[str] | None = None,
     quality: dict[str, str] | None = None,
+    post_processing: dict[str, Any] | None = None,
 ) -> list[str]:
     folder, _, filename = str(output_template or "").partition(_TEMPLATE_SEP)
     directory = json.dumps(_directory_segments(folder), ensure_ascii=False)
@@ -334,6 +338,12 @@ def build_gallerydl_command(
         cmd.extend(["--filename", filename])
     if metadata_sidecar:
         cmd.extend(["--Print-to-file", f"after:{gallerydl_metadata_sidecar_format()}", metadata_sidecar])
+    processing = normalize_post_processing(post_processing)
+    if processing["metadata"]:
+        # Capture gallery-dl's complete extractor payload for the final
+        # post-processing stage. Embed mode consumes and removes this temporary
+        # sidecar after the app's metadata pipeline has resolved the final values.
+        cmd.extend(["--write-metadata", "--postprocessor-option", "private=true"])
     filter_expr = _excluded_extension_filter(excluded_extensions)
     if filter_expr:
         cmd.extend(["--filter", filter_expr])

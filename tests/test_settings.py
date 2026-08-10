@@ -90,6 +90,10 @@ def test_settings_response_exposes_supported_template_tokens_only(monkeypatch):
         "id",
         "quality",
     ]
+    assert response["default_post_processing"] == {
+        "metadata": False,
+        "save_as": "sidecar",
+    }
 
 
 def test_normalize_source_slug_tokens_validates_parts_and_dedupes():

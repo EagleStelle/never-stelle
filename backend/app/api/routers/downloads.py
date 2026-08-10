@@ -40,13 +40,18 @@ def add_download(payload: AddDownloadPayload) -> dict[str, Any]:
     errors: list[str] = []
     for target in targets:
         try:
+            # Preserve the long-standing queue_task call shape while carrying the
+            # independent post-processing selection through the request boundary.
+            quality = dict(payload.quality or {})
+            if payload.post_processing is not None:
+                quality["_post_processing"] = payload.post_processing
             task_created, task_reused = operations.queue_task(
                 target,
                 payload.source_locations,
                 payload.template_settings,
                 payload.source_profiles,
                 payload.source_templates,
-                payload.quality,
+                quality,
             )
         except Exception as exc:
             errors.append(str(exc))

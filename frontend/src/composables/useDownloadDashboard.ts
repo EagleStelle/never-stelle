@@ -21,6 +21,7 @@ import type {
   MediaFilter,
   MenuKey,
   PageKey,
+  PostProcessingSelection,
   QualitySelection,
   SettingsSection,
   SourceProfile,
@@ -30,6 +31,7 @@ import type {
 } from "@/types";
 import {
   createQualitySelection,
+  createPostProcessingSelection,
   countTasks,
   isFilterKey,
   isMediaFilter,
@@ -105,6 +107,10 @@ export function useDownloadDashboard() {
     createQualitySelection(),
   );
   const downloadQualityTouched = ref(false);
+  const downloadPostProcessing = reactive<PostProcessingSelection>(
+    createPostProcessingSelection(),
+  );
+  const downloadPostProcessingTouched = ref(false);
   const qualityOptions = computed(() => settingsState.settings.quality_options);
   function setDownloadQuality(selection: QualitySelection): void {
     downloadQualityTouched.value = true;
@@ -113,10 +119,19 @@ export function useDownloadDashboard() {
       createQualitySelection(selection, qualityOptions.value),
     );
   }
+  function setDownloadPostProcessing(selection: PostProcessingSelection): void {
+    downloadPostProcessingTouched.value = true;
+    Object.assign(
+      downloadPostProcessing,
+      createPostProcessingSelection(selection),
+    );
+  }
   const taskQueue = useTaskQueue({
     getSavedSettings: settingsState.getSavedSettings,
     getQuality: () =>
       createQualitySelection(downloadSelection, qualityOptions.value),
+    getPostProcessing: () =>
+      createPostProcessingSelection(downloadPostProcessing),
     toast: sonner.toast,
     url,
   });
@@ -127,6 +142,17 @@ export function useDownloadDashboard() {
         Object.assign(
           downloadSelection,
           createQualitySelection(value, qualityOptions.value),
+        );
+    },
+    { deep: true, immediate: true },
+  );
+  watch(
+    () => settingsState.settings.default_post_processing,
+    (value) => {
+      if (!downloadPostProcessingTouched.value)
+        Object.assign(
+          downloadPostProcessing,
+          createPostProcessingSelection(value),
         );
     },
     { deep: true, immediate: true },
@@ -447,8 +473,10 @@ export function useDownloadDashboard() {
     toggleThemeMode,
     url,
     downloadSelection,
+    downloadPostProcessing,
     qualityOptions,
     setDownloadQuality,
+    setDownloadPostProcessing,
     viewMode,
     ...settingsState,
     sourceProfiles,

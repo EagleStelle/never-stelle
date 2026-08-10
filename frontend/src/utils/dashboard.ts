@@ -22,6 +22,8 @@ import {
   type MediaMode,
   type MenuKey,
   type PageKey,
+  type PostProcessingSelection,
+  type PostProcessingSaveAs,
   type QualityOptions,
   type QualityPreset,
   type QualitySelection,
@@ -509,6 +511,18 @@ export function createQualitySelection(
       options.audio_bitrates,
       "best",
     ),
+  };
+}
+
+export function createPostProcessingSelection(
+  source: Partial<PostProcessingSelection> & { metadata_mode?: PostProcessingSaveAs } = {},
+): PostProcessingSelection {
+  return {
+    metadata: Boolean(source.metadata),
+    save_as:
+      source.save_as === "embed" || source.metadata_mode === "embed"
+        ? "embed"
+        : "sidecar",
   };
 }
 

@@ -47,6 +47,7 @@ class Engine:
         metadata_sidecar: str = "",
         excluded_extensions: set[str] | None = None,
         quality: dict[str, str] | None = None,
+        post_processing: dict[str, Any] | None = None,
     ) -> list[str]:
         raise NotImplementedError
 
@@ -88,6 +89,7 @@ class YtdlpEngine(Engine):
         metadata_sidecar: str = "",
         excluded_extensions: set[str] | None = None,
         quality: dict[str, str] | None = None,
+        post_processing: dict[str, Any] | None = None,
     ) -> list[str]:
         return ytdlp.build_ytdlp_command(
             source_url,
@@ -97,6 +99,7 @@ class YtdlpEngine(Engine):
             creator_sidecar=creator_sidecar,
             metadata_sidecar=metadata_sidecar,
             quality=quality,
+            post_processing=post_processing,
         )
 
     def parse_progress(self, line: str) -> float | None:
@@ -151,6 +154,7 @@ class GallerydlEngine(Engine):
         metadata_sidecar: str = "",
         excluded_extensions: set[str] | None = None,
         quality: dict[str, str] | None = None,
+        post_processing: dict[str, Any] | None = None,
     ) -> list[str]:
         return gallerydl.build_gallerydl_command(
             source_url,
@@ -160,6 +164,7 @@ class GallerydlEngine(Engine):
             metadata_sidecar=metadata_sidecar,
             excluded_extensions=excluded_extensions,
             quality=quality,
+            post_processing=post_processing,
         )
 
     def parse_progress(self, line: str) -> float | None:

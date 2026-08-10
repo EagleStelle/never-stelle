@@ -63,6 +63,7 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
         payload.default_cookie_policy,
         payload.default_fields,
         payload.default_naming,
+        payload.default_post_processing,
     )
     return build_settings_response(cfg, saved)
 
