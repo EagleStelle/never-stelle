@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from backend.app.domains.downloads.workers.processes import raise_if_cancelled, run_task_subprocess
 from backend.app.runtime.scratch import publish_scratch_file, remove_scratch_path, scratch_temp_path
 
 from .constants import (
@@ -61,7 +62,7 @@ def _encode_args(selection: dict[str, str]) -> list[str]:
 def _run_ffmpeg(ffmpeg: str, source: Path, target: Path, codec_args: list[str]) -> bool:
     cmd = [ffmpeg, "-y", "-loglevel", "error", "-i", str(source), "-vn", *codec_args, str(target)]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = run_task_subprocess(cmd, capture_output=True, text=True)
     except (OSError, subprocess.SubprocessError):
         return False
     if result.returncode == 0 and target.is_file() and target.stat().st_size > 0:
@@ -88,7 +89,7 @@ def convert_audio_output(source: Path, target: Path, quality: dict[str, str] | N
             converted = _run_ffmpeg(ffmpeg, source, temporary, _encode_args(selection))
         if not converted:
             return False
-        publish_scratch_file(temporary, target)
+        publish_scratch_file(temporary, target, cancel_check=raise_if_cancelled)
         return True
     finally:
         remove_scratch_path(temporary)

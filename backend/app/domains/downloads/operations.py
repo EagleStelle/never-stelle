@@ -32,7 +32,7 @@ from .store import (
 )
 from .templates import template_columns, template_settings_from_columns
 from .urls import canonicalize_source_url, detect_source_key, resolve_redirect_url
-from .worker import ensure_worker, has_active_process, request_cancel
+from .worker import ensure_worker, has_active_task, request_cancel
 
 
 def queue_task(
@@ -155,15 +155,25 @@ def cancel_task(task_id: str) -> None:
         return
     status = task.get("status")
     if status == "running":
-        if has_active_process(task_id):
-            # Signal the worker thread; it kills the subprocess and drops the row.
+        if has_active_task(task_id):
+            # Signal the whole task lifetime. This also interrupts finalization,
+            # where there may be no downloader subprocess at this instant.
             request_cancel(task_id)
         else:
-            # Orphaned running row (crash debris) has no process to signal.
+            # Orphaned running row (crash debris) has no worker to signal.
             remove_task_record(task_id)
         return
     if status == "pending":
-        remove_task_record_if_status(task_id, {"pending"})
+        if remove_task_record_if_status(task_id, {"pending"}):
+            return
+        # The scheduler may have claimed it after our read. Re-evaluate instead
+        # of returning success while the newly-running task continues.
+        latest = (load_task_store().get("tasks") or {}).get(task_id)
+        if latest and latest.get("status") == "running":
+            if has_active_task(task_id):
+                request_cancel(task_id)
+            else:
+                remove_task_record(task_id)
         return
     raise PermissionError("Only active or queued downloads can be cancelled.")
 

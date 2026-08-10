@@ -12,6 +12,7 @@ from backend.app.domains.downloads.store import (
     pending_task_count,
 )
 from backend.app.domains.downloads.workers.execution import run_task
+from backend.app.domains.downloads.workers.processes import task_execution
 
 _worker_lock = threading.Lock()
 _worker_started = False
@@ -63,10 +64,13 @@ def _worker_loop() -> None:
                     if not (task_id and task):
                         _active_worker_count -= 1
                         return
-            claimed_task = claim_pending_task(task_id)
-            if claimed_task:
-                # Any remaining pending tasks get their own worker, up to the cap.
-                ensure_worker()
-                run_task(task_id, claimed_task, mark_running=False)
+            # Reserve the task before changing pending -> running. This closes the
+            # narrow cancellation race between the queue claim and run_task entry.
+            with task_execution(task_id):
+                claimed_task = claim_pending_task(task_id)
+                if claimed_task:
+                    # Any remaining pending tasks get their own worker, up to the cap.
+                    ensure_worker()
+                    run_task(task_id, claimed_task, mark_running=False)
         except Exception:
             time.sleep(1)

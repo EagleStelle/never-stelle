@@ -23,6 +23,7 @@ from backend.app.domains.downloads.store import (
 )
 from tests.support import use_temp_db
 
+
 @pytest.fixture(autouse=True)
 def _fresh_pass_counts():
     resolve_module._passes.clear()

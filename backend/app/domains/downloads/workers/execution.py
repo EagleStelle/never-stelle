@@ -48,7 +48,13 @@ from backend.app.domains.downloads.workers.completion import (
 )
 from backend.app.domains.downloads.workers.enrichment import enqueue_completion_enrichment
 from backend.app.domains.downloads.workers.pathing import _fallback_excluded_extensions
-from backend.app.domains.downloads.workers.processes import _cancel_pending, _clear_cancel
+from backend.app.domains.downloads.workers.processes import (
+    TaskCancelled,
+    _cancel_pending,
+    current_task_id,
+    raise_if_cancelled,
+    task_execution,
+)
 from backend.app.domains.downloads.workers.runner import _run_engine_to_task
 from backend.app.domains.settings import (
     cookie_rotation,
@@ -192,8 +198,15 @@ def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -
     # One resolution scope for the whole download: config, saved settings, source
     # profiles and per-source field rules are otherwise rebuilt for every output
     # item, which made a large gallery cost more in settings lookups than in I/O.
-    with resolution_scope():
-        _run_task(task_id, task, mark_running=mark_running)
+    try:
+        if current_task_id() == task_id:
+            with resolution_scope():
+                _run_task(task_id, task, mark_running=mark_running)
+        else:
+            with task_execution(task_id), resolution_scope():
+                _run_task(task_id, task, mark_running=mark_running)
+    except TaskCancelled:
+        remove_task_record(task_id)
 
 
 def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
@@ -254,6 +267,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
     output_records: list[dict[str, Any]] = []
     output_record_keys: set[str] = set()
     try:
+        raise_if_cancelled(task_id)
         if mark_running:
             update_task(task_id, status="running", progress_pct=0, error="", last_log_lines=[])
 
@@ -330,16 +344,15 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 continue
             break
 
-        if _cancel_pending(task_id):
-            _clear_cancel(task_id)
-            remove_task_record(task_id)
-            return
+        raise_if_cancelled(task_id)
 
         current_task = load_task(task_id)
         if rc == 0 or output_records:
+            raise_if_cancelled(task_id)
             filename_template = _filename_template(template_settings)
             metadata_by_path = _read_metadata_sidecar(metadata_sidecar)
             if has_post_processing:
+                raise_if_cancelled(task_id)
                 _probe_single_output_metadata_inline(
                     output_records,
                     metadata_by_path,
@@ -350,6 +363,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
             metadata_enrichment_needed = _single_output_metadata_enrichment_needed(
                 output_records, metadata_by_path, template_settings
             )
+            raise_if_cancelled(task_id)
             output_records = _dedupe_output_records(
                 output_records,
                 filename_template,
@@ -390,6 +404,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
             field_roles_ready = False
             field_roles_checked = False
             for index, group in enumerate(groups):
+                raise_if_cancelled(task_id)
                 media_id = str(group.get("media_id") or "").strip()
                 raw_path = Path(group["path"])
                 row_engine = used_engine.name
@@ -418,6 +433,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 # Complete extractor values re-enter the normal Fields namespace;
                 # the compact after_move row remains authoritative where present.
                 metadata = {**_extractor_metadata_fields(extractor_payload), **metadata}
+                raise_if_cancelled(task_id)
                 finalized = _finalize_completed_output(
                     source_url=source_url,
                     source_key=task_source_key,
@@ -438,6 +454,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     ),
                     cache_dropper=drop_file_cache,
                 )
+                raise_if_cancelled(task_id)
                 if apply_finalized_post_processing(
                     finalized.keep_paths,
                     metadata,
@@ -449,6 +466,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     extractor_payload=extractor_payload,
                 ):
                     drop_file_cache(finalized.keep_paths)
+                raise_if_cancelled(task_id)
                 row_task_id = task_id if index == 0 else _child_task_id(
                     task_id,
                     finalized.media_id,
@@ -462,26 +480,32 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                         metadata,
                     )
                     field_roles_checked = True
-                completed_task = update_task(
-                    row_task_id,
-                    status="completed",
-                    progress_pct=100,
-                    error="",
-                    engine=row_engine,
-                    creator=finalized.creator,
-                    media_id=finalized.media_id,
-                    source_url=finalized.source_url,
-                    source_key=finalized.source_key,
-                    resolved_full_path=str(finalized.final_path),
-                    resolved_folder=str(finalized.final_path.parent),
-                    resolved_filename=finalized.display_filename,
-                    title=finalized.title,
-                    last_log_lines=[],
-                    output_dir="",
-                    output_template="",
-                    **template_columns(template_settings),
+                # Keep the primary row running until every output has finished.
+                # Otherwise a multi-item task becomes non-cancellable while later
+                # items are still being finalized in this worker.
+                completed_rows.append(
+                    (
+                        row_task_id,
+                        {
+                            "status": "completed",
+                            "progress_pct": 100,
+                            "error": "",
+                            "engine": row_engine,
+                            "creator": finalized.creator,
+                            "media_id": finalized.media_id,
+                            "source_url": finalized.source_url,
+                            "source_key": finalized.source_key,
+                            "resolved_full_path": str(finalized.final_path),
+                            "resolved_folder": str(finalized.final_path.parent),
+                            "resolved_filename": finalized.display_filename,
+                            "title": finalized.title,
+                            "last_log_lines": [],
+                            "output_dir": "",
+                            "output_template": "",
+                            **template_columns(template_settings),
+                        },
+                    )
                 )
-                completed_rows.append((row_task_id, completed_task))
                 format_learned = _learn_source_format(
                     finalized.source_url,
                     finalized.display_filename,
@@ -500,7 +524,9 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                             needs_field_probe,
                         )
                     )
-            for row_task_id, completed_task in completed_rows:
+            raise_if_cancelled(task_id)
+            for row_task_id, completed_updates in completed_rows:
+                completed_task = update_task(row_task_id, **completed_updates)
                 save_history_entry(row_task_id, completed_task)
                 remove_task_record(row_task_id)
             for (
@@ -529,9 +555,10 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
             error=_combined_failure_detail(failure_details)
             or _failure_detail(used_engine, rc, current_task),
         )
+    except TaskCancelled:
+        raise
     except Exception as exc:
         if _cancel_pending(task_id):
-            _clear_cancel(task_id)
             remove_task_record(task_id)
         else:
             update_task(task_id, status="failed", error=str(exc))

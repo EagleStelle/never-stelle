@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import errno
-import shutil
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -50,13 +49,21 @@ def scratch_file(*, prefix: str, suffix: str) -> Iterator[Path]:
         remove_scratch_path(path)
 
 
-def _copy_file(source: Path, target: Path) -> None:
+def _copy_file(source: Path, target: Path, cancel_check: Callable[[], None] | None = None) -> None:
     with source.open("rb") as source_file, target.open("wb") as target_file:
-        shutil.copyfileobj(source_file, target_file, length=1024 * 1024)
+        while chunk := source_file.read(1024 * 1024):
+            if cancel_check is not None:
+                cancel_check()
+            target_file.write(chunk)
         target_file.flush()
 
 
-def publish_scratch_file(source: str | Path, target: str | Path) -> Path:
+def publish_scratch_file(
+    source: str | Path,
+    target: str | Path,
+    *,
+    cancel_check: Callable[[], None] | None = None,
+) -> Path:
     """Publish a completed scratch file across regular and mounted filesystems."""
     root = SCRATCH_DIR.resolve()
     source_path = Path(source).resolve(strict=False)
@@ -85,7 +92,7 @@ def publish_scratch_file(source: str | Path, target: str | Path) -> Path:
     ) as runtime_file:
         staging_path = Path(runtime_file.name)
     try:
-        _copy_file(source_path, staging_path)
+        _copy_file(source_path, staging_path, cancel_check)
         staging_path.replace(target_path)
     finally:
         staging_path.unlink(missing_ok=True)
@@ -109,6 +116,8 @@ def remove_scratch_path(path: str | Path) -> None:
 def _remove_path(path: Path) -> None:
     try:
         if path.is_dir():
+            import shutil
+
             shutil.rmtree(path, ignore_errors=True)
         else:
             path.unlink(missing_ok=True)

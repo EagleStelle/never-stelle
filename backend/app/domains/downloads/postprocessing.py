@@ -19,6 +19,12 @@ from backend.app.domains.downloads.constants import (
     post_processing_requested,
 )
 from backend.app.domains.downloads.naming import detect_ffmpeg_location
+from backend.app.domains.downloads.workers.processes import (
+    TaskCancelled,
+    cancel_on_request,
+    raise_if_cancelled,
+    run_task_subprocess,
+)
 from backend.app.runtime.scratch import (
     publish_scratch_file,
     remove_scratch_path,
@@ -218,7 +224,7 @@ def _write_sidecar(path: Path, payload: dict[str, Any]) -> Path:
             json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
             encoding="utf-8",
         )
-        publish_scratch_file(temporary, target)
+        publish_scratch_file(temporary, target, cancel_check=raise_if_cancelled)
     return target
 
 
@@ -278,16 +284,30 @@ def _download_thumbnail(payload: dict[str, Any]) -> tuple[bytes, str]:
     if not url or urlparse(url).scheme.lower() not in {"http", "https"}:
         return b"", ""
     try:
+        raise_if_cancelled()
         request = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(request, timeout=30) as response:
-            content_length = str(response.headers.get("Content-Length") or "").strip()
-            if content_length and int(content_length) > _MAX_THUMBNAIL_BYTES:
-                raise ValueError("thumbnail exceeds the 50 MiB limit")
-            data = response.read(_MAX_THUMBNAIL_BYTES + 1)
-            if len(data) > _MAX_THUMBNAIL_BYTES:
-                raise ValueError("thumbnail exceeds the 50 MiB limit")
-            content_type = str(response.headers.get("Content-Type") or "")
+            with cancel_on_request(response.close):
+                content_length = str(response.headers.get("Content-Length") or "").strip()
+                if content_length and int(content_length) > _MAX_THUMBNAIL_BYTES:
+                    raise ValueError("thumbnail exceeds the 50 MiB limit")
+                chunks: list[bytes] = []
+                remaining = _MAX_THUMBNAIL_BYTES + 1
+                while remaining > 0:
+                    raise_if_cancelled()
+                    chunk = response.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                data = b"".join(chunks)
+                if len(data) > _MAX_THUMBNAIL_BYTES:
+                    raise ValueError("thumbnail exceeds the 50 MiB limit")
+                content_type = str(response.headers.get("Content-Type") or "")
+    except TaskCancelled:
+        raise
     except (OSError, TypeError, ValueError, urllib.error.URLError) as exc:
+        raise_if_cancelled()
         logger.warning("Thumbnail extraction skipped for %s: %s", url, exc)
         return b"", ""
     if not data:
@@ -306,7 +326,7 @@ def _write_thumbnail_sidecar(path: Path, data: bytes, extension: str) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     with scratch_file(prefix="nvs-thumbnail-sidecar-", suffix=extension) as temporary:
         temporary.write_bytes(data)
-        publish_scratch_file(temporary, target)
+        publish_scratch_file(temporary, target, cancel_check=raise_if_cancelled)
     return target
 
 
@@ -327,7 +347,7 @@ def _convert_thumbnail_for_embedding(ffmpeg: str, thumbnail: Path) -> Path | Non
         return thumbnail
     output_path = scratch_temp_path(prefix="nvs-converted-cover-", suffix=".png")
     try:
-        result = subprocess.run(
+        result = run_task_subprocess(
             [
                 ffmpeg,
                 "-y",
@@ -348,6 +368,9 @@ def _convert_thumbnail_for_embedding(ffmpeg: str, thumbnail: Path) -> Path | Non
             return output_path
         detail = (result.stderr or result.stdout or "ffmpeg returned no output").strip()
         logger.warning("Thumbnail conversion skipped for %s: %s", thumbnail, detail)
+    except TaskCancelled:
+        remove_scratch_path(output_path)
+        raise
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("Thumbnail conversion skipped for %s: %s", thumbnail, exc)
     remove_scratch_path(output_path)
@@ -448,7 +471,7 @@ def _ffprobe_streams(ffmpeg: str, path: Path) -> list[dict[str, Any]]:
     if not ffprobe.is_file():
         return []
     try:
-        result = subprocess.run(
+        result = run_task_subprocess(
             [
                 str(ffprobe),
                 "-v",
@@ -518,12 +541,12 @@ def _embed_matroska_thumbnail(ffmpeg: str, path: Path, thumbnail: Path) -> bool:
                 str(output_path),
             ]
         )
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = run_task_subprocess(cmd, capture_output=True, text=True)
         if result.returncode != 0 or not output_path.is_file() or output_path.stat().st_size <= 0:
             detail = (result.stderr or result.stdout or "ffmpeg returned no output").strip()
             logger.warning("Thumbnail embed skipped for %s: %s", path, detail)
             return False
-        publish_scratch_file(output_path, path)
+        publish_scratch_file(output_path, path, cancel_check=raise_if_cancelled)
         return True
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("Thumbnail embed skipped for %s: %s", path, exc)
@@ -617,12 +640,12 @@ def _embed_metadata(
         for key, value in _embedded_tags(payload).items():
             cmd.extend(["-metadata", f"{key}={value}"])
         cmd.append(str(output_path))
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = run_task_subprocess(cmd, capture_output=True, text=True)
         if result.returncode != 0 or not output_path.is_file() or output_path.stat().st_size <= 0:
             detail = (result.stderr or result.stdout or "ffmpeg returned no output").strip()
             logger.warning("Metadata embed skipped for %s: %s", path, detail)
             return False
-        publish_scratch_file(output_path, path)
+        publish_scratch_file(output_path, path, cancel_check=raise_if_cancelled)
         return True
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("Metadata embed skipped for %s: %s", path, exc)
@@ -698,6 +721,7 @@ def apply_thumbnail_post_processing(
     prepared_thumbnail: tuple[bytes, str] | None = None,
     silent_unsupported: bool = False,
 ) -> None:
+    raise_if_cancelled()
     source_sidecars = list(sidecars or [])
     data, extension = prepared_thumbnail or prepare_thumbnail_post_processing(
         metadata,
@@ -715,9 +739,11 @@ def apply_thumbnail_post_processing(
                 )
                 temporary_thumbnail.write_bytes(data)
                 for path in paths:
+                    raise_if_cancelled()
                     _embed_thumbnail(path, temporary_thumbnail, silent_unsupported=silent_unsupported)
             else:
                 for path in paths:
+                    raise_if_cancelled()
                     _write_thumbnail_sidecar(path, data, extension)
         finally:
             if temporary_thumbnail is not None:
@@ -899,7 +925,7 @@ def _write_subtitle_sidecar(path: Path, track: dict[str, Any]) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = _materialize_subtitle_track(track)
     try:
-        publish_scratch_file(temporary, target)
+        publish_scratch_file(temporary, target, cancel_check=raise_if_cancelled)
     finally:
         remove_scratch_path(temporary)
     return target
@@ -967,7 +993,7 @@ def _build_subtitle_bundle(ffmpeg: str, tracks: list[dict[str, Any]]) -> Path | 
             for offset, track in enumerate(batch):
                 _subtitle_stream_metadata(cmd, start + offset, track)
             cmd.append(str(next_bundle))
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = run_task_subprocess(cmd, capture_output=True, text=True)
             expected = start + len(batch)
             if (
                 result.returncode != 0
@@ -984,6 +1010,10 @@ def _build_subtitle_bundle(ffmpeg: str, tracks: list[dict[str, Any]]) -> Path | 
                 remove_scratch_path(bundle_path)
             bundle_path = next_bundle
             next_bundle = None
+        except TaskCancelled:
+            if bundle_path is not None:
+                remove_scratch_path(bundle_path)
+            raise
         except (OSError, subprocess.SubprocessError, KeyError, TypeError, ValueError) as exc:
             logger.warning("Subtitle embed skipped: %s", exc)
             if bundle_path is not None:
@@ -1049,7 +1079,7 @@ def _embed_subtitles(
             for offset, track in enumerate(tracks):
                 _subtitle_stream_metadata(cmd, existing_subtitles + offset, track)
         cmd.append(str(output_path))
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = run_task_subprocess(cmd, capture_output=True, text=True)
         if (
             result.returncode != 0
             or not output_path.is_file()
@@ -1059,7 +1089,7 @@ def _embed_subtitles(
             detail = (result.stderr or result.stdout or "ffmpeg returned no output").strip()
             logger.warning("Subtitle embed skipped for %s: %s", path, detail)
             return False
-        publish_scratch_file(output_path, path)
+        publish_scratch_file(output_path, path, cancel_check=raise_if_cancelled)
         return True
     except (OSError, subprocess.SubprocessError, KeyError, TypeError, ValueError) as exc:
         logger.warning("Subtitle embed skipped for %s: %s", path, exc)
@@ -1085,6 +1115,7 @@ def apply_subtitle_post_processing(
     prepared_subtitles: list[dict[str, Any]] | None = None,
     silent_unsupported: bool = False,
 ) -> None:
+    raise_if_cancelled()
     source_sidecars = list(sidecars or [])
     tracks = prepared_subtitles
     if tracks is None:
@@ -1101,9 +1132,11 @@ def apply_subtitle_post_processing(
     if tracks:
         if save_as == "embed":
             for path in paths:
+                raise_if_cancelled()
                 _embed_subtitles(path, tracks, silent_unsupported=silent_unsupported)
         else:
             for path in paths:
+                raise_if_cancelled()
                 for track in tracks:
                     _write_subtitle_sidecar(path, track)
     if cleanup_sidecars:
@@ -1178,7 +1211,7 @@ def _write_chapter_sidecar(path: Path, chapters: list[dict[str, Any]]) -> Path:
             json.dumps({"chapters": chapters}, ensure_ascii=False, indent=2, default=str) + "\n",
             encoding="utf-8",
         )
-        publish_scratch_file(temporary, target)
+        publish_scratch_file(temporary, target, cancel_check=raise_if_cancelled)
     return target
 
 
@@ -1247,12 +1280,12 @@ def _embed_chapters(
             "copy",
             str(output_path),
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = run_task_subprocess(cmd, capture_output=True, text=True)
         if result.returncode != 0 or not output_path.is_file() or output_path.stat().st_size <= 0:
             detail = (result.stderr or result.stdout or "ffmpeg returned no output").strip()
             logger.warning("Chapter embed skipped for %s: %s", path, detail)
             return False
-        publish_scratch_file(output_path, path)
+        publish_scratch_file(output_path, path, cancel_check=raise_if_cancelled)
         return True
     except (OSError, subprocess.SubprocessError, KeyError, TypeError, ValueError) as exc:
         logger.warning("Chapter embed skipped for %s: %s", path, exc)
@@ -1273,6 +1306,7 @@ def apply_chapter_post_processing(
     prepared_chapters: list[dict[str, Any]] | None = None,
     silent_unsupported: bool = False,
 ) -> None:
+    raise_if_cancelled()
     source_sidecars = list(sidecars or [])
     chapters = prepared_chapters
     if chapters is None:
@@ -1281,9 +1315,11 @@ def apply_chapter_post_processing(
         logger.warning("Chapter extraction skipped: the extractor returned no usable chapters")
     elif save_as == "embed":
         for path in paths:
+            raise_if_cancelled()
             _embed_chapters(path, chapters, silent_unsupported=silent_unsupported)
     else:
         for path in paths:
+            raise_if_cancelled()
             _write_chapter_sidecar(path, chapters)
     if cleanup_sidecars:
         _remove_source_sidecars(source_sidecars, output_root)
@@ -1301,9 +1337,11 @@ def apply_metadata_post_processing(
     extractor_payload: dict[str, Any] | None = None,
     cleanup_sidecars: bool = True,
 ) -> set[Path]:
+    raise_if_cancelled()
     source_sidecars = list(sidecars or [])
     canonical_sidecars: set[Path] = set()
     for path in paths:
+        raise_if_cancelled()
         payload = finalized_metadata_payload(
             metadata,
             finalized,
@@ -1332,6 +1370,7 @@ def apply_finalized_post_processing(
     extractor_payload: dict[str, Any] | None = None,
 ) -> bool:
     """Apply every selected final-output processor through one ordered pipeline."""
+    raise_if_cancelled()
     processing = normalize_post_processing(post_processing)
     if not post_processing_requested(processing):
         return False
@@ -1394,6 +1433,7 @@ def apply_finalized_post_processing(
             extractor_payload=extractor_payload,
             cleanup_sidecars=False,
         )
+    raise_if_cancelled()
     if subtitles_requested:
         apply_subtitle_post_processing(
             paths,
@@ -1407,6 +1447,7 @@ def apply_finalized_post_processing(
             prepared_subtitles=prepared_subtitles,
             silent_unsupported=silent_unsupported,
         )
+    raise_if_cancelled()
     if processing["chapters"]:
         apply_chapter_post_processing(
             paths,
@@ -1418,6 +1459,7 @@ def apply_finalized_post_processing(
             prepared_chapters=prepared_chapters,
             silent_unsupported=silent_unsupported,
         )
+    raise_if_cancelled()
     if processing["thumbnail"]:
         # FFmpeg's Matroska muxer turns an existing attached-picture stream
         # into a regular MJPEG/PNG video stream during a later subtitle or
@@ -1433,5 +1475,6 @@ def apply_finalized_post_processing(
             prepared_thumbnail=prepared_thumbnail,
             silent_unsupported=silent_unsupported,
         )
+    raise_if_cancelled()
     _remove_source_sidecars(source_sidecars, output_root, keep=canonical_sidecars)
     return True

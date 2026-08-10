@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
 
 from backend.app.core.sources import normalize_source_key, source_key_from_url
+from backend.app.domains.downloads.workers.processes import run_task_subprocess
 from backend.app.domains.settings import (
     cookie_rotation,
     detect_cookie_source,
@@ -49,7 +50,7 @@ def _run_probe_command(
             nice = shutil.which("nice")
             if nice:
                 run_cmd = [nice, "-n", "10", *run_cmd]
-    return subprocess.run(run_cmd, **run_kwargs)
+    return run_task_subprocess(run_cmd, **run_kwargs)
 
 
 def _probe_cookie_source_keys(url: str, source_key: str = "") -> list[str]:
