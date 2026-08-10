@@ -5,6 +5,9 @@ from typing import Any
 
 from backend.app.domains.downloads.constants import normalize_title_cleaning
 from backend.app.domains.downloads.naming import sanitize_path_literal
+from backend.app.domains.settings import is_scraper_field
+
+_DEFAULT_TITLE_FIELDS = ("title", "fulltitle", "content", "caption", "description", "alt_text")
 
 
 def _field_value(fields: dict[str, str], *names: str) -> str:
@@ -14,20 +17,17 @@ def _field_value(fields: dict[str, str], *names: str) -> str:
             return value
     return ""
 
-def _metadata_title(metadata: dict[str, str], source_url: str = "") -> str:
-    if source_url:
-        from backend.app.domains.settings import get_effective_fields, is_scraper_field
-        for field in get_effective_fields(source_url).get("title") or ():
-            if is_scraper_field(field):
-                continue
+def _ordered_metadata_value(metadata: dict[str, str], fields: tuple[str, ...] | list[str]) -> str:
+    for field in fields:
+        if not is_scraper_field(field):
             value = str(metadata.get(field) or "").strip()
             if value:
                 return value
-    for key in ("title", "fulltitle", "content", "caption", "description", "alt_text"):
-        value = str(metadata.get(key) or "").strip()
-        if value:
-            return value
     return ""
+
+
+def _metadata_title(metadata: dict[str, str], configured_fields: tuple[str, ...] | list[str] = ()) -> str:
+    return _ordered_metadata_value(metadata, configured_fields or _DEFAULT_TITLE_FIELDS)
 
 def _clean_creator_candidate(value: str, *, strip_at: bool = True) -> str:
     value = str(value or "").strip()

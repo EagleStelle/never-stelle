@@ -271,6 +271,11 @@ def build_ytdlp_command(
                 "--no-clean-info-json",
             ]
         )
+    if audio_mode and processing["metadata"] and processing["thumbnail"]:
+        # The normal YouTube clients expose the page thumbnail. Adding the
+        # music client also exposes original square album art for Art Tracks,
+        # while `default` retains the downloadable audio formats.
+        cmd.extend(["--extractor-args", "youtube:player_client=default,web_music"])
     cmd.extend(["--js-runtimes", "node", "--remote-components", "ejs:github"])
     # --print-to-file (unlike --print) keeps normal progress output intact; the
     # after_move stage runs on real downloads, never in simulate mode.

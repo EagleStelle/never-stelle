@@ -44,6 +44,7 @@ RUN --mount=type=cache,id=never-stelle-ffmpeg-source,target=/var/cache/ffmpeg \
     openssl-dev \
     opus-dev \
     pkgconf \
+    x264-dev \
     xz \
     zlib-dev \
     && archive="/var/cache/ffmpeg/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
@@ -73,6 +74,8 @@ RUN --mount=type=cache,id=never-stelle-ffmpeg-source,target=/var/cache/ffmpeg \
     --disable-everything \
     --disable-static \
     --disable-stripping \
+    --enable-gpl \
+    --enable-version3 \
     --enable-ffmpeg \
     --enable-ffprobe \
     --enable-shared \
@@ -90,6 +93,8 @@ RUN --mount=type=cache,id=never-stelle-ffmpeg-source,target=/var/cache/ffmpeg \
     --enable-encoder=aac,ass,flac,libmp3lame,libopus,mjpeg,movtext,pcm_s16le,png,subrip,webvtt \
     --enable-libmp3lame \
     --enable-libopus \
+    --enable-libx264 \
+    --enable-encoder=libx264 \
     --enable-zlib \
     --extra-cflags="-Os -ffunction-sections -fdata-sections" \
     --extra-ldflags="-Wl,--as-needed -Wl,--gc-sections" \
@@ -125,7 +130,7 @@ ENV LD_LIBRARY_PATH=/opt/ffmpeg/lib \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
 
-RUN apk add --no-cache ca-certificates lame-libs opus nodejs upx binutils \
+RUN apk add --no-cache ca-certificates lame-libs opus nodejs x264-libs upx binutils \
     && upx --fast /usr/bin/node \
     && apk del upx binutils \
     && rm -rf /usr/lib/node_modules/npm /usr/bin/npm /usr/bin/npx /usr/share/man /usr/share/doc \

@@ -210,6 +210,49 @@ def test_thumbnail_options_capture_extractor_payload_for_finalization():
     assert "--embed-thumbnail" not in fallback
 
 
+def test_audio_metadata_and_thumbnail_request_youtube_music_cover_metadata():
+    processing = {"metadata": True, "thumbnail": True, "save_as": "embed"}
+    quality = {"mode": "audio", "audio_format": "mp3"}
+    both = ytdlp.build_ytdlp_command(
+        "https://www.youtube.com/watch?v=Yb9FzUPpk0Y",
+        "/usr/bin/ffmpeg",
+        "/media/%(id)s.%(ext)s",
+        quality=quality,
+        post_processing=processing,
+    )
+    assert both[both.index("--extractor-args") + 1] == "youtube:player_client=default,web_music"
+
+    delegated = gallerydl.build_gallerydl_command(
+        "https://www.youtube.com/watch?v=Yb9FzUPpk0Y",
+        "/media",
+        "\x1f{id}.{extension}",
+        metadata_sidecar="/scratch/task/downloads.tsv",
+        quality=quality,
+        post_processing=processing,
+    )
+    expected_args = {"youtube": {"player_client": ["default", "web_music"]}}
+    assert _gallerydl_raw_option(
+        delegated, "downloader.ytdl.raw-options.extractor_args"
+    ) == expected_args
+    assert _gallerydl_raw_option(
+        delegated, "extractor.ytdl.raw-options.extractor_args"
+    ) == expected_args
+    delegated_processors = _gallerydl_raw_option(
+        delegated, "downloader.ytdl.raw-options.postprocessors"
+    )
+    assert all(processor.get("key") != "NeverStelleCapture" for processor in delegated_processors)
+    assert _gallerydl_postprocessors(delegated)[-1]["private"] is True
+
+    thumbnail_only = ytdlp.build_ytdlp_command(
+        "https://www.youtube.com/watch?v=Yb9FzUPpk0Y",
+        "/usr/bin/ffmpeg",
+        "/media/%(id)s.%(ext)s",
+        quality={"mode": "audio", "audio_format": "mp3"},
+        post_processing={"thumbnail": True, "save_as": "embed"},
+    )
+    assert "--extractor-args" not in thumbnail_only
+
+
 def test_subtitle_options_capture_extractor_payload_for_finalization():
     processing = {"subtitles": True, "automatic_subtitles": True, "save_as": "embed"}
     cmd = gallerydl.build_gallerydl_command(

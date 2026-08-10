@@ -18,7 +18,6 @@ import backend.app.domains.downloads.scan as scan_module
 import backend.app.domains.downloads.serializers as serializers_module
 import backend.app.domains.downloads.urls as urls_module
 import backend.app.domains.downloads.workers.completion as completion_module
-import backend.app.domains.downloads.workers.completion_creators as completion_creators_module
 import backend.app.domains.downloads.workers.completion_finalization as completion_finalization_module
 import backend.app.domains.downloads.workers.completion_learning as completion_learning_module
 import backend.app.domains.downloads.workers.completion_metadata as completion_metadata_module
@@ -26,7 +25,6 @@ import backend.app.domains.downloads.workers.completion_outputs as completion_ou
 import backend.app.domains.downloads.workers.enrichment as enrichment_module
 import backend.app.domains.downloads.workers.execution as worker_module
 import backend.app.domains.downloads.workers.runner as runner_module
-import backend.app.domains.settings as settings_module
 from backend.app.core.paths import path_key
 from backend.app.core.sources import source_label_from_key
 from backend.app.domains.downloads import (
@@ -56,6 +54,7 @@ from backend.app.domains.downloads.formats import (
 )
 from backend.app.domains.downloads.naming import (
     clean_template_filename,
+    filename_template_title,
     sanitize_filename_component,
     sanitize_path_literal,
     strip_numbered_suffix,
@@ -441,9 +440,12 @@ def test_user_metadata_sidecar_uses_the_final_settings_pipeline_values(tmp_path:
         "title": "Title",
         "artist": "Creator",
         "album_artist": "Creator",
-        "date": "2026",
+        "date": "2026-08-01",
         "description": "Description",
         "comment": "https://example.test/post/abc",
+        "source": "https://example.test/post/abc",
+        "identifier": "abc",
+        "publisher": "example",
     }
     assert not gallery_sidecar.exists()
     assert not ytdlp_sidecar.exists()
@@ -493,10 +495,207 @@ def test_embedded_metadata_uses_the_final_settings_pipeline_values(
     assert "title=Title" in captured["cmd"]
     assert "artist=Creator" in captured["cmd"]
     assert "album_artist=Creator" in captured["cmd"]
-    assert "date=2026" in captured["cmd"]
+    assert "date=2026-08-01" in captured["cmd"]
     assert "description=Full extractor value" in captured["cmd"]
     assert "comment=https://example.test/post/abc" in captured["cmd"]
+    assert "source=https://example.test/post/abc" in captured["cmd"]
+    assert "identifier=abc" in captured["cmd"]
+    assert "publisher=example" in captured["cmd"]
     assert not raw_sidecar.exists()
+
+
+def test_metadata_embed_discards_source_metadata_and_omits_empty_title(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media = tmp_path / "clip.webm"
+    media.write_bytes(b"media")
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        Path(cmd[-1]).write_bytes(b"remuxed")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(postprocessing_module, "run_task_subprocess", fake_run)
+
+    assert postprocessing_module._embed_metadata(media, {"artist": "Creator"})
+    metadata_index = captured["cmd"].index("-map_metadata")
+    assert captured["cmd"][metadata_index + 1] == "-1"
+    assert not any(value.startswith("title=") for value in captured["cmd"])
+    assert "artist=Creator" in captured["cmd"]
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"release_date": "2026"}, "2026"),
+        ({"release_date": "2026-08"}, "2026-08"),
+        ({"release_date": "2026-08-01"}, "2026-08-01"),
+        ({"release_date": "20260801"}, "2026-08-01"),
+        ({"release_date": "2026-08-01T19:42:31+08:00"}, "2026-08-01"),
+        ({"upload_date": "2026-08-01 19:42:31"}, "2026-08-01"),
+        ({"timestamp": 1785542400}, "2026-08-01"),
+        ({"timestamp": 1785542400000}, "2026-08-01"),
+    ],
+)
+def test_metadata_date_preserves_calendar_precision_without_time(
+    payload: dict[str, object], expected: str
+):
+    assert postprocessing_module._metadata_date(payload) == expected
+
+
+def test_song_metadata_uses_real_track_numbers_and_portable_music_fields(tmp_path: Path):
+    media = tmp_path / "song.mp3"
+    finalized = FinalizedCompletionOutput(
+        source_url="https://www.youtube.com/watch?v=Yb9FzUPpk0Y",
+        source_key="youtube",
+        creator="Uploader channel",
+        media_id="Yb9FzUPpk0Y",
+        final_path=media,
+        display_filename=media.name,
+        title="Video title",
+        keep_paths=[media],
+    )
+    payload = postprocessing_module.finalized_metadata_payload(
+        {},
+        finalized,
+        extractor_payload={
+            "track": "Actual song title",
+            "track_number": 3,
+            "track_count": 12,
+            "playlist_index": 99,
+            "disc_number": "2",
+            "disc_count": 2,
+            "artists": ["Track Artist", "Guest Artist"],
+            "album_artists": ["Album Artist"],
+            "composers": ["Composer One", "Composer Two"],
+            "performers": ["Orchestra"],
+            "genres": ["Rock", "Pop"],
+            "album": "Album",
+        },
+    )
+
+    assert payload["title"] == "Actual song title"
+    assert payload["artist"] == "Track Artist, Guest Artist"
+    assert payload["album_artist"] == "Album Artist"
+    assert payload["composer"] == "Composer One, Composer Two"
+    assert payload["performer"] == "Orchestra"
+    assert payload["genre"] == "Rock, Pop"
+    assert payload["track"] == "3/12"
+    assert payload["disc"] == "2/2"
+
+
+def test_song_title_and_playlist_position_are_never_used_as_track_number(tmp_path: Path):
+    media = tmp_path / "song.m4a"
+    finalized = FinalizedCompletionOutput(
+        source_url="https://www.youtube.com/watch?v=x",
+        source_key="youtube",
+        creator="Artist",
+        media_id="x",
+        final_path=media,
+        display_filename=media.name,
+        title="Title",
+        keep_paths=[media],
+    )
+
+    payload = postprocessing_module.finalized_metadata_payload(
+        {},
+        finalized,
+        extractor_payload={"track": "Song title", "playlist_index": 7},
+    )
+
+    assert "track" not in payload
+
+
+def test_metadata_title_rejects_carousel_position_and_synthetic_delegation_url(
+    tmp_path: Path,
+):
+    media = tmp_path / "post.webm"
+    finalized = FinalizedCompletionOutput(
+        source_url="https://example.test/post/abc",
+        source_key="example",
+        creator="Creator",
+        media_id="abc",
+        final_path=media,
+        display_filename=media.name,
+        title="",
+        keep_paths=[media],
+    )
+
+    positional = postprocessing_module.finalized_metadata_payload(
+        {},
+        finalized,
+        extractor_payload={"title": "20", "num": 20, "count": 21},
+    )
+    delegated = postprocessing_module.finalized_metadata_payload(
+        {},
+        finalized,
+        extractor_payload={
+            "title": "20",
+            "original_url": "https://example.test/post/abc/20.mp4",
+        },
+    )
+    legitimate = postprocessing_module.finalized_metadata_payload(
+        {},
+        finalized,
+        extractor_payload={"title": "20", "original_url": "https://example.test/post/abc"},
+    )
+    empty = postprocessing_module.finalized_metadata_payload(
+        {},
+        finalized,
+        extractor_payload={"title": "None"},
+    )
+
+    assert "title" not in positional
+    assert "title" not in delegated
+    assert legitimate["title"] == "20"
+    assert "title" not in empty
+
+
+def test_youtube_generated_song_description_supplies_portable_credits(tmp_path: Path):
+    media = tmp_path / "song.flac"
+    finalized = FinalizedCompletionOutput(
+        source_url="https://www.youtube.com/watch?v=x",
+        source_key="youtube",
+        creator="Artist",
+        media_id="x",
+        final_path=media,
+        display_filename=media.name,
+        title="Title",
+        keep_paths=[media],
+    )
+    description = (
+        "Provided to YouTube by Distributor\n\n"
+        "Title · Artist\n\nAlbum\n\n℗ 2020 Label\n\n"
+        "Composer: Composer Name\nWriter: Writer Name\n"
+        "Associated Performer: Orchestra\n\nAuto-generated by YouTube."
+    )
+
+    payload = postprocessing_module.finalized_metadata_payload(
+        {}, finalized, extractor_payload={"description": description}
+    )
+
+    assert payload["composer"] == "Composer Name, Writer Name"
+    assert payload["performer"] == "Orchestra"
+    assert payload["copyright"] == "℗ 2020 Label"
+
+
+def test_music_cover_art_precedes_scraped_thumbnail_and_has_a_fallback():
+    cover = "https://yt3.googleusercontent.com/music-cover=w544-h544-l90-rj"
+    scraped = "https://i.ytimg.com/vi/Yb9FzUPpk0Y/maxresdefault.jpg"
+    payload = {
+        "track": "Song",
+        "album": "Album",
+        "thumbnail": scraped,
+        "thumbnails": [
+            {"url": cover, "width": 544, "height": 544, "preference": -39},
+            {"url": scraped, "width": 1920, "height": 1080, "preference": -1},
+        ],
+    }
+
+    assert postprocessing_module._thumbnail_url(payload, prefer_cover_art=True)[0] == cover
+    assert postprocessing_module._thumbnail_url(payload)[0] == scraped
 
 
 def test_thumbnail_sidecar_uses_the_final_media_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -1074,6 +1273,255 @@ def test_explicit_unsupported_embed_targets_remain_diagnostic(
     assert "Subtitle embed skipped" in caplog.text
 
 
+def test_image_metadata_embed_writes_lossless_xmp_without_sidecar(tmp_path: Path):
+    media = tmp_path / "Creator - Photo [abc].jpg"
+    original_scan = b"compressed-image-data"
+    media.write_bytes(b"\xff\xd8\xff\xe0\x00\x04JF\xff\xda" + original_scan)
+    finalized = FinalizedCompletionOutput(
+        source_url="https://example.test/post/abc",
+        source_key="example",
+        creator="Creator",
+        media_id="abc",
+        final_path=media,
+        display_filename=media.name,
+        title="Photo",
+        keep_paths=[media],
+    )
+
+    sidecars = postprocessing_module.apply_metadata_post_processing(
+        [media],
+        {"description": "Gallery description", "upload_date": "20260801"},
+        finalized,
+        save_as="embed",
+    )
+
+    embedded = media.read_bytes()
+    assert not sidecars
+    assert embedded.endswith(original_scan)
+    assert b"http://ns.adobe.com/xap/1.0/" in embedded
+    assert b"Photo" in embedded
+    assert b"Creator" in embedded
+    assert b"Gallery description" in embedded
+    assert b"https://example.test/post/abc" in embedded
+    assert b"<dc:identifier>abc</dc:identifier>" in embedded
+    assert b"<rdf:li>example</rdf:li>" in embedded
+    assert b"2026-08-01" in embedded
+    assert b"xmlns:nvs" not in embedded
+    assert not Path(f"{media}.json").exists()
+
+
+def test_image_metadata_embed_falls_back_to_sidecar_when_lossless_writer_is_unavailable(
+    tmp_path: Path,
+):
+    media = tmp_path / "Creator - Photo [abc].webp"
+    media.write_bytes(b"RIFFnot-a-real-webp")
+    finalized = FinalizedCompletionOutput(
+        source_url="https://example.test/post/abc",
+        source_key="example",
+        creator="Creator",
+        media_id="abc",
+        final_path=media,
+        display_filename=media.name,
+        title="Photo",
+        keep_paths=[media],
+    )
+
+    sidecars = postprocessing_module.apply_metadata_post_processing(
+        [media], {}, finalized, save_as="embed"
+    )
+
+    sidecar = Path(f"{media}.json")
+    assert sidecars == {sidecar}
+    assert json.loads(sidecar.read_text(encoding="utf-8"))["title"] == "Photo"
+
+
+def test_webp_metadata_embed_adds_standard_xmp_without_reencoding_pixels():
+    # A minimal lossless WebP bitstream with a 2x3 canvas. The writer must add
+    # VP8X/XMP chunks while preserving the original compressed VP8L payload.
+    dimensions = 1 | (2 << 14)
+    vp8l = b"\x2f" + dimensions.to_bytes(4, "little")
+    chunk = postprocessing_module._webp_chunk(b"VP8L", vp8l)
+    body = b"WEBP" + chunk
+    original = b"RIFF" + len(body).to_bytes(4, "little") + body
+    xmp = postprocessing_module._image_xmp_packet(
+        {
+            "title": "Photo",
+            "artist": "Creator",
+            "source": "https://example.test/post/abc",
+            "identifier": "abc",
+        }
+    )
+
+    embedded = postprocessing_module._webp_with_xmp(original, xmp)
+
+    assert embedded is not None
+    assert b"VP8X" in embedded
+    assert b"XMP " in embedded
+    assert vp8l in embedded
+    assert b"<dc:source>https://example.test/post/abc</dc:source>" in embedded
+    assert int.from_bytes(embedded[4:8], "little") == len(embedded) - 8
+
+
+def test_finished_video_repairs_codec_mismatches_from_any_extractor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"\x00\x00\x00\x18ftypisomvp9-input")
+    commands: list[list[str]] = []
+
+    def fake_streams(_ffmpeg, path):
+        if Path(path) == media:
+            return [
+                {"codec_type": "video", "codec_name": "vp9", "codec_tag_string": "vp09"},
+                {"codec_type": "audio", "codec_name": "opus", "codec_tag_string": "Opus"},
+            ]
+        return [
+            {"codec_type": "video", "codec_name": "h264", "codec_tag_string": "avc1"},
+            {"codec_type": "audio", "codec_name": "aac", "codec_tag_string": "mp4a"},
+        ]
+
+    def fake_run(cmd, **kwargs):
+        commands.append(cmd)
+        Path(cmd[-1]).write_bytes(b"portable-output")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(postprocessing_module, "_ffprobe_streams", fake_streams)
+    monkeypatch.setattr(postprocessing_module, "run_task_subprocess", fake_run)
+
+    assert postprocessing_module.ensure_container_codec_compatibility(
+        [media], {"mode": "video", "video_container": "mp4"}
+    )
+    assert media.read_bytes() == b"portable-output"
+    assert "libx264" in commands[0]
+    assert "aac" in commands[0]
+
+
+def test_finished_video_auto_mode_never_runs_compatibility_transcode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"\x00\x00\x00\x18ftypisomvp9-input")
+
+    def compatible_streams(_ffmpeg, _path):
+        return [
+            {"codec_type": "video", "codec_name": "h264", "codec_tag_string": "avc1"},
+            {"codec_type": "audio", "codec_name": "aac", "codec_tag_string": "mp4a"},
+        ]
+
+    def unexpected_run(*_args, **_kwargs):
+        raise AssertionError("Compatible Auto output must not be remuxed or transcoded")
+
+    monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(postprocessing_module, "_ffprobe_streams", compatible_streams)
+    monkeypatch.setattr(postprocessing_module, "run_task_subprocess", unexpected_run)
+
+    assert not postprocessing_module.ensure_container_codec_compatibility(
+        [media],
+        {
+            "mode": "video",
+            "video_quality": "best",
+            "video_container": "auto",
+            "video_codec": "auto",
+            "video_audio_codec": "auto",
+        },
+    )
+
+
+def test_finished_video_losslessly_repairs_empty_vpcc_in_auto_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    def box(kind: bytes, payload: bytes) -> bytes:
+        return (len(payload) + 8).to_bytes(4, "big") + kind + payload
+
+    empty_vpcc = box(b"vpcC", b"")
+    sample_entry = box(b"vp09", (b"\0" * 78) + empty_vpcc)
+    stsd = box(b"stsd", (b"\0" * 4) + (1).to_bytes(4, "big") + sample_entry)
+    media = tmp_path / "clip.mp4"
+    stbl = box(b"stbl", stsd)
+    media.write_bytes(
+        box(b"ftyp", b"isom")
+        + box(b"moov", box(b"trak", box(b"mdia", box(b"minf", stbl))))
+    )
+    commands: list[list[str]] = []
+
+    def fake_streams(_ffmpeg, path):
+        if b"\x00\x00\x00\x08vpcC" in Path(path).read_bytes():
+            return []
+        return [{"codec_type": "video", "codec_name": "vp9", "codec_tag_string": "vp09"}]
+
+    def fake_run(cmd, **kwargs):
+        commands.append(cmd)
+        Path(cmd[-1]).write_bytes(Path(cmd[cmd.index("-i") + 1]).read_bytes())
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(postprocessing_module, "_ffprobe_streams", fake_streams)
+    monkeypatch.setattr(postprocessing_module, "run_task_subprocess", fake_run)
+
+    paths = [media]
+    updates: dict[Path, Path] = {}
+    assert postprocessing_module.ensure_container_codec_compatibility(
+        paths,
+        {
+            "mode": "video",
+            "video_quality": "best",
+            "video_container": "auto",
+            "video_codec": "auto",
+            "video_audio_codec": "auto",
+        },
+        path_updates=updates,
+    )
+    assert commands and commands[0][commands[0].index("-c") + 1] == "copy"
+    assert "libx264" not in commands[0]
+    assert paths[0].suffix == ".webm"
+    assert paths[0].is_file()
+    assert not media.exists()
+    assert updates == {media: paths[0]}
+
+
+def test_finished_video_auto_remuxes_vp9_mp4_to_webm_without_encoding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"\x00\x00\x00\x18ftypisom-valid-vp9")
+    paths = [media]
+    updates: dict[Path, Path] = {}
+    commands: list[list[str]] = []
+
+    def fake_streams(_ffmpeg, _path):
+        return [
+            {"codec_type": "video", "codec_name": "vp9", "codec_tag_string": "vp09"},
+            {"codec_type": "audio", "codec_name": "opus", "codec_tag_string": "Opus"},
+        ]
+
+    def fake_run(cmd, **kwargs):
+        commands.append(cmd)
+        Path(cmd[-1]).write_bytes(b"webm-stream-copy")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(postprocessing_module, "_ffprobe_streams", fake_streams)
+    monkeypatch.setattr(postprocessing_module, "run_task_subprocess", fake_run)
+
+    assert postprocessing_module.ensure_container_codec_compatibility(
+        paths,
+        {
+            "mode": "video",
+            "video_quality": "best",
+            "video_container": "auto",
+            "video_codec": "auto",
+            "video_audio_codec": "auto",
+        },
+        path_updates=updates,
+    )
+    assert paths[0] == tmp_path / "clip.webm"
+    assert paths[0].read_bytes() == b"webm-stream-copy"
+    assert not media.exists()
+    assert commands[0][commands[0].index("-c") + 1] == "copy"
+    assert all("libvpx" not in argument and "libx" not in argument for argument in commands[0])
+
+
 def test_retry_task_rebuilds_with_selected_engine(monkeypatch: pytest.MonkeyPatch):
     store = {
         "tasks": {
@@ -1216,10 +1664,13 @@ def test_clean_social_title_drops_generic_post_caption():
 
 
 def test_clean_template_filename_redacts_duplicate_display_name():
+    name = "Charess - Bakit kadiri pag ako？ ｜ Charess [891576008993182].mp4"
+    template = "{{username}} - {{title}} [{{id}}]"
     result = clean_template_filename(
-        "Charess - Bakit kadiri pag ako？ ｜ Charess [891576008993182].mp4",
-        "{{username}} - {{title}} [{{id}}]",
+        name,
+        template,
         creator="charechii",
+        title=filename_template_title(name, template),
         media_id="891576008993182",
     )
     assert result == "charechii - Bakit kadiri pag ako？ [891576008993182].mp4"
@@ -1232,6 +1683,7 @@ def test_clean_template_filename_keeps_username_and_nickname_distinct():
         "{{username}} - {{nickname}} - {{title}} [{{id}}]",
         creator="nasa",
         nickname="NASA",
+        title="Cool Rocket",
         media_id="ABC123",
     )
     assert result == "nasa - NASA - Cool Rocket [ABC123].jpg"
@@ -1244,6 +1696,7 @@ def test_clean_template_filename_nickname_token_not_overwritten_by_handle():
         "{{nickname}} - {{title}} [{{id}}]",
         creator="nasa",
         nickname="NASA",
+        title="Cool Rocket",
         media_id="ABC123",
     )
     assert result == "NASA - Cool Rocket [ABC123].jpg"
@@ -1258,6 +1711,7 @@ def _named(**cleaning: object) -> str:
         NAMING_SAMPLE,
         NAMING_TEMPLATE,
         creator="nasa",
+        title=filename_template_title(NAMING_SAMPLE, NAMING_TEMPLATE),
         media_id="aB3dK9x",
         cleaning=cleaning,
     )
@@ -1313,10 +1767,12 @@ def test_naming_defaults_leave_the_name_untouched():
 
 
 def test_naming_title_case_handles_unicode_letters_and_apostrophes():
+    name = "nasa - naïve don't stop [aB3dK9x].jpg"
     result = clean_template_filename(
-        "nasa - naïve don't stop [aB3dK9x].jpg",
+        name,
         NAMING_TEMPLATE,
         creator="nasa",
+        title=filename_template_title(name, NAMING_TEMPLATE),
         media_id="aB3dK9x",
         cleaning={"case": "capitalized"},
     )
@@ -1328,8 +1784,8 @@ def test_clean_template_filename_handle_at_cleanup_can_be_disabled():
     name = "@alice - Nice clip [abc123].mp4"
     template = "{{username}} - {{title}} [{{id}}]"
 
-    assert clean_template_filename(name, template) == "alice - Nice clip [abc123].mp4"
-    assert clean_template_filename(name, template, cleaning={"strip_handle_at": False}) == name
+    assert clean_template_filename(name, template, title="Nice clip") == "alice - Nice clip [abc123].mp4"
+    assert clean_template_filename(name, template, title="Nice clip", cleaning={"strip_handle_at": False}) == name
 
 
 def test_filename_creator_ignores_nickname_token_for_handle():
@@ -1473,6 +1929,7 @@ def test_username_folder_and_nickname_filename_stay_distinct_for_handle_metadata
         creator_hint=creator,
         media_id_hint=media_id,
         nickname_hint=nickname,
+        title_hint="Clip",
     )
     final_path = completion_module._move_group_to_template_folder(
         final_path,
@@ -1636,6 +2093,32 @@ def test_clean_template_filename_drops_none_title_segment():
     assert result == "Poster - [abc123]_1.jpg"
 
 
+def test_clean_template_filename_authoritative_empty_title_clears_extractor_value():
+    result = clean_template_filename(
+        "Poster - Extractor title [abc123]_1.mp4",
+        "{{username}} - {{title}} [{{id}}]",
+        creator="Poster",
+        title="",
+        media_id="abc123",
+    )
+
+    assert result == "Poster - [abc123]_1.mp4"
+
+
+def test_clean_template_filename_drops_matching_gallery_position_title():
+    name = "Poster - 20 [abc123]_20.mp4"
+    template = "{{username}} - {{title}} [{{id}}]"
+    result = clean_template_filename(
+        name,
+        template,
+        creator="Poster",
+        title=filename_template_title(name, template),
+        media_id="abc123",
+    )
+
+    assert result == "Poster - [abc123]_20.mp4"
+
+
 @pytest.mark.parametrize(
     ("template", "empty_title_name", "titled_name"),
     [
@@ -1662,6 +2145,7 @@ def test_clean_template_filename_truncates_long_title_when_enabled():
         f"Poster - {title} [abc123]_1.jpg",
         "{{username}} - {{title}} [{{id}}]",
         creator="Poster",
+        title=title,
         media_id="abc123",
         cleaning={"shorten": True},
     )
@@ -1789,19 +2273,24 @@ def test_finalization_runs_scraper_fields_templates_and_naming_in_order(
     assert not raw.exists()
 
 
-def test_configured_title_fields_are_authoritative(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(
-        settings_module,
-        "get_effective_fields",
-        lambda source_url: {"title": ["headline", "title"]},
-    )
-
+def test_configured_title_fields_are_authoritative():
     assert completion_module._metadata_title(
         completion_module._extractor_metadata_fields(
             {"headline": "Configured headline", "title": "Extractor title"}
         ),
-        "https://example.test/watch/abc123",
+        ["headline", "title"],
     ) == "Configured headline"
+
+
+def test_configured_title_fields_do_not_fall_through_to_extractor_title():
+    assert completion_module._metadata_title(
+        {"description": "Configured caption", "title": "20"},
+        ["description"],
+    ) == "Configured caption"
+    assert completion_module._metadata_title(
+        {"description": "", "title": "20"},
+        ["description"],
+    ) == ""
 
 
 def test_coerce_audio_output_extension_prefers_postprocessed_target(tmp_path: Path):
@@ -1967,6 +2456,7 @@ def test_clean_resolved_filename_strips_at_from_username(tmp_path: Path):
         creator_hint="mili",
         media_id_hint="In5Du5x6MZM",
         nickname_hint="Mili",
+        title_hint="Iron Lotus",
     )
 
     expected = tmp_path / "mili - Iron Lotus [In5Du5x6MZM].mp4"
@@ -1976,14 +2466,9 @@ def test_clean_resolved_filename_strips_at_from_username(tmp_path: Path):
     assert not media_file.exists()
 
 
-def test_configured_field_value_honors_opaque_id_in_priority_order(monkeypatch):
+def test_configured_field_value_honors_opaque_id_in_priority_order():
     # channel_id first in the configured order must win, even though the handle
     # heuristics reject it as an opaque identifier.
-    monkeypatch.setattr(
-        completion_creators_module,
-        "get_effective_fields",
-        lambda url: {"username": ["channel_id", "uploader"]},
-    )
     metadata = {
         "uploader": "Mili",
         "channel": "Mili",
@@ -1991,16 +2476,15 @@ def test_configured_field_value_honors_opaque_id_in_priority_order(monkeypatch):
     }
 
     assert (
-        completion_module._configured_field_value(metadata, "https://video.example/watch?v=x", "username")
+        completion_module._configured_field_value(metadata, ["channel_id", "uploader"])
         == "UC-wNqHVYS82PF4mkaQb0Alg"
     )
 
 
-def test_configured_field_value_empty_order_defers_to_heuristics(monkeypatch):
-    monkeypatch.setattr(completion_creators_module, "get_effective_fields", lambda url: {})
+def test_configured_field_value_empty_order_defers_to_heuristics():
     metadata = {"channel_id": "UC-wNqHVYS82PF4mkaQb0Alg", "uploader": "Mili"}
 
-    assert completion_module._configured_field_value(metadata, "https://video.example/watch?v=x", "username") == ""
+    assert completion_module._configured_field_value(metadata, []) == ""
 
 
 def test_clean_resolved_filename_keeps_authoritative_creator_over_url_handle(tmp_path: Path):
@@ -2016,6 +2500,7 @@ def test_clean_resolved_filename_keeps_authoritative_creator_over_url_handle(tmp
         "tiktok",
         creator_hint="UC1234567890",
         media_id_hint="7493558766131039489",
+        title_hint="Clip",
         creator_authoritative=True,
     )
 
@@ -5009,9 +5494,9 @@ def test_clean_template_filename_shorten_defaults_off_and_keeps_long_title():
     long_title = "This is a very long title that would normally be shortened. " * 5
     name = f"alice - {long_title} [abc123].mp4"
     template = "{{username}} - {{title}} [{{id}}]"
-    default = clean_template_filename(name, template, creator="alice")
-    shortened = clean_template_filename(name, template, creator="alice", cleaning={"shorten": True})
-    full = clean_template_filename(name, template, creator="alice", cleaning={"shorten": False})
+    default = clean_template_filename(name, template, creator="alice", title=long_title)
+    shortened = clean_template_filename(name, template, creator="alice", title=long_title, cleaning={"shorten": True})
+    full = clean_template_filename(name, template, creator="alice", title=long_title, cleaning={"shorten": False})
     assert default == full
     assert len(shortened) < len(full)
     assert long_title in full

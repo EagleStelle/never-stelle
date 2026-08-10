@@ -88,6 +88,12 @@ _YTDL_EXTRACTOR_ENABLED_OPTION = "extractor.ytdl.enabled=true"
 _YTDL_EXTRACTOR_MODULE_OPTION = "extractor.ytdl.module=yt_dlp"
 _YTDL_JS_RUNTIMES = json.dumps({"node": {}}, separators=(",", ":"))
 _YTDL_REMOTE_COMPONENTS = json.dumps(["ejs:github"], separators=(",", ":"))
+_YTDL_MUSIC_EXTRACTOR_ARGS = json.dumps(
+    {"youtube": {"player_client": ["default", "web_music"]}},
+    separators=(",", ":"),
+)
+
+
 def _ytdl_downloader_options(
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
@@ -126,6 +132,16 @@ def _ytdl_downloader_options(
         "-o",
         f"extractor.ytdl.raw-options.remote_components={_YTDL_REMOTE_COMPONENTS}",
     ]
+    prefer_music_cover = audio_mode and processing["metadata"] and processing["thumbnail"]
+    if prefer_music_cover:
+        options.extend(
+            [
+                "-o",
+                f"downloader.ytdl.raw-options.extractor_args={_YTDL_MUSIC_EXTRACTOR_ARGS}",
+                "-o",
+                f"extractor.ytdl.raw-options.extractor_args={_YTDL_MUSIC_EXTRACTOR_ARGS}",
+            ]
+        )
     postprocessors: list[dict[str, str]] = []
     postprocessor_args: dict[str, list[str]] = {}
     if audio_mode:
@@ -158,7 +174,11 @@ def _ytdl_downloader_options(
         if merger_args:
             postprocessor_args["Merger+ffmpeg_o"] = merger_args
         ffmpeg_location = detect_ffmpeg_location()
-    if processing["subtitles"] or processing["automatic_subtitles"] or processing["chapters"]:
+    if (
+        processing["subtitles"]
+        or processing["automatic_subtitles"]
+        or processing["chapters"]
+    ):
         # gallery-dl removes its private `_ytdl_info_dict` after the delegated
         # download, so its own metadata postprocessor cannot reliably expose
         # yt-dlp's subtitle URLs or chapters to the app's finalization stage.

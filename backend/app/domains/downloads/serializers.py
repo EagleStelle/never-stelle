@@ -78,7 +78,7 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
             raw_filename,
             template_settings,
             creator=creator,
-            title=str(task.get("title") or ""),
+            title=str(task.get("title") or "").strip(),
             media_id=media_id,
             source_key=source_key,
             cleaning=get_effective_title_cleaning(source_url),

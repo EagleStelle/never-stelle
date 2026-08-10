@@ -367,42 +367,7 @@ def _child_task_id(parent_task_id: str, media_id: str, path: Path) -> str:
         safe = hashlib.sha1(str(path).encode("utf-8", errors="replace")).hexdigest()[:16]
     return f"{parent_task_id}:{safe[:40]}"
 
-def _rename_gallerydl_numbered_siblings(
-    path: Path,
-    creator: str,
-    source_key: str,
-    filename_template: str = "",
-    media_id: str = "",
-    title_hint: str = "",
-    extra_tokens: dict[str, str] | None = None,
-    cleaning: dict[str, Any] | None = None,
-    quality: dict[str, str] | None = None,
-) -> Path:
-    selected = path
-    siblings = find_numbered_media_siblings(path) or [path]
-    for sibling in siblings:
-        target_name = ""
-        if filename_template:
-            target_name = clean_template_filename(
-                sibling.name,
-                filename_template,
-                creator=creator,
-                title=title_hint,
-                media_id=media_id,
-                source_key=source_key,
-                keep_numbered_suffix=True,
-                extra_tokens=extra_tokens,
-                cleaning=cleaning,
-                quality=quality,
-            )
-        if not target_name:
-            continue
-        target = _rename_path(sibling, target_name)
-        if sibling == path:
-            selected = target
-    return selected
-
-def _rename_gallerydl_group_paths(
+def _rename_gallerydl_paths(
     paths: list[Path],
     selected_path: Path,
     creator: str,
@@ -410,6 +375,7 @@ def _rename_gallerydl_group_paths(
     filename_template: str = "",
     media_id: str = "",
     title_hint: str = "",
+    selected_name: str = "",
     extra_tokens: dict[str, str] | None = None,
     cleaning: dict[str, Any] | None = None,
     quality: dict[str, str] | None = None,
@@ -417,8 +383,9 @@ def _rename_gallerydl_group_paths(
     selected = selected_path
     selected_key = _path_key(selected_path)
     for index, path in enumerate(paths):
-        target_name = ""
-        if filename_template:
+        is_selected = _path_key(path) == selected_key
+        target_name = selected_name if is_selected else ""
+        if not target_name and filename_template:
             target_name = clean_template_filename(
                 path.name,
                 filename_template,
@@ -435,7 +402,7 @@ def _rename_gallerydl_group_paths(
             continue
         target = _rename_path(path, target_name)
         paths[index] = target
-        if _path_key(path) == selected_key:
+        if is_selected:
             selected = target
     return selected
 
@@ -494,7 +461,7 @@ def _clean_resolved_filename(
         )
         if disk_filename:
             if group_paths and len(group_paths) > 1:
-                renamed = _rename_gallerydl_group_paths(
+                renamed = _rename_gallerydl_paths(
                     group_paths,
                     path,
                     display_creator_hint or creator_hint,
@@ -502,37 +469,27 @@ def _clean_resolved_filename(
                     filename_template,
                     media_id_hint,
                     title_hint,
-                    extra_tokens,
-                    cleaning,
-                    quality,
+                    selected_name=disk_filename,
+                    extra_tokens=extra_tokens,
+                    cleaning=cleaning,
+                    quality=quality,
                 )
                 return renamed, display_filename or f"{strip_numbered_suffix(renamed.stem)}{renamed.suffix}"
             if strip_numbered_suffix(path.stem) != path.stem:
-                if group_paths:
-                    renamed = _rename_gallerydl_group_paths(
-                        group_paths,
-                        path,
-                        display_creator_hint or creator_hint,
-                        source_key,
-                        filename_template,
-                        media_id_hint,
-                        title_hint,
-                        extra_tokens,
-                        cleaning,
-                        quality,
-                    )
-                else:
-                    renamed = _rename_gallerydl_numbered_siblings(
-                        path,
-                        display_creator_hint or creator_hint,
-                        source_key,
-                        filename_template,
-                        media_id_hint,
-                        title_hint,
-                        extra_tokens,
-                        cleaning,
-                        quality,
-                    )
+                rename_paths = group_paths or find_numbered_media_siblings(path) or [path]
+                renamed = _rename_gallerydl_paths(
+                    rename_paths,
+                    path,
+                    display_creator_hint or creator_hint,
+                    source_key,
+                    filename_template,
+                    media_id_hint,
+                    title_hint,
+                    selected_name=disk_filename,
+                    extra_tokens=extra_tokens,
+                    cleaning=cleaning,
+                    quality=quality,
+                )
                 return renamed, display_filename or f"{strip_numbered_suffix(renamed.stem)}{renamed.suffix}"
             renamed = _rename_path(path, disk_filename)
             return renamed, renamed.name

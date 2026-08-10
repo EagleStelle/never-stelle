@@ -9,7 +9,11 @@ from backend.app.core.sources import normalize_source_key
 from backend.app.domains.downloads.cache import drop_file_cache
 from backend.app.domains.downloads.files import find_numbered_media_siblings, is_media_file
 from backend.app.domains.downloads.formats import media_id_from_url
-from backend.app.domains.downloads.naming import filename_template_fields
+from backend.app.domains.downloads.naming import (
+    clean_filename_title,
+    filename_template_fields,
+    filename_template_title,
+)
 from backend.app.domains.downloads.scan import parse_filename_media_id
 from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
 from backend.app.domains.downloads.workers.completion_creators import (
@@ -32,7 +36,7 @@ from backend.app.domains.downloads.workers.completion_values import (
     _display_creator_candidate,
     _metadata_title,
 )
-from backend.app.domains.settings import get_effective_title_cleaning
+from backend.app.domains.settings import get_effective_fields, get_effective_title_cleaning
 
 
 @dataclass(frozen=True)
@@ -103,8 +107,9 @@ def _finalize_completed_output(
     )
     scraped_username = _role_token_value(extra_tokens, token_roles, source_key, "username")
     scraped_nickname = _role_token_value(extra_tokens, token_roles, source_key, "nickname")
-    configured_username = scraped_username or _configured_field_value(metadata, source_url, "username")
-    configured_nickname = scraped_nickname or _configured_field_value(metadata, source_url, "nickname")
+    item_fields = get_effective_fields(source_url)
+    configured_username = scraped_username or _configured_field_value(metadata, item_fields.get("username") or ())
+    configured_nickname = scraped_nickname or _configured_field_value(metadata, item_fields.get("nickname") or ())
     creator_hint = (
         _role_creator(extra_tokens, token_roles, source_key)
         or configured_username
@@ -130,10 +135,12 @@ def _finalize_completed_output(
     display_nickname_hint = _display_creator_candidate(nickname_hint, item_cleaning) or nickname_hint
     # Slug/scraper tokens first pass through their configured Fields role. The
     # resolved canonical title then feeds Templates and, finally, Naming.
+    configured_title_fields = item_fields.get("title") or ()
     title_hint = _role_token_value(extra_tokens, token_roles, item_source_key, "title") or _metadata_title(
-        metadata,
-        item_source_url,
+        metadata, configured_title_fields
     )
+    if not title_hint and not configured_title_fields:
+        title_hint = filename_template_title(raw_path.name, filename_template)
     final_path, display_filename = _clean_resolved_filename(
         item_source_url,
         raw_path,
@@ -149,7 +156,14 @@ def _finalize_completed_output(
         creator_authoritative=bool(configured_username),
         quality=quality,
     )
-    resolved_title = filename_template_fields(display_filename, filename_template).get("title", "") or title_hint
+    resolved_title = clean_filename_title(
+        filename_template_fields(display_filename, filename_template).get("title", "") or title_hint,
+        display_creator_hint,
+        media_id,
+        item_source_key,
+        creator_aliases=tuple(alias for alias in (display_creator_hint, display_nickname_hint) if alias),
+        cleaning=item_cleaning,
+    )
     media_id = media_id or parse_filename_media_id(display_filename)[0] or media_id_from_url(item_source_url)
     move_paths = group_paths if len(group_paths) > 1 else [final_path]
     final_path = _move_group_to_template_folder(

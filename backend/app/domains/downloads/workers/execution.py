@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from contextlib import closing
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from backend.app.domains.downloads.history import save_history_entry
 from backend.app.domains.downloads.naming import detect_ffmpeg_location
 from backend.app.domains.downloads.postprocessing import (
     apply_finalized_post_processing,
+    ensure_container_codec_compatibility,
     extractor_payload_from_sidecars,
 )
 from backend.app.domains.downloads.postprocessing import (
@@ -430,9 +432,6 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     else []
                 )
                 extractor_payload = extractor_payload_from_sidecars(extraction_sidecars, metadata)
-                # Complete extractor values re-enter the normal Fields namespace;
-                # the compact after_move row remains authoritative where present.
-                metadata = {**_extractor_metadata_fields(extractor_payload), **metadata}
                 raise_if_cancelled(task_id)
                 finalized = _finalize_completed_output(
                     source_url=source_url,
@@ -454,8 +453,24 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     ),
                     cache_dropper=drop_file_cache,
                 )
+                # Rich extractor metadata is only for post-processing; merging it
+                # after naming keeps Fields/Templates independent without a copy.
+                metadata = {**_extractor_metadata_fields(extractor_payload), **metadata}
                 raise_if_cancelled(task_id)
-                if apply_finalized_post_processing(
+                remuxed_paths: dict[Path, Path] = {}
+                media_changed = ensure_container_codec_compatibility(
+                    finalized.keep_paths,
+                    quality,
+                    path_updates=remuxed_paths,
+                )
+                if remuxed_final_path := remuxed_paths.get(finalized.final_path):
+                    finalized = replace(
+                        finalized,
+                        final_path=remuxed_final_path,
+                        display_filename=remuxed_final_path.name,
+                    )
+                raise_if_cancelled(task_id)
+                media_changed = apply_finalized_post_processing(
                     finalized.keep_paths,
                     metadata,
                     finalized,
@@ -464,7 +479,8 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     sidecars=extraction_sidecars,
                     output_root=output_root,
                     extractor_payload=extractor_payload,
-                ):
+                ) or media_changed
+                if media_changed:
                     drop_file_cache(finalized.keep_paths)
                 raise_if_cancelled(task_id)
                 row_task_id = task_id if index == 0 else _child_task_id(

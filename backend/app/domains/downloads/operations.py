@@ -324,7 +324,7 @@ def resolve_task_file(task_id: str) -> tuple[Path, str, Path | None]:
             filename,
             template_settings_from_columns(task),
             creator=str(task.get("creator") or ""),
-            title=str(task.get("title") or ""),
+            title=str(task.get("title") or "").strip(),
             media_id=str(task.get("media_id") or "").strip() or parsed_media_id,
             source_key=source_key,
             cleaning=get_effective_title_cleaning(str(task.get("source_url") or "")),

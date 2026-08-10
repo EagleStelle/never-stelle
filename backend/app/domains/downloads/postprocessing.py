@@ -3,22 +3,34 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
+import shutil
 import subprocess
 import urllib.error
 import urllib.request
+import zlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+from xml.sax.saxutils import escape
 
 from backend.app.domains.downloads.constants import (
     AUDIO_EXTENSIONS,
     IMAGE_EXTENSIONS,
+    VIDEO_AUDIO_CODEC_ENCODERS,
+    VIDEO_AUDIO_CODEC_FOURCC,
+    VIDEO_CODEC_ENCODERS,
+    VIDEO_CODEC_FOURCC,
+    VIDEO_CONTAINER_AUDIO_CODECS,
+    VIDEO_CONTAINER_PRESETS,
+    codec_supported_by_container,
     normalize_post_processing,
     normalize_quality_selection,
     post_processing_requested,
+    video_audio_codec_supported_by_container,
 )
-from backend.app.domains.downloads.naming import detect_ffmpeg_location
+from backend.app.domains.downloads.naming import detect_ffmpeg_location, strip_placeholder_title
 from backend.app.domains.downloads.workers.processes import (
     TaskCancelled,
     cancel_on_request,
@@ -62,6 +74,22 @@ _THUMBNAIL_CONTENT_EXTENSIONS = {
     "image/png": ".png",
     "image/webp": ".webp",
 }
+_XMP_APP1_HEADER = b"http://ns.adobe.com/xap/1.0/\x00"
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_PNG_XMP_KEYWORD = b"XML:com.adobe.xmp\x00"
+_WEBP_XMP_FLAG = 0x04
+_VIDEO_CONTAINER_BY_EXTENSION = {
+    ".m4v": "mp4",
+    ".mkv": "mkv",
+    ".mov": "mp4",
+    ".mp4": "mp4",
+    ".webm": "webm",
+}
+_VIDEO_EXTENSION_BY_CONTAINER = {"mkv": ".mkv", "mp4": ".mp4", "webm": ".webm"}
+_PORTABLE_VIDEO_CODEC_ORDER = ("h264", "h265", "vp9", "av1")
+_PORTABLE_AUDIO_CODEC_ORDER = ("aac", "opus", "mp3", "flac")
+_ISO_VP_SAMPLE_ENTRIES = {b"vp08", b"vp09"}
+_ISO_VP_PATH_BOXES = {b"moov", b"trak", b"mdia", b"minf", b"stbl", b"stsd", *_ISO_VP_SAMPLE_ENTRIES}
 
 
 def metadata_sidecars_for(
@@ -177,6 +205,149 @@ def _metadata_year(payload: dict[str, Any]) -> str:
     return ""
 
 
+def _is_positional_or_synthetic_title(payload: dict[str, Any], value: str) -> bool:
+    """Reject collection positions and delegated media basenames used as titles."""
+
+    title = _tag_text(value)
+    if not title or not title.isdecimal():
+        return False
+    for key in (
+        "num",
+        "count",
+        "index",
+        "position",
+        "playlist_index",
+        "playlist_count",
+        "n_entries",
+    ):
+        candidate = _tag_text(payload.get(key))
+        if candidate.isdecimal() and int(candidate) == int(title):
+            return True
+    for key in ("original_url", "webpage_url", "url"):
+        raw_url = _tag_text(payload.get(key))
+        if not raw_url:
+            continue
+        parsed = urlparse(raw_url)
+        basename = Path(parsed.path).name
+        media_name = Path(basename)
+        if media_name.suffix.lower() in _VIDEO_CONTAINER_BY_EXTENSION:
+            if media_name.stem == title:
+                return True
+    return False
+
+
+def _metadata_media_title(payload: dict[str, Any], finalized: Any) -> str:
+    track = strip_placeholder_title(_first_tag(payload, "track"))
+    if track:
+        return track
+    finalized_title = strip_placeholder_title(_tag_text(finalized.title))
+    if finalized_title:
+        return finalized_title
+    extractor_title = strip_placeholder_title(
+        _first_tag(payload, "title", "fulltitle"), finalized.media_id, finalized.source_key
+    )
+    return "" if _is_positional_or_synthetic_title(payload, extractor_title) else extractor_title
+
+
+def _metadata_date(payload: dict[str, Any]) -> str:
+    """Return only known calendar precision: YYYY, YYYY-MM, or YYYY-MM-DD."""
+    for key in ("release_date", "upload_date", "date"):
+        text = _tag_text(payload.get(key))
+        if not text:
+            continue
+        match = re.fullmatch(
+            r"(?P<year>\d{4})(?:-?(?P<month>\d{2})(?:-?(?P<day>\d{2}))?)?(?:[T\s].*)?",
+            text,
+        )
+        if match and 1000 <= int(match.group("year")) <= 2999:
+            return "-".join(value for value in match.group("year", "month", "day") if value)
+    for key in ("release_timestamp", "timestamp", "modified_timestamp"):
+        try:
+            timestamp = float(payload.get(key))
+            if timestamp > 10_000_000_000:
+                timestamp /= 1000
+            return datetime.fromtimestamp(timestamp, tz=UTC).date().isoformat()
+        except (OSError, OverflowError, TypeError, ValueError):
+            continue
+    return _metadata_year(payload)
+
+
+def _numbered_tag(
+    payload: dict[str, Any],
+    number_keys: tuple[str, ...],
+    total_keys: tuple[str, ...],
+) -> str:
+    """Return an explicit media number, never an item's playlist position."""
+
+    number = 0
+    embedded_total = 0
+    for key in number_keys:
+        text = _tag_text(payload.get(key))
+        match = re.fullmatch(r"0*(\d+)(?:\s*/\s*0*(\d+))?", text)
+        if not match:
+            continue
+        number = int(match.group(1))
+        embedded_total = int(match.group(2) or 0)
+        if number > 0:
+            break
+    if number <= 0:
+        return ""
+
+    total = embedded_total
+    if total <= 0:
+        for key in total_keys:
+            text = _tag_text(payload.get(key))
+            if re.fullmatch(r"0*\d+", text) and int(text) > 0:
+                total = int(text)
+                break
+    return f"{number}/{total}" if total >= number else str(number)
+
+
+def _youtube_music_description_tags(payload: dict[str, Any]) -> dict[str, str]:
+    """Recover portable song credits present in YouTube's generated description."""
+
+    description = _tag_text(payload.get("description"))
+    if not description.endswith("Auto-generated by YouTube."):
+        return {}
+
+    composers: list[str] = []
+    performers: list[str] = []
+    for line in description.splitlines():
+        role, separator, value = line.partition(":")
+        value = value.strip()
+        if not separator or not value:
+            continue
+        normalized_role = re.sub(r"[^a-z]+", " ", role.lower()).strip()
+        if normalized_role in {
+            "composer",
+            "composer lyricist",
+            "songwriter",
+            "writer",
+        }:
+            composers.append(value)
+        elif normalized_role in {
+            "associated performer",
+            "featured artist",
+            "performer",
+            "vocals",
+        }:
+            performers.append(value)
+
+    copyright_value = ""
+    for line in description.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("©", "℗")):
+            copyright_value = stripped
+            break
+
+    tags = {
+        "composer": ", ".join(dict.fromkeys(composers)),
+        "performer": ", ".join(dict.fromkeys(performers)),
+        "copyright": copyright_value,
+    }
+    return {key: value for key, value in tags.items() if value}
+
+
 def finalized_metadata_payload(
     metadata: dict[str, str],
     finalized: Any,
@@ -190,28 +361,52 @@ def finalized_metadata_payload(
         if extractor_payload is not None
         else _extractor_payload(sidecars or [], metadata)
     )
-    artist = _tag_text(finalized.creator) or _first_tag(
+    description_tags = _youtube_music_description_tags(extractor)
+    artist = _first_tag(
         extractor,
         "artist",
+        "artists",
         "album_artist",
         "creator",
+        "creators",
+    ) or _tag_text(finalized.creator) or _first_tag(
+        extractor,
         "uploader",
         "channel",
         "author",
     )
     tags = {
-        "title": _tag_text(finalized.title) or _first_tag(extractor, "title", "fulltitle"),
+        "title": _metadata_media_title(extractor, finalized),
         "artist": artist,
         "album": _first_tag(extractor, "album", "playlist_title", "playlist"),
-        "album_artist": _first_tag(extractor, "album_artist") or artist,
-        "date": _metadata_year(extractor),
-        "description": _first_tag(extractor, "description", "synopsis"),
+        "album_artist": _first_tag(extractor, "album_artist", "album_artists") or artist,
+        "composer": _first_tag(extractor, "composer", "composers")
+        or description_tags.get("composer", ""),
+        "performer": _first_tag(extractor, "performer", "performers")
+        or description_tags.get("performer", ""),
+        "date": _metadata_date(extractor),
+        "description": _first_tag(extractor, "description", "synopsis", "caption", "content"),
         "comment": _first_tag(extractor, "comment") or _tag_text(finalized.source_url),
-        "genre": _first_tag(extractor, "genre"),
-        "copyright": _first_tag(extractor, "copyright", "license"),
+        "source": _tag_text(finalized.source_url),
+        "identifier": _tag_text(finalized.media_id),
+        "publisher": _first_tag(extractor, "publisher", "record_label", "label")
+        or _tag_text(finalized.source_key),
+        "keywords": _first_tag(extractor, "tags", "keywords", "categories"),
+        "genre": _first_tag(extractor, "genre", "genres", "categories"),
+        "copyright": _first_tag(extractor, "copyright")
+        or description_tags.get("copyright", "")
+        or _first_tag(extractor, "license"),
         "language": _first_tag(extractor, "language"),
-        "track": _first_tag(extractor, "track", "track_number"),
-        "disc": _first_tag(extractor, "disc", "disc_number"),
+        "track": _numbered_tag(
+            extractor,
+            ("track_number",),
+            ("track_count", "track_total", "total_tracks"),
+        ),
+        "disc": _numbered_tag(
+            extractor,
+            ("disc_number",),
+            ("disc_count", "disc_total", "total_discs"),
+        ),
     }
     return {key: value for key, value in tags.items() if value}
 
@@ -228,7 +423,94 @@ def _write_sidecar(path: Path, payload: dict[str, Any]) -> Path:
     return target
 
 
-def _thumbnail_url(payload: dict[str, Any]) -> tuple[str, dict[str, str]]:
+_COVER_ART_KEYS = (
+    "cover_art",
+    "cover_art_url",
+    "cover",
+    "cover_url",
+    "album_art",
+    "album_art_url",
+    "album_cover",
+    "album_cover_url",
+    "artwork",
+    "artwork_url",
+)
+
+
+def _artwork_values(value: Any) -> list[tuple[int, str]]:
+    if isinstance(value, str):
+        return [(0, value.strip())] if value.strip() else []
+    if isinstance(value, list | tuple):
+        return [candidate for item in value for candidate in _artwork_values(item)]
+    if not isinstance(value, dict):
+        return []
+    url = str(value.get("url") or value.get("src") or value.get("href") or "").strip()
+    try:
+        area = int(value.get("width") or 0) * int(value.get("height") or 0)
+    except (TypeError, ValueError):
+        area = 0
+    candidates = [(area, url)] if url else []
+    for key in ("images", "sources", "thumbnails"):
+        candidates.extend(_artwork_values(value.get(key)))
+    return candidates
+
+
+def _metadata_cover_art_candidates(payload: dict[str, Any]) -> list[tuple[int, str]]:
+    candidates = [
+        candidate
+        for key in _COVER_ART_KEYS
+        for candidate in _artwork_values(payload.get(key))
+    ]
+
+    # YouTube's web_music player response carries the album cover in the
+    # original videoDetails thumbnails. yt-dlp keeps these square yt3 URLs next
+    # to its generated i.ytimg.com thumbnail guesses, so identify them by both
+    # their music fields and their distinct host.
+    is_song = bool(_first_tag(payload, "track") and _first_tag(payload, "album", "artist", "artists"))
+    thumbnails = payload.get("thumbnails")
+    if is_song and isinstance(thumbnails, list):
+        for item in thumbnails:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get("url") or "").strip()
+            try:
+                width = int(item.get("width") or 0)
+                height = int(item.get("height") or 0)
+            except (TypeError, ValueError):
+                continue
+            host = (urlparse(url).hostname or "").lower()
+            if (
+                url
+                and width > 0
+                and width == height
+                and (host == "yt3.googleusercontent.com" or host.endswith(".yt3.googleusercontent.com"))
+            ):
+                candidates.append((width * height, url))
+    return candidates
+
+
+def _thumbnail_url(
+    payload: dict[str, Any],
+    *,
+    prefer_cover_art: bool = False,
+) -> tuple[str, dict[str, str]]:
+    if prefer_cover_art:
+        cover_candidates = _metadata_cover_art_candidates(payload)
+        if cover_candidates:
+            url = max(cover_candidates, key=lambda candidate: candidate[0])[1]
+            raw_headers = payload.get("http_headers")
+            headers = (
+                {
+                    str(key): str(value)
+                    for key, value in raw_headers.items()
+                    if str(key).strip() and str(value).strip()
+                }
+                if isinstance(raw_headers, dict)
+                else {}
+            )
+            headers.setdefault("User-Agent", "Mozilla/5.0")
+            return url, headers
+
     candidates: list[tuple[int, str]] = []
     for key in ("thumbnail", "thumbnail_url", "preview", "preview_url", "poster"):
         value = payload.get(key)
@@ -279,8 +561,12 @@ def _thumbnail_extension(url: str, content_type: str, data: bytes) -> str:
     return ".jpg"
 
 
-def _download_thumbnail(payload: dict[str, Any]) -> tuple[bytes, str]:
-    url, headers = _thumbnail_url(payload)
+def _download_thumbnail(
+    payload: dict[str, Any],
+    *,
+    prefer_cover_art: bool = False,
+) -> tuple[bytes, str]:
+    url, headers = _thumbnail_url(payload, prefer_cover_art=prefer_cover_art)
     if not url or urlparse(url).scheme.lower() not in {"http", "https"}:
         return b"", ""
     try:
@@ -477,7 +763,11 @@ def _ffprobe_streams(ffmpeg: str, path: Path) -> list[dict[str, Any]]:
                 "-v",
                 "error",
                 "-show_entries",
-                "stream=index,codec_type:stream_tags=filename,mimetype",
+                (
+                    "stream=index,codec_type,codec_name,codec_tag_string:"
+                    "stream_disposition=attached_pic:"
+                    "stream_tags=filename,mimetype"
+                ),
                 "-of",
                 "json",
                 str(path),
@@ -486,10 +776,419 @@ def _ffprobe_streams(ffmpeg: str, path: Path) -> list[dict[str, Any]]:
             text=True,
         )
         payload = json.loads(result.stdout) if result.returncode == 0 else {}
-    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError, AttributeError, TypeError, ValueError):
         return []
     streams = payload.get("streams") if isinstance(payload, dict) else None
     return [stream for stream in streams if isinstance(stream, dict)] if isinstance(streams, list) else []
+
+
+def _empty_vpcc_type_offsets(path: Path) -> list[int]:
+    """Locate structurally empty vpcC boxes inside VP8/VP9 sample entries."""
+
+    try:
+        file_size = path.stat().st_size
+        handle = path.open("rb")
+    except OSError:
+        return []
+
+    offsets: list[int] = []
+
+    def walk(start: int, end: int, parent: bytes = b"", depth: int = 0) -> None:
+        if depth > 12:
+            return
+        position = start
+        while position + 8 <= end:
+            handle.seek(position)
+            header = handle.read(16)
+            if len(header) < 8:
+                return
+            size = int.from_bytes(header[:4], "big")
+            box_type = header[4:8]
+            header_size = 8
+            if size == 1:
+                if len(header) < 16:
+                    return
+                size = int.from_bytes(header[8:16], "big")
+                header_size = 16
+            elif size == 0:
+                size = end - position
+            if size < header_size or position + size > end:
+                return
+
+            if box_type == b"vpcC" and parent in _ISO_VP_SAMPLE_ENTRIES and size < 13:
+                offsets.append(position + 4)
+            elif box_type in _ISO_VP_PATH_BOXES:
+                child_start = position + header_size
+                if box_type == b"stsd":
+                    child_start += 8  # version/flags and entry_count
+                elif box_type in _ISO_VP_SAMPLE_ENTRIES:
+                    child_start += 78  # VisualSampleEntry fields
+                if child_start <= position + size:
+                    walk(child_start, position + size, box_type, depth + 1)
+            position += size
+
+    try:
+        with handle:
+            walk(0, file_size)
+    except OSError:
+        return []
+    return offsets
+
+
+def _repair_empty_vpcc(
+    ffmpeg: str,
+    path: Path,
+    offsets: list[int],
+    paths: list[Path],
+    path_updates: dict[Path, Path],
+    *,
+    choose_native_container: bool,
+) -> bool:
+    """Losslessly rebuild malformed VP codec metadata without re-encoding media."""
+
+    neutralized_path = scratch_temp_path(prefix="nvs-vpcc-input-", suffix=path.suffix)
+    try:
+        shutil.copyfile(path, neutralized_path)
+        with neutralized_path.open("r+b") as handle:
+            for offset in offsets:
+                handle.seek(offset)
+                if handle.read(4) != b"vpcC":
+                    return False
+                handle.seek(offset)
+                handle.write(b"free")
+
+        # With the invalid empty box ignored, FFmpeg infers the VP parameters
+        # directly from the compressed frames. A stream-copy remux then writes
+        # a valid vpcC box; no video or audio samples are encoded.
+        streams = _ffprobe_streams(ffmpeg, neutralized_path)
+        if not any(
+            stream.get("codec_type") == "video"
+            and _stream_codec_key(stream, VIDEO_CODEC_FOURCC) == "vp9"
+            for stream in streams
+        ):
+            return False
+        target_container = (
+            _stream_copy_target_container(streams, "mp4") if choose_native_container else "mp4"
+        )
+        return _publish_stream_copy_remux(
+            ffmpeg,
+            neutralized_path,
+            path,
+            "mp4",
+            target_container or "mp4",
+            paths,
+            path_updates,
+            log_label="Empty VP codec header repair",
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Empty VP codec header repair skipped for %s: %s", path, exc)
+        return False
+    finally:
+        remove_scratch_path(neutralized_path)
+
+
+def _stream_codec_key(stream: dict[str, Any], codecs: dict[str, tuple[str, ...]]) -> str:
+    reported = {
+        str(stream.get("codec_name") or "").strip().lower(),
+        str(stream.get("codec_tag_string") or "").strip().lower(),
+    }
+    for codec, prefixes in codecs.items():
+        if any(value.startswith(prefix) for value in reported for prefix in prefixes):
+            return codec
+    return ""
+
+
+def _preferred_codec(
+    supported: tuple[str, ...] | list[str],
+    encoders: dict[str, Any],
+    order: tuple[str, ...],
+) -> str:
+    return next((codec for codec in order if codec in supported and encoders.get(codec)), "")
+
+
+def _incompatible_output_streams(
+    streams: list[dict[str, Any]], container: str
+) -> tuple[list[int], list[int]]:
+    incompatible_video: list[int] = []
+    incompatible_audio: list[int] = []
+    video_ordinal = 0
+    audio_ordinal = 0
+    for stream in streams:
+        codec_type = str(stream.get("codec_type") or "").lower()
+        disposition = stream.get("disposition") if isinstance(stream.get("disposition"), dict) else {}
+        if codec_type == "video":
+            ordinal = video_ordinal
+            video_ordinal += 1
+            if disposition.get("attached_pic"):
+                continue
+            codec = _stream_codec_key(stream, VIDEO_CODEC_FOURCC)
+            if codec and not codec_supported_by_container(codec, container):
+                incompatible_video.append(ordinal)
+        elif codec_type == "audio":
+            ordinal = audio_ordinal
+            audio_ordinal += 1
+            codec = _stream_codec_key(stream, VIDEO_AUDIO_CODEC_FOURCC)
+            if codec and not video_audio_codec_supported_by_container(codec, container):
+                incompatible_audio.append(ordinal)
+    return incompatible_video, incompatible_audio
+
+
+def _stream_copy_target_container(streams: list[dict[str, Any]], current: str) -> str:
+    """Choose a playable container for the existing streams without encoding them."""
+
+    incompatible_video, incompatible_audio = _incompatible_output_streams(streams, current)
+    if not incompatible_video and not incompatible_audio:
+        return ""
+    for candidate in ("webm", "mp4", "mkv"):
+        if candidate == current:
+            continue
+        candidate_video, candidate_audio = _incompatible_output_streams(streams, candidate)
+        if not candidate_video and not candidate_audio:
+            return candidate
+    return "mkv"
+
+
+def _unique_remux_target(path: Path, container: str, current_container: str) -> Path:
+    suffix = path.suffix if container == current_container else _VIDEO_EXTENSION_BY_CONTAINER[container]
+    candidate = path.with_suffix(suffix)
+    if candidate == path or not candidate.exists():
+        return candidate
+    for index in range(2, 10_000):
+        candidate = path.with_name(f"{path.stem} ({index}){suffix}")
+        if not candidate.exists():
+            return candidate
+    return path.with_name(f"{path.stem}-remuxed{suffix}")
+
+
+def _replace_remuxed_path(
+    paths: list[Path],
+    source: Path,
+    target: Path,
+    path_updates: dict[Path, Path],
+) -> None:
+    for index, candidate in enumerate(paths):
+        if candidate == source:
+            paths[index] = target
+    if target != source:
+        path_updates[source] = target
+
+
+def _publish_stream_copy_remux(
+    ffmpeg: str,
+    input_path: Path,
+    source_path: Path,
+    current_container: str,
+    target_container: str,
+    paths: list[Path],
+    path_updates: dict[Path, Path],
+    *,
+    log_label: str,
+) -> bool:
+    target_path = _unique_remux_target(source_path, target_container, current_container)
+    output_path = scratch_temp_path(prefix="nvs-stream-copy-remux-", suffix=target_path.suffix)
+    try:
+        result = run_task_subprocess(
+            [
+                ffmpeg,
+                "-y",
+                "-loglevel",
+                "error",
+                "-i",
+                str(input_path),
+                "-map",
+                "0",
+                "-map_metadata",
+                "0",
+                "-map_chapters",
+                "0",
+                "-c",
+                "copy",
+                str(output_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0 or not output_path.is_file() or output_path.stat().st_size <= 0:
+            detail = (result.stderr or result.stdout or "ffmpeg returned no output").strip()
+            logger.warning("%s skipped for %s: %s", log_label, source_path, detail)
+            return False
+        output_streams = _ffprobe_streams(ffmpeg, output_path)
+        output_video, output_audio = _incompatible_output_streams(output_streams, target_container)
+        if (
+            not output_streams
+            or output_video
+            or output_audio
+            or (target_container == "mp4" and _empty_vpcc_type_offsets(output_path))
+        ):
+            logger.warning("%s skipped for %s: invalid remux output", log_label, source_path)
+            return False
+        publish_scratch_file(output_path, target_path, cancel_check=raise_if_cancelled)
+        if target_path != source_path:
+            try:
+                source_path.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("Remuxed %s but could not remove old container: %s", source_path, exc)
+            _replace_remuxed_path(paths, source_path, target_path, path_updates)
+        return True
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("%s skipped for %s: %s", log_label, source_path, exc)
+        return False
+    finally:
+        remove_scratch_path(output_path)
+
+
+def _repair_container_codecs(ffmpeg: str, path: Path, container: str) -> bool:
+    streams = _ffprobe_streams(ffmpeg, path)
+    video_streams, audio_streams = _incompatible_output_streams(streams, container)
+    if not video_streams and not audio_streams:
+        return False
+
+    video_codec = _preferred_codec(
+        list(VIDEO_CONTAINER_PRESETS[container].get("codecs") or []),
+        VIDEO_CODEC_ENCODERS,
+        _PORTABLE_VIDEO_CODEC_ORDER,
+    )
+    audio_codec = _preferred_codec(
+        list(VIDEO_CONTAINER_AUDIO_CODECS.get(container) or []),
+        VIDEO_AUDIO_CODEC_ENCODERS,
+        _PORTABLE_AUDIO_CODEC_ORDER,
+    )
+    if (video_streams and not video_codec) or (audio_streams and not audio_codec):
+        logger.warning("Codec compatibility repair skipped for %s: no compatible encoder", path)
+        return False
+
+    output_path = scratch_temp_path(prefix="nvs-codec-repair-", suffix=path.suffix)
+    try:
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(path),
+            "-map",
+            "0",
+            "-map_metadata",
+            "0",
+            "-map_chapters",
+            "0",
+            "-c",
+            "copy",
+        ]
+        for ordinal in video_streams:
+            cmd.extend([f"-c:v:{ordinal}", VIDEO_CODEC_ENCODERS[video_codec]["ffmpeg"]])
+        for ordinal in audio_streams:
+            cmd.extend([f"-c:a:{ordinal}", VIDEO_AUDIO_CODEC_ENCODERS[audio_codec]])
+        cmd.append(str(output_path))
+        result = run_task_subprocess(cmd, capture_output=True, text=True)
+        if result.returncode != 0 or not output_path.is_file() or output_path.stat().st_size <= 0:
+            detail = (result.stderr or result.stdout or "ffmpeg returned no output").strip()
+            logger.warning("Codec compatibility repair skipped for %s: %s", path, detail)
+            return False
+        repaired_streams = _ffprobe_streams(ffmpeg, output_path)
+        repaired_video, repaired_audio = _incompatible_output_streams(repaired_streams, container)
+        if repaired_video or repaired_audio:
+            logger.warning("Codec compatibility repair skipped for %s: output remains incompatible", path)
+            return False
+        publish_scratch_file(output_path, path, cancel_check=raise_if_cancelled)
+        return True
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Codec compatibility repair skipped for %s: %s", path, exc)
+        return False
+    finally:
+        remove_scratch_path(output_path)
+
+
+def ensure_container_codec_compatibility(
+    paths: list[Path],
+    quality: dict[str, str] | None = None,
+    *,
+    path_updates: dict[Path, Path] | None = None,
+) -> bool:
+    """Repair known codec/container mismatches in any extractor's final outputs."""
+
+    selection = normalize_quality_selection(quality)
+
+    def recognizable_container(path: Path, container: str) -> bool:
+        try:
+            with path.open("rb") as handle:
+                header = handle.read(12)
+        except OSError:
+            return False
+        if container == "mp4":
+            return len(header) >= 8 and header[4:8] == b"ftyp"
+        if container in {"mkv", "webm"}:
+            return header.startswith(b"\x1a\x45\xdf\xa3")
+        return False
+
+    candidates = [
+        (path, _VIDEO_CONTAINER_BY_EXTENSION.get(path.suffix.lower(), ""))
+        for path in paths
+        if path.is_file()
+    ]
+    candidates = [
+        (path, container)
+        for path, container in candidates
+        if container and recognizable_container(path, container)
+    ]
+    if not candidates:
+        return False
+    empty_vpcc = {
+        path: offsets
+        for path, container in candidates
+        if container == "mp4" and (offsets := _empty_vpcc_type_offsets(path))
+    }
+    if selection["mode"] != "video":
+        return False
+    native_auto = (
+        selection["video_container"] == "auto"
+        and selection["video_codec"] == "auto"
+        and selection["video_audio_codec"] == "auto"
+    )
+    updates = path_updates if path_updates is not None else {}
+    ffmpeg = detect_ffmpeg_location()
+    if not ffmpeg:
+        logger.warning("Codec compatibility check skipped: ffmpeg was not found")
+        return False
+    changed = False
+    for path, offsets in empty_vpcc.items():
+        raise_if_cancelled()
+        changed = _repair_empty_vpcc(
+            ffmpeg,
+            path,
+            offsets,
+            paths,
+            updates,
+            choose_native_container=native_auto,
+        ) or changed
+    if native_auto:
+        refreshed_candidates = [
+            (path, _VIDEO_CONTAINER_BY_EXTENSION.get(path.suffix.lower(), ""))
+            for path in paths
+            if path.is_file()
+        ]
+        for path, container in refreshed_candidates:
+            if not container:
+                continue
+            raise_if_cancelled()
+            streams = _ffprobe_streams(ffmpeg, path)
+            target_container = _stream_copy_target_container(streams, container)
+            if target_container:
+                changed = _publish_stream_copy_remux(
+                    ffmpeg,
+                    path,
+                    path,
+                    container,
+                    target_container,
+                    paths,
+                    updates,
+                    log_label="Native codec/container remux",
+                ) or changed
+        return changed
+    for path, container in candidates:
+        raise_if_cancelled()
+        changed = _repair_container_codecs(ffmpeg, path, container) or changed
+    return changed
 
 
 def _embed_matroska_thumbnail(ffmpeg: str, path: Path, thumbnail: Path) -> bool:
@@ -599,7 +1298,245 @@ def _embed_thumbnail(path: Path, thumbnail: Path, *, silent_unsupported: bool = 
 
 
 def _embedded_tags(payload: dict[str, Any]) -> dict[str, str]:
-    return {key: _tag_text(value) for key, value in payload.items() if _tag_text(value)}
+    return {key: text for key, value in payload.items() if (text := _tag_text(value))}
+
+
+def _xmp_text(value: Any) -> str:
+    return escape(_tag_text(value), {'"': "&quot;", "'": "&apos;"})
+
+
+def _xmp_alt(name: str, value: Any) -> str:
+    text = _xmp_text(value)
+    return (
+        f'<dc:{name}><rdf:Alt><rdf:li xml:lang="x-default">{text}</rdf:li>'
+        f"</rdf:Alt></dc:{name}>"
+        if text
+        else ""
+    )
+
+
+def _xmp_sequence(name: str, *values: Any) -> str:
+    items = "".join(f"<rdf:li>{text}</rdf:li>" for value in values if (text := _xmp_text(value)))
+    return f"<dc:{name}><rdf:Seq>{items}</rdf:Seq></dc:{name}>" if items else ""
+
+
+def _xmp_bag(name: str, *values: Any) -> str:
+    items = "".join(f"<rdf:li>{text}</rdf:li>" for value in values if (text := _xmp_text(value)))
+    return f"<dc:{name}><rdf:Bag>{items}</rdf:Bag></dc:{name}>" if items else ""
+
+
+def _image_xmp_packet(payload: dict[str, Any]) -> bytes:
+    """Build standard Dublin Core/XMP Rights metadata, with no app-specific fields."""
+    tags = _embedded_tags(payload)
+    description = tags.get("description") or tags.get("comment")
+    source = tags.get("source") or tags.get("comment")
+    standard = "".join(
+        [
+            _xmp_alt("title", tags.get("title")),
+            _xmp_sequence("creator", tags.get("artist") or tags.get("album_artist")),
+            _xmp_alt("description", description),
+            _xmp_alt("rights", tags.get("copyright")),
+            _xmp_sequence("date", tags.get("date")),
+            _xmp_bag("publisher", tags.get("publisher")),
+            _xmp_bag("language", tags.get("language")),
+            _xmp_bag("subject", tags.get("keywords"), tags.get("genre")),
+            f"<dc:source>{_xmp_text(source)}</dc:source>" if source else "",
+            (
+                f"<dc:identifier>{_xmp_text(tags.get('identifier'))}</dc:identifier>"
+                if tags.get("identifier")
+                else ""
+            ),
+            (
+                f"<xmpRights:WebStatement>{_xmp_text(source)}</xmpRights:WebStatement>"
+                if source and urlparse(source).scheme.lower() in {"http", "https"}
+                else ""
+            ),
+        ]
+    )
+    packet = (
+        '<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+        '<x:xmpmeta xmlns:x="adobe:ns:meta/">'
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        '<rdf:Description rdf:about="" '
+        'xmlns:dc="http://purl.org/dc/elements/1.1/" '
+        'xmlns:xmpRights="http://ns.adobe.com/xap/1.0/rights/">'
+        f"{standard}"
+        "</rdf:Description></rdf:RDF></x:xmpmeta>"
+        '<?xpacket end="w"?>'
+    )
+    return packet.encode("utf-8")
+
+
+def _jpeg_with_xmp(data: bytes, xmp: bytes) -> bytes | None:
+    if not data.startswith(b"\xff\xd8"):
+        return None
+    app1_payload = _XMP_APP1_HEADER + xmp
+    if len(app1_payload) + 2 > 0xFFFF:
+        return None
+    replacement = b"\xff\xe1" + (len(app1_payload) + 2).to_bytes(2, "big") + app1_payload
+    output = bytearray(data[:2])
+    position = 2
+    inserted = False
+    while position < len(data):
+        marker_start = position
+        if data[position] != 0xFF:
+            return None
+        while position < len(data) and data[position] == 0xFF:
+            position += 1
+        if position >= len(data):
+            return None
+        marker = data[position]
+        position += 1
+        if marker in {0xD9, 0xDA}:
+            if not inserted:
+                output.extend(replacement)
+                inserted = True
+            output.extend(data[marker_start:])
+            break
+        if marker in {0x01, *range(0xD0, 0xD8)}:
+            output.extend(data[marker_start:position])
+            continue
+        if position + 2 > len(data):
+            return None
+        segment_length = int.from_bytes(data[position : position + 2], "big")
+        segment_end = position + segment_length
+        if segment_length < 2 or segment_end > len(data):
+            return None
+        segment = data[marker_start:segment_end]
+        is_xmp = marker == 0xE1 and data[position + 2 : segment_end].startswith(_XMP_APP1_HEADER)
+        if not inserted and marker != 0xE0:
+            output.extend(replacement)
+            inserted = True
+        if not is_xmp:
+            output.extend(segment)
+        position = segment_end
+    return bytes(output) if inserted else None
+
+
+def _png_chunk(kind: bytes, payload: bytes) -> bytes:
+    checksum = zlib.crc32(kind + payload) & 0xFFFFFFFF
+    return len(payload).to_bytes(4, "big") + kind + payload + checksum.to_bytes(4, "big")
+
+
+def _png_with_xmp(data: bytes, xmp: bytes) -> bytes | None:
+    if not data.startswith(_PNG_SIGNATURE):
+        return None
+    replacement = _png_chunk(b"iTXt", _PNG_XMP_KEYWORD + b"\x00\x00\x00\x00" + xmp)
+    output = bytearray(_PNG_SIGNATURE)
+    position = len(_PNG_SIGNATURE)
+    inserted = False
+    while position + 12 <= len(data):
+        chunk_length = int.from_bytes(data[position : position + 4], "big")
+        chunk_end = position + 12 + chunk_length
+        if chunk_end > len(data):
+            return None
+        kind = data[position + 4 : position + 8]
+        payload = data[position + 8 : position + 8 + chunk_length]
+        is_xmp = kind == b"iTXt" and payload.startswith(_PNG_XMP_KEYWORD)
+        if kind == b"IEND" and not inserted:
+            output.extend(replacement)
+            inserted = True
+        if not is_xmp:
+            output.extend(data[position:chunk_end])
+        position = chunk_end
+        if kind == b"IEND":
+            break
+    return bytes(output) if inserted and position == len(data) else None
+
+
+def _webp_chunk(kind: bytes, payload: bytes) -> bytes:
+    padding = b"\x00" if len(payload) % 2 else b""
+    return kind + len(payload).to_bytes(4, "little") + payload + padding
+
+
+def _webp_canvas(chunks: list[tuple[bytes, bytes]]) -> tuple[int, int, bool] | None:
+    for kind, payload in chunks:
+        if kind == b"VP8 " and len(payload) >= 10 and payload[3:6] == b"\x9d\x01\x2a":
+            width = int.from_bytes(payload[6:8], "little") & 0x3FFF
+            height = int.from_bytes(payload[8:10], "little") & 0x3FFF
+            return (width, height, False) if width and height else None
+        if kind == b"VP8L" and len(payload) >= 5 and payload[0] == 0x2F:
+            bits = int.from_bytes(payload[1:5], "little")
+            width = (bits & 0x3FFF) + 1
+            height = ((bits >> 14) & 0x3FFF) + 1
+            return width, height, bool(bits & (1 << 28))
+    return None
+
+
+def _webp_with_xmp(data: bytes, xmp: bytes) -> bytes | None:
+    if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+        return None
+    declared_end = int.from_bytes(data[4:8], "little") + 8
+    if declared_end != len(data):
+        return None
+
+    chunks: list[tuple[bytes, bytes]] = []
+    position = 12
+    while position + 8 <= len(data):
+        kind = data[position : position + 4]
+        size = int.from_bytes(data[position + 4 : position + 8], "little")
+        payload_end = position + 8 + size
+        chunk_end = payload_end + (size % 2)
+        if chunk_end > len(data):
+            return None
+        if kind != b"XMP ":
+            chunks.append((kind, data[position + 8 : payload_end]))
+        position = chunk_end
+    if position != len(data):
+        return None
+
+    extended_index = next((index for index, (kind, _) in enumerate(chunks) if kind == b"VP8X"), None)
+    if extended_index is None:
+        canvas = _webp_canvas(chunks)
+        if canvas is None:
+            return None
+        width, height, has_alpha = canvas
+        flags = _WEBP_XMP_FLAG
+        flags |= 0x20 if any(kind == b"ICCP" for kind, _ in chunks) else 0
+        flags |= 0x10 if has_alpha or any(kind == b"ALPH" for kind, _ in chunks) else 0
+        flags |= 0x08 if any(kind == b"EXIF" for kind, _ in chunks) else 0
+        flags |= 0x02 if any(kind in {b"ANIM", b"ANMF"} for kind, _ in chunks) else 0
+        extended = bytes([flags]) + b"\x00\x00\x00"
+        extended += (width - 1).to_bytes(3, "little") + (height - 1).to_bytes(3, "little")
+        chunks.insert(0, (b"VP8X", extended))
+    else:
+        payload = chunks[extended_index][1]
+        if len(payload) != 10:
+            return None
+        chunks[extended_index] = (b"VP8X", bytes([payload[0] | _WEBP_XMP_FLAG]) + payload[1:])
+
+    chunks.append((b"XMP ", xmp))
+    body = b"WEBP" + b"".join(_webp_chunk(kind, payload) for kind, payload in chunks)
+    return b"RIFF" + len(body).to_bytes(4, "little") + body
+
+
+def _lossless_xmp_writer(data: bytes) -> Any:
+    """Select by file signature so extractor names and source sites are irrelevant."""
+    if data.startswith(b"\xff\xd8"):
+        return _jpeg_with_xmp
+    if data.startswith(_PNG_SIGNATURE):
+        return _png_with_xmp
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return _webp_with_xmp
+    return None
+
+
+def _embed_image_metadata(path: Path, payload: dict[str, Any]) -> bool:
+    try:
+        data = path.read_bytes()
+        xmp = _image_xmp_packet(payload)
+        suffix = path.suffix.lower()
+        writer = _lossless_xmp_writer(data)
+        embedded = writer(data, xmp) if writer is not None else None
+        if embedded is None:
+            return False
+        with scratch_file(prefix="nvs-image-metadata-", suffix=suffix) as temporary:
+            temporary.write_bytes(embedded)
+            publish_scratch_file(temporary, path, cancel_check=raise_if_cancelled)
+        return True
+    except OSError as exc:
+        logger.warning("Metadata embed skipped for %s: %s", path, exc)
+        return False
 
 
 def _embed_metadata(
@@ -610,8 +1547,16 @@ def _embed_metadata(
 ) -> bool:
     if not payload:
         return True
+    if path.suffix.lower() in IMAGE_EXTENSIONS:
+        embedded = _embed_image_metadata(path, payload)
+        if not embedded and not silent_unsupported:
+            logger.warning(
+                "Metadata embed skipped for %s: image format has no lossless XMP writer",
+                path,
+            )
+        return embedded
     if path.suffix.lower() not in _METADATA_EMBED_EXTENSIONS:
-        if not silent_unsupported and path.suffix.lower() not in IMAGE_EXTENSIONS:
+        if not silent_unsupported:
             logger.warning("Metadata embed skipped for %s: unsupported media container", path)
         return False
     ffmpeg = detect_ffmpeg_location()
@@ -631,7 +1576,7 @@ def _embed_metadata(
             "-map",
             "0",
             "-map_metadata",
-            "0",
+            "-1",
             "-map_chapters",
             "0",
             "-c",
@@ -701,13 +1646,18 @@ def prepare_thumbnail_post_processing(
     *,
     sidecars: list[Path] | None = None,
     extractor_payload: dict[str, Any] | None = None,
+    prefer_cover_art: bool = False,
 ) -> tuple[bytes, str]:
     payload = (
         extractor_payload
         if extractor_payload is not None
         else _extractor_payload(list(sidecars or []), metadata)
     )
-    return _download_thumbnail(payload)
+    return (
+        _download_thumbnail(payload, prefer_cover_art=True)
+        if prefer_cover_art
+        else _download_thumbnail(payload)
+    )
 
 
 def apply_thumbnail_post_processing(
@@ -1349,7 +2299,11 @@ def apply_metadata_post_processing(
             extractor_payload=extractor_payload,
         )
         if save_as == "embed":
-            _embed_metadata(path, payload, silent_unsupported=silent_unsupported)
+            if not _embed_metadata(path, payload, silent_unsupported=silent_unsupported):
+                # Some image formats have no safe lossless metadata writer and a
+                # host ffmpeg can reject metadata for an otherwise valid media
+                # container. Never discard the extractor payload in either case.
+                canonical_sidecars.add(_write_sidecar(path, payload))
         else:
             canonical_sidecars.add(_write_sidecar(path, payload))
 
@@ -1395,6 +2349,7 @@ def apply_finalized_post_processing(
             metadata,
             sidecars=source_sidecars,
             extractor_payload=extractor_payload,
+            prefer_cover_art=selection["mode"] == "audio" and processing["metadata"],
         )
         if processing["thumbnail"]
         else None

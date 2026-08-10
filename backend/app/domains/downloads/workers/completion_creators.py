@@ -19,9 +19,10 @@ from backend.app.domains.downloads.workers.completion_values import (
     _is_handle_key,
     _looks_like_handle_value,
     _looks_like_opaque_identifier,
+    _ordered_metadata_value,
     _same_creator_value,
 )
-from backend.app.domains.settings import get_effective_field_defaults, get_effective_fields, is_scraper_field
+from backend.app.domains.settings import get_effective_field_defaults
 
 
 def _nickname_default_fields() -> tuple[str, ...] | list[str]:
@@ -165,18 +166,12 @@ def _filename_media_id(path: Path, filename_template: str, metadata: dict[str, s
             return media_id
     return ""
 
-def _configured_field_value(metadata: dict[str, str], source_url: str, role: str) -> str:
+def _configured_field_value(metadata: dict[str, str], fields: tuple[str, ...] | list[str]) -> str:
     # A user-configured field order (source_fields) is authoritative: read the
     # first populated field straight from the metadata sidecar in that exact order,
     # bypassing the handle heuristics so an explicit choice like channel_id is honored
     # even when it is an opaque identifier. Empty list -> heuristics stay in charge.
-    for field in get_effective_fields(source_url).get(role) or ():
-        if is_scraper_field(field):
-            continue
-        value = _clean_creator_candidate(str(metadata.get(field) or ""), strip_at=False)
-        if value:
-            return value
-    return ""
+    return _clean_creator_candidate(_ordered_metadata_value(metadata, fields), strip_at=False)
 
 def _filename_creator(
     path: Path,

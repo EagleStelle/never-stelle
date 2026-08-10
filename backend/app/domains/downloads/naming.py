@@ -506,6 +506,19 @@ def filename_template_fields(filename: str, filename_template: str) -> dict[str,
     return template_fields(Path(str(filename or "")).stem, filename_template)
 
 
+def filename_template_title(filename: str, filename_template: str) -> str:
+    fields, numbered_suffix = _match_template_fields(Path(str(filename or "")).stem, filename_template)
+    title = _field_value(fields, "title")
+    if (
+        title.isdecimal()
+        and numbered_suffix.startswith("_")
+        and numbered_suffix[1:].isdecimal()
+        and int(title) == int(numbered_suffix[1:])
+    ):
+        return ""
+    return title
+
+
 def _field_value(fields: dict[str, str], *names: str) -> str:
     for name in names:
         value = _text(fields.get(name))
@@ -700,12 +713,10 @@ def clean_template_filename(
         )
     )
     # The on-disk creator segment often holds the display name; redact it from the title too.
-    # A title resolved by the Fields pipeline (including scraper-token roles) is
-    # authoritative over the extractor-rendered title already present on disk.
-    # The old behavior only used this hint for sparse filenames, effectively
-    # bypassing Fields, Templates and Naming whenever yt-dlp supplied a title.
+    # The resolved Fields value is authoritative. An empty value renders no title
+    # token; extractor text already present in the filename never bypasses Fields.
     cleaned_title = clean_filename_title(
-        fallback_title or raw_title,
+        fallback_title,
         resolved_username or resolved_nickname,
         resolved_media_id,
         source_key,
