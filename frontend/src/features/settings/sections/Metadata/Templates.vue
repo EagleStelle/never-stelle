@@ -225,7 +225,7 @@ function insert(siteKey: string, format: string, token: string): void {
               </CardTitle>
             </CardHeader>
             <CardContent class="flex flex-col gap-3">
-              <Field orientation="start">
+              <Field>
                 <FieldLabel :for="getFolderInputId(site.key, template)">
                   Folder
                 </FieldLabel>
@@ -242,7 +242,7 @@ function insert(siteKey: string, format: string, token: string): void {
                 </FieldContent>
               </Field>
 
-              <Field orientation="start">
+              <Field>
                 <FieldLabel :for="getFilenameInputId(site.key, template)">
                   Filename
                 </FieldLabel>

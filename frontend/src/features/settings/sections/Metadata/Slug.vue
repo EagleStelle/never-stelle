@@ -132,7 +132,7 @@ function roleDisabled(
                   </span>
 
                   <div class="flex flex-col gap-3">
-                    <Field orientation="start" label-width="xs">
+                    <Field label-width="xs">
                       <FieldLabel :for="`${site.key}SlugToken${segment.part}`">
                         Token
                       </FieldLabel>

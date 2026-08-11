@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { reactive, ref } from "vue";
 import IconDrag from "~icons/material-symbols/drag-indicator";
 import IconTrash from "~icons/material-symbols/delete";
@@ -172,7 +172,6 @@ function isDropTarget(key: string, index: number): boolean {
               <Field
                 v-for="field in COOKIE_POLICY_FIELDS"
                 :key="field.key"
-                orientation="start"
               >
                 <!-- The help button cannot sit inside a label, so the cell wraps both. -->
                 <div data-slot="field-label" class="flex items-center gap-1.5">

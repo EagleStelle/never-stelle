@@ -5,6 +5,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { Card } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { useSettingsContext } from "@/features/settings/context";
 import { displayUrlTemplate } from "@/utils/dashboard";
@@ -68,13 +69,12 @@ function locationItems(
       </AccordionTrigger>
 
       <AccordionContent>
-        <p
-          v-if="!formatsFor(site.key).length"
-          class="py-2 text-[0.8125rem] text-muted-foreground"
-        >
-          Download once from this source to learn its URL format, then choose
-          where its files go.
-        </p>
+        <Card v-if="!formatsFor(site.key).length" class="px-6">
+          <p class="text-[0.8125rem] text-muted-foreground">
+            Download once from this source to learn its URL format, then choose
+            where its files go.
+          </p>
+        </Card>
 
         <div v-else class="flex flex-col gap-4 py-2">
           <Combobox

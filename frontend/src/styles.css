@@ -23,8 +23,6 @@
   --color-ring: var(--ring);
 
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-display:
-    "Space Grotesk", "Plus Jakarta Sans", ui-sans-serif, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
   --ease-glass: cubic-bezier(0.32, 0.72, 0, 1);
@@ -157,7 +155,7 @@
   h1,
   h2,
   h3 {
-    font-family: var(--font-display);
+    font-family: var(--font-sans);
     letter-spacing: -0.01em;
   }
 

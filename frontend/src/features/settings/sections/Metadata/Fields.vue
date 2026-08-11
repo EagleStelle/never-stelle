@@ -126,7 +126,7 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
       </AccordionTrigger>
       <AccordionContent>
         <div class="flex flex-col gap-[0.85rem]">
-          <Field orientation="start">
+          <Field>
             <FieldLabel :for="`${site.key}FieldsProbeInput`">
               Probe URL
             </FieldLabel>

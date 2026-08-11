@@ -1,6 +1,7 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, nextTick, reactive, ref } from "vue";
 import IconDrag from "~icons/material-symbols/drag-indicator";
+
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -8,10 +9,13 @@ import { Combobox } from "@/components/ui/combobox";
 import {
   Field,
   FieldContent,
+  FieldDescription,
   FieldGroup,
   FieldLabel,
   FieldLegend,
+  FieldSeparator,
   FieldSet,
+  FieldTitle,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -286,14 +290,10 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
 
 <template>
   <TooltipProvider>
-    <div class="flex flex-col gap-[0.85rem]">
+    <div class="flex flex-col gap-6">
       <FieldSet>
-        <FieldLegend
-          class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2"
-        >
-          Video
-        </FieldLegend>
-        <FieldGroup class="gap-4">
+        <FieldLegend>Video</FieldLegend>
+        <FieldGroup>
           <Combobox
             :model-value="settingsDraft.default_quality.video_quality"
             :items="settings.quality_options.video"
@@ -339,13 +339,11 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
         </FieldGroup>
       </FieldSet>
 
-      <FieldSet class="mt-3">
-        <FieldLegend
-          class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2"
-        >
-          Audio
-        </FieldLegend>
-        <FieldGroup class="gap-4">
+      <FieldSeparator />
+
+      <FieldSet>
+        <FieldLegend>Audio</FieldLegend>
+        <FieldGroup>
           <!-- Bitrate leads, the way video quality does; format takes the container slot. -->
           <Combobox
             v-if="!isLosslessAudioFormat(settingsDraft.default_quality.audio_format)"
@@ -373,36 +371,37 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
         </FieldGroup>
       </FieldSet>
 
-      <FieldSet class="mt-3">
-        <FieldLegend
-          class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2"
-        >
+      <FieldSeparator />
+
+      <FieldSet>
+        <FieldLegend>
           Post-Processing
         </FieldLegend>
-        <FieldGroup class="gap-4">
-          <FieldLabel
-            v-for="field in POST_PROCESSING_FIELDS"
-            :key="field.key"
-            class="items-center select-none text-sm"
-            :class="
-              defaultEmbedCapabilities[field.key]
-                ? 'cursor-pointer'
-                : 'cursor-not-allowed opacity-60'
-            "
-          >
-            <Checkbox
-              :checked="settingsDraft.default_post_processing[field.key]"
-              :disabled="!defaultEmbedCapabilities[field.key]"
-              @update:checked="
-                (value: boolean) =>
-                  setDefaultPostProcessing({
-                    ...settingsDraft.default_post_processing,
-                    [field.key]: Boolean(value),
-                  })
+        <FieldGroup>
+          <FieldGroup data-slot="checkbox-group">
+            <FieldLabel
+              v-for="field in POST_PROCESSING_FIELDS"
+              :key="field.key"
+              :class="
+                defaultEmbedCapabilities[field.key]
+                  ? 'cursor-pointer'
+                  : 'cursor-not-allowed opacity-60'
               "
-            />
-            <span>{{ field.label }}</span>
-          </FieldLabel>
+            >
+              <Checkbox
+                :checked="settingsDraft.default_post_processing[field.key]"
+                :disabled="!defaultEmbedCapabilities[field.key]"
+                @update:checked="
+                  (value: boolean) =>
+                    setDefaultPostProcessing({
+                      ...settingsDraft.default_post_processing,
+                      [field.key]: Boolean(value),
+                    })
+                "
+              />
+              <span>{{ field.label }}</span>
+            </FieldLabel>
+          </FieldGroup>
           <SegmentedControl
             :model-value="settingsDraft.default_post_processing.save_as"
             label="Save as"
@@ -415,23 +414,19 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
         </FieldGroup>
       </FieldSet>
 
-      <FieldSet class="mt-3">
-        <FieldLegend
-          class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2"
-        >
+      <FieldSeparator />
+
+      <FieldSet>
+        <FieldLegend>
           Cookies
         </FieldLegend>
-        <FieldGroup class="gap-4">
+        <FieldGroup>
           <Field
             v-for="field in COOKIE_POLICY_FIELDS"
             :key="field.key"
-            orientation="start"
           >
-            <!-- The help button cannot sit inside a label, so the cell wraps both. -->
-            <div data-slot="field-label" class="flex items-center gap-1.5">
-              <Label :for="`defaultCookie${field.key}`">{{
-                field.label
-              }}</Label>
+            <FieldLabel :for="`defaultCookie${field.key}`" class="items-center gap-1.5">
+              <span>{{ field.label }}</span>
               <Tooltip>
                 <TooltipTrigger as-child>
                   <button
@@ -446,7 +441,7 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
                   {{ field.help }}
                 </TooltipContent>
               </Tooltip>
-            </div>
+            </FieldLabel>
             <FieldContent>
               <Input
                 :id="`defaultCookie${field.key}`"
@@ -466,10 +461,10 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
         </FieldGroup>
       </FieldSet>
 
-      <FieldSet class="mt-3">
-        <FieldLegend
-          class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2"
-        >
+      <FieldSeparator />
+
+      <FieldSet>
+        <FieldLegend>
           Fields
         </FieldLegend>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
@@ -520,14 +515,14 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
         </div>
       </FieldSet>
 
-      <FieldSet class="mt-3">
-        <FieldLegend
-          class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2"
-        >
+      <FieldSeparator />
+
+      <FieldSet>
+        <FieldLegend>
           Templates
         </FieldLegend>
-        <FieldGroup class="gap-4">
-          <Field orientation="start">
+        <FieldGroup>
+          <Field>
             <FieldLabel :for="FOLDER_INPUT_ID">Folder</FieldLabel>
             <FieldContent>
               <Input
@@ -541,7 +536,7 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
               />
             </FieldContent>
           </Field>
-          <Field orientation="start">
+          <Field>
             <FieldLabel :for="FILENAME_INPUT_ID">Filename</FieldLabel>
             <FieldContent>
               <Input
@@ -573,18 +568,18 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
         </FieldGroup>
       </FieldSet>
 
-      <FieldSet class="mt-3">
-        <FieldLegend
-          class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2"
-        >
+      <FieldSeparator />
+
+      <FieldSet>
+        <FieldLegend>
           Title
         </FieldLegend>
-        <FieldGroup class="gap-4">
-          <div class="flex flex-col gap-2">
-            <label
+        <FieldGroup>
+          <FieldGroup data-slot="checkbox-group">
+            <FieldLabel
               v-for="rule in cleanupRules"
               :key="rule.key"
-              class="flex items-center gap-2 cursor-pointer select-none text-sm"
+              class="cursor-pointer"
             >
               <Checkbox
                 :checked="ruleEnabled(GLOBAL_NAMING_KEY, rule)"
@@ -593,11 +588,10 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
                 "
               />
               <span>{{ rule.label }}</span>
-            </label>
-          </div>
+            </FieldLabel>
+          </FieldGroup>
           <Field
             v-if="ruleEnabled(GLOBAL_NAMING_KEY, titleLengthRule)"
-            orientation="start"
           >
             <FieldLabel for="defaultTitleMaxChars">Maximum length</FieldLabel>
             <FieldContent class="flex-row items-center gap-2">
@@ -620,13 +614,13 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
         </FieldGroup>
       </FieldSet>
 
-      <FieldSet class="mt-3">
-        <FieldLegend
-          class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2"
-        >
+      <FieldSeparator />
+
+      <FieldSet>
+        <FieldLegend>
           Filename
         </FieldLegend>
-        <FieldGroup class="gap-4">
+        <FieldGroup>
           <SegmentedControl
             v-for="choice in namingChoices"
             :key="choice.key"
@@ -644,7 +638,7 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
               {{ option.label }}
             </SegmentedControlItem>
           </SegmentedControl>
-          <Field orientation="start">
+          <Field>
             <FieldLabel for="defaultStemMaxChars">Maximum length</FieldLabel>
             <FieldContent class="flex-row items-center gap-2">
               <Input

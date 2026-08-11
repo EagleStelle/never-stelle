@@ -156,7 +156,7 @@ function isDropTarget(key: string, index: number): boolean {
       <AccordionContent>
         <Card v-if="!templatesFor(site.key).length" class="px-6">
           <p class="text-[0.8125rem] text-muted-foreground">
-            No format learned yet.
+            Download once from this source to learn its URL format.
           </p>
         </Card>
 

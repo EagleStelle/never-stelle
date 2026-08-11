@@ -35,7 +35,7 @@ const props = withDefaults(
      */
     label?: string
     /** Above the control (toolbars) or beside it in a label column (settings rows). */
-    labelPlacement?: Extract<FieldVariants["orientation"], "top" | "start">
+    labelPlacement?: "top" | "start"
     /** Width of the label column; only applies when the label sits beside the control. */
     labelWidth?: FieldVariants["labelWidth"]
   }>(),
@@ -100,7 +100,6 @@ const handleOpenChange = (isOpen: boolean) => {
 
 <template>
   <Field
-    :orientation="props.labelPlacement"
     :label-width="props.labelWidth"
     :class="layout === 'fill' ? 'w-full' : 'w-fit shrink-0'"
   >

@@ -18,7 +18,7 @@ const props = withDefaults(
       /** Names the control: rendered as the visible label and read as the group's name. */
       label?: string;
       /** Above the control (toolbars) or beside it in a label column (settings rows). */
-      labelPlacement?: Extract<FieldVariants["orientation"], "top" | "start">;
+      labelPlacement?: "top" | "start";
       /** Width of the label column; only applies when the label sits beside the control. */
       labelWidth?: FieldVariants["labelWidth"];
     }
@@ -48,7 +48,6 @@ const forwarded = useForwardProps(delegatedProps);
 
 <template>
   <Field
-    :orientation="props.labelPlacement"
     :label-width="props.labelWidth"
     :class="props.labelPlacement === 'start' ? 'w-full' : 'w-fit shrink-0'"
   >

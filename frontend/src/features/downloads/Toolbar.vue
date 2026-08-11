@@ -9,7 +9,13 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
 import { DialogShell as Dialog } from "@/components/ui/dialog";
-import { FieldGroup } from "@/components/ui/field";
+import {
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSeparator,
+  FieldSet,
+} from "@/components/ui/field";
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -145,53 +151,64 @@ function setPostProcessingSaveAs(value: string | string[]): void {
       title="Advanced Settings"
       content-class="fixed left-1/2 top-1/2 z-70 flex w-[min(480px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
     >
-      <div class="p-5 sm:p-6">
-        <FieldGroup class="gap-4">
-          <Combobox
-            v-for="field in advancedQualityFields"
-            :key="field.key"
-            :model-value="selection[field.key]"
-            :items="field.items"
-            @update:model-value="(val) => setField(field.key, val)"
-            :label="field.label"
-            label-placement="start"
-            :placeholder="field.placeholder"
-            :empty-text="field.emptyText"
-            layout="fill"
-          />
-          <label
-            v-for="field in POST_PROCESSING_FIELDS"
-            :key="field.key"
-            class="flex items-center gap-2 select-none text-sm"
-            :class="
-              embedCapabilities[field.key]
-                ? 'cursor-pointer'
-                : 'cursor-not-allowed opacity-60'
-            "
-          >
-            <Checkbox
-              :checked="postProcessing[field.key]"
-              :disabled="!embedCapabilities[field.key]"
-              @update:checked="
-                (value: boolean) =>
-                  setPostProcessing({
-                    ...postProcessing,
-                    [field.key]: Boolean(value),
-                  })
-              "
+      <div class="p-5 sm:p-6 flex flex-col gap-6">
+        <FieldSet v-if="advancedQualityFields.length">
+          <FieldLegend>{{ selection.mode === "audio" ? "Audio" : "Video" }}</FieldLegend>
+          <FieldGroup>
+            <Combobox
+              v-for="field in advancedQualityFields"
+              :key="field.key"
+              :model-value="selection[field.key]"
+              :items="field.items"
+              @update:model-value="(val) => setField(field.key, val)"
+              :label="field.label"
+              label-placement="start"
+              :placeholder="field.placeholder"
+              :empty-text="field.emptyText"
             />
-            <span>{{ field.label }}</span>
-          </label>
-          <SegmentedControl
-            :model-value="postProcessing.save_as"
-            label="Save as"
-            label-placement="start"
-            @update:model-value="setPostProcessingSaveAs"
-          >
-            <SegmentedControlItem value="sidecar">Sidecar</SegmentedControlItem>
-            <SegmentedControlItem value="embed">Embed</SegmentedControlItem>
-          </SegmentedControl>
-        </FieldGroup>
+          </FieldGroup>
+        </FieldSet>
+
+        <FieldSeparator v-if="advancedQualityFields.length" />
+
+        <FieldSet>
+          <FieldLegend>Post-Processing</FieldLegend>
+          <FieldGroup>
+            <FieldGroup data-slot="checkbox-group">
+              <FieldLabel
+                v-for="field in POST_PROCESSING_FIELDS"
+                :key="field.key"
+                :class="
+                  embedCapabilities[field.key]
+                    ? 'cursor-pointer'
+                    : 'cursor-not-allowed opacity-60'
+                "
+              >
+                <Checkbox
+                  :checked="postProcessing[field.key]"
+                  :disabled="!embedCapabilities[field.key]"
+                  @update:checked="
+                    (value: boolean) =>
+                      setPostProcessing({
+                        ...postProcessing,
+                        [field.key]: Boolean(value),
+                      })
+                  "
+                />
+                <span>{{ field.label }}</span>
+              </FieldLabel>
+            </FieldGroup>
+            <SegmentedControl
+              :model-value="postProcessing.save_as"
+              label="Save as"
+              label-placement="start"
+              @update:model-value="setPostProcessingSaveAs"
+            >
+              <SegmentedControlItem value="sidecar">Sidecar</SegmentedControlItem>
+              <SegmentedControlItem value="embed">Embed</SegmentedControlItem>
+            </SegmentedControl>
+          </FieldGroup>
+        </FieldSet>
       </div>
     </Dialog>
   </div>

@@ -101,7 +101,7 @@ const {
 
       <AccordionContent>
         <div class="flex flex-col gap-[0.85rem]">
-          <Field orientation="start">
+          <Field>
             <FieldLabel :for="`${site.key}ScraperProbeInput`">
               Probe URL
             </FieldLabel>
@@ -257,7 +257,7 @@ const {
                   </div>
 
                   <div class="flex flex-col gap-3">
-                    <Field orientation="start" label-width="sm">
+                    <Field label-width="sm">
                       <FieldLabel :for="`${site.key}RuleToken${index}`">
                         Token
                       </FieldLabel>
@@ -272,7 +272,7 @@ const {
                       </FieldContent>
                     </Field>
 
-                    <Field orientation="start" label-width="sm">
+                    <Field label-width="sm">
                       <FieldLabel :for="`${site.key}RuleMatchLabel${index}`">
                         Label
                       </FieldLabel>
@@ -284,7 +284,7 @@ const {
                       </FieldContent>
                     </Field>
 
-                    <Field orientation="start" label-width="sm">
+                    <Field label-width="sm">
                       <FieldLabel :for="`${site.key}RuleSelector${index}`">
                         Selector
                       </FieldLabel>
@@ -307,7 +307,6 @@ const {
                     />
 
                     <Field
-                      orientation="start"
                       label-width="sm"
                       class="sm:items-start sm:*:data-[slot=field-label]:pt-2"
                     >

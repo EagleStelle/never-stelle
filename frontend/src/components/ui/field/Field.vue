@@ -7,23 +7,18 @@ import { fieldVariants } from "@/components/ui/field"
 
 const props = defineProps<{
   class?: HTMLAttributes["class"]
-  orientation?: FieldVariants["orientation"]
   labelWidth?: FieldVariants["labelWidth"]
 }>()
 
-// Only the row orientation lays out a label column, so only it takes a default width.
-const labelWidth = computed(
-  () => props.labelWidth ?? (props.orientation === "start" ? "md" : undefined),
-)
+const labelWidth = computed(() => props.labelWidth ?? "md")
 </script>
 
 <template>
   <div
     role="group"
     data-slot="field"
-    :data-orientation="orientation"
     :class="cn(
-      fieldVariants({ orientation, labelWidth }),
+      fieldVariants({ labelWidth }),
       props.class,
     )"
   >

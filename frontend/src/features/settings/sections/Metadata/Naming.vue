@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import {
   Accordion,
   AccordionContent,
@@ -65,10 +65,10 @@ function onChoice(
       <AccordionContent>
         <div class="flex flex-col gap-[0.85rem]">
           <FieldSet>
-            <FieldLegend class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+            <FieldLegend>
               Title
             </FieldLegend>
-            <FieldGroup class="gap-4">
+            <FieldGroup>
               <div class="flex flex-col gap-2">
                 <label
                   v-for="rule in cleanupRules"
@@ -86,7 +86,6 @@ function onChoice(
               </div>
               <Field
                 v-if="ruleEnabled(site.key, titleLengthRule)"
-                orientation="start"
               >
                 <FieldLabel :for="`${site.key}TitleMaxChars`">
                   Maximum length
@@ -110,11 +109,11 @@ function onChoice(
             </FieldGroup>
           </FieldSet>
 
-          <FieldSet class="mt-3">
-            <FieldLegend class="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+          <FieldSet>
+            <FieldLegend>
               Filename
             </FieldLegend>
-            <FieldGroup class="gap-4">
+            <FieldGroup>
               <SegmentedControl
                 v-for="choice in namingChoices"
                 :key="choice.key"
@@ -134,7 +133,7 @@ function onChoice(
                   {{ option.label }}
                 </SegmentedControlItem>
               </SegmentedControl>
-              <Field orientation="start">
+              <Field>
                 <FieldLabel :for="`${site.key}StemMaxChars`">
                   Maximum length
                 </FieldLabel>

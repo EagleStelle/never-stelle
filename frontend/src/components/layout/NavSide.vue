@@ -39,7 +39,7 @@ const isExpanded = ref(true);
         <img src="/assets/logo.png" alt="" class="w-8 h-8 shrink-0" />
         <span
           v-show="isExpanded"
-          class="whitespace-nowrap overflow-hidden font-display font-bold text-white in-[.light-mode]:text-black text-xl tracking-tight"
+          class="whitespace-nowrap overflow-hidden font-sans font-bold text-white in-[.light-mode]:text-black text-xl tracking-tight"
           >Never Stelle</span
         >
       </a>
