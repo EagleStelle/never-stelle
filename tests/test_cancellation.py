@@ -14,6 +14,7 @@ import backend.app.domains.downloads.operations as operations_module
 import backend.app.domains.downloads.postprocessing as postprocessing_module
 import backend.app.domains.downloads.workers.execution as execution_module
 import backend.app.domains.downloads.workers.processes as processes_module
+import backend.app.domains.downloads.workers.scheduler as scheduler_module
 import backend.app.runtime.scratch as scratch_module
 
 
@@ -144,6 +145,56 @@ def test_pending_cancel_handles_a_simultaneous_scheduler_claim(monkeypatch):
     operations_module.cancel_task(task_id)
 
     assert requested == [task_id]
+
+
+def test_request_cancel_ignores_a_task_no_worker_owns():
+    task_id = "ytdlp:no-owner"
+
+    processes_module.request_cancel(task_id)
+
+    assert not processes_module._cancel_pending(task_id)
+    with processes_module.task_execution(task_id):
+        processes_module.raise_if_cancelled(task_id)
+
+
+def test_worker_releases_its_pool_slot_when_the_reservation_is_cancelled(monkeypatch):
+    task_id = "ytdlp:cancelled-on-pickup"
+    served: list[str] = []
+    ran: list[str] = []
+
+    def next_pending_task():
+        if len(served) >= 2:
+            return None
+        served.append(task_id)
+        return task_id, {"status": "pending"}
+
+    monkeypatch.setattr(scheduler_module, "_worker_started", False)
+    monkeypatch.setattr(scheduler_module, "_active_worker_count", 0)
+    monkeypatch.setattr(scheduler_module, "next_pending_task", next_pending_task)
+    monkeypatch.setattr(scheduler_module, "pending_task_count", lambda: 1 if len(served) < 2 else 0)
+    monkeypatch.setattr(scheduler_module, "claim_pending_task", lambda value: {"status": "running"})
+    monkeypatch.setattr(scheduler_module, "fail_running_task_records", lambda message: None)
+    monkeypatch.setattr(
+        scheduler_module,
+        "run_task",
+        lambda value, task, mark_running=True: ran.append(value),
+    )
+
+    with processes_module._cancel_lock:
+        processes_module._cancel_requested.add(task_id)
+    try:
+        scheduler_module.ensure_worker()
+        deadline = time.monotonic() + 5
+        while len(served) < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        while scheduler_module._active_worker_count and time.monotonic() < deadline:
+            time.sleep(0.01)
+    finally:
+        with processes_module._cancel_lock:
+            processes_module._cancel_requested.discard(task_id)
+
+    assert scheduler_module._active_worker_count == 0
+    assert ran == [task_id]
 
 
 def test_run_task_cancellation_during_post_processing_removes_task_and_workspace(

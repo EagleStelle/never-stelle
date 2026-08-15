@@ -44,6 +44,9 @@ def _kill_process_tree(process: subprocess.Popen[Any]) -> None:
 
 def request_cancel(task_id: str) -> None:
     with _cancel_lock:
+        # The caller's active check races teardown; a flag set now would arm the next run.
+        if task_id not in _active_tasks:
+            return
         _cancel_requested.add(task_id)
         process = _active_processes.get(task_id)
         callback = _active_cancel_callbacks.get(task_id)
