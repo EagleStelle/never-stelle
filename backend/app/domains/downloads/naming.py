@@ -56,6 +56,7 @@ TITLE_MAX_CHARS = TITLE_MAX_CHARS_DEFAULT
 
 # --- Filename and template patterns ---
 _NUMBERED_SUFFIX_RE = re.compile(r"_\d+$")
+_ROW_TOKEN_FIELDS = {"title": "title", "id": "media_id"}
 _DISPLAY_FILENAME_ID_RE = re.compile(r"^(?P<title>.*) \[(?P<id>[A-Za-z0-9_-]+)\](?:_\d+)?$")
 _EXT_TEMPLATE_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$", re.IGNORECASE)
 _EMPTY_BRACKETS_RE = re.compile(r"\[\s*\]|\(\s*\)|\{\s*\}")
@@ -127,6 +128,10 @@ def _apply_shorten(title: str, flags: dict[str, Any]) -> str:
 
 def strip_numbered_suffix(stem: str) -> str:
     return _NUMBERED_SUFFIX_RE.sub("", _text(stem))
+
+
+def numbered_suffix_of(stem: str) -> str:
+    return stem[len(strip_numbered_suffix(stem)) :]
 
 
 # --- Filename styling ---
@@ -580,6 +585,47 @@ def template_tokens(template: str) -> list[str]:
     a field anything has to supply.
     """
     return [match.group(1).strip().lower() for match in TEMPLATE_RE.finditer(_template_stem(template))]
+
+
+def stored_filename_template(payload: dict[str, Any]) -> str:
+    return str(payload.get("filename_template") or "")
+
+
+def row_template_fields(payload: dict[str, Any], stored_template: str, old_name: str) -> dict[str, str]:
+    # Parsing the old name recovers tokens the row has no column for (scraped, URL-part).
+    fields = dict(filename_template_fields(old_name, stored_template))
+    # Values a resolve probe recovered for those same column-less tokens.
+    resolved = payload.get("resolved_tokens")
+    if isinstance(resolved, dict):
+        fields.update({str(key): str(value) for key, value in resolved.items() if str(value or "").strip()})
+    creator = str(payload.get("creator") or "").strip()
+    if creator:
+        fields.update(dict.fromkeys(CREATOR_FIELDS, creator))
+    for token, key in _ROW_TOKEN_FIELDS.items():
+        value = str(payload.get(key) or "").strip()
+        if value:
+            fields[token] = value
+    return fields
+
+
+def unsatisfied_tokens(filename_template: str, fields: dict[str, str]) -> list[str]:
+    """Tokens the template needs that nothing can supply.
+
+    Rendering anyway would drop the token, or fill a creator token from the other one,
+    producing a plausible name built from incomplete data and stamping it as current.
+    """
+    missing: list[str] = []
+    for token in template_tokens(filename_template):
+        if str(fields.get(token) or "").strip():
+            continue
+        # Quality always answers: no selection and nothing recorded still names itself source.
+        if token == "quality":
+            continue
+        # Either creator token stands in for the other: both name the same person.
+        if token in CREATOR_FIELDS and any(str(fields.get(other) or "").strip() for other in CREATOR_FIELDS):
+            continue
+        missing.append(token)
+    return missing
 
 
 def render_template_filename(

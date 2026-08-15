@@ -35,11 +35,12 @@ CURRENT_TEMPLATE = "{{username}} - {{title}} [{{id}}]"
 
 
 def _pin_template(monkeypatch: pytest.MonkeyPatch, filename_template: str = CURRENT_TEMPLATE) -> None:
-    monkeypatch.setattr(
-        rename_module,
-        "get_effective_template_settings",
-        lambda source_url="": {"folder_template": "{{username}}", "filename_template": filename_template},
-    )
+    def settings(source_url: str = "") -> dict[str, str]:
+        return {"folder_template": "{{username}}", "filename_template": filename_template}
+
+    # The planner and the token check read the settings from their own modules.
+    monkeypatch.setattr(rename_module, "get_effective_template_settings", settings)
+    monkeypatch.setattr(resolve_module, "get_effective_template_settings", settings)
     monkeypatch.setattr(rename_module, "possible_filename_templates", lambda source_key: {filename_template})
     monkeypatch.setattr(rename_module, "get_effective_title_cleaning", lambda source_url="": {})
 

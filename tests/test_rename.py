@@ -11,14 +11,22 @@ OLD_TEMPLATE = "{{username}} - {{title}} [{{id}}]"
 NEW_TEMPLATE = "{{title}} ({{username}}) [{{id}}]"
 
 
-def _pin_template(monkeypatch: pytest.MonkeyPatch, filename_template: str) -> None:
-    """Pin what the settings currently say, both the answer and the set it comes from."""
+def _pin_template(monkeypatch: pytest.MonkeyPatch, filename_template: str | dict[str, str]) -> None:
+    """Pin what the settings currently say, both the answer and the set it comes from.
+
+    A dict pins a template per source URL, which is how rows sharing a folder end up
+    resolving to different shapes.
+    """
+    per_source = filename_template if isinstance(filename_template, dict) else {}
+    fallback = OLD_TEMPLATE if per_source else str(filename_template)
+
+    def settings(source_url: str = "") -> dict[str, str]:
+        return {"folder_template": "{{username}}", "filename_template": per_source.get(source_url, fallback)}
+
+    monkeypatch.setattr(rename_module, "get_effective_template_settings", settings)
     monkeypatch.setattr(
-        rename_module,
-        "get_effective_template_settings",
-        lambda source_url="": {"folder_template": "{{username}}", "filename_template": filename_template},
+        rename_module, "possible_filename_templates", lambda source_key: set(per_source.values()) or {fallback}
     )
-    monkeypatch.setattr(rename_module, "possible_filename_templates", lambda source_key: {filename_template})
 
 
 def _rename_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, template: str = NEW_TEMPLATE):
@@ -175,6 +183,52 @@ def test_rename_avoids_collisions_with_a_numbered_suffix(tmp_path: Path, monkeyp
     assert result["renamed"] == 2
     landed = sorted(path.name for path in media_root.iterdir())
     assert landed == ["Clip - Creator.mp4", "Clip - Creator_1.mp4"]
+
+
+def test_rename_takes_the_name_another_row_vacates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Planning sees every old file still in place, so a target held by a row that is
+    # itself moving must not be read as a collision.
+    media_root, rows, _journal = _rename_env(tmp_path, monkeypatch)
+    mover = media_root / "Creator - Clip [abc123].mp4"
+    blocker = media_root / "Clip.mp4"
+    mover.write_bytes(b"mover")
+    blocker.write_bytes(b"blocker")
+    rows["gallerydl:1"] = _row(mover, source_url="https://example.com/p/a")
+    rows["gallerydl:2"] = _row(
+        blocker,
+        source_url="https://example.com/p/b",
+        media_id="def456",
+        filename_template="{{title}}",
+    )
+    _pin_template(
+        monkeypatch,
+        {"https://example.com/p/a": "{{title}}", "https://example.com/p/b": "{{title}} [{{id}}]"},
+    )
+
+    scan_module.scan_media_library([media_root])
+
+    assert sorted(path.name for path in media_root.iterdir()) == ["Clip [def456].mp4", "Clip.mp4"]
+    assert (media_root / "Clip.mp4").read_bytes() == b"mover"
+    assert (media_root / "Clip [def456].mp4").read_bytes() == b"blocker"
+
+
+def test_swapped_names_land_without_a_numbered_suffix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Neither file can move first, so one steps aside to a free name and takes its own
+    # back at the end.
+    media_root, rows, _journal = _rename_env(tmp_path, monkeypatch)
+    first = media_root / "Two.mp4"
+    second = media_root / "One.mp4"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    rows["gallerydl:1"] = _row(first, title="One")
+    rows["gallerydl:2"] = _row(second, title="Two", media_id="def456")
+    _pin_template(monkeypatch, "{{title}}")
+
+    scan_module.scan_media_library([media_root])
+
+    assert sorted(path.name for path in media_root.iterdir()) == ["One.mp4", "Two.mp4"]
+    assert (media_root / "One.mp4").read_bytes() == b"first"
+    assert (media_root / "Two.mp4").read_bytes() == b"second"
 
 
 def test_multiple_possible_templates_still_resolve_per_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

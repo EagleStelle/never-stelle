@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from typing import Any
 
 from backend.app.core.resolution import resolution_scope
@@ -17,8 +18,15 @@ from backend.app.domains.settings import (
 )
 
 from .constants import CREATOR_FIELDS, RESOLVE_JOB_KIND, ResolveScope, enrichment_job_id
+from .files import payload_path_string
 from .formats import reconstruct_url_candidates
-from .rename import apply_history_renames, entry_token_state, plan_history_renames
+from .naming import (
+    row_template_fields,
+    stored_filename_template,
+    template_tokens,
+    unsatisfied_tokens,
+)
+from .rename import apply_history_renames, plan_history_renames
 from .scan import (
     _MAX_PROBE_CANDIDATES,
     _clean_probe_value,
@@ -179,6 +187,21 @@ def _filled_entry(entry: dict[str, Any], filled: dict[str, str], matched_url: st
         updated["source_url"] = matched_url
     updated["updated_at"] = utc_now()
     return updated
+
+
+def entry_token_state(payload: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """``(tokens, unsatisfied)`` for the template the current settings would name this row with.
+
+    One settings resolve answers both: the unsatisfied list drives the default scope and
+    the full token list drives a forced re-probe.
+    """
+    old_path_value = payload_path_string(payload)
+    if not old_path_value:
+        return [], []
+    source_url = str(payload.get("source_url") or "")
+    current = str(get_effective_template_settings(source_url).get("filename_template") or "")
+    fields = row_template_fields(payload, stored_filename_template(payload), Path(old_path_value).name)
+    return template_tokens(current), unsatisfied_tokens(current, fields)
 
 
 def resolve_history_entry(task_id: str, *, force: bool = False) -> bool:
