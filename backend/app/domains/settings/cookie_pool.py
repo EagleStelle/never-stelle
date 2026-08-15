@@ -160,16 +160,16 @@ def lease_cookie(
     source_key = normalize_cookie_source(source_key)
     if not source_key:
         return None
-    skip = exclude or set()
+    skip = set(exclude or ())
     # One settings read per attempt; every limit below comes from this snapshot.
     policy = cookie_policy_for_source(source_key)
     budget = policy.wait if wait_seconds is None else max(0.0, float(wait_seconds))
     deadline = time.monotonic() + budget
     with _CONDITION:
         while True:
-            stored = [entry for entry in list_cookies_for_source(source_key) if entry["id"]]
-            _sync_states(source_key, {entry["id"]: entry for entry in stored})
-            entries = {entry["id"]: entry for entry in stored if entry["id"] not in skip}
+            listed = {entry["id"]: entry for entry in list_cookies_for_source(source_key) if entry["id"]}
+            _sync_states(source_key, listed)
+            entries = {cookie_id: entry for cookie_id, entry in listed.items() if cookie_id not in skip}
             if not entries:
                 return None
             now = time.monotonic()
@@ -177,8 +177,8 @@ def lease_cookie(
             if state is not None:
                 path = materialize_cookie(state.cookie_id)
                 if not path:
-                    # Row disappeared under us; drop it and re-read the source.
-                    _STATES.pop(state.cookie_id, None)
+                    # A row that lists but never writes out would be re-picked forever.
+                    skip.add(state.cookie_id)
                     continue
                 state.in_use = True
                 state.window_count += 1

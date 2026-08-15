@@ -205,6 +205,31 @@ def test_each_source_runs_on_its_own_configured_limits(monkeypatch):
     assert served == 2
 
 
+def test_a_jar_that_cannot_be_written_out_is_dropped_instead_of_retried(monkeypatch):
+    _stub_pool(monkeypatch, ["dead"])
+    tried = []
+
+    def never_materializes(cookie_id):
+        tried.append(cookie_id)
+        return ""
+
+    monkeypatch.setattr(pool, "materialize_cookie", never_materializes)
+
+    assert pool.lease_cookie("instagram", wait_seconds=0.2) is None
+    assert tried == ["dead"]
+
+
+def test_a_broken_jar_does_not_stop_its_siblings_from_being_leased(monkeypatch):
+    _stub_pool(monkeypatch, ["dead", "good"])
+    monkeypatch.setattr(
+        pool, "materialize_cookie", lambda cookie_id: "" if cookie_id == "dead" else f"/tmp/{cookie_id}.txt"
+    )
+
+    lease = pool.lease_cookie("instagram", wait_seconds=0)
+
+    assert lease is not None and lease.cookie_id == "good"
+
+
 def test_a_lease_keeps_the_limits_it_was_taken_under(monkeypatch):
     _stub_pool(
         monkeypatch,
