@@ -7,19 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
-from backend.app.domains.settings import (
-    get_effective_fields,
-    get_effective_template_settings,
-    get_effective_title_cleaning,
-    is_scraper_field,
-    normalize_template_settings,
-)
 
 from .constants import (
     FIELD_ROLE_CHAINS,
     MEDIA_EXTENSIONS,
-    TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
+    artwork_extractor_args,
     audio_format_selector,
     audio_postprocess_format,
     audio_postprocess_quality,
@@ -32,30 +25,22 @@ from .constants import (
     video_recode_args,
     video_recode_format,
 )
-from .formats import derived_token_value, media_id_from_url
+from .formats import (
+    derived_token_value,
+    field_role_list,
+    field_spec_parts,
+    media_id_from_url,
+    rendered_template_parts,
+    substitute_template,
+)
 from .naming import detect_ffmpeg_location, sanitize_path_literal
 
 # gallery-dl keys are identifiers with optional [sub] nesting; reject anything else.
 _GALLERYDL_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\[[A-Za-z0-9_]+\])*$")
 
 
-def _field_role_list(field_roles: dict[str, Any] | None, role: str) -> list[str] | None:
-    if not isinstance(field_roles, dict):
-        return None
-    values = field_roles.get(role)
-    if not isinstance(values, list) or not values:
-        return None
-    fields = [str(value) for value in values if not is_scraper_field(value)]
-    return fields or None
-
-
 def _gallerydl_field_spec(fields: list[str], fallback: str) -> str:
-    clean = [
-        field
-        for field in fields
-        if not is_scraper_field(field) and _GALLERYDL_FIELD_RE.match(str(field or "").strip())
-    ]
-    parts = list(dict.fromkeys(clean)) or ["username"]
+    parts = field_spec_parts(fields, _GALLERYDL_FIELD_RE) or ["username"]
     return "{" + "|".join([*parts, f'"{fallback}"']) + "}"
 
 
@@ -74,7 +59,6 @@ _GALLERYDL_FIELD = {
     "id": '{id|media_id|num|"NA"}',
     "quality": '{width|"?"}x{height|"?"}',
 }
-_REMOVED_TEMPLATE_FIELDS = {"source", "ext"}
 # Directory and filename packed into one output_template; only the builder splits it.
 _TEMPLATE_SEP = "\x1f"
 _COUNT_TIMEOUT_SECONDS = 60
@@ -83,15 +67,14 @@ _TIKTOK_NO_AUDIO_OPTION = "extractor.tiktok.audio=false"
 # HLS/DASH streams gallery-dl can't fetch itself are handed to yt-dlp via its
 # `ytdl` downloader, and unsupported top-level URLs can be delegated to the
 # gallery-dl ytdl extractor. Keep both integration points configured alike.
-_YTDL_DOWNLOADER_MODULE_OPTION = "downloader.ytdl.module=yt_dlp"
 _YTDL_EXTRACTOR_ENABLED_OPTION = "extractor.ytdl.enabled=true"
-_YTDL_EXTRACTOR_MODULE_OPTION = "extractor.ytdl.module=yt_dlp"
 _YTDL_JS_RUNTIMES = json.dumps({"node": {}}, separators=(",", ":"))
 _YTDL_REMOTE_COMPONENTS = json.dumps(["ejs:github"], separators=(",", ":"))
-_YTDL_MUSIC_EXTRACTOR_ARGS = json.dumps(
-    {"youtube": {"player_client": ["default", "web_music"]}},
-    separators=(",", ":"),
-)
+
+
+def _ytdl_options(name: str, value: str) -> list[str]:
+    """One setting for both integration points: the delegating downloader and the extractor."""
+    return ["-o", f"downloader.ytdl.{name}={value}", "-o", f"extractor.ytdl.{name}={value}"]
 
 
 def _ytdl_downloader_options(
@@ -113,34 +96,17 @@ def _ytdl_downloader_options(
         )
     )
     options = [
-        "-o",
-        _YTDL_DOWNLOADER_MODULE_OPTION,
+        *_ytdl_options("module", "yt_dlp"),
         "-o",
         _YTDL_EXTRACTOR_ENABLED_OPTION,
-        "-o",
-        _YTDL_EXTRACTOR_MODULE_OPTION,
-        "-o",
-        f"downloader.ytdl.format={format_string}",
-        "-o",
-        f"extractor.ytdl.format={format_string}",
-        "-o",
-        f"downloader.ytdl.raw-options.js_runtimes={_YTDL_JS_RUNTIMES}",
-        "-o",
-        f"extractor.ytdl.raw-options.js_runtimes={_YTDL_JS_RUNTIMES}",
-        "-o",
-        f"downloader.ytdl.raw-options.remote_components={_YTDL_REMOTE_COMPONENTS}",
-        "-o",
-        f"extractor.ytdl.raw-options.remote_components={_YTDL_REMOTE_COMPONENTS}",
+        *_ytdl_options("format", format_string),
+        *_ytdl_options("raw-options.js_runtimes", _YTDL_JS_RUNTIMES),
+        *_ytdl_options("raw-options.remote_components", _YTDL_REMOTE_COMPONENTS),
     ]
-    prefer_music_cover = audio_mode and processing["metadata"] and processing["thumbnail"]
-    if prefer_music_cover:
+    extractor_args = artwork_extractor_args(selection, processing)
+    if extractor_args:
         options.extend(
-            [
-                "-o",
-                f"downloader.ytdl.raw-options.extractor_args={_YTDL_MUSIC_EXTRACTOR_ARGS}",
-                "-o",
-                f"extractor.ytdl.raw-options.extractor_args={_YTDL_MUSIC_EXTRACTOR_ARGS}",
-            ]
+            _ytdl_options("raw-options.extractor_args", json.dumps(extractor_args, separators=(",", ":")))
         )
     postprocessors: list[dict[str, str]] = []
     postprocessor_args: dict[str, list[str]] = {}
@@ -158,13 +124,11 @@ def _ytdl_downloader_options(
         # Prefer native merge containers in Auto mode; codec-changing merge steps and
         # recodes use MKV as the universal intermediate.
         merge_format = video_merge_output_format(selection)
-        options.extend(["-o", f"downloader.ytdl.raw-options.merge_output_format={merge_format}"])
-        options.extend(["-o", f"extractor.ytdl.raw-options.merge_output_format={merge_format}"])
+        options.extend(_ytdl_options("raw-options.merge_output_format", merge_format))
         codec_sort = VIDEO_CODEC_PRESETS[selection["video_codec"]]["sort"]
         if codec_sort:
             # Soft preference; the format filter enforces container compatibility.
-            options.extend(["-o", f"downloader.ytdl.raw-options.format_sort=vcodec:{codec_sort}"])
-            options.extend(["-o", f"extractor.ytdl.raw-options.format_sort=vcodec:{codec_sort}"])
+            options.extend(_ytdl_options("raw-options.format_sort", f"vcodec:{codec_sort}"))
         if recode_format:
             postprocessors.append({"key": "FFmpegVideoConvertor", "preferedformat": recode_format})
             recode_args = video_recode_args(selection)
@@ -191,18 +155,16 @@ def _ytdl_downloader_options(
             }
         )
     if postprocessors:
-        serialized = json.dumps(postprocessors, separators=(",", ":"))
-        options.extend(["-o", f"downloader.ytdl.raw-options.postprocessors={serialized}"])
-        options.extend(["-o", f"extractor.ytdl.raw-options.postprocessors={serialized}"])
+        options.extend(
+            _ytdl_options("raw-options.postprocessors", json.dumps(postprocessors, separators=(",", ":")))
+        )
     if postprocessor_args:
-        serialized_args = json.dumps(postprocessor_args, separators=(",", ":"))
-        options.extend(["-o", f"downloader.ytdl.raw-options.postprocessor_args={serialized_args}"])
-        options.extend(["-o", f"extractor.ytdl.raw-options.postprocessor_args={serialized_args}"])
+        options.extend(
+            _ytdl_options("raw-options.postprocessor_args", json.dumps(postprocessor_args, separators=(",", ":")))
+        )
     if ffmpeg_location:
         # Forward slashes dodge gallery-dl JSON-escape parsing of the option value.
-        normalized = ffmpeg_location.replace("\\", "/")
-        options.extend(["-o", f"downloader.ytdl.raw-options.ffmpeg_location={normalized}"])
-        options.extend(["-o", f"extractor.ytdl.raw-options.ffmpeg_location={normalized}"])
+        options.extend(_ytdl_options("raw-options.ffmpeg_location", ffmpeg_location.replace("\\", "/")))
     return options
 
 
@@ -324,11 +286,9 @@ def _gallerydl_field(
         if source_media_id:
             return _escape_literal(sanitize_path_literal(source_media_id))
     if field == "username":
-        return gallerydl_username_field(_field_role_list(field_roles, "username"))
+        return gallerydl_username_field(field_role_list(field_roles, "username"))
     if field == "nickname":
-        return gallerydl_nickname_field(_field_role_list(field_roles, "nickname"))
-    if field in _REMOVED_TEMPLATE_FIELDS:
-        return ""
+        return gallerydl_nickname_field(field_role_list(field_roles, "nickname"))
     return _GALLERYDL_FIELD.get(field, "")
 
 
@@ -340,12 +300,9 @@ def convert_template_to_gallerydl(
     field_roles: dict[str, Any] | None = None,
     cleaning: dict[str, Any] | None = None,
 ) -> str:
-    value = str(template or "").strip()
-    if not value:
-        return ""
-    return TEMPLATE_RE.sub(
-        lambda match: _gallerydl_field(match.group(1), source_url, quality, extra_tokens, field_roles, cleaning),
-        value,
+    return substitute_template(
+        template,
+        lambda name: _gallerydl_field(name, source_url, quality, extra_tokens, field_roles, cleaning),
     )
 
 
@@ -356,18 +313,8 @@ def build_gallerydl_output_template(
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
 ) -> str:
-    settings = (
-        normalize_template_settings(template_settings)
-        if template_settings is not None
-        else get_effective_template_settings(source_url)
-    )
-    field_roles = get_effective_fields(source_url)
-    cleaning = get_effective_title_cleaning(source_url)
-    folder = convert_template_to_gallerydl(
-        settings["folder_template"], source_url, quality, extra_tokens, field_roles, cleaning
-    )
-    stem = convert_template_to_gallerydl(
-        settings["filename_template"], source_url, quality, extra_tokens, field_roles, cleaning
+    folder, stem = rendered_template_parts(
+        source_url, template_settings, quality, extra_tokens, convert_template_to_gallerydl
     )
     stem = stem.replace(".{extension}", "").replace("{extension}", "").rstrip(". ")
     # {num} keeps every image in a multi-file post (slideshow) unique.
@@ -422,7 +369,6 @@ def build_gallerydl_command(
     if filter_expr:
         cmd.extend(["--filter", filter_expr])
     if cookies_file:
-        normalized_cookies = cookies_file.replace("\\", "/")
         cmd.extend(
             [
                 "--cookies",
@@ -431,10 +377,7 @@ def build_gallerydl_command(
                 "2",
                 "--retries",
                 "5",
-                "-o",
-                f"downloader.ytdl.raw-options.cookies={normalized_cookies}",
-                "-o",
-                f"extractor.ytdl.raw-options.cookies={normalized_cookies}",
+                *_ytdl_options("raw-options.cookies", cookies_file.replace("\\", "/")),
             ]
         )
     cmd.append(source_url)

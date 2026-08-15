@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import backend.app.domains.downloads.enrich as enrich
+import backend.app.domains.downloads.formats as formats
 import backend.app.domains.downloads.gallerydl as gallerydl
 import backend.app.domains.downloads.ytdlp as ytdlp
 from backend.app.domains.downloads import engine_by_name, engine_for_task, select_engine
@@ -508,7 +509,7 @@ def test_gallerydl_nickname_field_uses_configured_list_authoritatively():
 
 
 def test_build_output_template_applies_per_source_fields(monkeypatch):
-    monkeypatch.setattr(ytdlp, "get_effective_fields", lambda url: {"username": ["channel"]})
+    monkeypatch.setattr(formats, "get_effective_fields", lambda url: {"username": ["channel"]})
     template = ytdlp.build_output_template(
         "https://example.com/watch?v=x",
         "/media/out",

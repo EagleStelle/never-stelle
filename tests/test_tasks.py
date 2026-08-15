@@ -707,7 +707,7 @@ def test_thumbnail_sidecar_uses_the_final_media_name(tmp_path: Path, monkeypatch
     monkeypatch.setattr(
         postprocessing_module,
         "_download_thumbnail",
-        lambda payload: (b"thumbnail-bytes", ".webp"),
+        lambda payload, **_: (b"thumbnail-bytes", ".webp"),
     )
     postprocessing_module.apply_thumbnail_post_processing(
         [media],
@@ -727,7 +727,7 @@ def test_thumbnail_sidecar_never_overwrites_an_image_download(tmp_path: Path, mo
     monkeypatch.setattr(
         postprocessing_module,
         "_download_thumbnail",
-        lambda payload: (b"thumbnail-bytes", ".webp"),
+        lambda payload, **_: (b"thumbnail-bytes", ".webp"),
     )
 
     postprocessing_module.apply_thumbnail_post_processing([media], {}, save_as="sidecar")
@@ -921,7 +921,7 @@ def test_finalized_post_processing_reads_extractor_payload_once_for_all_sidecars
     monkeypatch.setattr(
         postprocessing_module,
         "_download_thumbnail",
-        lambda payload: (b"cover", ".jpg"),
+        lambda payload, **_: (b"cover", ".jpg"),
     )
 
     assert postprocessing_module.apply_finalized_post_processing(
@@ -1142,7 +1142,7 @@ def test_thumbnail_embed_uses_container_aware_tags_after_finalization(
         path.write_bytes(b"embedded")
         return True
 
-    monkeypatch.setattr(postprocessing_module, "_download_thumbnail", lambda payload: (b"thumbnail-bytes", ".jpg"))
+    monkeypatch.setattr(postprocessing_module, "_download_thumbnail", lambda payload, **_: (b"thumbnail-bytes", ".jpg"))
     monkeypatch.setattr(postprocessing_module, "_embed_thumbnail_with_mutagen", fake_embed)
 
     postprocessing_module.apply_thumbnail_post_processing([media], {}, save_as="embed")
@@ -4234,24 +4234,9 @@ def test_convert_template_quality_uses_selected_label_best_reads_source():
     assert convert_template_to_ytdlp(tmpl, url, {"mode": "video", "video_quality": "1080p"}).endswith("_1080p")
 
 
-def test_convert_template_source_token_is_removed():
-    tmpl = "{{id}}_{{source}}"
-    url = "https://rule34video.com/video/3238394/wsds-minus8/"
-
-    result = convert_template_to_ytdlp(tmpl, url, {"mode": "video", "video_quality": "best"})
-
-    assert result == "%(id|NA)s_"
-
-
-def test_convert_template_ext_token_is_removed():
-    assert convert_template_to_ytdlp("{{ext}}", "https://example.com/x") == ""
-    assert gallerydl_module.convert_template_to_gallerydl("{{ext}}", "https://example.com/x") == ""
-
-
 def test_convert_template_quality_without_selection_keeps_metadata_specifier():
     # Direct callers with no quality threaded through fall back to the delivered format.
     assert "%(format_id" in convert_template_to_ytdlp("{{quality}}", "https://example.com/x")
-    assert convert_template_to_ytdlp("{{source}}", "https://example.com/x") == ""
 
 
 def test_learn_download_ignores_unknown_host():

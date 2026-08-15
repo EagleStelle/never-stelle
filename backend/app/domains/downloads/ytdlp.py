@@ -5,18 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
-from backend.app.domains.settings import (
-    get_effective_fields,
-    get_effective_template_settings,
-    get_effective_title_cleaning,
-    is_scraper_field,
-    normalize_template_settings,
-)
+from backend.app.domains.settings import get_effective_fields
 
 from .constants import (
     FIELD_ROLE_CHAINS,
-    TEMPLATE_RE,
     VIDEO_CODEC_PRESETS,
+    artwork_extractor_args,
     audio_format_selector,
     audio_postprocess_format,
     audio_postprocess_quality,
@@ -29,7 +23,13 @@ from .constants import (
     video_recode_args,
     video_recode_format,
 )
-from .formats import derived_token_value
+from .formats import (
+    derived_token_value,
+    field_role_list,
+    field_spec_parts,
+    rendered_template_parts,
+    substitute_template,
+)
 from .naming import (
     clean_filename_title,
     clean_social_title,
@@ -57,8 +57,7 @@ _YTDLP_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 
 
 def _ytdlp_field_spec(fields: tuple[str, ...] | list[str]) -> str:
-    clean = [field for field in fields if _YTDLP_FIELD_RE.match(str(field or "").strip())]
-    joined = ",".join(dict.fromkeys(clean)) or "title"
+    joined = ",".join(field_spec_parts(fields, _YTDLP_FIELD_RE)) or "title"
     return f"%({joined}|Unknown)s"
 
 
@@ -85,22 +84,11 @@ _YTDLP_FIELD = {
     "id": "%(id|NA)s",
     "quality": "%(format_id,format_note,resolution|Unknown)s",
 }
-_REMOVED_TEMPLATE_FIELDS = {"source", "ext"}
-
-
-def _field_role_list(field_roles: dict[str, Any] | None, role: str) -> list[str] | None:
-    if not isinstance(field_roles, dict):
-        return None
-    values = field_roles.get(role)
-    if not isinstance(values, list) or not values:
-        return None
-    fields = [str(value) for value in values if not is_scraper_field(value)]
-    return fields or None
 
 
 def _effective_nickname_field(source_url: str) -> str:
     field_roles = get_effective_fields(source_url)
-    return ytdlp_nickname_field(_field_role_list(field_roles, "nickname"))
+    return ytdlp_nickname_field(field_role_list(field_roles, "nickname"))
 
 
 def _yt_dlp_field(
@@ -116,11 +104,9 @@ def _yt_dlp_field(
     if derived is not None:
         return _safe_literal(derived)
     if field == "username":
-        return ytdlp_username_field(_field_role_list(field_roles, "username"))
+        return ytdlp_username_field(field_role_list(field_roles, "username"))
     if field == "nickname":
-        return ytdlp_nickname_field(_field_role_list(field_roles, "nickname"))
-    if field in _REMOVED_TEMPLATE_FIELDS:
-        return ""
+        return ytdlp_nickname_field(field_role_list(field_roles, "nickname"))
     return _YTDLP_FIELD.get(field, f"%({name}|Unknown)s")
 
 
@@ -132,11 +118,9 @@ def convert_template_to_ytdlp(
     field_roles: dict[str, Any] | None = None,
     cleaning: dict[str, Any] | None = None,
 ) -> str:
-    value = str(template or "").strip()
-    if not value:
-        return ""
-    return TEMPLATE_RE.sub(
-        lambda match: _yt_dlp_field(match.group(1), source_url, quality, extra_tokens, field_roles, cleaning), value
+    return substitute_template(
+        template,
+        lambda name: _yt_dlp_field(name, source_url, quality, extra_tokens, field_roles, cleaning),
     )
 
 
@@ -147,18 +131,8 @@ def build_output_template(
     quality: dict[str, str] | None = None,
     extra_tokens: dict[str, str] | None = None,
 ) -> str:
-    settings = (
-        normalize_template_settings(template_settings)
-        if template_settings is not None
-        else get_effective_template_settings(source_url)
-    )
-    field_roles = get_effective_fields(source_url)
-    cleaning = get_effective_title_cleaning(source_url)
-    folder_template = convert_template_to_ytdlp(
-        settings["folder_template"], source_url, quality, extra_tokens, field_roles, cleaning
-    )
-    filename_template = convert_template_to_ytdlp(
-        settings["filename_template"], source_url, quality, extra_tokens, field_roles, cleaning
+    folder_template, filename_template = rendered_template_parts(
+        source_url, template_settings, quality, extra_tokens, convert_template_to_ytdlp
     )
     if "%(ext" not in filename_template:
         filename_template = f"{filename_template}.%(ext)s"
@@ -271,11 +245,9 @@ def build_ytdlp_command(
                 "--no-clean-info-json",
             ]
         )
-    if audio_mode and processing["metadata"] and processing["thumbnail"]:
-        # The normal YouTube clients expose the page thumbnail. Adding the
-        # music client also exposes original square album art for Art Tracks,
-        # while `default` retains the downloadable audio formats.
-        cmd.extend(["--extractor-args", "youtube:player_client=default,web_music"])
+    for extractor, args in artwork_extractor_args(selection, processing).items():
+        for key, values in args.items():
+            cmd.extend(["--extractor-args", f"{extractor}:{key}={','.join(values)}"])
     cmd.extend(["--js-runtimes", "node", "--remote-components", "ejs:github"])
     # --print-to-file (unlike --print) keeps normal progress output intact; the
     # after_move stage runs on real downloads, never in simulate mode.

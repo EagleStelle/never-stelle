@@ -529,6 +529,26 @@ def default_quality_selection() -> dict[str, str]:
     return normalize_quality_selection({})
 
 
+# Extractor clients exposing artwork a site's default client omits. Downloaders
+# ignore args for extractors a URL does not use, so builders send the whole table
+# instead of matching the platform themselves.
+ARTWORK_EXTRACTOR_ARGS: dict[str, dict[str, tuple[str, ...]]] = {
+    "youtube": {"player_client": ("default", "web_music")},
+}
+
+
+def artwork_extractor_args(quality: Any = None, post_processing: Any = None) -> dict[str, dict[str, list[str]]]:
+    """Extractor args worth requesting when a run pairs audio artwork with metadata."""
+    selection = normalize_quality_selection(quality)
+    processing = normalize_post_processing(post_processing)
+    if selection["mode"] != "audio" or not (processing["metadata"] and processing["thumbnail"]):
+        return {}
+    return {
+        extractor: {key: list(values) for key, values in args.items()}
+        for extractor, args in ARTWORK_EXTRACTOR_ARGS.items()
+    }
+
+
 def quality_label(selection: Any = None) -> str:
     # Human label for the selected combo — feeds the {{quality}} filename token.
     # "best" reads as "source" (original, uncapped); other presets use their label.
