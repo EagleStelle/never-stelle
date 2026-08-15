@@ -22,8 +22,7 @@ RUN npm run build
 FROM python:${PYTHON_VERSION}-alpine AS python-wheels
 
 WORKDIR /build
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
 COPY --link requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -37,14 +36,18 @@ WORKDIR /build/ffmpeg
 
 RUN --mount=type=cache,id=never-stelle-ffmpeg-source,target=/var/cache/ffmpeg \
     apk add --no-cache \
+    aom-dev \
     build-base \
     curl \
+    dav1d-dev \
     lame-dev \
+    libvpx-dev \
     nasm \
     openssl-dev \
     opus-dev \
     pkgconf \
     x264-dev \
+    x265-dev \
     xz \
     zlib-dev \
     && archive="/var/cache/ffmpeg/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
@@ -88,15 +91,18 @@ RUN --mount=type=cache,id=never-stelle-ffmpeg-source,target=/var/cache/ffmpeg \
     --enable-demuxer=aac,ass,concat,ffmetadata,flac,flv,gif,hls,image2,matroska,mov,mp3,mpegts,ogg,srt,wav,webvtt \
     --enable-muxer=adts,flac,image2,ipod,matroska,mp3,mp4,ogg,opus,wav,webm \
     --enable-parser=aac,aac_latm,av1,flac,h264,hevc,mpegaudio,opus,vorbis,vp8,vp9 \
-    --enable-bsfs \
-    --enable-decoder=aac,aac_fixed,aac_latm,alac,ass,av1,flac,gif,mjpeg,movtext,mp3,mp3float,opus,pcm_f32le,pcm_s16le,pcm_s24le,pcm_s32le,png,subrip,vorbis,webp,webvtt \
-    --enable-encoder=aac,ass,flac,libmp3lame,libopus,mjpeg,movtext,pcm_s16le,png,subrip,webvtt \
+    --enable-bsf=aac_adtstoasc,av1_frame_merge,dump_extradata,extract_extradata,h264_mp4toannexb,hevc_mp4toannexb,mov2textsub,setts,text2movsub,vp9_superframe \
+    --enable-decoder=aac,aac_latm,alac,ass,flac,gif,h264,hevc,libdav1d,mjpeg,movtext,mp3float,opus,pcm_f32le,pcm_s16le,pcm_s24le,pcm_s32le,png,subrip,vorbis,vp8,vp9,webp,webvtt \
+    --enable-encoder=aac,ass,flac,libaom_av1,libmp3lame,libopus,libvpx_vp9,libx264,libx265,mjpeg,movtext,pcm_s16le,png,subrip,webvtt \
+    --enable-libaom \
+    --enable-libdav1d \
     --enable-libmp3lame \
     --enable-libopus \
+    --enable-libvpx \
     --enable-libx264 \
-    --enable-encoder=libx264 \
+    --enable-libx265 \
     --enable-zlib \
-    --extra-cflags="-Os -ffunction-sections -fdata-sections" \
+    --extra-cflags="-ffunction-sections -fdata-sections" \
     --extra-ldflags="-Wl,--as-needed -Wl,--gc-sections" \
     && make -j"$(nproc)" \
     && make install \
@@ -130,7 +136,7 @@ ENV LD_LIBRARY_PATH=/opt/ffmpeg/lib \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
 
-RUN apk add --no-cache ca-certificates lame-libs opus nodejs x264-libs upx binutils \
+RUN apk add --no-cache ca-certificates lame-libs opus nodejs aom-libs libdav1d libvpx x264-libs x265-libs upx binutils \
     && upx --fast /usr/bin/node \
     && apk del upx binutils \
     && rm -rf /usr/lib/node_modules/npm /usr/bin/npm /usr/bin/npx /usr/share/man /usr/share/doc \
@@ -140,9 +146,11 @@ COPY --link --from=ffmpeg-builder /opt/ffmpeg /opt/ffmpeg
 
 RUN --mount=type=bind,from=python-wheels,source=/wheels,target=/wheels \
     --mount=type=bind,source=requirements.txt,target=requirements.txt \
-    pip install --root-user-action=ignore --no-index --find-links=/wheels --no-compile -r requirements.txt \
+    apk add --no-cache --virtual .strip-deps binutils \
+    && pip install --root-user-action=ignore --no-index --find-links=/wheels --no-compile -r requirements.txt \
     && python -m pip uninstall --root-user-action=ignore -y pip setuptools wheel \
-    && find /usr/local -type f -name '*.so*' -exec strip --strip-unneeded {} + 2>/dev/null || true \
+    && find /usr/local/lib/python*/site-packages -type f \( -name '*.so' -o -name '*.so.*' \) -exec strip --strip-unneeded {} + \
+    && apk del .strip-deps \
     && find /usr/local -type d -name '__pycache__' -prune -exec rm -rf '{}' + \
     && rm -rf \
     /usr/local/lib/python*/ensurepip \
@@ -153,7 +161,6 @@ RUN --mount=type=bind,from=python-wheels,source=/wheels,target=/wheels \
     /usr/local/lib/python*/pydoc_data \
     /usr/local/lib/python*/unittest \
     /usr/local/lib/python*/test \
-    /usr/local/lib/python*/sqlite3/test \
     /usr/local/bin/2to3* \
     /usr/local/bin/idle* \
     /usr/local/bin/pydoc*
