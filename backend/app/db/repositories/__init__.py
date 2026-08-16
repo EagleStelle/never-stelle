@@ -9,7 +9,6 @@ from backend.app.db.repositories.cookies import (
 from backend.app.db.repositories.downloads import (
     begin_rename_journal_entry,
     claim_next_enrichment_job_payload,
-    claim_pending_task_payload,
     clear_history_resolve_flags,
     clear_rename_journal_entries,
     complete_enrichment_job_payload,
@@ -73,7 +72,6 @@ __all__ = [
     "add_source_cookie",
     "begin_rename_journal_entry",
     "claim_next_enrichment_job_payload",
-    "claim_pending_task_payload",
     "clear_history_resolve_flags",
     "clear_rename_journal_entries",
     "clear_seeded_downloads",

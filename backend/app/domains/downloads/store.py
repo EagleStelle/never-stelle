@@ -6,7 +6,6 @@ from backend.app.core.resolution import invalidate, resolved
 from backend.app.db.repositories import (
     begin_rename_journal_entry,
     claim_next_enrichment_job_payload,
-    claim_pending_task_payload,
     clear_rename_journal_entries,
     clear_seeded_downloads,
     complete_enrichment_job_payload,
@@ -166,7 +165,10 @@ def load_task(task_id: str) -> dict[str, Any]:
 
 
 def next_pending_task() -> tuple[str, dict[str, Any]] | None:
-    return next_pending_task_payload()
+    claimed = next_pending_task_payload()
+    if claimed:
+        volatile.forget(claimed[0])
+    return claimed
 
 
 def pending_task_count() -> int:
@@ -333,12 +335,6 @@ def record_task_progress(task_id: str, progress_pct: float) -> None:
 def append_task_log(task_id: str, line: str) -> None:
     """Add one line to the task's log tail, which the worker reads back itself."""
     volatile.append_log(task_id, line)
-
-
-def claim_pending_task(task_id: str) -> dict[str, Any] | None:
-    # A claim restarts the run, so nothing the last attempt left behind applies.
-    volatile.forget(task_id)
-    return claim_pending_task_payload(task_id)
 
 
 def remove_task_record(task_id: str) -> None:

@@ -207,7 +207,7 @@ def retry_task(task_id: str) -> None:
 
 
 def clear_pending_tasks() -> dict[str, Any]:
-    # Only queued/failed/orphaned tasks are clearable. Completed downloads are permanent.
+    # Non-completed (queued/failed/running) tasks are clearable. Completed downloads are permanent.
     tasks = fetch_tasks()
     cleared = 0
     for task in tasks:
@@ -216,7 +216,8 @@ def clear_pending_tasks() -> dict[str, Any]:
         if status in {"pending", "failed"}:
             if remove_task_record_if_status(vid, {"pending", "failed"}):
                 cleared += 1
-        elif status == "running" and not has_active_task(vid):
+        elif status == "running":
+            request_cancel(vid)
             remove_task_record(vid)
             cleared += 1
     return {"cleared": cleared, "failed": []}

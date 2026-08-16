@@ -183,6 +183,12 @@ def build_ytdlp_command(
         # Never resume a leftover destination file: IP/time-bound CDN links (ddos-guard,
         # boomio-cdn) reissue a fresh URL per attempt, so a stale byte offset yields HTTP 416.
         "--no-continue",
+        "--socket-timeout",
+        "30",
+        "--retries",
+        "3",
+        "--fragment-retries",
+        "3",
         # No --verbose: it multiplies the output lines the worker has to parse for
         # every download without adding anything the failure tail does not already
         # carry, and the cost lands hardest on the long transfers.

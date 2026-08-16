@@ -423,17 +423,19 @@ def test_load_task_payload_returns_one_row(tmp_path, monkeypatch):
     assert repositories.load_task_payload("missing") == {}
 
 
-def test_next_pending_task_payload_picks_the_oldest_queued_row(tmp_path, monkeypatch):
+def test_next_pending_task_payload_claims_the_oldest_queued_row(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
     repositories.merge_task_payload("running", {"status": "running", "created_at": "2026-01-01T00:00:00"})
     repositories.merge_task_payload("first", {"status": "pending", "created_at": "2026-01-02T00:00:00"})
     repositories.merge_task_payload("second", {"status": "pending", "created_at": "2026-01-03T00:00:00"})
 
-    task_id, payload = repositories.next_pending_task_payload()
+    claimed = repositories.next_pending_task_payload()
+    assert claimed is not None
+    task_id, payload = claimed
 
     assert task_id == "first"
-    assert payload["status"] == "pending"
-    assert repositories.count_pending_tasks() == 2
+    assert payload["status"] == "running"
+    assert repositories.count_pending_tasks() == 1
 
 
 def test_next_pending_task_payload_is_none_when_queue_is_empty(tmp_path, monkeypatch):

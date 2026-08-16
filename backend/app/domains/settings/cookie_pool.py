@@ -145,6 +145,11 @@ def _next_wake_seconds(
     return max(min(waits), _WAKE_EPSILON_SECONDS)
 
 
+def wake_cookie_pool() -> None:
+    with _CONDITION:
+        _CONDITION.notify_all()
+
+
 def lease_cookie(
     source_key: str,
     *,
@@ -167,6 +172,9 @@ def lease_cookie(
     deadline = time.monotonic() + budget
     with _CONDITION:
         while True:
+            from backend.app.domains.downloads.workers.processes import raise_if_cancelled
+
+            raise_if_cancelled()
             listed = {entry["id"]: entry for entry in list_cookies_for_source(source_key) if entry["id"]}
             _sync_states(source_key, listed)
             entries = {cookie_id: entry for cookie_id, entry in listed.items() if cookie_id not in skip}
@@ -194,6 +202,7 @@ def lease_cookie(
             if remaining <= 0:
                 return None
             _CONDITION.wait(min(remaining, _next_wake_seconds(entries, now, policy)))
+            raise_if_cancelled()
 
 
 def release_cookie(lease: CookieLease | None, *, banned: bool | None = None) -> None:

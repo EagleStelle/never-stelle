@@ -1,6 +1,13 @@
+import threading
+import time
 from contextlib import closing
 
 import backend.app.domains.settings.cookie_pool as pool
+from backend.app.domains.downloads.workers.processes import (
+    TaskCancelled,
+    request_cancel,
+    task_execution,
+)
 
 
 def _stub_pool(monkeypatch, jars, *, limit=100, window=3600.0, delay=0.0, cooldown=900.0, policies=None):
@@ -244,3 +251,35 @@ def test_a_lease_keeps_the_limits_it_was_taken_under(monkeypatch):
     lease.banned = True
     pool.release_cookie(lease)
     assert pool.lease_cookie("instagram", wait_seconds=0) is None
+
+
+def test_lease_cookie_is_interrupted_by_cancellation(monkeypatch):
+    _stub_pool(
+        monkeypatch,
+        ["a"],
+        policies={"instagram": pool.CookiePolicy(limit=1, window=3600.0, delay=10.0, cooldown=600.0, wait=10.0)},
+    )
+    # Take the only lease
+    lease = pool.lease_cookie("instagram")
+    assert lease is not None
+
+    task_id = "test:cookie-cancel"
+    cancelled_raised = threading.Event()
+
+    def worker():
+        try:
+            with task_execution(task_id):
+                pool.lease_cookie("instagram", wait_seconds=10.0)
+        except TaskCancelled:
+            cancelled_raised.set()
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+
+    time.sleep(0.05)
+    request_cancel(task_id)
+    thread.join(timeout=2.0)
+
+    assert not thread.is_alive()
+    assert cancelled_raised.is_set()
+    pool.release_cookie(lease)

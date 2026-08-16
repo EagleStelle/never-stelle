@@ -166,13 +166,12 @@ def test_worker_releases_its_pool_slot_when_the_reservation_is_cancelled(monkeyp
         if len(served) >= 2:
             return None
         served.append(task_id)
-        return task_id, {"status": "pending"}
+        return task_id, {"status": "running"}
 
     monkeypatch.setattr(scheduler_module, "_worker_started", False)
     monkeypatch.setattr(scheduler_module, "_active_worker_count", 0)
     monkeypatch.setattr(scheduler_module, "next_pending_task", next_pending_task)
     monkeypatch.setattr(scheduler_module, "pending_task_count", lambda: 1 if len(served) < 2 else 0)
-    monkeypatch.setattr(scheduler_module, "claim_pending_task", lambda value: {"status": "running"})
     monkeypatch.setattr(scheduler_module, "fail_running_task_records", lambda message: None)
     monkeypatch.setattr(
         scheduler_module,

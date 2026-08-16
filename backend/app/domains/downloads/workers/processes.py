@@ -50,8 +50,9 @@ def _kill_process_tree(process: subprocess.Popen[Any]) -> None:
 
 
 def request_cancel(task_id: str) -> None:
+    from backend.app.domains.settings.cookie_pool import wake_cookie_pool
+
     with _cancel_lock:
-        # The caller's active check races teardown; a flag set now would arm the next run.
         if task_id not in _active_tasks:
             return
         _cancel_requested.add(task_id)
@@ -64,6 +65,10 @@ def request_cancel(task_id: str) -> None:
             callback()
         except Exception:
             pass
+    try:
+        wake_cookie_pool()
+    except Exception:
+        pass
 
 
 def has_active_task(task_id: str) -> bool:

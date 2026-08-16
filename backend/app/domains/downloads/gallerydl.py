@@ -349,12 +349,8 @@ def build_gallerydl_command(
     folder, _, filename = str(output_template or "").partition(_TEMPLATE_SEP)
     directory = json.dumps(_directory_segments(folder), ensure_ascii=False)
     task_scratch = Path(metadata_sidecar).parent if metadata_sidecar else SCRATCH_DIR
-    parts_path = task_scratch / "parts"
-    extractor_path = task_scratch / "extractor"
-    parts_path.mkdir(parents=True, exist_ok=True)
-    extractor_path.mkdir(parents=True, exist_ok=True)
-    part_directory = str(parts_path).replace("\\", "/")
-    extractor_directory = str(extractor_path).replace("\\", "/")
+    part_directory = str(task_scratch / "parts").replace("\\", "/")
+    extractor_directory = str(task_scratch / "extractor").replace("\\", "/")
     processing = normalize_post_processing(post_processing)
     cmd = [
         "gallery-dl",
@@ -373,6 +369,10 @@ def build_gallerydl_command(
         "output.shorten=false",
         "-o",
         f"downloader.http.chunk-size={_PROGRESS_CHUNK_SIZE}",
+        "-o",
+        "downloader.http.timeout=30",
+        "--retries",
+        "3",
         *_ytdl_downloader_options(quality, processing, extractor_directory),
     ]
     if filename:

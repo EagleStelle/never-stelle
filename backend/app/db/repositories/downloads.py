@@ -445,15 +445,21 @@ def load_task_payload(task_id: str) -> dict[str, Any]:
 
 
 def next_pending_task_payload() -> tuple[str, dict[str, Any]] | None:
-    """The oldest queued task, chosen by SQL rather than by scanning every row."""
+    """Atomically find the oldest queued task and flip it to running in one transaction."""
+    now = utc_now()
     with transaction() as connection:
         row = connection.execute(
             f"SELECT {_TASK_SELECT} FROM download_tasks "
             "WHERE status = 'pending' ORDER BY created_at, id LIMIT 1"
         ).fetchone()
-    if not row:
-        return None
-    return str(row["id"]), _task_payload_from_row(row)
+        if not row:
+            return None
+        task_id = str(row["id"])
+        payload = _task_payload_from_row(row)
+        payload.update({"status": "running", "progress_pct": 0, "error": "", "last_log_lines": []})
+        payload["updated_at"] = now
+        _upsert_task(connection, task_id, payload, now)
+        return task_id, payload
 
 
 def count_pending_tasks() -> int:
@@ -648,24 +654,6 @@ def merge_task_payload(task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         ).fetchone()
         payload = _task_payload_from_row(row)
         payload.update(updates if isinstance(updates, dict) else {})
-        payload["updated_at"] = now
-        _upsert_task(connection, task_id, payload, now)
-    return payload
-
-
-def claim_pending_task_payload(task_id: str) -> dict[str, Any] | None:
-    """Atomically flip one pending task to running and return the updated payload."""
-    task_id = str(task_id)
-    now = utc_now()
-    with transaction() as connection:
-        row = connection.execute(
-            f"SELECT {_TASK_SELECT} FROM download_tasks WHERE id = ?",
-            (task_id,),
-        ).fetchone()
-        if not row or str(row["status"] or "") != "pending":
-            return None
-        payload = _task_payload_from_row(row)
-        payload.update({"status": "running", "progress_pct": 0, "error": "", "last_log_lines": []})
         payload["updated_at"] = now
         _upsert_task(connection, task_id, payload, now)
     return payload

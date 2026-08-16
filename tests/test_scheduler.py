@@ -4,7 +4,6 @@ import threading
 import time
 
 import backend.app.domains.downloads.operations as operations_module
-import backend.app.domains.downloads.workers.processes as processes_module
 import backend.app.domains.downloads.workers.scheduler as scheduler_module
 
 
@@ -32,20 +31,13 @@ def test_ensure_worker_spawns_additional_workers_when_workers_already_active(mon
         with lock:
             for tid in task_order:
                 if tasks.get(tid, {}).get("status") == "pending":
-                    return tid, tasks[tid]
+                    tasks[tid]["status"] = "running"
+                    return tid, dict(tasks[tid])
             return None
 
     def pending_task_count():
         with lock:
             return sum(1 for t in tasks.values() if t.get("status") == "pending")
-
-    def claim_pending_task(tid):
-        with lock:
-            t = tasks.get(tid)
-            if t and t.get("status") == "pending":
-                t["status"] = "running"
-                return dict(t)
-            return None
 
     def fake_run_task(tid, task, mark_running=False):
         running_events[tid].set()
@@ -58,7 +50,6 @@ def test_ensure_worker_spawns_additional_workers_when_workers_already_active(mon
     monkeypatch.setattr(scheduler_module, "_active_worker_count", 0)
     monkeypatch.setattr(scheduler_module, "next_pending_task", next_pending_task)
     monkeypatch.setattr(scheduler_module, "pending_task_count", pending_task_count)
-    monkeypatch.setattr(scheduler_module, "claim_pending_task", claim_pending_task)
     monkeypatch.setattr(scheduler_module, "fail_running_task_records", lambda msg: None)
     monkeypatch.setattr(scheduler_module, "run_task", fake_run_task)
     monkeypatch.setattr(scheduler_module, "max_concurrent_downloads", lambda: 3)
@@ -107,13 +98,45 @@ def test_remove_pending_task_allows_cancelling_and_removing_running_task(monkeyp
 
     monkeypatch.setattr(operations_module, "load_task_store", lambda: {"tasks": dict(store)})
     monkeypatch.setattr(operations_module, "request_cancel", cancelled.append)
-    monkeypatch.setattr(operations_module, "remove_task_record", lambda tid: (store.pop(tid, None), removed.append(tid)))
+    monkeypatch.setattr(
+        operations_module,
+        "remove_task_record",
+        lambda tid: (store.pop(tid, None), removed.append(tid)),
+    )
 
     operations_module.remove_pending_task(task_id)
 
     assert cancelled == [task_id]
     assert removed == [task_id]
     assert task_id not in store
+
+
+def test_clear_pending_tasks_cancels_and_removes_running_and_pending_tasks(monkeypatch):
+    """Clear queue cancels and removes running tasks and removes pending/failed tasks."""
+    tasks = [
+        {"vid": "task-running", "status": "running"},
+        {"vid": "task-pending", "status": "pending"},
+        {"vid": "task-failed", "status": "failed"},
+    ]
+    cancelled: list[str] = []
+    removed: list[str] = []
+
+    monkeypatch.setattr(operations_module, "fetch_tasks", lambda: tasks)
+    monkeypatch.setattr(operations_module, "request_cancel", cancelled.append)
+    monkeypatch.setattr(operations_module, "remove_task_record", removed.append)
+    monkeypatch.setattr(
+        operations_module,
+        "remove_task_record_if_status",
+        lambda vid, statuses: (removed.append(vid), True)[1],
+    )
+
+    result = operations_module.clear_pending_tasks()
+
+    assert result["cleared"] == 3
+    assert "task-running" in cancelled
+    assert "task-running" in removed
+    assert "task-pending" in removed
+    assert "task-failed" in removed
 
 
 def test_cancel_task_cleans_up_orphaned_running_task_immediately(monkeypatch):
@@ -124,7 +147,11 @@ def test_cancel_task_cleans_up_orphaned_running_task_immediately(monkeypatch):
 
     monkeypatch.setattr(operations_module, "load_task_store", lambda: {"tasks": dict(store)})
     monkeypatch.setattr(operations_module, "has_active_task", lambda tid: False)
-    monkeypatch.setattr(operations_module, "remove_task_record", lambda tid: (store.pop(tid, None), removed.append(tid)))
+    monkeypatch.setattr(
+        operations_module,
+        "remove_task_record",
+        lambda tid: (store.pop(tid, None), removed.append(tid)),
+    )
 
     operations_module.cancel_task(task_id)
 

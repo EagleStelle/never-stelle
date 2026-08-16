@@ -6,7 +6,6 @@ from typing import Any
 
 from backend.app.core.config import max_concurrent_downloads
 from backend.app.domains.downloads.store import (
-    claim_pending_task,
     fail_running_task_records,
     next_pending_task,
     pending_task_count,
@@ -25,8 +24,7 @@ def recover_orphaned_tasks() -> None:
 
 
 def _next_pending_task() -> tuple[str | None, dict[str, Any] | None]:
-    # Picked by SQL: the worker loop runs this per task, and decoding every row in
-    # the store to find one pending entry made queue drain cost scale with history.
+    # Picked and claimed atomically by SQL: no two workers can claim or race on the same task.
     claimed = next_pending_task()
     return claimed if claimed else (None, None)
 
@@ -67,14 +65,10 @@ def _worker_loop() -> None:
                             _active_worker_count -= 1
                             retired = True
                             return
-                # Reserve the task before changing pending -> running. This closes the
-                # narrow cancellation race between the queue claim and run_task entry.
+                # Any remaining pending tasks get their own worker, up to the cap.
+                ensure_worker()
                 with task_execution(task_id):
-                    claimed_task = claim_pending_task(task_id)
-                    if claimed_task:
-                        # Any remaining pending tasks get their own worker, up to the cap.
-                        ensure_worker()
-                        run_task(task_id, claimed_task, mark_running=False)
+                    run_task(task_id, task, mark_running=False)
             except TaskCancelled:
                 # BaseException, so `except Exception` would let it kill the worker.
                 continue
