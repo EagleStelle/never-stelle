@@ -34,6 +34,7 @@ import {
   createPostProcessingSelection,
   constrainPostProcessingSelection,
   countTasks,
+  emptyTaskCounts,
   isFilterKey,
   isMediaFilter,
   isMenuKey,
@@ -92,10 +93,6 @@ function hasSourceCounts(counts?: Partial<TaskCounts>): boolean {
         Number(counts.completed) ||
         Number(counts.failed)),
   );
-}
-
-function emptyTaskCounts(): TaskCounts {
-  return { queued: 0, running: 0, completed: 0, failed: 0 };
 }
 
 export function useDownloadDashboard() {

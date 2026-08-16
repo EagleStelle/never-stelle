@@ -36,7 +36,12 @@ import type {
   TasksResponse,
   ToastType,
 } from "@/types";
-import { countTasks, errorMessage, extractUrl, normalizeSourceKey } from "@/utils/dashboard";
+import {
+  countTasks,
+  errorMessage,
+  extractUrl,
+  normalizeSourceKey,
+} from "@/utils/dashboard";
 
 interface UseTaskQueueOptions {
   getSavedSettings: () => SavedSettings;
@@ -207,12 +212,19 @@ export function useTaskQueue({
     await loadTasks(true);
   }
 
-  async function addDownloadTask(): Promise<void> {
+  // Returns as soon as the URL is accepted; the round trip runs detached so the field is
+  // free for the next paste immediately.
+  function addDownloadTask(): void {
     const sourceUrl = extractUrl(url.value);
     if (!sourceUrl) {
       toast("Enter a valid URL.", "error");
       return;
     }
+    url.value = "";
+    void submitDownload(sourceUrl);
+  }
+
+  async function submitDownload(sourceUrl: string): Promise<void> {
     try {
       // Probe only playlist-shaped links: keeps single videos on the fast path
       // and lets the backend split playlists from endless radios/mixes.
@@ -225,11 +237,9 @@ export function useTaskQueue({
           return;
         }
         await queueUrls([probe.url || sourceUrl]);
-        url.value = "";
         return;
       }
       await queueUrls([sourceUrl]);
-      url.value = "";
     } catch (error) {
       toast(errorMessage(error, "Failed to add task."), "error");
     }
@@ -240,7 +250,6 @@ export function useTaskQueue({
     if (urls.length === 0) return;
     try {
       await queueUrls(urls);
-      url.value = "";
     } catch (error) {
       toast(errorMessage(error, "Failed to add tasks."), "error");
     }

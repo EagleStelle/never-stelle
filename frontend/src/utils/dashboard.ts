@@ -1013,6 +1013,10 @@ export function formatTimestamp(value: string): string {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
 }
 
+export function emptyTaskCounts(): TaskCounts {
+  return { queued: 0, running: 0, completed: 0, failed: 0 };
+}
+
 export function countTasks(tasks: TaskItem[]): TaskCounts {
   return {
     queued: tasks.filter((task) => task.status === "pending").length,
