@@ -58,21 +58,18 @@ def _normalize_format_payload(payload: dict[str, Any]) -> dict[str, dict[str, An
 
 
 def _save_format_rows(connection: Any, payload: dict[str, Any]) -> None:
+    """Upsert the sources in ``payload``; rows outside it are left alone.
+
+    Writers load the whole map, change one source and save; a full replace here made
+    every such write delete whatever another thread (or another process) had learned
+    since that snapshot. Removal is its own call.
+    """
     now = utc_now()
     normalized = _normalize_format_payload(payload)
     existing = {
         str(row["source_key"]): str(row["created_at"] or now)
         for row in connection.execute("SELECT source_key, created_at FROM learned_formats").fetchall()
     }
-    if normalized:
-        placeholders = ",".join("?" for _ in normalized)
-        connection.execute(
-            f"DELETE FROM learned_formats WHERE source_key NOT IN ({placeholders})",
-            tuple(sorted(normalized)),
-        )
-    else:
-        connection.execute("DELETE FROM learned_formats")
-
     for key, entry in normalized.items():
         id_classes = ",".join(sorted(str(item) for item in (entry.get("id_classes") or []) if str(item)))
         templates = _dedupe_templates(entry.get("templates"))
@@ -166,3 +163,11 @@ def load_learned_formats_payload() -> dict[str, Any]:
 def save_learned_formats_payload(payload: dict[str, Any]) -> None:
     with transaction() as connection:
         _save_format_rows(connection, payload)
+
+
+def delete_learned_format_row(source_key: str) -> None:
+    key = normalize_source_key(source_key)
+    if not key:
+        return
+    with transaction() as connection:
+        connection.execute("DELETE FROM learned_formats WHERE source_key = ?", (key,))

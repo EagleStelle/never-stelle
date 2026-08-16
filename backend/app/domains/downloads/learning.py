@@ -12,7 +12,7 @@ from backend.app.domains.settings import (
 )
 
 from .formats import learn_download, learn_media_id, media_id_from_url
-from .store import load_learned_formats, save_learned_formats
+from .store import load_learned_formats, save_changed_learned_formats
 
 
 def _resolved_field_source_key(
@@ -186,10 +186,7 @@ def promote_learned_format_from_probe(source_url: str, fields: Any) -> bool:
         return False
     learned = load_learned_formats()
     updated = learn_download(learned, source_url, media_id, metadata)
-    if updated == learned:
-        return False
-    save_learned_formats(updated)
-    return True
+    return save_changed_learned_formats(learned, updated)
 
 
 def learn_missing_fields_for_format(
@@ -246,19 +243,13 @@ def ensure_fields_learned(source_url: str, source_key: str = "") -> dict[str, li
 def learn_source_format(source_url: str, media_id: str, metadata: dict[str, Any] | None = None) -> bool:
     learned = load_learned_formats()
     updated = learn_download(learned, source_url, media_id, metadata)
-    if updated == learned:
-        return False
-    save_learned_formats(updated)
-    return True
+    return save_changed_learned_formats(learned, updated)
 
 
 def learn_source_id_signature(source_key: str, media_id: str) -> bool:
     learned = load_learned_formats()
     updated = learn_media_id(learned, source_key, media_id)
-    if updated == learned:
-        return False
-    save_learned_formats(updated)
-    return True
+    return save_changed_learned_formats(learned, updated)
 
 
 def update_learned_formats_with_download(

@@ -662,7 +662,11 @@ def test_format_field_probe_promotes_literal_url_creator_template(monkeypatch):
     monkeypatch.setattr(learning_mod, "load_saved_settings_file", lambda: payload)
     monkeypatch.setattr(learning_mod, "save_saved_settings_file", lambda data: saved_settings.append(dict(data)))
     monkeypatch.setattr(learning_mod, "load_learned_formats", lambda: learned)
-    monkeypatch.setattr(learning_mod, "save_learned_formats", lambda data: saved_formats.append(data))
+    monkeypatch.setattr(
+        learning_mod,
+        "save_changed_learned_formats",
+        lambda before, after: bool(saved_formats.append(after)) or True,
+    )
     monkeypatch.setattr(
         probe_mod,
         "probe_fields",

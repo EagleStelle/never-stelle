@@ -48,8 +48,8 @@ from .store import (
     remove_history_record,
     remove_task_record,
     resolution_revision,
+    save_changed_learned_formats,
     save_history_entry_rows,
-    save_learned_formats,
     seeded_download_ids,
     sync_history_resolve_flags,
 )
@@ -911,8 +911,7 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
     # row is the one the next scan will compute. Saving afterwards made every row
     # this pass wrote look stale on the very next pass. The file loop only reads
     # `learned`, so there is nothing later to write.
-    if learned != learned_before:
-        save_learned_formats(learned)
+    save_changed_learned_formats(learned_before, learned)
 
     # Index of what each disk file resolved from last time. A rescan compares the
     # file and the rules against it and re-resolves only what actually moved,

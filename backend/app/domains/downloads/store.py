@@ -20,6 +20,7 @@ from backend.app.db.repositories import (
     count_pending_tasks,
     delete_enrichment_jobs_payload,
     delete_history_row,
+    delete_learned_format_row,
     delete_task_row,
     delete_task_row_if_status,
     fail_running_tasks,
@@ -263,7 +264,27 @@ def resolution_revision() -> str:
 
 
 def save_learned_formats(payload: dict[str, Any]) -> None:
+    """Upsert the sources in ``payload``. Sources absent from it keep their rows."""
     save_learned_formats_payload(payload)
+    invalidate(LEARNED_FORMATS_KEY)
+
+
+def save_changed_learned_formats(before: dict[str, Any], after: dict[str, Any]) -> bool:
+    """Persist only the sources learning actually touched.
+
+    Callers learn from a map they read minutes earlier (a download holds one
+    resolution scope for its whole run), so writing the snapshot back would restore
+    stale entries over what another worker learned in between.
+    """
+    changed = {key: entry for key, entry in after.items() if entry != before.get(key)}
+    if not changed:
+        return False
+    save_learned_formats(changed)
+    return True
+
+
+def forget_learned_format(source_key: str) -> None:
+    delete_learned_format_row(source_key)
     invalidate(LEARNED_FORMATS_KEY)
 
 

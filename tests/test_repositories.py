@@ -138,6 +138,33 @@ def test_learned_formats_persist_multiple_templates(tmp_path, monkeypatch):
     }
 
 
+def test_saving_one_source_leaves_the_others_learned(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+
+    repositories.save_learned_formats_payload(
+        {"tiktok": {"templates": ["https://www.tiktok.com/@{creator}/video/{id}"]}}
+    )
+    repositories.save_learned_formats_payload(
+        {"youtube": {"templates": ["https://www.youtube.com/watch?v={id}"]}}
+    )
+
+    assert set(repositories.load_learned_formats_payload()) == {"tiktok", "youtube"}
+
+
+def test_deleting_one_source_leaves_the_others_learned(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+
+    repositories.save_learned_formats_payload(
+        {
+            "tiktok": {"templates": ["https://www.tiktok.com/@{creator}/video/{id}"]},
+            "youtube": {"templates": ["https://www.youtube.com/watch?v={id}"]},
+        }
+    )
+    repositories.delete_learned_format_row("tiktok")
+
+    assert set(repositories.load_learned_formats_payload()) == {"youtube"}
+
+
 def _seed_history(monkeypatch, tmp_path):
     use_temp_db(tmp_path, monkeypatch)
     rows = [

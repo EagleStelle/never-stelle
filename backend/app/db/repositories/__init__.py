@@ -52,6 +52,7 @@ from backend.app.db.repositories.downloads import (
 )
 from backend.app.db.repositories.formats import (
     clear_seeded_downloads,
+    delete_learned_format_row,
     learned_formats_revision,
     load_learned_formats_payload,
     mark_downloads_seeded,
@@ -83,6 +84,7 @@ __all__ = [
     "count_pending_tasks",
     "delete_enrichment_jobs_payload",
     "delete_history_row",
+    "delete_learned_format_row",
     "delete_source_cookie",
     "delete_source_cookies",
     "delete_task_row",
