@@ -16,6 +16,7 @@ import backend.app.domains.downloads.operations as operations_module
 import backend.app.domains.downloads.postprocessing as postprocessing_module
 import backend.app.domains.downloads.scan as scan_module
 import backend.app.domains.downloads.serializers as serializers_module
+import backend.app.domains.downloads.slideshow as slideshow_module
 import backend.app.domains.downloads.urls as urls_module
 import backend.app.domains.downloads.workers.completion as completion_module
 import backend.app.domains.downloads.workers.completion_finalization as completion_finalization_module
@@ -25,6 +26,7 @@ import backend.app.domains.downloads.workers.completion_outputs as completion_ou
 import backend.app.domains.downloads.workers.enrichment as enrichment_module
 import backend.app.domains.downloads.workers.execution as worker_module
 import backend.app.domains.downloads.workers.runner as runner_module
+import backend.app.runtime.scratch as scratch_module
 from backend.app.core.paths import path_key
 from backend.app.core.sources import source_label_from_key
 from backend.app.domains.downloads import (
@@ -3742,11 +3744,10 @@ def test_resolve_task_file_prefers_saved_template_for_gallerydl_download_name(
         lambda url: {"strip_handle_at": False},
     )
 
-    path, filename, archive = operations_module.resolve_task_file("gallerydl:test")
+    path, filename = operations_module.resolve_task_file("gallerydl:test")
 
     assert path == media_file
     assert filename == "@ChannelHandle - Nice clip [abc123].mp4"
-    assert archive is None
 
 
 def test_task_to_api_keeps_stored_creator_over_url_creator(tmp_path: Path):
@@ -5384,14 +5385,18 @@ def test_resolve_task_file_for_history_entry_validates_on_download(tmp_path: Pat
         },
     )
 
-    path, filename, cleanup_path = operations_module.resolve_task_file("gallerydl:abc123")
+    path, filename = operations_module.resolve_task_file("gallerydl:abc123")
 
     assert path == media_file
     assert filename == "clip [abc123].jpg"
-    assert cleanup_path is None
 
 
-def test_resolve_task_file_zips_numbered_gallerydl_siblings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def _slideshow_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[str, Path, Path]:
+    scratch_root = tmp_path / "scratch"
+    scratch_root.mkdir()
+    monkeypatch.setattr(scratch_module, "SCRATCH_DIR", scratch_root)
+    monkeypatch.setattr(slideshow_module, "_archives", {})
+
     first = tmp_path / "Creator - Cap [abc123]_1.jpg"
     second = tmp_path / "Creator - Cap [abc123]_2.jpg"
     first.write_bytes(b"first")
@@ -5412,16 +5417,53 @@ def test_resolve_task_file_zips_numbered_gallerydl_siblings(tmp_path: Path, monk
         },
     )
     monkeypatch.setattr(operations_module, "find_history_by_id", lambda task_id: None)
+    return task_id, first, second
 
-    archive_path, filename, cleanup_path = operations_module.resolve_task_file(task_id)
 
-    try:
-        assert filename == "Creator - Cap [abc123].zip"
-        assert cleanup_path == archive_path
-        with zipfile.ZipFile(archive_path) as archive:
-            assert archive.namelist() == [first.name, second.name]
-    finally:
-        archive_path.unlink(missing_ok=True)
+def test_resolve_task_file_zips_numbered_gallerydl_siblings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    task_id, first, second = _slideshow_task(tmp_path, monkeypatch)
+
+    archive_path, filename = operations_module.resolve_task_file(task_id)
+
+    assert filename == "Creator - Cap [abc123].zip"
+    with zipfile.ZipFile(archive_path) as archive:
+        assert archive.namelist() == [first.name, second.name]
+
+
+def test_resolve_task_file_reuses_one_slideshow_archive_across_requests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    task_id, _, _ = _slideshow_task(tmp_path, monkeypatch)
+
+    first_path, _ = operations_module.resolve_task_file(task_id)
+    second_path, _ = operations_module.resolve_task_file(task_id)
+
+    assert second_path == first_path
+    assert first_path.is_file()
+    assert len(list(scratch_module.SCRATCH_DIR.glob("nvs-slideshow-*.zip"))) == 1
+
+
+def test_resolve_task_file_rebuilds_slideshow_archive_when_siblings_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    task_id, _, second = _slideshow_task(tmp_path, monkeypatch)
+
+    first_path, _ = operations_module.resolve_task_file(task_id)
+    second.write_bytes(b"second edited")
+    rebuilt_path, _ = operations_module.resolve_task_file(task_id)
+
+    assert rebuilt_path != first_path
+    with zipfile.ZipFile(rebuilt_path) as archive:
+        assert archive.read(second.name) == b"second edited"
+
+
+def test_clear_slideshow_archives_removes_cached_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    task_id, _, _ = _slideshow_task(tmp_path, monkeypatch)
+
+    archive_path, _ = operations_module.resolve_task_file(task_id)
+    slideshow_module.clear_slideshow_archives()
+
+    assert not archive_path.exists()
 
 
 def test_clean_social_title_default_strips_hashtags_and_metrics():

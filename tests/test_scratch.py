@@ -5,7 +5,7 @@ from pathlib import Path
 
 import backend.app.runtime.scratch as scratch_module
 from backend.app.domains.downloads import audio as audio_module
-from backend.app.domains.downloads import operations as operations_module
+from backend.app.domains.downloads import slideshow as slideshow_module
 
 
 def test_write_scratch_file_writes_under_scratch(tmp_path, monkeypatch):
@@ -92,9 +92,10 @@ def test_publish_scratch_file_falls_back_when_bind_mount_rename_raises_exdev(
 def test_failed_slideshow_archive_is_removed_from_scratch(tmp_path, monkeypatch):
     scratch_root = tmp_path / "scratch"
     monkeypatch.setattr(scratch_module, "SCRATCH_DIR", scratch_root)
+    monkeypatch.setattr(slideshow_module, "_archives", {})
 
     try:
-        operations_module._build_slideshow_archive([tmp_path / "missing.jpg"])
+        slideshow_module.build_slideshow_archive([tmp_path / "missing.jpg"])
     except FileNotFoundError:
         pass
     else:

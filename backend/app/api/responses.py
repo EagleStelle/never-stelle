@@ -7,8 +7,6 @@ from urllib.parse import quote
 from fastapi import Request
 from fastapi.responses import Response, StreamingResponse
 
-from backend.app.runtime.scratch import remove_scratch_path
-
 DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024
 
 
@@ -51,37 +49,32 @@ async def iter_download_file(
     *,
     start: int = 0,
     length: int | None = None,
-    cleanup_path: Path | None = None,
 ) -> AsyncIterator[bytes]:
     import anyio
 
     from backend.app.domains.downloads.cache import drop_file_cache_fd
 
     remaining = length
-    try:
-        with path.open("rb") as handle:
-            handle.seek(max(0, start))
-            try:
-                while remaining is None or remaining > 0:
-                    chunk_size = DOWNLOAD_CHUNK_SIZE if remaining is None else min(DOWNLOAD_CHUNK_SIZE, remaining)
-                    chunk = await anyio.to_thread.run_sync(handle.read, chunk_size)
-                    if not chunk:
-                        break
-                    chunk_offset = handle.tell() - len(chunk)
-                    try:
-                        yield chunk
-                    finally:
-                        drop_file_cache_fd(handle.fileno(), chunk_offset, len(chunk))
-                    if remaining is not None:
-                        remaining -= len(chunk)
-            finally:
-                drop_file_cache_fd(handle.fileno(), start, 0 if length is None else length)
-    finally:
-        if cleanup_path:
-            remove_scratch_path(cleanup_path)
+    with path.open("rb") as handle:
+        handle.seek(max(0, start))
+        try:
+            while remaining is None or remaining > 0:
+                chunk_size = DOWNLOAD_CHUNK_SIZE if remaining is None else min(DOWNLOAD_CHUNK_SIZE, remaining)
+                chunk = await anyio.to_thread.run_sync(handle.read, chunk_size)
+                if not chunk:
+                    break
+                chunk_offset = handle.tell() - len(chunk)
+                try:
+                    yield chunk
+                finally:
+                    drop_file_cache_fd(handle.fileno(), chunk_offset, len(chunk))
+                if remaining is not None:
+                    remaining -= len(chunk)
+        finally:
+            drop_file_cache_fd(handle.fileno(), start, 0 if length is None else length)
 
 
-def local_download_response(request: Request, path: Path, filename: str, cleanup_path: Path | None) -> Response:
+def local_download_response(request: Request, path: Path, filename: str) -> Response:
     size = path.stat().st_size
     headers = {
         "Accept-Ranges": "bytes",
@@ -90,8 +83,6 @@ def local_download_response(request: Request, path: Path, filename: str, cleanup
     media_type = "application/zip" if path.suffix.lower() == ".zip" else "application/octet-stream"
     byte_range = parse_byte_range(request.headers.get("range", ""), size)
     if request.headers.get("range") and byte_range is None:
-        if cleanup_path:
-            remove_scratch_path(cleanup_path)
         return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
 
     if byte_range is not None:
@@ -100,7 +91,7 @@ def local_download_response(request: Request, path: Path, filename: str, cleanup
         headers["Content-Range"] = f"bytes {start}-{end}/{size}"
         headers["Content-Length"] = str(length)
         return StreamingResponse(
-            iter_download_file(path, start=start, length=length, cleanup_path=cleanup_path),
+            iter_download_file(path, start=start, length=length),
             status_code=206,
             media_type=media_type,
             headers=headers,
@@ -108,7 +99,7 @@ def local_download_response(request: Request, path: Path, filename: str, cleanup
 
     headers["Content-Length"] = str(size)
     return StreamingResponse(
-        iter_download_file(path, cleanup_path=cleanup_path),
+        iter_download_file(path),
         media_type=media_type,
         headers=headers,
     )

@@ -482,7 +482,7 @@ def test_local_task_file_route_streams_with_cache_advice(tmp_path, monkeypatch):
     monkeypatch.setattr(
         operations_module,
         "resolve_task_file",
-        lambda task_id: (media, "clip.mp4", None),
+        lambda task_id: (media, "clip.mp4"),
     )
     monkeypatch.setattr(
         cache_module,
@@ -509,7 +509,7 @@ def test_local_task_file_route_supports_byte_ranges(tmp_path, monkeypatch):
     monkeypatch.setattr(
         operations_module,
         "resolve_task_file",
-        lambda task_id: (media, "clip.mp4", None),
+        lambda task_id: (media, "clip.mp4"),
     )
     monkeypatch.setattr(
         cache_module,

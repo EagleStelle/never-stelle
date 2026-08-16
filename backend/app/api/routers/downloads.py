@@ -158,9 +158,9 @@ def download_file(request: Request, task_id: str) -> Response:
         )
 
     try:
-        path, filename, cleanup_path = operations.resolve_task_file(task_id)
+        path, filename = operations.resolve_task_file(task_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return local_download_response(request, path, filename, cleanup_path)
+    return local_download_response(request, path, filename)

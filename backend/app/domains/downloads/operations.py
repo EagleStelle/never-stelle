@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +9,6 @@ from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
 from backend.app.domains.settings import get_effective_saved_settings, get_effective_title_cleaning
 from backend.app.integrations.swaratelle import client as swaratelle
-from backend.app.runtime.scratch import remove_scratch_path, scratch_temp_path
 
 from .constants import normalize_post_processing, normalize_quality_selection
 from .engine import select_engine
@@ -22,6 +20,7 @@ from .naming import clean_template_display_filename
 from .planning import resolve_task_settings
 from .scan import parse_filename_media_id
 from .serializers import fetch_tasks, history_to_api, task_to_api
+from .slideshow import build_slideshow_archive
 from .store import (
     load_learned_formats,
     load_task_store,
@@ -273,19 +272,7 @@ def set_task_source(task_id: str, source_key: str) -> str:
     raise FileNotFoundError("Task was not found.")
 
 
-def _build_slideshow_archive(files: list[Path]) -> Path:
-    archive_path = scratch_temp_path(prefix="nvs-slideshow-", suffix=".zip")
-    try:
-        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for file in files:
-                archive.write(file, arcname=file.name)
-    except Exception:
-        remove_scratch_path(archive_path)
-        raise
-    return archive_path
-
-
-def resolve_task_file(task_id: str) -> tuple[Path, str, Path | None]:
+def resolve_task_file(task_id: str) -> tuple[Path, str]:
     task = (load_task_store().get("tasks") or {}).get(task_id)
     history_entry = find_history_by_id(task_id)
     if not task and history_entry:
@@ -332,7 +319,7 @@ def resolve_task_file(task_id: str) -> tuple[Path, str, Path | None]:
         )
     siblings = find_numbered_media_siblings(path)
     if len(siblings) > 1:
-        archive_path = _build_slideshow_archive(siblings)
+        archive_path = build_slideshow_archive(siblings)
         archive_name = f"{Path(filename).stem}.zip"
-        return archive_path, archive_name, archive_path
-    return path, filename, None
+        return archive_path, archive_name
+    return path, filename

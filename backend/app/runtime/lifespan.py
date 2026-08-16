@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from backend.app.db import close_database, initialize_database
 from backend.app.domains.auth import ensure_auth_settings
+from backend.app.domains.downloads.slideshow import clear_slideshow_archives
 from backend.app.domains.downloads.worker import ensure_enrichment_worker, ensure_worker
 from backend.app.runtime.scratch import cleanup_runtime_scratch
 
@@ -22,4 +23,5 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         close_database()
+        clear_slideshow_archives()
         cleanup_runtime_scratch()

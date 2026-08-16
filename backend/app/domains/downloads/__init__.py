@@ -15,6 +15,7 @@ whole download stack at app startup.
 - serializers : task/history -> API payloads + counts
 - worker      : facade for scheduling, execution, process, and completion helpers
 - operations  : queue/remove/clear/resolve actions
+- slideshow   : cached multi-file archives for download requests
 - scan        : media-folder reconciliation for history refresh
 """
 
