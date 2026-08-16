@@ -60,6 +60,7 @@ from backend.app.domains.downloads.naming import (
     filename_template_title,
     sanitize_filename_component,
     sanitize_path_literal,
+    shorten_filename_title,
     strip_numbered_suffix,
     strip_placeholder_title,
 )
@@ -5847,3 +5848,44 @@ def test_a_real_creator_folder_is_left_alone(tmp_path: Path):
 
     assert final_path == path
     assert path.is_file()
+
+
+def test_multibyte_title_shortening_and_byte_safety():
+    # Long Japanese ASMR title with emojis and symbols (92 chars, 221 bytes)
+    japanese_title = (
+        "【ASMR】オノマトペとよしよし♡こちょこちょ♡猫の尻尾でもふもふ🐾ぎゅー…♡意識がとろけてゾクゾク気持ちいい囁き┊︎耳ふー_睡眠導入【Handmovement_Ear.Massag】"
+    )
+    # 1. Shorten with max_chars=60
+    shortened_60 = shorten_filename_title(japanese_title, max_chars=60)
+    assert len(shortened_60) <= 60
+    assert len(shortened_60.encode("utf-8")) <= 200
+
+    # 2. Shorten with default max_chars=100 ensures byte safety (<= 200 bytes)
+    shortened_100 = shorten_filename_title(japanese_title, max_chars=100)
+    assert len(shortened_100.encode("utf-8")) <= 200
+
+    # 3. clean_template_filename with shorten=True caps title while keeping id
+    template = "{{username}} - {{title}} [{{id}}]"
+    name = f"@runa_asmr_c1r - {japanese_title} [f4O9COxuIgo].mp4"
+    cleaned_shorten = clean_template_filename(
+        name,
+        template,
+        creator="@runa_asmr_c1r",
+        title=japanese_title,
+        media_id="f4O9COxuIgo",
+        cleaning={"shorten": True, "max_chars": 40},
+    )
+    assert len(cleaned_shorten.encode("utf-8")) <= 240
+    assert "f4O9COxuIgo" in cleaned_shorten
+
+    # 4. clean_template_filename with stem_max_chars caps whole stem length safely
+    cleaned_stem = clean_template_filename(
+        name,
+        template,
+        creator="@runa_asmr_c1r",
+        title=japanese_title,
+        media_id="f4O9COxuIgo",
+        cleaning={"stem_max_chars": 50},
+    )
+    assert len(cleaned_stem.encode("utf-8")) <= 240
+    assert len(Path(cleaned_stem).stem) <= 50

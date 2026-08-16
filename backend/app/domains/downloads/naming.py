@@ -7,7 +7,14 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from .constants import CREATOR_FIELDS, TEMPLATE_RE, TITLE_MAX_CHARS_DEFAULT, normalize_title_cleaning, quality_label
+from .constants import (
+    CREATOR_FIELDS,
+    SAFE_FILENAME_MAX_BYTES,
+    TEMPLATE_RE,
+    TITLE_MAX_CHARS_DEFAULT,
+    normalize_title_cleaning,
+    quality_label,
+)
 
 # --- Shared character classes ---
 _INVALID_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f\u29f8\u29f9]')
@@ -104,24 +111,39 @@ def _normalize_title(value: str) -> str:
     return "" if _is_empty_title(value) else value
 
 
+def _cap_bytes(value: str, max_bytes: int = SAFE_FILENAME_MAX_BYTES) -> str:
+    """Cap a string so its UTF-8 representation never exceeds max_bytes,
+    respecting multibyte character boundaries and word boundaries where possible."""
+    if not value:
+        return ""
+    encoded = value.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return value
+    trimmed = encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip()
+    break_at = max(trimmed.rfind(" "), trimmed.rfind("_"), trimmed.rfind("-"))
+    if break_at >= int(len(trimmed) * 0.6):
+        trimmed = trimmed[:break_at]
+    return trimmed.rstrip(_STEM_TRIM_CHARS) or trimmed.strip()
+
+
 def shorten_filename_title(title: str, max_chars: int = TITLE_MAX_CHARS) -> str:
     value = _normalize_title(title)
     if not value:
         return ""
     max_chars = max(12, int(max_chars or TITLE_MAX_CHARS))
-    if len(value) <= max_chars:
-        return value
-    candidate = value[:max_chars].rstrip()
-    word_break = candidate.rfind(" ")
-    if word_break >= max(20, int(max_chars * 0.6)):
-        candidate = candidate[:word_break]
-    candidate = candidate.rstrip(_STEM_TRIM_CHARS)
-    return candidate or value[:max_chars].strip()
+    if len(value) > max_chars:
+        candidate = value[:max_chars].rstrip()
+        word_break = candidate.rfind(" ")
+        if word_break >= max(20, int(max_chars * 0.6)):
+            candidate = candidate[:word_break]
+        candidate = candidate.rstrip(_STEM_TRIM_CHARS)
+        value = candidate or value[:max_chars].strip()
+    return _cap_bytes(value, max_bytes=200)
 
 
 def _apply_shorten(title: str, flags: dict[str, Any]) -> str:
     # Normalize spacing always; only truncate to max_chars when `shorten` is enabled.
-    if not flags.get("shorten", True):
+    if not flags.get("shorten", False):
         return _normalize_title(title)
     return shorten_filename_title(title, flags.get("max_chars", TITLE_MAX_CHARS))
 
@@ -219,7 +241,10 @@ def apply_stem_limit(stem: str, flags: dict[str, Any]) -> str:
     value = _text(stem)
     if not value:
         return value
-    return _cap_stem(value, int(flags.get("stem_max_chars") or 0)).strip(_STEM_TRIM_CHARS)
+    stem_max = int(flags.get("stem_max_chars") or 0)
+    if stem_max > 0:
+        return _cap_bytes(_cap_stem(value, stem_max), SAFE_FILENAME_MAX_BYTES).strip(_STEM_TRIM_CHARS)
+    return value
 
 
 # --- Placeholder and repeated-id removal ---

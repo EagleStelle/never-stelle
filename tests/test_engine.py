@@ -1452,3 +1452,43 @@ def test_downloader_commands_route_intermediates_and_extractor_payloads_to_task_
     assert gallery_postprocessors[0]["filename"] == "downloads.tsv"
     assert gallery_postprocessors[1]["directory"] == "/scratch/nvs-download-task-1/extractor"
     assert "--postprocessor-option" not in gallery_cmd
+
+
+def test_downloader_commands_and_templates_obey_naming_limits():
+    # 1. yt-dlp command includes --trim-filenames with safe default or configured stem limit
+    default_cmd = ytdlp.build_ytdlp_command("https://youtu.be/x", "/usr/bin/ffmpeg", "/media/out.%(ext)s")
+    assert "--trim-filenames" in default_cmd
+    assert default_cmd[default_cmd.index("--trim-filenames") + 1] == "160"
+
+    custom_cmd = ytdlp.build_ytdlp_command(
+        "https://youtu.be/x",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        cleaning={"stem_max_chars": 50},
+    )
+    assert custom_cmd[custom_cmd.index("--trim-filenames") + 1] == "50"
+
+    # 2. gallery-dl command includes raw-options.trim_file_names
+    gallery_default = gallerydl.build_gallerydl_command("https://example.com/1", "/media", "clip.{extension}")
+    assert _has_cli_pair(gallery_default, "-o", "downloader.ytdl.raw-options.trim_file_names=160")
+
+    gallery_custom = gallerydl.build_gallerydl_command(
+        "https://example.com/1",
+        "/media",
+        "clip.{extension}",
+        cleaning={"stem_max_chars": 45},
+    )
+    assert _has_cli_pair(gallery_custom, "-o", "downloader.ytdl.raw-options.trim_file_names=45")
+
+    # 3. Output template converters respect shorten=True and max_chars
+    ytdlp_tmpl = ytdlp.convert_template_to_ytdlp(
+        "{{username}} - {{title}} [{{id}}]",
+        cleaning={"shorten": True, "max_chars": 80},
+    )
+    assert "%(title|Unknown).80s" in ytdlp_tmpl
+
+    gallery_tmpl = gallerydl.convert_template_to_gallerydl(
+        "{{username}} - {{title}} [{{id}}]",
+        cleaning={"shorten": True, "max_chars": 75},
+    )
+    assert '{title[:75]|content[:75]|"untitled"}' in gallery_tmpl

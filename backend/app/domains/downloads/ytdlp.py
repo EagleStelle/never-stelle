@@ -5,10 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
-from backend.app.domains.settings import get_effective_fields
+from backend.app.domains.settings import get_effective_fields, get_effective_title_cleaning
 
 from .constants import (
     FIELD_ROLE_CHAINS,
+    SAFE_PREDOWNLOAD_TRIM_CHARS,
+    TITLE_MAX_CHARS_DEFAULT,
     VIDEO_CODEC_PRESETS,
     artwork_extractor_args,
     audio_format_selector,
@@ -16,6 +18,7 @@ from .constants import (
     audio_postprocess_quality,
     normalize_post_processing,
     normalize_quality_selection,
+    normalize_title_cleaning,
     post_processing_requested,
     video_format_selector,
     video_merge_output_format,
@@ -107,6 +110,12 @@ def _yt_dlp_field(
         return ytdlp_username_field(field_role_list(field_roles, "username"))
     if field == "nickname":
         return ytdlp_nickname_field(field_role_list(field_roles, "nickname"))
+    if field == "title":
+        flags = normalize_title_cleaning(cleaning)
+        if flags.get("shorten", False):
+            max_chars = flags.get("max_chars", TITLE_MAX_CHARS_DEFAULT)
+            return f"%(title|Unknown).{max_chars}s"
+        return _YTDLP_FIELD["title"]
     return _YTDLP_FIELD.get(field, f"%({name}|Unknown)s")
 
 
@@ -162,7 +171,11 @@ def build_ytdlp_command(
     metadata_sidecar: str = "",
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> list[str]:
+    flags = normalize_title_cleaning(cleaning if cleaning is not None else get_effective_title_cleaning(source_url))
+    stem_max = int(flags.get("stem_max_chars") or 0)
+    trim_length = min(stem_max, SAFE_PREDOWNLOAD_TRIM_CHARS) if stem_max > 0 else SAFE_PREDOWNLOAD_TRIM_CHARS
     selection = normalize_quality_selection(quality)
     processing = normalize_post_processing(post_processing)
     audio_mode = selection["mode"] == "audio"
@@ -189,6 +202,8 @@ def build_ytdlp_command(
         "3",
         "--fragment-retries",
         "3",
+        "--trim-filenames",
+        str(trim_length),
         # No --verbose: it multiplies the output lines the worker has to parse for
         # every download without adding anything the failure tail does not already
         # carry, and the cost lands hardest on the long transfers.

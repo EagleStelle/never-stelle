@@ -8,10 +8,13 @@ from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
 from backend.app.domains.downloads.workers.processes import run_task_subprocess
+from backend.app.domains.settings import get_effective_title_cleaning
 
 from .constants import (
     FIELD_ROLE_CHAINS,
     MEDIA_EXTENSIONS,
+    SAFE_PREDOWNLOAD_TRIM_CHARS,
+    TITLE_MAX_CHARS_DEFAULT,
     VIDEO_CODEC_PRESETS,
     artwork_extractor_args,
     audio_format_selector,
@@ -19,6 +22,7 @@ from .constants import (
     audio_postprocess_quality,
     normalize_post_processing,
     normalize_quality_selection,
+    normalize_title_cleaning,
     post_processing_requested,
     video_format_selector,
     video_merge_output_format,
@@ -93,6 +97,7 @@ def _ytdl_downloader_options(
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
     extractor_directory: str = "",
+    trim_length: int = SAFE_PREDOWNLOAD_TRIM_CHARS,
 ) -> list[str]:
     selection = normalize_quality_selection(quality)
     processing = normalize_post_processing(post_processing)
@@ -114,6 +119,7 @@ def _ytdl_downloader_options(
         *_ytdl_options("format", format_string),
         *_ytdl_options("raw-options.js_runtimes", _YTDL_JS_RUNTIMES),
         *_ytdl_options("raw-options.remote_components", _YTDL_REMOTE_COMPONENTS),
+        *_ytdl_options("raw-options.trim_file_names", str(trim_length)),
     ]
     extractor_args = artwork_extractor_args(selection, processing)
     if extractor_args:
@@ -301,6 +307,12 @@ def _gallerydl_field(
         return gallerydl_username_field(field_role_list(field_roles, "username"))
     if field == "nickname":
         return gallerydl_nickname_field(field_role_list(field_roles, "nickname"))
+    if field == "title":
+        flags = normalize_title_cleaning(cleaning)
+        if flags.get("shorten", False):
+            max_chars = flags.get("max_chars", TITLE_MAX_CHARS_DEFAULT)
+            return f'{{title[:{max_chars}]|content[:{max_chars}]|"untitled"}}'
+        return _GALLERYDL_FIELD["title"]
     return _GALLERYDL_FIELD.get(field, "")
 
 
@@ -345,12 +357,16 @@ def build_gallerydl_command(
     excluded_extensions: set[str] | None = None,
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
+    cleaning: dict[str, Any] | None = None,
 ) -> list[str]:
     folder, _, filename = str(output_template or "").partition(_TEMPLATE_SEP)
     directory = json.dumps(_directory_segments(folder), ensure_ascii=False)
     task_scratch = Path(metadata_sidecar).parent if metadata_sidecar else SCRATCH_DIR
     part_directory = str(task_scratch / "parts").replace("\\", "/")
     extractor_directory = str(task_scratch / "extractor").replace("\\", "/")
+    flags = normalize_title_cleaning(cleaning if cleaning is not None else get_effective_title_cleaning(source_url))
+    stem_max = int(flags.get("stem_max_chars") or 0)
+    trim_length = min(stem_max, SAFE_PREDOWNLOAD_TRIM_CHARS) if stem_max > 0 else SAFE_PREDOWNLOAD_TRIM_CHARS
     processing = normalize_post_processing(post_processing)
     cmd = [
         "gallery-dl",
@@ -373,7 +389,7 @@ def build_gallerydl_command(
         "downloader.http.timeout=30",
         "--retries",
         "3",
-        *_ytdl_downloader_options(quality, processing, extractor_directory),
+        *_ytdl_downloader_options(quality, processing, extractor_directory, trim_length),
     ]
     if filename:
         cmd.extend(["--filename", filename])

@@ -790,6 +790,8 @@ def field_roles_from_probe_fields(fields_by_engine: dict[str, list[str] | tuple[
 
 # Per-source title-cleaning toggles; each `default` is the built-in always-on behavior.
 TITLE_MAX_CHARS_DEFAULT = 100
+SAFE_FILENAME_MAX_BYTES = 240
+SAFE_PREDOWNLOAD_TRIM_CHARS = 160
 TITLE_CLEANING_RULES: dict[str, dict[str, Any]] = {
     "strip_handle_at": {"label": "Remove @ before usernames", "default": True},
     "strip_placeholder": {"label": "Remove generic auto captions", "default": True},
