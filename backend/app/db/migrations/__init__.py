@@ -43,6 +43,13 @@ def current_version(connection: sqlite3.Connection) -> int:
     return int(row[0]) if row else 0
 
 
+def _is_populated(connection: sqlite3.Connection) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
+    ).fetchone()
+    return row is not None
+
+
 def _backup(connection: sqlite3.Connection, target: Path) -> None:
     # Snapshot before an upgrade; there are no downgrades.
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -70,9 +77,9 @@ def apply_pending(connection: sqlite3.Connection, database_path: Path | None = N
     pending = [entry for entry in ordered if entry[0] > current]
     if not pending:
         return []
-    # Version 0 is a fresh file or a pre-migrations install: nothing the baseline
-    # does not recreate, so the copy starts at the first real upgrade.
-    if current > 0 and database_path is not None:
+    # A fresh file holds nothing worth copying. Anything else does: even at version 0
+    # the baseline rebuilds tables an older install left on a different shape.
+    if database_path is not None and _is_populated(connection):
         _backup(connection, database_path.with_name(f"{database_path.name}.v{current}.bak"))
 
     applied: list[int] = []

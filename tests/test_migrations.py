@@ -194,6 +194,111 @@ def test_test_fixture_learning_is_purged(tmp_path, monkeypatch):
     assert seeded == ["gallerydl:1"]
 
 
+_OLD_HISTORY = """
+CREATE TABLE download_history (
+    id                  TEXT PRIMARY KEY,
+    source_url          TEXT    NOT NULL DEFAULT '',
+    source_key          TEXT    NOT NULL DEFAULT '',
+    engine              TEXT    NOT NULL DEFAULT '',
+    creator             TEXT    NOT NULL DEFAULT '',
+    title               TEXT    NOT NULL DEFAULT '',
+    media_id            TEXT    NOT NULL DEFAULT '',
+    resolved_full_path  TEXT    NOT NULL DEFAULT '',
+    resolved_path_key   TEXT    NOT NULL DEFAULT '',
+    resolved_folder     TEXT    NOT NULL DEFAULT '',
+    resolved_filename   TEXT    NOT NULL DEFAULT '',
+    file_size           INTEGER NOT NULL DEFAULT 0,
+    scan_mtime_ns       INTEGER NOT NULL DEFAULT 0,
+    scan_revision       TEXT    NOT NULL DEFAULT '',
+    folder_template     TEXT    NOT NULL DEFAULT '',
+    filename_template   TEXT    NOT NULL DEFAULT '',
+    completed_at        TEXT    NOT NULL,
+    encoding            TEXT    NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX idx_history_order ON download_history(completed_at DESC, id DESC);
+CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+
+CREATE TABLE learned_formats (
+    source_key TEXT PRIMARY KEY,
+    host TEXT NOT NULL DEFAULT '',
+    templates TEXT NOT NULL DEFAULT '',
+    url_field_roles TEXT NOT NULL DEFAULT '',
+    id_min INTEGER NOT NULL DEFAULT 0,
+    id_max INTEGER NOT NULL DEFAULT 0,
+    id_classes TEXT NOT NULL DEFAULT '',
+    samples INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
+
+
+def _seed_old_shape_db(path) -> None:
+    """A pre-chain install whose tables never gained the columns added after them."""
+    connection = sqlite3.connect(str(path))
+    try:
+        connection.executescript(_OLD_HISTORY)
+        connection.execute(
+            "INSERT INTO download_history (id, title, media_id, file_size, completed_at)"
+            " VALUES ('gallerydl:1', 'clip', 'm-1', 42, '2026-01-01T00:00:00+00:00')"
+        )
+        connection.execute(
+            "INSERT INTO learned_formats (source_key, host, templates, url_field_roles,"
+            " samples, created_at, updated_at)"
+            " VALUES ('tiktok', 'tiktok.com', '[]', '{}', 3, '', '')"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def test_old_shape_tables_are_rebuilt_onto_the_declared_schema(tmp_path, monkeypatch):
+    _seed_old_shape_db(tmp_path / "never-stelle.sqlite3")
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info('download_history')")}
+        row = connection.execute("SELECT * FROM download_history").fetchone()
+        formats = {row["name"] for row in connection.execute("PRAGMA table_info('learned_formats')")}
+        indexes = {
+            index["name"]
+            for index in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL"
+            )
+        }
+        assert migrations.current_version(connection) == migrations.latest_version()
+
+    # The added column arrives with its default, the dropped one is gone.
+    assert "needs_resolve" in columns
+    assert "completed_at" not in columns
+    assert "url_field_roles" not in formats
+    assert row["needs_resolve"] == 0
+    # Existing data survives, and the renamed timestamp carries into both replacements.
+    assert (row["id"], row["title"], row["media_id"], row["file_size"]) == ("gallerydl:1", "clip", "m-1", 42)
+    assert row["created_at"] == row["updated_at"] == "2026-01-01T00:00:00+00:00"
+    # The partial index that the old table could not support is in place.
+    assert "idx_history_needs_resolve" in indexes
+
+
+def test_old_shape_database_is_backed_up_before_the_rebuild(tmp_path, monkeypatch):
+    _seed_old_shape_db(tmp_path / "never-stelle.sqlite3")
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    backup = tmp_path / "never-stelle.sqlite3.v0.bak"
+    assert backup.exists()
+    connection = sqlite3.connect(str(backup))
+    try:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info('download_history')")}
+    finally:
+        connection.close()
+    assert "completed_at" in columns
+
+
 def test_source_location_migration_without_a_settings_row(tmp_path, monkeypatch):
     database_path = tmp_path / "never-stelle.sqlite3"
     _seed_pre_migration_db(database_path, None)

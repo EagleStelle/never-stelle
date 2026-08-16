@@ -1,7 +1,10 @@
 """Baseline schema, as it stood when the migration chain was introduced.
 
-``IF NOT EXISTS`` throughout, so an install that predates the chain (version 0 with
-the tables already built) takes this as a no-op and continues at the next version.
+An install that predates the chain sits at version 0 with tables already built, but
+not necessarily on this shape: the pre-chain code only ever ran ``CREATE TABLE IF NOT
+EXISTS``, so every column added after that database was first created is missing from
+it. This migration therefore declares the schema and then reconciles what it finds
+against it, rebuilding any table whose columns disagree.
 """
 
 from __future__ import annotations
@@ -139,6 +142,112 @@ CREATE TABLE IF NOT EXISTS source_cookies (
 CREATE INDEX IF NOT EXISTS idx_source_cookies_source_key ON source_cookies(source_key);
 """
 
+# Columns that were renamed rather than introduced, so a rebuild carries the data over
+# instead of resetting it to a default. download_history once stamped a single
+# completed_at; both of the timestamps that replaced it start from that value.
+_RENAMED_FROM = {
+    "download_history": {"created_at": "completed_at", "updated_at": "completed_at"},
+}
+
+
+class _Column:
+    __slots__ = ("name", "type", "required")
+
+    def __init__(self, name: str, declared_type: str, notnull: int, default: str | None) -> None:
+        self.name = name
+        self.type = declared_type
+        self.required = bool(notnull) and default is None
+
+
+def _declared() -> tuple[dict[str, tuple[str, list[_Column]]], dict[str, str]]:
+    """The schema above, read back from SQLite rather than parsed by hand.
+
+    Returns tables as ``name -> (create statement, columns)`` and indexes as
+    ``name -> create statement``.
+    """
+    reference = sqlite3.connect(":memory:")
+    try:
+        reference.executescript(SCHEMA)
+        tables: dict[str, tuple[str, list[_Column]]] = {}
+        indexes: dict[str, str] = {}
+        objects = reference.execute(
+            "SELECT name, type, sql FROM sqlite_master WHERE sql IS NOT NULL"
+        ).fetchall()
+        for name, kind, sql in objects:
+            if kind == "table":
+                tables[name] = (sql, _columns(reference, name))
+            elif kind == "index":
+                indexes[name] = sql
+        return tables, indexes
+    finally:
+        reference.close()
+
+
+def _columns(connection: sqlite3.Connection, table: str) -> list[_Column]:
+    rows = connection.execute(f'PRAGMA table_info("{table}")').fetchall()
+    return [_Column(row[1], row[2], row[3], row[4]) for row in rows]
+
+
+def _placeholder(declared_type: str) -> str:
+    """A literal for a NOT NULL column the old table has nothing to fill from."""
+    kind = declared_type.upper()
+    if "BLOB" in kind:
+        return "x''"
+    if any(marker in kind for marker in ("INT", "REAL", "FLOA", "DOUB", "NUM")):
+        return "0"
+    return "''"
+
+
+def _rebuild(connection: sqlite3.Connection, table: str, create_sql: str, want: list[_Column]) -> None:
+    """Move the table onto the declared shape, keeping every column both shapes have."""
+    have = {column.name for column in _columns(connection, table)}
+    renames = _RENAMED_FROM.get(table, {})
+    targets: list[str] = []
+    sources: list[str] = []
+    for column in want:
+        source = column.name if column.name in have else renames.get(column.name)
+        if source not in have:
+            # Nothing to copy: a NOT NULL column without a default still needs a value.
+            if not column.required:
+                continue
+            source = _placeholder(column.type)
+        else:
+            source = f'"{source}"'
+        targets.append(f'"{column.name}"')
+        sources.append(source)
+
+    connection.execute(f'ALTER TABLE "{table}" RENAME TO "{table}__old"')
+    connection.execute(create_sql)
+    if targets:
+        connection.execute(
+            f'INSERT INTO "{table}" ({", ".join(targets)})'
+            f' SELECT {", ".join(sources)} FROM "{table}__old"'
+        )
+    connection.execute(f'DROP TABLE "{table}__old"')
+
+
+def _reconcile_indexes(connection: sqlite3.Connection, declared: dict[str, str]) -> None:
+    """Drop indexes the schema no longer declares, create the ones it does."""
+    live = {
+        row[0]: row[1]
+        for row in connection.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL"
+        ).fetchall()
+    }
+    for name, sql in live.items():
+        if declared.get(name) != sql:
+            connection.execute(f'DROP INDEX "{name}"')
+    for name, sql in declared.items():
+        if live.get(name) != sql:
+            connection.execute(sql)
+
 
 def upgrade(connection: sqlite3.Connection) -> None:
-    connection.executescript(SCHEMA)
+    tables, indexes = _declared()
+    for table, (create_sql, want) in tables.items():
+        have = _columns(connection, table)
+        if not have:
+            connection.execute(create_sql)
+        elif [column.name for column in have] != [column.name for column in want]:
+            _rebuild(connection, table, create_sql, want)
+    _reconcile_indexes(connection, indexes)
