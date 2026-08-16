@@ -378,19 +378,23 @@ def _v1_settings() -> dict:
         "source_profiles": [{"key": "youtube", "label": "Youtube", "hosts": ["www.youtube.com"]}],
         # One folder per source, and an absolute one: both are shapes 1.1 no longer stores.
         "site_locations": {"youtube": "/media/youtube/music"},
+        # One template pair per source, likewise keyed per learned format in 1.1.
+        "source_templates": {
+            "youtube": {"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}
+        },
         "source_creator_fields": {"youtube": {"username": ["uploader_id"], "nickname": ["uploader"]}},
         "template_settings": {"folder_template": "{{username}}"},
     }
 
 
-def _seed_v1_db(path) -> None:
+def _seed_v1_db(path, settings: dict | None = None) -> None:
     """A 1.0 database: different table names, most fields inside a JSON payload."""
     connection = sqlite3.connect(str(path))
     try:
         connection.executescript(_V1_SCHEMA)
         connection.execute(
             "INSERT INTO settings (key, value, updated_at) VALUES ('app', ?, '2026-07-21T22:56:46+00:00')",
-            (json.dumps(_v1_settings()),),
+            (json.dumps(_v1_settings() if settings is None else settings),),
         )
         connection.execute(
             "INSERT INTO formats (source_key, host, templates, url_creator_fields, id_min, id_max,"
@@ -561,9 +565,53 @@ def test_v1_settings_keys_are_carried_onto_their_new_names(tmp_path, monkeypatch
     # The single 1.0 folder is keyed per learned format and rewritten to a subpath.
     assert "site_locations" not in payload
     assert payload["source_locations"] == {"youtube": {_V1_TEMPLATE: "music"}}
+    # The single 1.0 template pair is keyed the same way, so the rename pass sees the
+    # names the library already carries instead of walking it onto the base template.
+    assert payload["source_templates"] == {
+        "youtube": {_V1_TEMPLATE: {"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}}
+    }
     # Everything the rename did not touch is left exactly as it was.
     assert payload["auth"] == _v1_settings()["auth"]
     assert payload["template_settings"] == {"folder_template": "{{username}}"}
+
+
+def test_v1_templates_survive_onto_the_effective_settings(tmp_path, monkeypatch):
+    """What the importer writes is what the app reads back, not a shape read drops."""
+    _seed_v1_db(tmp_path / "never-stelle.sqlite3")
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    from backend.app.domains.settings import get_effective_saved_settings
+
+    assert get_effective_saved_settings()["source_templates"]["youtube"][_V1_TEMPLATE] == {
+        "folder_template": "{{username}}",
+        "filename_template": "{{title}} [{{id}}]",
+    }
+
+
+def test_v1_templates_already_keyed_by_format_are_left_alone(tmp_path, monkeypatch):
+    settings = _v1_settings()
+    nested = {"folder_template": "{{nickname}}", "filename_template": "{{title}}"}
+    settings["source_templates"] = {"youtube": {_V1_TEMPLATE: nested}}
+    _seed_v1_db(tmp_path / "never-stelle.sqlite3", settings)
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    assert _stored_payload()["source_templates"] == {"youtube": {_V1_TEMPLATE: nested}}
+
+
+def test_v1_templates_without_a_learned_format_are_dropped(tmp_path, monkeypatch):
+    settings = _v1_settings()
+    # Nothing learned for the source, so there is no format key to hang the pair on.
+    settings["source_templates"]["twitter"] = {"folder_template": "{{username}}", "filename_template": "{{id}}"}
+    _seed_v1_db(tmp_path / "never-stelle.sqlite3", settings)
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    assert _stored_payload()["source_templates"]["twitter"] == {}
 
 
 def test_v1_database_is_backed_up_before_the_import(tmp_path, monkeypatch):

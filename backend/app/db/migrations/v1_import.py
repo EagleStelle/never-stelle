@@ -289,6 +289,18 @@ def _rewrite_settings(payload: dict[str, Any], learned: dict[str, list[str]]) ->
             else {template: value for template in learned.get(_source_key(key), [])}
             for key, value in locations.items()
         }
+    templates = payload.get("source_templates")
+    if isinstance(templates, dict):
+        # Same fan-out for the folder/filename pair, which 1.0 also held one of per
+        # source. A pair left flat is dropped on read, and the rename pass would then
+        # walk the library onto the base template.
+        payload["source_templates"] = {
+            key: value
+            if all(isinstance(inner, dict) for inner in value.values())
+            else {template: dict(value) for template in learned.get(_source_key(key), [])}
+            for key, value in templates.items()
+            if isinstance(value, dict)
+        }
     return payload
 
 
