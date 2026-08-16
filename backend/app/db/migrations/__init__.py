@@ -79,7 +79,8 @@ def apply_pending(connection: sqlite3.Connection, database_path: Path | None = N
         return []
     # A fresh file holds nothing worth copying. Anything else does: even at version 0
     # the baseline rebuilds tables an older install left on a different shape.
-    if database_path is not None and _is_populated(connection):
+    populated = database_path is not None and _is_populated(connection)
+    if populated:
         _backup(connection, database_path.with_name(f"{database_path.name}.v{current}.bak"))
 
     applied: list[int] = []
@@ -93,4 +94,8 @@ def apply_pending(connection: sqlite3.Connection, database_path: Path | None = N
             connection.rollback()
             raise
         applied.append(version)
+    if populated:
+        # An upgrade that rebuilt or dropped tables leaves the file holding pages
+        # nothing references; the copy above is what those pages are still needed for.
+        connection.execute("VACUUM")
     return applied

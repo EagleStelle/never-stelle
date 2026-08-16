@@ -5,11 +5,16 @@ not necessarily on this shape: the pre-chain code only ever ran ``CREATE TABLE I
 EXISTS``, so every column added after that database was first created is missing from
 it. This migration therefore declares the schema and then reconciles what it finds
 against it, rebuilding any table whose columns disagree.
+
+A 1.0 database is older still: its tables carry different names entirely, so they are
+imported row by row and dropped (see ``v1_import``) rather than reconciled.
 """
 
 from __future__ import annotations
 
 import sqlite3
+
+from . import v1_import
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -250,4 +255,6 @@ def upgrade(connection: sqlite3.Connection) -> None:
             connection.execute(create_sql)
         elif [column.name for column in have] != [column.name for column in want]:
             _rebuild(connection, table, create_sql, want)
+    if v1_import.present(connection):
+        v1_import.import_v1(connection)
     _reconcile_indexes(connection, indexes)

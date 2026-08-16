@@ -299,6 +299,269 @@ def test_old_shape_database_is_backed_up_before_the_rebuild(tmp_path, monkeypatc
     assert "completed_at" in columns
 
 
+_V1_SCHEMA = """
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+
+CREATE TABLE queue (
+    id TEXT PRIMARY KEY,
+    source_url TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    source_key TEXT NOT NULL DEFAULT 'others',
+    progress_pct REAL NOT NULL DEFAULT 0,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_queue_status ON queue(status);
+
+CREATE TABLE history (
+    task_id TEXT PRIMARY KEY,
+    source_url TEXT NOT NULL DEFAULT '',
+    source_key TEXT NOT NULL DEFAULT 'others',
+    payload TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_history_order ON history(completed_at DESC, updated_at DESC, task_id DESC);
+
+CREATE TABLE cookies (
+    key TEXT PRIMARY KEY,
+    filename TEXT NOT NULL DEFAULT '',
+    content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    content BLOB NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE formats (
+    source_key TEXT PRIMARY KEY,
+    host TEXT NOT NULL DEFAULT '',
+    templates TEXT NOT NULL DEFAULT '',
+    url_creator_fields TEXT NOT NULL DEFAULT '',
+    id_min INTEGER NOT NULL DEFAULT 0,
+    id_max INTEGER NOT NULL DEFAULT 0,
+    id_classes TEXT NOT NULL DEFAULT '',
+    samples INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_formats_host ON formats(host);
+"""
+
+_V1_TEMPLATE = "https://www.youtube.com/watch?v={id}"
+_V1_TABLES = ("settings", "queue", "history", "cookies", "formats")
+
+
+def _v1_settings() -> dict:
+    return {
+        "auth": {"username": "root", "password_hash": "pbkdf2$1", "session_version": 1},
+        "source_profiles": [{"key": "youtube", "label": "Youtube", "hosts": ["www.youtube.com"]}],
+        # One folder per source, and an absolute one: both are shapes 1.1 no longer stores.
+        "site_locations": {"youtube": "/media/youtube/music"},
+        "source_creator_fields": {"youtube": {"username": ["uploader_id"], "nickname": ["uploader"]}},
+        "template_settings": {"folder_template": "{{username}}"},
+    }
+
+
+def _seed_v1_db(path) -> None:
+    """A 1.0 database: different table names, most fields inside a JSON payload."""
+    connection = sqlite3.connect(str(path))
+    try:
+        connection.executescript(_V1_SCHEMA)
+        connection.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES ('app', ?, '2026-07-21T22:56:46+00:00')",
+            (json.dumps(_v1_settings()),),
+        )
+        connection.execute(
+            "INSERT INTO formats (source_key, host, templates, url_creator_fields, id_min, id_max,"
+            " id_classes, samples, created_at, updated_at)"
+            " VALUES ('youtube', 'www.youtube.com', ?, '{}', 11, 11, 'd,l,u', 4, '', '')",
+            (json.dumps([_V1_TEMPLATE]),),
+        )
+        connection.execute(
+            "INSERT INTO history (task_id, source_url, source_key, payload, completed_at, updated_at)"
+            " VALUES ('ytdlp:abc', 'https://www.youtube.com/watch?v=abc', 'youtube', ?,"
+            " '2026-07-12T20:33:07+00:00', '2026-07-13T01:00:00+00:00')",
+            (
+                json.dumps(
+                    {
+                        "task_id": "ytdlp:abc",
+                        # Defaulted by 1.0 for every row older than the field, so the id decides.
+                        "task_type": "gallerydl",
+                        "creator": "richamu",
+                        "media_id": "abc",
+                        "resolved_folder": "/media/youtube/richamu",
+                        "resolved_filename": "richamu - clip [abc].mp4",
+                        "resolved_full_path": "/media/youtube/richamu/richamu - clip [abc].mp4",
+                        "file_size": 42,
+                        "quality": {"mode": "audio"},
+                        "completed_at": "2026-07-12T20:33:07+00:00",
+                    }
+                ),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO history (task_id, source_url, source_key, payload, completed_at, updated_at)"
+            " VALUES ('disk:xyz', '', 'others', ?, '2026-07-12T20:02:56+00:00', '2026-07-12T20:02:56+00:00')",
+            (
+                json.dumps(
+                    {
+                        "task_type": "disk",
+                        "media_id": "xyz",
+                        "title": "walk",
+                        "artist": "amuchan",
+                        "source_pending": True,
+                        "source_candidates": ["youtube"],
+                        "resolved_full_path": "/media/youtube/amuchan/walk [xyz].mp3",
+                    }
+                ),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO queue (id, source_url, status, source_key, progress_pct, payload, created_at, updated_at)"
+            " VALUES ('gallerydl:q1', 'https://www.youtube.com/watch?v=q1', 'failed', 'youtube', 0, ?,"
+            " '2026-07-21T22:59:37+00:00', '2026-07-21T22:59:46+00:00')",
+            (
+                json.dumps(
+                    {
+                        "engine": "gallerydl",
+                        "status": "failed",
+                        "error": "boom",
+                        "output_dir": "/media/youtube",
+                        "output_template": "{title}.{extension}",
+                        "template_settings": {
+                            "folder_template": "{{username}}",
+                            "filename_template": "{{title}} [{{id}}]",
+                        },
+                        "preview_warning": "",
+                        "last_log_lines": ["one", "two"],
+                    }
+                ),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO cookies (key, filename, content_type, content, created_at, updated_at)"
+            " VALUES ('ytdlp_cookies::youtube', 'cookies.txt', 'text/plain', ?, '2026-07-13T09:38:21+00:00',"
+            " '2026-07-13T09:38:21+00:00')",
+            (b"# Netscape HTTP Cookie File",),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def test_v1_tables_are_imported_and_dropped(tmp_path, monkeypatch):
+    _seed_v1_db(tmp_path / "never-stelle.sqlite3")
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        tables = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            )
+        }
+        indexes = {
+            row["name"]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL")
+        }
+        assert migrations.current_version(connection) == migrations.latest_version()
+
+    # Nothing of the 1.0 layout is left, not the tables and not the indexes over them.
+    assert tables.isdisjoint(_V1_TABLES)
+    assert {"app_settings", "download_tasks", "download_history", "learned_formats", "source_cookies"} <= tables
+    assert {"idx_queue_status", "idx_formats_host"}.isdisjoint(indexes)
+    assert "idx_history_order" in indexes
+
+
+def test_v1_history_payloads_become_columns(tmp_path, monkeypatch):
+    _seed_v1_db(tmp_path / "never-stelle.sqlite3")
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        downloaded = connection.execute("SELECT * FROM download_history WHERE id = 'ytdlp:abc'").fetchone()
+        scanned = connection.execute("SELECT * FROM download_history WHERE id = 'disk:xyz'").fetchone()
+
+    # The id names the engine that produced the row; the payload's task_type does not.
+    assert downloaded["engine"] == "ytdlp"
+    assert (downloaded["creator"], downloaded["media_id"], downloaded["file_size"]) == ("richamu", "abc", 42)
+    assert downloaded["resolved_path_key"]
+    # One 1.0 timestamp feeds both, and the row's own updated_at wins where it has one.
+    assert downloaded["created_at"] == "2026-07-12T20:33:07+00:00"
+    assert downloaded["updated_at"] == "2026-07-13T01:00:00+00:00"
+    # Only what 1.1 has no column for rides along; the dead keys are dropped.
+    assert json.loads(downloaded["encoding"]) == {"quality": {"mode": "audio"}}
+
+    assert scanned["engine"] == "disk"
+    assert (scanned["creator"], scanned["title"]) == ("amuchan", "walk")
+    assert scanned["source_key"] == ""
+    assert json.loads(scanned["encoding"]) == {"source_pending": True, "source_candidates": ["youtube"]}
+
+
+def test_v1_queue_cookies_and_formats_are_imported(tmp_path, monkeypatch):
+    _seed_v1_db(tmp_path / "never-stelle.sqlite3")
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        task = connection.execute("SELECT * FROM download_tasks").fetchone()
+        cookie = connection.execute("SELECT * FROM source_cookies").fetchone()
+        learned = connection.execute("SELECT * FROM learned_formats").fetchone()
+        format_columns = {row["name"] for row in connection.execute("PRAGMA table_info('learned_formats')")}
+
+    assert (task["id"], task["status"], task["engine"]) == ("gallerydl:q1", "failed", "gallerydl")
+    assert task["error"] == "boom"
+    assert (task["folder_template"], task["filename_template"]) == ("{{username}}", "{{title}} [{{id}}]")
+    assert json.loads(task["last_log_lines"]) == ["one", "two"]
+    assert json.loads(task["encoding"]) == {"preview_warning": ""}
+
+    # One jar per source becomes the first entry of that source's rotation.
+    assert (cookie["source_key"], cookie["filename"], cookie["position"]) == ("youtube", "cookies.txt", 0)
+    assert bytes(cookie["content"]) == b"# Netscape HTTP Cookie File"
+
+    assert (learned["source_key"], learned["samples"], learned["id_classes"]) == ("youtube", 4, "d,l,u")
+    assert json.loads(learned["templates"]) == [_V1_TEMPLATE]
+    assert "url_creator_fields" not in format_columns
+
+
+def test_v1_settings_keys_are_carried_onto_their_new_names(tmp_path, monkeypatch):
+    _seed_v1_db(tmp_path / "never-stelle.sqlite3")
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+    payload = _stored_payload()
+
+    assert "source_creator_fields" not in payload
+    assert payload["source_fields"] == {"youtube": {"username": ["uploader_id"], "nickname": ["uploader"]}}
+    # The single 1.0 folder is keyed per learned format and rewritten to a subpath.
+    assert "site_locations" not in payload
+    assert payload["source_locations"] == {"youtube": {_V1_TEMPLATE: "music"}}
+    # Everything the rename did not touch is left exactly as it was.
+    assert payload["auth"] == _v1_settings()["auth"]
+    assert payload["template_settings"] == {"folder_template": "{{username}}"}
+
+
+def test_v1_database_is_backed_up_before_the_import(tmp_path, monkeypatch):
+    _seed_v1_db(tmp_path / "never-stelle.sqlite3")
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    connection = sqlite3.connect(str(tmp_path / "never-stelle.sqlite3.v0.bak"))
+    try:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        rows = connection.execute("SELECT COUNT(*) FROM history").fetchone()[0]
+    finally:
+        connection.close()
+    assert set(_V1_TABLES) <= tables
+    assert rows == 2
+
+
 def test_source_location_migration_without_a_settings_row(tmp_path, monkeypatch):
     database_path = tmp_path / "never-stelle.sqlite3"
     _seed_pre_migration_db(database_path, None)
