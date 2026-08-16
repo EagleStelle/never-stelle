@@ -111,6 +111,7 @@ function isDropTarget(key: string, index: number): boolean {
       <Input
         id="formatLearnInput"
         v-model="link"
+        class="flex-1"
         type="text"
         inputmode="url"
         placeholder="Paste a link"

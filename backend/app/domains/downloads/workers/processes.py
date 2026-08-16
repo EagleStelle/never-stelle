@@ -34,7 +34,14 @@ def _kill_process_tree(process: subprocess.Popen[Any]) -> None:
                 check=False,
             )
         else:
-            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            try:
+                pgid = os.getpgid(process.pid)
+                if pgid != os.getpgrp():
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    process.kill()
+            except Exception:
+                process.kill()
     except Exception:
         try:
             process.kill()

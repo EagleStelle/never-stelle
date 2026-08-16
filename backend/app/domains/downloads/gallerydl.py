@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
+from backend.app.domains.downloads.workers.processes import run_task_subprocess
 
 from .constants import (
     FIELD_ROLE_CHAINS,
@@ -239,7 +240,7 @@ def _gallerydl_list_urls(
         cmd.extend(["--cookies", cookies_file])
     cmd.append(source_url)
     try:
-        result = subprocess.run(
+        result = run_task_subprocess(
             cmd,
             capture_output=True,
             text=True,
@@ -348,8 +349,12 @@ def build_gallerydl_command(
     folder, _, filename = str(output_template or "").partition(_TEMPLATE_SEP)
     directory = json.dumps(_directory_segments(folder), ensure_ascii=False)
     task_scratch = Path(metadata_sidecar).parent if metadata_sidecar else SCRATCH_DIR
-    part_directory = str(task_scratch / "parts").replace("\\", "/")
-    extractor_directory = str(task_scratch / "extractor").replace("\\", "/")
+    parts_path = task_scratch / "parts"
+    extractor_path = task_scratch / "extractor"
+    parts_path.mkdir(parents=True, exist_ok=True)
+    extractor_path.mkdir(parents=True, exist_ok=True)
+    part_directory = str(parts_path).replace("\\", "/")
+    extractor_directory = str(extractor_path).replace("\\", "/")
     processing = normalize_post_processing(post_processing)
     cmd = [
         "gallery-dl",

@@ -138,10 +138,15 @@ def remove_pending_task(task_id: str) -> None:
     task = (load_task_store().get("tasks") or {}).get(task_id)
     if not task:
         return
-    if task.get("status") not in {"pending", "failed"}:
-        raise PermissionError("Only queued or failed tasks can be removed right now.")
-    if not remove_task_record_if_status(task_id, {"pending", "failed"}):
-        raise PermissionError("Only queued or failed tasks can be removed right now.")
+    status = task.get("status")
+    if status == "running":
+        request_cancel(task_id)
+        remove_task_record(task_id)
+        return
+    if status in {"pending", "failed"}:
+        remove_task_record(task_id)
+        return
+    raise PermissionError("Only active, queued, or failed tasks can be removed.")
 
 
 def cancel_task(task_id: str) -> None:
@@ -154,11 +159,8 @@ def cancel_task(task_id: str) -> None:
         return
     status = task.get("status")
     if status == "running":
-        if has_active_task(task_id):
-            # Signal the whole task lifetime. This also interrupts finalization,
-            # where there may be no downloader subprocess at this instant.
-            request_cancel(task_id)
-        else:
+        request_cancel(task_id)
+        if not has_active_task(task_id):
             # Orphaned running row (crash debris) has no worker to signal.
             remove_task_record(task_id)
         return
@@ -169,9 +171,8 @@ def cancel_task(task_id: str) -> None:
         # of returning success while the newly-running task continues.
         latest = (load_task_store().get("tasks") or {}).get(task_id)
         if latest and latest.get("status") == "running":
-            if has_active_task(task_id):
-                request_cancel(task_id)
-            else:
+            request_cancel(task_id)
+            if not has_active_task(task_id):
                 remove_task_record(task_id)
         return
     raise PermissionError("Only active or queued downloads can be cancelled.")
@@ -206,13 +207,17 @@ def retry_task(task_id: str) -> None:
 
 
 def clear_pending_tasks() -> dict[str, Any]:
-    # Only queued/failed tasks are clearable. Completed downloads are permanent.
+    # Only queued/failed/orphaned tasks are clearable. Completed downloads are permanent.
     tasks = fetch_tasks()
     cleared = 0
     for task in tasks:
-        if task["status"] not in {"pending", "failed"}:
-            continue
-        if remove_task_record_if_status(task["vid"], {"pending", "failed"}):
+        vid = task["vid"]
+        status = task["status"]
+        if status in {"pending", "failed"}:
+            if remove_task_record_if_status(vid, {"pending", "failed"}):
+                cleared += 1
+        elif status == "running" and not has_active_task(vid):
+            remove_task_record(vid)
             cleared += 1
     return {"cleared": cleared, "failed": []}
 
