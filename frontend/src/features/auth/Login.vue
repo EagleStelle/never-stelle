@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { reactive, ref } from "vue";
 import IconCapsLock from "~icons/material-symbols/keyboard-capslock";
 import IconLock from "~icons/material-symbols/lock";
 import IconMoon from "~icons/material-symbols/dark-mode";
 import IconPerson from "~icons/material-symbols/person";
 import IconSpinner from "~icons/material-symbols/progress-activity";
 import IconSun from "~icons/material-symbols/light-mode";
-import IconVisibility from "~icons/material-symbols/visibility";
-import IconVisibilityOff from "~icons/material-symbols/visibility-off";
 import IconWarning from "~icons/material-symbols/warning";
 import IconGithub from "~icons/simple-icons/github";
 
@@ -35,10 +33,7 @@ const form = reactive({
   password: "",
 });
 const error = ref("");
-const revealed = ref(false);
 const capsLock = ref(false);
-
-const passwordType = computed(() => (revealed.value ? "text" : "password"));
 
 // Caps lock has no state to read on its own: it only surfaces through a key event,
 // so the warning tracks the last key struck in the field and clears when it blurs.
@@ -175,7 +170,7 @@ async function submit(): Promise<void> {
               <Input
                 id="loginPasswordInput"
                 v-model="form.password"
-                :type="passwordType"
+                type="password"
                 name="password"
                 autocomplete="current-password"
                 :aria-invalid="error ? 'true' : undefined"
@@ -186,25 +181,6 @@ async function submit(): Promise<void> {
               >
                 <template #icon>
                   <IconLock class="h-5 w-5" aria-hidden="true" />
-                </template>
-                <template #action>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    class="mr-0.5"
-                    :aria-label="revealed ? 'Hide password' : 'Show password'"
-                    :aria-pressed="revealed"
-                    @click="revealed = !revealed"
-                  >
-                    <template #icon>
-                      <component
-                        :is="revealed ? IconVisibilityOff : IconVisibility"
-                        class="group-hover:scale-110"
-                        aria-hidden="true"
-                      />
-                    </template>
-                  </Button>
                 </template>
               </Input>
 

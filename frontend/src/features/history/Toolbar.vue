@@ -20,6 +20,7 @@ const { historySearch, submitHistorySearch } = useDashboard();
       <Input
         v-model="historySearch"
         class="flex-1 min-w-0"
+        paste
         name="q"
         type="text"
         autocomplete="off"
