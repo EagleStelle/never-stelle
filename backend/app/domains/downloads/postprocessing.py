@@ -1049,6 +1049,31 @@ def _repair_container_codecs(ffmpeg: str, path: Path, container: str) -> bool:
         remove_scratch_path(output_path)
 
 
+def _video_container_candidates(paths: list[Path]) -> list[tuple[Path, str]]:
+    """Pair every existing path with the video container its extension implies."""
+
+    return [
+        (path, container)
+        for path in paths
+        if path.is_file() and (container := _VIDEO_CONTAINER_BY_EXTENSION.get(path.suffix.lower(), ""))
+    ]
+
+
+def _has_container_signature(path: Path, container: str) -> bool:
+    """Confirm the leading bytes match the container the extension claims."""
+
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(12)
+    except OSError:
+        return False
+    if container == "mp4":
+        return len(header) >= 8 and header[4:8] == b"ftyp"
+    if container in {"mkv", "webm"}:
+        return header.startswith(b"\x1a\x45\xdf\xa3")
+    return False
+
+
 def ensure_container_codec_compatibility(
     paths: list[Path],
     quality: dict[str, str] | None = None,
@@ -1058,37 +1083,18 @@ def ensure_container_codec_compatibility(
     """Repair known codec/container mismatches in any extractor's final outputs."""
 
     selection = normalize_quality_selection(quality)
-
-    def recognizable_container(path: Path, container: str) -> bool:
-        try:
-            with path.open("rb") as handle:
-                header = handle.read(12)
-        except OSError:
-            return False
-        if container == "mp4":
-            return len(header) >= 8 and header[4:8] == b"ftyp"
-        if container in {"mkv", "webm"}:
-            return header.startswith(b"\x1a\x45\xdf\xa3")
+    if selection["mode"] != "video":
         return False
-
-    candidates = [
-        (path, _VIDEO_CONTAINER_BY_EXTENSION.get(path.suffix.lower(), ""))
-        for path in paths
-        if path.is_file()
-    ]
     candidates = [
         (path, container)
-        for path, container in candidates
-        if container and recognizable_container(path, container)
+        for path, container in _video_container_candidates(paths)
+        if _has_container_signature(path, container)
     ]
     if not candidates:
         return False
-    empty_vpcc = {
-        path: offsets
-        for path, container in candidates
-        if container == "mp4" and (offsets := _empty_vpcc_type_offsets(path))
-    }
-    if selection["mode"] != "video":
+    ffmpeg = detect_ffmpeg_location()
+    if not ffmpeg:
+        logger.warning("Codec compatibility check skipped: ffmpeg was not found")
         return False
     native_auto = (
         selection["video_container"] == "auto"
@@ -1096,10 +1102,11 @@ def ensure_container_codec_compatibility(
         and selection["video_audio_codec"] == "auto"
     )
     updates = path_updates if path_updates is not None else {}
-    ffmpeg = detect_ffmpeg_location()
-    if not ffmpeg:
-        logger.warning("Codec compatibility check skipped: ffmpeg was not found")
-        return False
+    empty_vpcc = {
+        path: offsets
+        for path, container in candidates
+        if container == "mp4" and (offsets := _empty_vpcc_type_offsets(path))
+    }
     changed = False
     for path, offsets in empty_vpcc.items():
         raise_if_cancelled()
@@ -1112,14 +1119,8 @@ def ensure_container_codec_compatibility(
             choose_native_container=native_auto,
         ) or changed
     if native_auto:
-        refreshed_candidates = [
-            (path, _VIDEO_CONTAINER_BY_EXTENSION.get(path.suffix.lower(), ""))
-            for path in paths
-            if path.is_file()
-        ]
-        for path, container in refreshed_candidates:
-            if not container:
-                continue
+        # Repairs above may have renamed outputs, so re-derive containers from disk.
+        for path, container in _video_container_candidates(paths):
             raise_if_cancelled()
             streams = _ffprobe_streams(ffmpeg, path)
             target_container = _stream_copy_target_container(streams, container)
