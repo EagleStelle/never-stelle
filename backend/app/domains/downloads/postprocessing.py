@@ -919,18 +919,17 @@ def _incompatible_output_streams(
 
 
 def _stream_copy_target_container(streams: list[dict[str, Any]], current: str) -> str:
-    """Choose a playable container for the existing streams without encoding them."""
+    """Pick a playable container for the streams without encoding, empty to leave as is."""
 
-    incompatible_video, incompatible_audio = _incompatible_output_streams(streams, current)
-    if not incompatible_video and not incompatible_audio:
-        return ""
-    for candidate in ("webm", "mp4", "mkv"):
-        if candidate == current:
-            continue
-        candidate_video, candidate_audio = _incompatible_output_streams(streams, candidate)
-        if not candidate_video and not candidate_audio:
-            return candidate
-    return "mkv"
+    playable = next(
+        (
+            container
+            for container in (current, "webm", "mp4", "mkv")
+            if not any(_incompatible_output_streams(streams, container))
+        ),
+        "",
+    )
+    return "" if playable == current else playable
 
 
 def _unique_remux_target(path: Path, container: str, current_container: str) -> Path:
