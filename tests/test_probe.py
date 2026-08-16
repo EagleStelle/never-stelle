@@ -209,7 +209,6 @@ def test_gallerydl_tiktok_photo_author_fields_are_creator_candidates(monkeypatch
         "username": ["author[uniqueId]"],
         "nickname": ["author[nickname]"],
     }
-    assert result["url_field_roles"] == {}
 
 
 def test_gallerydl_dump_uses_tiktok_no_audio_probe_option(monkeypatch):
@@ -478,7 +477,6 @@ def test_probe_fields_keeps_bare_facebook_reel_uploader(monkeypatch):
     assert [field["field"] for field in result["fields"]] == ["uploader_id", "uploader"]
     assert result["field_roles"]["username"] == ["uploader_id", "uploader"]
     assert result["field_roles"]["nickname"] == ["uploader"]
-    assert result["url_field_roles"] == {}
 
 
 def test_probe_fields_keeps_facebook_share_post_uploader(monkeypatch):
@@ -502,7 +500,6 @@ def test_probe_fields_keeps_facebook_share_post_uploader(monkeypatch):
     assert [field["field"] for field in result["fields"]] == ["uploader_id", "uploader"]
     assert result["field_roles"]["username"] == ["uploader_id", "uploader"]
     assert result["field_roles"]["nickname"] == ["uploader"]
-    assert result["url_field_roles"] == {}
 
 
 def test_probe_fields_keeps_live_fields_without_url_owner_filter(monkeypatch):
@@ -526,7 +523,6 @@ def test_probe_fields_keeps_live_fields_without_url_owner_filter(monkeypatch):
     assert [field["field"] for field in result["fields"]] == ["uploader_id", "uploader"]
     assert result["field_roles"]["username"] == ["uploader_id", "uploader"]
     assert result["field_roles"]["nickname"] == ["uploader"]
-    assert result["url_field_roles"] == {}
 
 
 def test_probe_fields_promotes_exact_url_creator_match(monkeypatch):
@@ -551,7 +547,6 @@ def test_probe_fields_promotes_exact_url_creator_match(monkeypatch):
     result = probe_fields("https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913")
 
     assert [field["field"] for field in result["fields"]][:2] == ["uploader_id", "uploader"]
-    assert result["url_field_roles"] == {}
     assert result["field_roles"]["username"][:2] == ["uploader", "uploader_id"]
 
 

@@ -3980,17 +3980,6 @@ def test_learn_download_keeps_multiple_templates_per_source():
     }
 
 
-def test_learn_download_does_not_store_url_creator_role_hints():
-    learned = learn_download(
-        {},
-        "https://www.tiktok.com/@moli0n/video/7645876413593128210",
-        "7645876413593128210",
-        {"uploader": "moli0n", "channel": "Moli Display"},
-    )
-
-    assert learned["tiktok"].get("url_field_roles", {}) == {}
-
-
 def test_describe_learned_segments_keeps_shared_url_creator_generic():
     learned = learn_download(
         {},
@@ -4004,29 +3993,6 @@ def test_describe_learned_segments_keeps_shared_url_creator_generic():
     assert learned["tiktok"]["templates"][0] == "https://www.tiktok.com/@{creator}/video/{id}"
     assert described["templates"][0] == "https://www.tiktok.com/@{creator}/video/{id}"
     assert described["segments"][0]["label"] == "{creator}"
-
-
-def test_describe_learned_segments_ignores_url_field_roles_for_display():
-    described = describe_learned_segments(
-        {
-            "templates": ["https://www.tiktok.com/@{creator}/photo/{id}"],
-            "url_field_roles": {"username": ["author[uniqueId]"]},
-        }
-    )
-
-    assert described["templates"][0] == "https://www.tiktok.com/@{creator}/photo/{id}"
-    assert described["segments"][0]["label"] == "{creator}"
-
-
-def test_learn_download_url_creator_role_does_not_create_field_priority():
-    learned = learn_download(
-        {},
-        "https://www.tiktok.com/@moli0n/video/7645876413593128210",
-        "7645876413593128210",
-        {"uploader": "moli0n"},
-    )
-
-    assert learned["tiktok"].get("url_field_roles", {}) == {}
 
 
 def test_reconstruct_url_candidates_returns_every_learned_route():

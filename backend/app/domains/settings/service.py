@@ -20,7 +20,6 @@ from .cookie_policy import (
 from .cookies import get_ytdlp_cookies_status
 from .fields import (
     get_effective_naming_defaults,
-    get_source_field_defaults,
     normalize_default_fields,
     normalize_default_naming,
     normalize_source_fields,
@@ -240,7 +239,6 @@ def build_settings_response(
         "source_slug_tokens": saved.get("source_slug_tokens", get_effective_slug_tokens()),
         "learned_formats": get_learned_formats_for_ui(),
         "source_fields": saved.get("source_fields", {}),
-        "source_field_defaults": get_source_field_defaults(saved.get("source_profiles")),
         "source_title_cleaning": saved.get("source_title_cleaning", {}),
         "source_cookie_policies": saved.get("source_cookie_policies", get_effective_cookie_policies()),
         "default_cookie_policy": saved.get("default_cookie_policy", {}),

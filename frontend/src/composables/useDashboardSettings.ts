@@ -420,7 +420,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     quality_options: createQualityOptions(),
     template_tokens: [],
     field_defaults: { username: [], nickname: [], title: [] },
-    source_field_defaults: createSourceFields(),
     title_cleaning_rules: [],
     naming_choices: [],
     learned_formats: {},
@@ -933,13 +932,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
 
     settings.field_defaults = createFieldRoles(
       data.field_defaults || {},
-    );
-    replaceRecord(
-      settings.source_field_defaults,
-      createSourceFields(
-        recordForProfiles(data.source_field_defaults || {}, managedProfiles),
-        managedProfiles,
-      ),
     );
     settings.title_cleaning_rules = Array.isArray(data.title_cleaning_rules)
       ? data.title_cleaning_rules

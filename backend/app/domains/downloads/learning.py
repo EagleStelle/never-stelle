@@ -88,21 +88,10 @@ def _append_missing_field_roles(
     return merged
 
 
-def save_learned_url_field_roles(
-    source_url: str = "",
-    source_key: str = "",
-    url_field_roles: Any = None,
-) -> dict[str, list[str]]:
-    # URL role hints are URL-format data, not filename field priority.
-    return {}
-
-
 def save_missing_learned_fields(
     source_url: str = "",
     source_key: str = "",
     field_roles: Any = None,
-    *,
-    url_field_roles: Any = None,
 ) -> dict[str, list[str]]:
     """Persist only probed fields missing from a source's saved order.
 
@@ -140,7 +129,6 @@ def save_learned_fields(
     source_key: str = "",
     field_roles: Any = None,
     *,
-    url_field_roles: Any = None,
     only_when_missing: bool = True,
     merge: bool = True,
 ) -> dict[str, list[str]]:
@@ -230,12 +218,7 @@ def learn_missing_fields_for_format(
 
     promote_learned_format_from_probe(source_url, result.get("fields"))
     key = str(result.get("source_key") or source_key)
-    return save_missing_learned_fields(
-        source_url,
-        key,
-        result.get("field_roles"),
-        url_field_roles=result.get("url_field_roles"),
-    )
+    return save_missing_learned_fields(source_url, key, result.get("field_roles"))
 
 
 def ensure_fields_learned(source_url: str, source_key: str = "") -> dict[str, list[str]]:

@@ -24,7 +24,6 @@ from backend.app.domains.settings import (
     get_effective_naming_defaults,
     get_effective_template_settings,
     get_effective_title_cleaning,
-    get_source_field_defaults,
     iter_resolved_source_locations,
     normalize_source_fields,
     normalize_source_location_selection,
@@ -456,10 +455,6 @@ def test_learned_url_creator_defaults_do_not_promote_saved_field_roles(monkeypat
     }
 
 
-def test_source_field_defaults_ignore_learned_url_fields(monkeypatch):
-    assert get_source_field_defaults([{"key": "tiktok"}]) == {}
-
-
 def test_add_source_and_learn_format_returns_matched_template(tmp_path, monkeypatch):
     import backend.app.domains.downloads.learning as learning_mod
 
@@ -491,10 +486,7 @@ def test_clearing_last_format_clears_source_fields(tmp_path, monkeypatch):
     format_template = "https://www.tiktok.com/@{creator}/video/{id}"
     repositories.save_learned_formats_payload(
         {
-            "tiktok": {
-                "templates": [format_template],
-                "url_field_roles": {"username": ["uploader"]},
-            }
+            "tiktok": {"templates": [format_template]}
         }
     )
     settings_storage_module.save_saved_settings_file(
@@ -549,7 +541,6 @@ def test_save_learned_fields_ignores_url_creator_hint(monkeypatch):
         "",
         "tiktok",
         {"username": ["uploader_id", "uploader", "channel"]},
-        url_field_roles={"username": ["uploader"]},
     )
 
     assert result == {"username": ["uploader_id", "uploader", "channel"]}
@@ -616,7 +607,6 @@ def test_missing_field_roles_append_without_reordering_existing(monkeypatch):
             "username": ["author[uniqueId]", "uploader"],
             "nickname": ["author[nickname]"],
         },
-        url_field_roles={"username": ["author[uniqueId]"]},
     )
 
     assert result == {
@@ -642,11 +632,6 @@ def test_format_field_probe_does_not_touch_existing_fields_when_all_present(monk
         lambda data: (_ for _ in ()).throw(AssertionError("unchanged fields should not save")),
     )
     monkeypatch.setattr(
-        learning_mod,
-        "save_learned_url_field_roles",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("existing fields should not save url hints")),
-    )
-    monkeypatch.setattr(
         probe_mod,
         "probe_fields",
         lambda url, key: {
@@ -655,7 +640,6 @@ def test_format_field_probe_does_not_touch_existing_fields_when_all_present(monk
                 "username": ["author[uniqueId]"],
                 "nickname": ["author[nickname]"],
             },
-            "url_field_roles": {"username": ["author[uniqueId]"]},
         },
     )
 
@@ -692,7 +676,6 @@ def test_format_field_probe_promotes_literal_url_creator_template(monkeypatch):
                 "username": ["uploader", "uploader_id"],
                 "nickname": ["uploader"],
             },
-            "url_field_roles": {},
         },
     )
 

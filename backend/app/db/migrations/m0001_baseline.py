@@ -96,7 +96,6 @@ CREATE TABLE IF NOT EXISTS learned_formats (
     source_key TEXT PRIMARY KEY,
     host TEXT NOT NULL DEFAULT '',
     templates TEXT NOT NULL DEFAULT '',
-    url_field_roles TEXT NOT NULL DEFAULT '',
     id_min INTEGER NOT NULL DEFAULT 0,
     id_max INTEGER NOT NULL DEFAULT 0,
     id_classes TEXT NOT NULL DEFAULT '',

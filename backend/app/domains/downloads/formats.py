@@ -591,35 +591,6 @@ def _entry_templates(entry: dict[str, Any]) -> list[str]:
     return templates
 
 
-def infer_url_field_roles(
-    source_url: str,
-    metadata: dict[str, Any] | None,
-    media_id: str = "",
-) -> dict[str, list[str]]:
-    """URL-derived field roles describe URL shape only.
-
-    They must not promote or select filename fields; the source field list owns
-    that decision.
-    """
-    return {}
-
-
-def learn_url_field_roles(
-    learned: dict[str, Any],
-    source_key: str,
-    url_field_roles: Any,
-) -> dict[str, Any]:
-    return learned
-
-
-def _url_creator_role(entry: dict[str, Any]) -> str:
-    return "creator"
-
-
-def _display_templates(entry: dict[str, Any], templates: list[str]) -> list[str]:
-    return templates
-
-
 def _segment_kind_for_role_token(segment: str) -> str:
     value = _without_at(segment)
     if value == _USERNAME_TOKEN:
@@ -629,7 +600,7 @@ def _segment_kind_for_role_token(segment: str) -> str:
     return "creator"
 
 
-def _template_segments(template: str, creator_label: str) -> list[dict[str, Any]]:
+def _template_segments(template: str) -> list[dict[str, Any]]:
     # Selectable segments of one learned template. id/creator placeholders are reserved
     # auto tokens; a constant route word (video, watch) is reserved too since it never
     # varies - only descriptive URL parts and {var} positions are user-nameable tokens.
@@ -682,12 +653,10 @@ def describe_learned_segments(entry: dict[str, Any]) -> dict[str, Any]:
     templates = _entry_templates(entry)
     if not templates:
         return {"templates": [], "segments": []}
-    display_templates = _display_templates(entry, templates)
-    creator_label = f"{{{_url_creator_role(entry)}}}"
     segments: list[dict[str, Any]] = []
     seen: dict[str, dict[str, Any]] = {}
     for template in templates:
-        for segment in _template_segments(template, creator_label):
+        for segment in _template_segments(template):
             part = segment["part"]
             existing = seen.get(part)
             if existing is None:
@@ -696,7 +665,7 @@ def describe_learned_segments(entry: dict[str, Any]) -> dict[str, Any]:
             elif segment["reserved"] and not existing["reserved"]:
                 # A reserved role (id/creator) at a position wins over a plain literal.
                 existing.update(segment)
-    return {"templates": display_templates, "segments": segments}
+    return {"templates": templates, "segments": segments}
 
 
 def learn_download(

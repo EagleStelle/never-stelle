@@ -379,7 +379,6 @@ def test_probe_fields_saves_field_roles_without_url_priority_hint(tmp_path, monk
                 {"field": "uploader_id", "value": "6673617364291994625"},
             ],
             "field_roles": {"username": ["uploader", "uploader_id"]},
-            "url_field_roles": {"username": ["uploader"]},
         },
     )
 
@@ -393,7 +392,6 @@ def test_probe_fields_saves_field_roles_without_url_priority_hint(tmp_path, monk
 
     assert response.status_code == 200
     assert response.json()["field_roles"] == {"username": ["uploader", "uploader_id"]}
-    assert repositories.load_learned_formats_payload()["tiktok"].get("url_field_roles", {}) == {}
 
 
 def test_auth_login_session_and_logout(tmp_path, monkeypatch):

@@ -73,12 +73,6 @@ def saved_fields(
     return normalize_source_fields((payload if isinstance(payload, dict) else {}).get("source_fields"), defaults)
 
 
-def get_source_field_defaults(
-    source_profiles: list[dict[str, Any]] | None = None,
-) -> dict[str, dict[str, list[str]]]:
-    return {}
-
-
 def normalize_default_fields(raw: Any) -> dict[str, list[str]]:
     """The global field order per role. Scraper fields are per-source, so they are dropped."""
     source = raw if isinstance(raw, dict) else {}

@@ -24,7 +24,7 @@ _ORDER_BY: dict[str, str] = {
 _JSON_COLUMNS: dict[str, set[str]] = {
     "download_history": {"encoding"},
     "download_tasks": {"encoding", "last_log_lines"},
-    "learned_formats": {"templates", "url_field_roles", "id_classes"},
+    "learned_formats": {"templates", "id_classes"},
     "download_enrichment_jobs": {"payload"},
 }
 

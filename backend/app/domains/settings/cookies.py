@@ -52,10 +52,6 @@ def list_cookies_for_source(source_key: str) -> list[dict[str, Any]]:
     return [_cookie_entry(row) for row in list_source_cookies(source_key)]
 
 
-def cookie_ids_for_source(source_key: str) -> list[str]:
-    return [entry["id"] for entry in list_cookies_for_source(source_key) if entry["id"]]
-
-
 def get_cookie_source_status(source_key: str) -> dict[str, Any]:
     cookies = list_cookies_for_source(source_key)
     return {"configured": bool(cookies), "count": len(cookies), "cookies": cookies}

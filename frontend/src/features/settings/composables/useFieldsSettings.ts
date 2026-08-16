@@ -115,8 +115,6 @@ export function useFieldsSettings(
     if (sourceFormatsClearedInDraft(key)) return [];
     const globalDefault = globalDefaults.value[role] || [];
     if (globalDefault.length) return globalDefault;
-    const learned = settings.source_field_defaults[key]?.[role] || [];
-    if (learned.length) return learned;
     return [];
   }
 

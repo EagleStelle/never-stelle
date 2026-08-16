@@ -140,7 +140,6 @@ export interface ProbeFieldsResponse {
   source_key: string;
   fields: ProbeField[];
   field_roles?: Partial<FieldRoles>;
-  url_field_roles?: Partial<FieldRoles>;
   saved?: boolean;
 }
 
@@ -286,7 +285,6 @@ export interface RuntimeSettings extends SavedSettings {
   quality_options: QualityOptions;
   template_tokens: TemplateToken[];
   field_defaults: FieldRoles;
-  source_field_defaults: SourceFields;
   title_cleaning_rules: TitleCleaningRule[];
   naming_choices: NamingChoice[];
   learned_formats: LearnedFormats;
@@ -306,7 +304,6 @@ export interface UiConfigResponse {
   learned_formats?: LearnedFormats;
   learn_result?: LearnFormatResult;
   source_fields?: Record<string, Partial<FieldRoles>>;
-  source_field_defaults?: Record<string, Partial<FieldRoles>>;
   source_title_cleaning?: Record<string, Record<string, NamingFlagValue>>;
   field_defaults?: Partial<FieldRoles>;
   title_cleaning_rules?: TitleCleaningRule[];

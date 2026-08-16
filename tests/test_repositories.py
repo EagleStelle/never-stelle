@@ -113,13 +113,12 @@ def test_learned_formats_persist_to_learned_formats_table(tmp_path, monkeypatch)
 
     with database_module.transaction() as connection:
         rows = connection.execute(
-            "SELECT source_key, templates, url_field_roles FROM learned_formats"
+            "SELECT source_key, templates FROM learned_formats"
         ).fetchall()
 
     assert len(rows) == 1
     assert rows[0]["source_key"] == "tiktok"
     assert json.loads(rows[0]["templates"]) == ["https://www.tiktok.com/@{creator}/video/{id}"]
-    assert json.loads(rows[0]["url_field_roles"]) == {}
     assert repositories.load_learned_formats_payload()["tiktok"]["templates"] == [
         "https://www.tiktok.com/@{creator}/video/{id}"
     ]

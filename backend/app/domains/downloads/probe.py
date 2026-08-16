@@ -523,5 +523,4 @@ def probe_fields(
         "source_key": resolved_key,
         "fields": fields,
         "field_roles": field_roles,
-        "url_field_roles": {},
     }
