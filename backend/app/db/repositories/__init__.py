@@ -59,6 +59,10 @@ from backend.app.db.repositories.formats import (
     save_learned_formats_payload,
     seeded_download_ids,
 )
+from backend.app.db.repositories.redirects import (
+    load_learned_redirects_payload,
+    record_redirect_observation,
+)
 from backend.app.db.repositories.settings import (
     load_settings_payload,
     resolution_settings_revision,
@@ -104,6 +108,7 @@ __all__ = [
     "load_history_resolve_flagged_ids",
     "load_history_row_ids",
     "load_learned_formats_payload",
+    "load_learned_redirects_payload",
     "load_settings_payload",
     "load_task_payload",
     "load_task_store_payload",
@@ -111,6 +116,7 @@ __all__ = [
     "merge_task_payload",
     "next_pending_task_payload",
     "open_rename_journal_entries",
+    "record_redirect_observation",
     "reorder_source_cookies",
     "resolution_settings_revision",
     "requeue_running_enrichment_jobs_payload",

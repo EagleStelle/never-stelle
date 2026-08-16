@@ -69,7 +69,27 @@ def test_fresh_database_lands_on_the_latest_version(tmp_path, monkeypatch):
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
         }
 
-    assert {"app_settings", "download_tasks", "download_history", "learned_formats"} <= tables
+    assert {
+        "app_settings",
+        "download_tasks",
+        "download_history",
+        "learned_formats",
+        "learned_redirects",
+    } <= tables
+
+
+def test_pre_migration_database_gains_the_redirect_table(tmp_path, monkeypatch):
+    database_path = tmp_path / "never-stelle.sqlite3"
+    _seed_pre_migration_db(database_path, _legacy_payload())
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        row = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'learned_redirects'"
+        ).fetchone()
+    assert row is not None
 
 
 def test_applying_again_is_a_no_op(tmp_path, monkeypatch):

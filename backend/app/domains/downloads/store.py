@@ -36,11 +36,13 @@ from backend.app.db.repositories import (
     load_history_resolve_flagged_ids,
     load_history_row_ids,
     load_learned_formats_payload,
+    load_learned_redirects_payload,
     load_task_payload,
     load_task_store_payload,
     merge_task_payload,
     next_pending_task_payload,
     open_rename_journal_entries,
+    record_redirect_observation,
     requeue_running_enrichment_jobs_payload,
     resolution_settings_revision,
     retry_enrichment_job_payload,
@@ -223,6 +225,18 @@ LEARNED_FORMATS_KEY = "downloads.learned_formats"
 def load_learned_formats() -> dict[str, Any]:
     # Template resolution runs per row, and each was re-querying the table.
     return resolved(LEARNED_FORMATS_KEY, load_learned_formats_payload)
+
+
+LEARNED_REDIRECTS_KEY = "downloads.learned_redirects"
+
+
+def load_learned_redirects() -> dict[str, dict[str, Any]]:
+    return resolved(LEARNED_REDIRECTS_KEY, load_learned_redirects_payload)
+
+
+def learn_redirect(shape: str, *, expands: bool) -> None:
+    record_redirect_observation(shape, expands=expands)
+    invalidate(LEARNED_REDIRECTS_KEY)
 
 
 def seeded_download_ids() -> set[str]:

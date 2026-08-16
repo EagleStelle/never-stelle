@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import zipfile
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -134,6 +135,78 @@ def test_resolve_redirect_survives_network_error(monkeypatch):
     _patch_head(monkeypatch, exc=RuntimeError("boom"))
     original = "https://www.facebook.com/share/p/17tZcAG16f/"
     assert urls_module.resolve_redirect_url(original) == original
+
+
+def _count_head(monkeypatch, final_url=None):
+    """Patch the redirect probe and return the list its calls are appended to."""
+    calls: list[str] = []
+
+    def fake_head(url, **kwargs):
+        calls.append(url)
+        return type("Resp", (), {"url": final_url if final_url is not None else url})()
+
+    monkeypatch.setattr(urls_module.httpx, "head", fake_head)
+    return calls
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        # The id is blanked, so one answer covers every post on the route.
+        ("https://www.instagram.com/reel/DWyrvI9Ef3z/", "www.instagram.com/reel/{}"),
+        # The creator too, or every new account would re-probe a known route.
+        ("https://www.tiktok.com/@someone/video/7493558766131039489", "www.tiktok.com/{}/video/{}"),
+        ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "www.youtube.com/watch?v={}"),
+        # A short host must not fold into its apex: they redirect differently.
+        ("https://vt.tiktok.com/ZSSKrM8Wm/", "vt.tiktok.com/{}"),
+        ("https://www.facebook.com/share/p/17tZcAG16f/", "www.facebook.com/share/p/{}"),
+        # Nothing to blank: recording it would store a row nothing can match twice.
+        ("https://www.instagram.com/somebody/", ""),
+    ],
+)
+def test_redirect_shape_generalizes_route(url, expected):
+    assert urls_module._redirect_shape(url) == expected
+
+
+def test_resolve_redirect_stops_probing_a_route_that_never_redirects(monkeypatch):
+    calls = _count_head(monkeypatch)
+    # Same route, different posts: the second must answer from what the first learned.
+    for media_id in ("DWyrvI9Ef3z", "CXabc123defg", "DZ9zzQQ11aa", "DYzz99QQ1bb"):
+        url = f"https://www.instagram.com/reel/{media_id}/"
+        assert urls_module.resolve_redirect_url(url) == url
+    assert len(calls) == urls_module._DIRECT_CONFIRMATIONS
+
+
+def test_resolve_redirect_keeps_following_a_route_known_to_redirect(monkeypatch):
+    target = "https://www.facebook.com/charechii/posts/pfbid02xDjH4VegXXU7epxAJJVz6vJnaRnWScxmggX1iSB4GhoBexQB926QQg9NQdAvByPEl"
+    calls = _count_head(monkeypatch, target)
+    for token in ("17tZcAG16f", "9zQQQaaBB1", "5xYYbbCC22"):
+        assert urls_module.resolve_redirect_url(f"https://www.facebook.com/share/p/{token}/") == target
+    # A share link hides a different target every time, so the answer is never reusable.
+    assert len(calls) == 3
+
+
+def test_resolve_redirect_does_not_learn_from_a_wall(monkeypatch):
+    calls = _count_head(monkeypatch, "https://www.instagram.com/accounts/login/")
+    for media_id in ("DWyrvI9Ef3z", "CXabc123defg", "DZ9zzQQ11aa"):
+        url = f"https://www.instagram.com/reel/{media_id}/"
+        assert urls_module.resolve_redirect_url(url) == url
+    # A consent/login wall says nothing about the route, so it must not settle the answer.
+    assert len(calls) == 3
+    assert urls_module.load_learned_redirects() == {}
+
+
+def test_resolve_redirect_rechecks_a_route_it_has_not_probed_in_a_month(monkeypatch):
+    calls = _count_head(monkeypatch)
+    url = "https://www.instagram.com/reel/DWyrvI9Ef3z/"
+    for _ in range(urls_module._DIRECT_CONFIRMATIONS + 1):
+        urls_module.resolve_redirect_url(url)
+    assert len(calls) == urls_module._DIRECT_CONFIRMATIONS
+
+    # A site can start redirecting a route it used to serve directly.
+    monkeypatch.setattr(urls_module, "_DIRECT_TRUST", timedelta(seconds=-1))
+    urls_module.resolve_redirect_url(url)
+    assert len(calls) == urls_module._DIRECT_CONFIRMATIONS + 1
 
 
 @pytest.mark.parametrize(
