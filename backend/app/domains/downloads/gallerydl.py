@@ -64,6 +64,17 @@ _TEMPLATE_SEP = "\x1f"
 _COUNT_TIMEOUT_SECONDS = 60
 _MAX_COUNT = 5000
 _TIKTOK_NO_AUDIO_OPTION = "extractor.tiktok.audio=false"
+# Piped output drops byte progress entirely, so ask for a custom writer instead.
+# `success` matches the piped format, so path parsing is unchanged; `progress-total`
+# reports the percentage on its own line, and `progress` (no total to report against)
+# stays newline-free so an unknown size costs the reader nothing.
+_PROGRESS_OUTPUT_MODE = json.dumps(
+    {"start": "", "skip": "# {}\n", "success": "{}\n", "progress": "\r", "progress-total": "[download] {3}%\n"},
+    separators=(",", ":"),
+)
+# One progress report per chunk, so the chunk size is the report rate: ~96/s on a fast
+# transfer, and the buffer each active download holds.
+_PROGRESS_CHUNK_SIZE = 131072
 # HLS/DASH streams gallery-dl can't fetch itself are handed to yt-dlp via its
 # `ytdl` downloader, and unsupported top-level URLs can be delegated to the
 # gallery-dl ytdl extractor. Keep both integration points configured alike.
@@ -350,6 +361,13 @@ def build_gallerydl_command(
         f"downloader.part-directory={part_directory}",
         "-o",
         f"directory={directory}",
+        "-o",
+        f"output.mode={_PROGRESS_OUTPUT_MODE}",
+        # Shortening would truncate the emitted paths to terminal width.
+        "-o",
+        "output.shorten=false",
+        "-o",
+        f"downloader.http.chunk-size={_PROGRESS_CHUNK_SIZE}",
         *_ytdl_downloader_options(quality, processing, extractor_directory),
     ]
     if filename:

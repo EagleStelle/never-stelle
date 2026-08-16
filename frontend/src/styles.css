@@ -328,79 +328,38 @@
   }
 
   .task-progress-surface {
-    --task-progress: 0%;
+    --task-progress: 0;
     --task-progress-fill: color-mix(in srgb, var(--accent) 38%, transparent);
     --task-progress-failed: color-mix(in srgb, var(--destructive) 22%, transparent);
+    position: relative;
+    /* Own stacking context: keeps the fill above this surface, below its content. */
+    isolation: isolate;
   }
 
-  .task-progress-row[data-task-state="progress"] {
-    background-image: linear-gradient(90deg, var(--task-progress-fill), var(--task-progress-fill));
-    background-position: 0 0;
-    background-repeat: no-repeat;
-    background-size: var(--task-progress) 100%;
+  .task-progress-surface[data-task-state]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: var(--task-progress-fill);
+    transform: scaleX(var(--task-progress));
+    transform-origin: left center;
+    transition: transform 260ms var(--ease-glass);
   }
 
-  .task-progress-row[data-task-state="failed"] {
-    background-image: linear-gradient(90deg, var(--task-progress-failed), var(--task-progress-failed));
-    background-position: 0 0;
-    background-repeat: no-repeat;
-    background-size: 100% 100%;
-  }
-
-  .task-progress-card[data-task-state="progress"] {
-    background-clip: padding-box;
-    background-image:
-      linear-gradient(90deg, var(--task-progress-fill), var(--task-progress-fill)),
-      linear-gradient(135deg, var(--glass-surface), var(--glass-surface-2));
-    background-position:
-      0 0,
-      0 0;
-    background-repeat: no-repeat;
-    background-size:
-      var(--task-progress) 100%,
-      100% 100%;
-  }
-
-  .task-progress-card[data-task-state="failed"] {
-    background-clip: padding-box;
-    background-image:
-      linear-gradient(90deg, var(--task-progress-failed), var(--task-progress-failed)),
-      linear-gradient(135deg, var(--glass-surface), var(--glass-surface-2));
-    background-position:
-      0 0,
-      0 0;
-    background-repeat: no-repeat;
-    background-size:
-      100% 100%,
-      100% 100%;
+  .task-progress-surface[data-task-state="failed"]::after {
+    background: var(--task-progress-failed);
+    transform: none;
+    transition: none;
   }
 
   .task-progress-card.glass-hoverable:hover[data-task-state="progress"] {
-    background-clip: padding-box;
-    background-image:
-      linear-gradient(90deg, color-mix(in srgb, var(--accent) 44%, transparent), color-mix(in srgb, var(--accent) 44%, transparent)),
-      linear-gradient(135deg, var(--glass-hover), var(--glass-surface-2));
-    background-position:
-      0 0,
-      0 0;
-    background-repeat: no-repeat;
-    background-size:
-      var(--task-progress) 100%,
-      100% 100%;
+    --task-progress-fill: color-mix(in srgb, var(--accent) 44%, transparent);
   }
 
   .task-progress-card.glass-hoverable:hover[data-task-state="failed"] {
-    background-clip: padding-box;
-    background-image:
-      linear-gradient(90deg, color-mix(in srgb, var(--destructive) 28%, transparent), color-mix(in srgb, var(--destructive) 28%, transparent)),
-      linear-gradient(135deg, var(--glass-hover), var(--glass-surface-2));
-    background-position:
-      0 0,
-      0 0;
-    background-repeat: no-repeat;
-    background-size:
-      100% 100%,
-      100% 100%;
+    --task-progress-failed: color-mix(in srgb, var(--destructive) 28%, transparent);
   }
 
   /* Staggered scroll-in for list items / cards */
@@ -460,6 +419,10 @@
 @media (prefers-reduced-motion: reduce) {
   .glass-rise {
     animation: none;
+  }
+
+  .task-progress-surface[data-task-state]::after {
+    transition: none;
   }
 
   * {

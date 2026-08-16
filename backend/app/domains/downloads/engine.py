@@ -5,6 +5,7 @@ from typing import Any
 from . import gallerydl, ytdlp
 from .constants import PROGRESS_RE
 from .files import extract_downloaded_path
+from .formats import media_id_from_url
 
 
 class Engine:
@@ -127,9 +128,10 @@ class GallerydlEngine(Engine):
         cookies_file: str = "",
         excluded_extensions: set[str] | None = None,
     ) -> int:
-        # Avoid a second gallery-dl extraction pass before every task. The worker
-        # uses an unknown-total progress curve as file paths are emitted.
-        return 0
+        # Counting for real means a second extraction pass, which costs a request and
+        # sometimes a cookie. A URL naming one media item answers it for free; a
+        # profile or tag falls back to the unknown-total curve as paths are emitted.
+        return 1 if media_id_from_url(source_url) else 0
 
     def build_output_template(
         self,

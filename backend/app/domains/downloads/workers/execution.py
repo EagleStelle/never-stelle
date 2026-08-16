@@ -27,7 +27,14 @@ from backend.app.domains.downloads.postprocessing import (
 from backend.app.domains.downloads.postprocessing import (
     metadata_sidecars_for as _metadata_sidecars_for,
 )
-from backend.app.domains.downloads.store import load_learned_formats, load_task, remove_task_record, update_task
+from backend.app.domains.downloads.store import (
+    append_task_log,
+    load_learned_formats,
+    load_task,
+    record_task_progress,
+    remove_task_record,
+    update_task,
+)
 from backend.app.domains.downloads.templates import template_columns, template_settings_from_columns
 from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
 from backend.app.domains.downloads.workers.completion import (
@@ -57,6 +64,7 @@ from backend.app.domains.downloads.workers.processes import (
     raise_if_cancelled,
     task_execution,
 )
+from backend.app.domains.downloads.workers.progress import TaskProgress
 from backend.app.domains.downloads.workers.runner import _run_engine_to_task
 from backend.app.domains.settings import (
     cookie_rotation,
@@ -113,12 +121,6 @@ def _combined_failure_detail(failures: list[str]) -> str:
     return "All download engines failed.\n\n" + "\n\n".join(failures)
 
 
-def _append_task_log(task_id: str, message: str) -> None:
-    log_lines = list(load_task(task_id).get("last_log_lines") or [])
-    log_lines.append(message)
-    update_task(task_id, last_log_lines=log_lines[-30:])
-
-
 def _task_log_tail(task_id: str) -> str:
     return " ".join(str(line) for line in (load_task(task_id).get("last_log_lines") or []))
 
@@ -137,6 +139,7 @@ def _run_engine_attempts(
     excluded_extensions: set[str] | None = None,
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
+    progress: TaskProgress | None = None,
 ) -> tuple[int, str, list[str]]:
     def _attempt(cookies_file: str) -> tuple[int, str, list[str]]:
         cmd = engine.build_command(
@@ -151,7 +154,7 @@ def _run_engine_attempts(
             quality=quality,
             post_processing=post_processing,
         )
-        run_kwargs: dict[str, Any] = {"total_items": total_items}
+        run_kwargs: dict[str, Any] = {"total_items": total_items, "progress": progress}
         if quality and quality.get("mode") == "audio":
             run_kwargs["keep_gallerydl_audio"] = True
         return _run_engine_to_task(engine, task_id, cmd, **run_kwargs)
@@ -169,18 +172,17 @@ def _run_engine_attempts(
     with closing(cookie_rotation(cookie_source_key)) as rotation:
         for lease in rotation:
             tried += 1
-            _append_task_log(task_id, f"[never-stelle] Attempting download with cookies ({lease.filename})...")
-            update_task(task_id, progress_pct=0)
+            append_task_log(task_id, f"[never-stelle] Attempting download with cookies ({lease.filename})...")
             rc, last_dest, emitted_paths = _attempt(lease.path)
             if rc == 0 or _has_output_media(last_dest, emitted_paths) or _cancel_pending(task_id):
                 return rc, last_dest, emitted_paths
             lease.banned = looks_rate_limited(_task_log_tail(task_id))
-            _append_task_log(
+            append_task_log(
                 task_id,
                 f"[never-stelle] {lease.filename} did not work; trying the next cookies file...",
             )
     if not tried:
-        _append_task_log(
+        append_task_log(
             task_id,
             "[never-stelle] Every cookies file for this source is resting; skipped the signed-in attempt.",
         )
@@ -231,6 +233,12 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
 
+    # Seeded before the scrape so the bar covers every step, not just the transfer.
+    progress = TaskProgress()
+    if mark_running:
+        update_task(task_id, status="running", error="", last_log_lines=[])
+    record_task_progress(task_id, progress.prepare(0.25))
+
     token_roles = load_token_roles()
     field_roles = get_effective_fields(source_url)
     # URL-part tokens (no fetch) plus page-scraped values, both mapped through the
@@ -270,8 +278,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
     output_record_keys: set[str] = set()
     try:
         raise_if_cancelled(task_id)
-        if mark_running:
-            update_task(task_id, status="running", progress_pct=0, error="", last_log_lines=[])
+        record_task_progress(task_id, progress.prepare(0.6))
 
         for index, engine in enumerate(candidates):
             if _cancel_pending(task_id):
@@ -281,7 +288,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 if not ffmpeg_location:
                     message = "ffmpeg was not found. Install ffmpeg or make it available on PATH."
                     failure_details.append(message)
-                    _append_task_log(task_id, f"[never-stelle] {message}")
+                    append_task_log(task_id, f"[never-stelle] {message}")
                     continue
             else:
                 ffmpeg_location = ""
@@ -309,6 +316,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
 
             started_at = time.time()
             used_engine = engine
+            record_task_progress(task_id, progress.prepare(1.0))
             rc, last_dest, emitted_paths = _run_engine_attempts(
                 engine,
                 task_id,
@@ -323,6 +331,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 excluded_extensions,
                 quality,
                 post_processing,
+                progress,
             )
             if _cancel_pending(task_id):
                 break
@@ -339,7 +348,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
             failed_task = load_task(task_id)
             failure_details.append(_failure_detail(engine, rc, failed_task))
             if index + 1 < len(candidates) and _should_try_next_engine(rc, failed_task, last_dest, emitted_paths):
-                _append_task_log(
+                append_task_log(
                     task_id,
                     f"[never-stelle] {engine.name} did not produce media; trying {candidates[index + 1].name}...",
                 )
@@ -407,6 +416,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
             field_roles_checked = False
             for index, group in enumerate(groups):
                 raise_if_cancelled(task_id)
+                record_task_progress(task_id, progress.finalize(index / len(groups)))
                 media_id = str(group.get("media_id") or "").strip()
                 raw_path = Path(group["path"])
                 row_engine = used_engine.name

@@ -64,12 +64,16 @@ from backend.app.db.repositories import (
 from backend.app.db.repositories import (
     sync_history_resolve_flags as sync_history_resolve_flag_rows,
 )
+from backend.app.domains.downloads import volatile
 from backend.app.domains.downloads.constants import ENRICHMENT_JOB_KINDS, enrichment_job_id
+
+# Statuses that end a run: nothing is left to keep in memory for the task.
+_TERMINAL_STATUSES = frozenset({"completed", "failed"})
 
 
 def _normalize_task_store(raw: Any) -> dict[str, Any]:
     if isinstance(raw, dict) and isinstance(raw.get("tasks"), dict):
-        return {"tasks": raw.get("tasks") or {}}
+        return {"tasks": volatile.merge_store(raw.get("tasks") or {})}
     return {"tasks": {}}
 
 
@@ -158,7 +162,7 @@ def save_history_entry_rows(rows: list[tuple[str, dict[str, Any]]]) -> None:
 
 def load_task(task_id: str) -> dict[str, Any]:
     """One task by id, without decoding the rest of the store."""
-    return load_task_payload(task_id)
+    return volatile.merge(task_id, load_task_payload(task_id))
 
 
 def next_pending_task() -> tuple[str, dict[str, Any]] | None:
@@ -216,6 +220,7 @@ def load_enrichment_jobs() -> list[dict[str, Any]]:
 
 
 def fail_running_task_records(error: str) -> int:
+    volatile.forget_all()
     return fail_running_tasks(error)
 
 
@@ -303,19 +308,49 @@ def forget_learned_format(source_key: str) -> None:
 
 
 def update_task(task_id: str, **updates: Any) -> dict[str, Any]:
-    return merge_task_payload(task_id, updates)
+    """Durable fields to the row, volatile ones to memory, merged payload back.
+
+    A caller changing only the bar never touches the database. Use
+    ``record_task_progress`` on the streaming path, which also skips the read back.
+    """
+    live, durable = volatile.split(updates)
+    if live:
+        volatile.record(task_id, live)
+    payload = volatile.merge(
+        task_id,
+        merge_task_payload(task_id, durable) if durable else load_task_payload(task_id),
+    )
+    if str(durable.get("status") or "") in _TERMINAL_STATUSES:
+        volatile.forget(task_id)
+    return payload
+
+
+def record_task_progress(task_id: str, progress_pct: float) -> None:
+    """Move the bar. Costs no row write and no read back."""
+    volatile.record_progress(task_id, progress_pct)
+
+
+def append_task_log(task_id: str, line: str) -> None:
+    """Add one line to the task's log tail, which the worker reads back itself."""
+    volatile.append_log(task_id, line)
 
 
 def claim_pending_task(task_id: str) -> dict[str, Any] | None:
+    # A claim restarts the run, so nothing the last attempt left behind applies.
+    volatile.forget(task_id)
     return claim_pending_task_payload(task_id)
 
 
 def remove_task_record(task_id: str) -> None:
+    volatile.forget(task_id)
     delete_task_row(task_id)
 
 
 def remove_task_record_if_status(task_id: str, statuses: set[str]) -> bool:
-    return delete_task_row_if_status(task_id, statuses)
+    removed = delete_task_row_if_status(task_id, statuses)
+    if removed:
+        volatile.forget(task_id)
+    return removed
 
 
 def remove_history_record(task_id: str) -> None:

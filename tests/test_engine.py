@@ -11,6 +11,7 @@ import backend.app.domains.downloads.gallerydl as gallerydl
 import backend.app.domains.downloads.ytdlp as ytdlp
 from backend.app.domains.downloads import engine_by_name, engine_for_task, select_engine
 from backend.app.domains.downloads.constants import (
+    PROGRESS_RE,
     audio_format_selector,
     container_acodec_filter,
     container_vcodec_filter,
@@ -25,6 +26,12 @@ from backend.app.domains.downloads.constants import (
 )
 from backend.app.domains.downloads.engine import all_engines
 from backend.app.domains.downloads.workers.execution import _looks_unsupported, _should_try_next_engine
+from backend.app.domains.downloads.workers.progress import (
+    DOWNLOAD_END,
+    FINALIZE_END,
+    PREPARE_END,
+    TaskProgress,
+)
 from backend.app.domains.downloads.workers.runner import _count_progress
 
 
@@ -838,6 +845,14 @@ def test_engine_progress_style_flags():
     assert engine_by_name("gallerydl").emits_progress is False
 
 
+def test_gallerydl_counts_a_media_url_as_one_item_without_a_second_pass():
+    engine = engine_by_name("gallerydl")
+    # A link naming one item is the common case, and the bar can track its bytes exactly.
+    assert engine.count_items("https://www.tiktok.com/@someone/video/7493558766131039489") == 1
+    # A profile could be any number of items, so the unknown-total curve still applies.
+    assert engine.count_items("https://www.tiktok.com/@someone") == 0
+
+
 def test_count_progress_known_total_caps_below_100():
     assert _count_progress(0, 4) == 0.0
     assert _count_progress(2, 4) == 50.0
@@ -850,6 +865,91 @@ def test_count_progress_unknown_total_is_monotonic_below_100():
     second = _count_progress(2, 0)
     later = _count_progress(20, 0)
     assert 0 < first < second < later < 100
+
+
+def test_count_progress_fills_the_gap_with_the_file_in_flight():
+    # Half of the third of four files done reads as seven eighths of the run.
+    assert _count_progress(3, 4, 50.0) == 87.5
+    assert _count_progress(1, 0) < _count_progress(1, 0, 50.0) < _count_progress(2, 0)
+    # A finished file lands exactly where its own percentage was heading.
+    assert _count_progress(1, 0, 100.0) == _count_progress(2, 0)
+
+
+def test_gallerydl_command_asks_for_parsable_byte_progress():
+    cmd = gallerydl.build_gallerydl_command("https://x.test/gallery", "/media", "dir\x1ffile.{extension}")
+
+    assert f"output.mode={gallerydl._PROGRESS_OUTPUT_MODE}" in cmd
+    assert "output.shorten=false" in cmd
+    assert f"downloader.http.chunk-size={gallerydl._PROGRESS_CHUNK_SIZE}" in cmd
+
+
+def test_gallerydl_output_mode_writes_what_the_worker_parses(monkeypatch):
+    # Pins the contract with gallery-dl's own writer: a version that changed these
+    # formats would silently leave the bar with nothing to read.
+    from gallery_dl import config, output
+
+    written: list[str] = []
+    monkeypatch.setattr(output, "stderr_write", written.append)
+    monkeypatch.setattr(output, "stdout_write", written.append)
+    config.set(("output",), "shorten", False)
+    try:
+        writer = output.CustomOutput(json.loads(gallerydl._PROGRESS_OUTPUT_MODE))
+        writer.success("/media/clip.mp4")
+        writer.progress(1000, 421, 90)
+        writer.progress(None, 421, 90)
+    finally:
+        config.unset(("output",), "shorten")
+
+    assert written[0] == "/media/clip.mp4\n"
+    assert PROGRESS_RE.search(written[1]).group(1) == "42"
+    assert written[1].endswith("\n")
+    # No total to report against, so nothing the reader has to wake up for.
+    assert "\n" not in written[2]
+
+
+def test_task_progress_gives_every_step_its_own_slice():
+    progress = TaskProgress()
+    assert progress.prepare(0.25) == 2.0
+    assert progress.prepare(1.0) == PREPARE_END
+    assert PREPARE_END < progress.download(50.0) < DOWNLOAD_END
+    assert progress.finalize(0.0) == DOWNLOAD_END
+    assert progress.finalize(1.0) == FINALIZE_END
+
+
+def test_task_progress_never_rewinds_when_a_stream_restarts():
+    progress = TaskProgress()
+    # yt-dlp finishes the video stream, then starts the audio stream back at zero.
+    progress.download(100.0, partial=True)
+    after_video = progress.value
+    assert after_video < DOWNLOAD_END
+    assert progress.download(0.0, partial=True) == after_video
+    assert progress.download(50.0, partial=True) > after_video
+    assert progress.download(100.0, partial=True) < DOWNLOAD_END
+
+
+def test_task_progress_spends_the_whole_slice_on_a_single_run_percentage():
+    progress = TaskProgress()
+    # gallery-dl's count curve already covers the whole run, so nothing is held back.
+    assert progress.download(50.0) == (PREPARE_END + DOWNLOAD_END) / 2
+    assert progress.download(100.0) == DOWNLOAD_END
+
+
+def test_task_progress_holds_the_line_through_a_failed_retry():
+    progress = TaskProgress()
+    progress.download(40.0)
+    stalled = progress.value
+    # The cookies file failed and the next attempt starts over from nothing.
+    assert progress.download(0.0) == stalled
+    assert progress.prepare(1.0) == stalled
+    assert progress.download(100.0) <= DOWNLOAD_END
+
+
+def test_task_progress_stays_below_the_download_slice_after_many_streams():
+    progress = TaskProgress()
+    for _ in range(12):
+        progress.download(0.0, partial=True)
+        progress.download(100.0, partial=True)
+    assert progress.value <= DOWNLOAD_END
 
 
 def test_build_gallerydl_output_template_adds_num_for_slideshows():

@@ -102,14 +102,15 @@ export function formatSize(bytes: number): string {
 
 export function taskProgressState(task: TaskItem): "failed" | "progress" | undefined {
   if (task.status === "failed") return "failed";
+  if (task.status === "running") return "progress";
   const pct = progressPct(task);
-  if (pct > 0 && (task.status === "running" || pct < 100)) return "progress";
+  if (pct > 0 && pct < 100) return "progress";
   return undefined;
 }
 
-// Row/card surface fill amount. CSS owns the paint so rows and cards stay consistent.
+// Fill amount as a scale factor; the floor keeps a just-started task visible.
 export function taskProgressStyle(task: TaskItem): Record<string, string> {
   if (taskProgressState(task) !== "progress") return {};
-  const pct = Number(progressPct(task).toFixed(2));
-  return { "--task-progress": `${pct}%` };
+  const scale = Math.max(progressPct(task) / 100, 0.015);
+  return { "--task-progress": scale.toFixed(4) };
 }

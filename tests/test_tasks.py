@@ -81,7 +81,6 @@ def _patch_worker_task_store(monkeypatch: pytest.MonkeyPatch, store: dict, updat
 
     monkeypatch.setattr(worker_module, "load_task", load_task)
     monkeypatch.setattr(worker_module, "update_task", update_task)
-    monkeypatch.setattr(runner_module, "load_task", load_task)
     monkeypatch.setattr(runner_module, "update_task", update_task)
 
 
