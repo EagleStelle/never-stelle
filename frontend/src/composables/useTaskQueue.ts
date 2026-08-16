@@ -87,7 +87,7 @@ export function useTaskQueue({
   url,
 }: UseTaskQueueOptions) {
   const auth = useAuth();
-  const taskCache = new Map<string, Partial<TaskItem>>();
+  let taskCache = new Map<string, Partial<TaskItem>>();
   const pollingIntervalMs = ref(POLL_PENDING_MS);
 
   const playlistOpen = ref(false);
@@ -140,24 +140,22 @@ export function useTaskQueue({
     { immediate: false },
   );
 
+  // Cache is rebuilt per payload: the feed is active rows only, so anything missing is done.
   function mergeTaskData(tasks: TaskItem[]): TaskItem[] {
-    return tasks.map((task) => {
+    const nextCache = new Map<string, Partial<TaskItem>>();
+    const merged = tasks.map((task) => {
       const cached = taskCache.get(task.vid) || {};
-      const merged = {
-        ...task,
+      const carried: Partial<TaskItem> = {
         resolved_folder: task.resolved_folder || cached.resolved_folder || "",
         resolved_filename: task.resolved_filename || cached.resolved_filename || "",
         resolved_full_path: task.resolved_full_path || cached.resolved_full_path || "",
         source_key: normalizeSourceKey(task.source_key || cached.source_key || ""),
       };
-      taskCache.set(task.vid, {
-        resolved_folder: merged.resolved_folder,
-        resolved_filename: merged.resolved_filename,
-        resolved_full_path: merged.resolved_full_path,
-        source_key: merged.source_key,
-      });
-      return merged;
+      nextCache.set(task.vid, carried);
+      return { ...task, ...carried };
     });
+    taskCache = nextCache;
+    return merged;
   }
 
   function syncPoll(tasks: TaskItem[]): void {
