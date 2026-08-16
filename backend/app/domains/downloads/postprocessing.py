@@ -2112,6 +2112,156 @@ def _embed_chapters(
         remove_scratch_path(output_path)
 
 
+def _cover_attachment_plan(ffmpeg: str, path: Path) -> tuple[list[int], int]:
+    """Existing cover attachments to drop, and how many other attachments survive."""
+    drop: list[int] = []
+    retained = 0
+    for stream in _ffprobe_streams(ffmpeg, path):
+        tags = stream.get("tags") if isinstance(stream.get("tags"), dict) else {}
+        mime_type = str(tags.get("mimetype") or "").lower()
+        filename = str(tags.get("filename") or "").lower()
+        if not (stream.get("codec_type") == "attachment" or mime_type or filename):
+            continue
+        if mime_type.startswith("image/") or filename.startswith(("cover.", "folder.")):
+            try:
+                drop.append(int(stream["index"]))
+            except (KeyError, TypeError, ValueError):
+                pass
+        else:
+            retained += 1
+    return drop, retained
+
+
+def _combinable_features(path: Path, requested: dict[str, Any]) -> set[str]:
+    """Requested features this container can take in a single stream-copy pass."""
+    suffix = path.suffix.lower()
+    supported = {
+        "metadata": suffix in _METADATA_EMBED_EXTENSIONS,
+        "subtitles": suffix in _SUBTITLE_EMBED_EXTENSIONS,
+        "chapters": suffix in _CHAPTER_EMBED_EXTENSIONS,
+        # MP4 and audio cover art is written in place by mutagen, which never
+        # rewrites the file, so only Matroska's attachment gains from joining in.
+        "thumbnail": suffix in {".mkv", ".mka"},
+    }
+    return {feature for feature, value in requested.items() if value and supported[feature]}
+
+
+def _embed_media_features(path: Path, requested: dict[str, Any]) -> set[str]:
+    """Embed every requested feature in one stream-copy pass.
+
+    Each setting contributes only its own inputs and maps, so a disabled feature
+    changes nothing. Returns the features written; an empty set means the caller
+    falls back to the per-feature embedders.
+    """
+    features = _combinable_features(path, requested)
+    if len(features) < 2:
+        # One feature is already one pass, and its own embedder reports better.
+        return set()
+    ffmpeg = detect_ffmpeg_location()
+    if not ffmpeg:
+        return set()
+
+    tags = _embedded_tags(requested["metadata"]) if "metadata" in features else {}
+    tracks = list(requested["subtitles"] or []) if "subtitles" in features else []
+    chapters = list(requested["chapters"] or []) if "chapters" in features else []
+
+    inputs: list[Path] = []
+    subtitle_paths: list[Path] = []
+    bundle_path: Path | None = None
+    chapter_path: Path | None = None
+    thumbnail_path: Path | None = None
+    converted_thumbnail: Path | None = None
+    output_path = scratch_temp_path(prefix="nvs-embed-", suffix=path.suffix)
+    try:
+        thumbnail: Path | None = None
+        if "thumbnail" in features:
+            data, extension = requested["thumbnail"]
+            thumbnail_path = scratch_temp_path(prefix="nvs-thumbnail-input-", suffix=extension)
+            thumbnail_path.write_bytes(data)
+            thumbnail = thumbnail_path
+            if extension.lower() not in _EMBEDDABLE_COVER_SUFFIXES:
+                converted_thumbnail = _convert_thumbnail_for_embedding(ffmpeg, thumbnail_path)
+                thumbnail = converted_thumbnail
+            if thumbnail is None:
+                features.discard("thumbnail")
+        existing_subtitles = _subtitle_stream_count(ffmpeg, path) if tracks else 0
+        cmd = [ffmpeg, "-y", "-loglevel", "error", "-i", str(path)]
+        maps = ["-map", "0"]
+
+        if tracks:
+            if len(tracks) <= _SUBTITLE_BUNDLE_BATCH_SIZE:
+                subtitle_paths = [_materialize_subtitle_track(track) for track in tracks]
+                inputs.extend(subtitle_paths)
+                for offset in range(len(subtitle_paths)):
+                    maps.extend(["-map", f"{offset + 1}:0"])
+            else:
+                bundle_path = _build_subtitle_bundle(ffmpeg, tracks)
+                if bundle_path is None:
+                    return set()
+                inputs.append(bundle_path)
+                maps.extend(["-map", "1:s"])
+            for source in inputs:
+                cmd.extend(["-i", str(source)])
+
+        chapter_index = 0
+        if chapters:
+            chapter_path = _materialize_chapters(chapters)
+            chapter_index = len(inputs) + 1
+            cmd.extend(["-f", "ffmetadata", "-i", str(chapter_path)])
+
+        drop_attachments: list[int] = []
+        retained_attachments = 0
+        if thumbnail is not None:
+            drop_attachments, retained_attachments = _cover_attachment_plan(ffmpeg, path)
+
+        cmd.extend(maps)
+        for stream_index in drop_attachments:
+            cmd.extend(["-map", f"-0:{stream_index}"])
+        # Dropping the container's own tags is what makes the payload authoritative.
+        cmd.extend(["-map_metadata", "-1" if tags else "0"])
+        cmd.extend(["-map_chapters", str(chapter_index) if chapters else "0"])
+        cmd.extend(["-c", "copy"])
+        if tracks:
+            cmd.extend(["-c:s", _subtitle_codec(path)])
+        for key, value in tags.items():
+            cmd.extend(["-metadata", f"{key}={value}"])
+        if subtitle_paths:
+            for offset, track in enumerate(tracks):
+                _subtitle_stream_metadata(cmd, existing_subtitles + offset, track)
+        if thumbnail is not None:
+            cmd.extend(
+                [
+                    "-attach",
+                    str(thumbnail),
+                    f"-metadata:s:t:{retained_attachments}",
+                    f"mimetype={_thumbnail_mime_type(thumbnail)}",
+                    f"-metadata:s:t:{retained_attachments}",
+                    f"filename=cover{thumbnail.suffix.lower()}",
+                ]
+            )
+        cmd.append(str(output_path))
+
+        produced, detail = _run_ffmpeg(cmd, output_path)
+        if not produced:
+            logger.warning("Combined embed skipped for %s: %s", path, detail)
+            return set()
+        if tracks and _subtitle_stream_count(ffmpeg, output_path) < existing_subtitles + len(tracks):
+            logger.warning("Combined embed skipped for %s: the output kept too few subtitle streams", path)
+            return set()
+        publish_scratch_file(output_path, path, cancel_check=raise_if_cancelled)
+        return features
+    except (OSError, subprocess.SubprocessError, KeyError, TypeError, ValueError) as exc:
+        logger.warning("Combined embed skipped for %s: %s", path, exc)
+        return set()
+    finally:
+        for subtitle_path in subtitle_paths:
+            remove_scratch_path(subtitle_path)
+        for scratch in (bundle_path, chapter_path, thumbnail_path, converted_thumbnail):
+            if scratch is not None:
+                remove_scratch_path(scratch)
+        remove_scratch_path(output_path)
+
+
 def apply_chapter_post_processing(
     paths: list[Path],
     metadata: dict[str, str],
@@ -2238,10 +2388,34 @@ def apply_finalized_post_processing(
         else None
     )
 
+    # Every embed rewrites the whole file, so the enabled ones go in together and
+    # each pass below only runs for what one command could not carry.
+    embedded: dict[Path, set[str]] = {}
+    if processing["save_as"] == "embed":
+        payload = finalized_metadata_payload(
+            metadata,
+            finalized,
+            sidecars=source_sidecars,
+            extractor_payload=extractor_payload,
+        )
+        requested = {
+            "metadata": payload if processing["metadata"] else None,
+            "subtitles": prepared_subtitles if subtitles_requested else None,
+            "chapters": prepared_chapters if processing["chapters"] else None,
+            # Carries (bytes, extension), so an empty download is not a request.
+            "thumbnail": prepared_thumbnail if processing["thumbnail"] and prepared_thumbnail[0] else None,
+        }
+        for path in paths:
+            raise_if_cancelled()
+            embedded[path] = _embed_media_features(path, requested)
+
+    def _pending(feature: str) -> list[Path]:
+        return [path for path in paths if feature not in embedded.get(path, set())]
+
     canonical_sidecars: set[Path] = set()
-    if processing["metadata"]:
+    if processing["metadata"] and (pending := _pending("metadata")):
         canonical_sidecars = apply_metadata_post_processing(
-            paths,
+            pending,
             metadata,
             finalized,
             save_as=processing["save_as"],
@@ -2252,9 +2426,9 @@ def apply_finalized_post_processing(
             cleanup_sidecars=False,
         )
     raise_if_cancelled()
-    if subtitles_requested:
+    if subtitles_requested and (pending := _pending("subtitles")):
         apply_subtitle_post_processing(
-            paths,
+            pending,
             metadata,
             manual=processing["subtitles"],
             automatic=processing["automatic_subtitles"],
@@ -2266,9 +2440,9 @@ def apply_finalized_post_processing(
             silent_unsupported=silent_unsupported,
         )
     raise_if_cancelled()
-    if processing["chapters"]:
+    if processing["chapters"] and (pending := _pending("chapters")):
         apply_chapter_post_processing(
-            paths,
+            pending,
             metadata,
             save_as=processing["save_as"],
             sidecars=source_sidecars,
@@ -2278,13 +2452,13 @@ def apply_finalized_post_processing(
             silent_unsupported=silent_unsupported,
         )
     raise_if_cancelled()
-    if processing["thumbnail"]:
-        # FFmpeg's Matroska muxer turns an existing attached-picture stream
-        # into a regular MJPEG/PNG video stream during a later subtitle or
-        # chapter remux. Attach artwork last so it retains attached_pic=1 and
-        # media players recognize the image as the file's cover.
+    if processing["thumbnail"] and (pending := _pending("thumbnail")):
+        # Artwork goes last in the fallback order: FFmpeg's Matroska muxer turns an
+        # existing attached-picture stream into a regular MJPEG/PNG video stream
+        # during a later subtitle or chapter remux. The combined pass has no later
+        # remux, so it attaches artwork directly.
         apply_thumbnail_post_processing(
-            paths,
+            pending,
             metadata,
             save_as=processing["save_as"],
             sidecars=source_sidecars,
