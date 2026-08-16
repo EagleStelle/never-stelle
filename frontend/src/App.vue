@@ -6,6 +6,7 @@ import BarStatus from "@/components/layout/BarStatus.vue";
 import NavBottom from "@/components/layout/NavBottom.vue";
 import NavSide from "@/components/layout/NavSide.vue";
 import PageToolbar from "@/components/layout/PageToolbar.vue";
+import AuthLoading from "@/features/auth/Loading.vue";
 import Login from "@/features/auth/Login.vue";
 import DownloadPanel from "@/features/downloads/Panel.vue";
 import PlaylistDialog from "@/features/downloads/PlaylistDialog.vue";
@@ -52,15 +53,7 @@ const { height: statusBarHeight } = useElementSize(
 </script>
 
 <template>
-  <div
-    v-if="!authReady"
-    class="flex h-dvh w-full items-center justify-center bg-primary text-white in-[.light-mode]:text-black"
-  >
-    <div class="glass-chrome flex items-center gap-3 rounded-lg px-4 py-3">
-      <img src="/assets/logo.png" alt="" class="h-8 w-8 rounded-md" />
-      <span class="font-display text-base font-semibold">Never Stelle</span>
-    </div>
-  </div>
+  <AuthLoading v-if="!authReady" />
 
   <Login v-else-if="!authenticated" />
 
