@@ -31,7 +31,6 @@ import {
 } from "@/components/ui/tooltip";
 import type { CookiePolicyField, NamingChoice } from "@/types";
 import {
-  POST_PROCESSING_FIELDS,
   isAudioCodecCompatibleWithVideoContainer,
   isCodecCompatibleWithContainer,
   isLosslessAudioFormat,
@@ -39,6 +38,7 @@ import {
   videoAudioCodecOptionsForContainer,
   videoCodecOptionsForContainer,
 } from "@/utils/dashboard";
+import PostProcessingFields from "@/features/downloads/PostProcessingFields.vue";
 import { COOKIE_POLICY_FIELDS } from "@/features/settings/cookiePolicy";
 import { useSettingsContext } from "@/features/settings/context";
 import {
@@ -83,7 +83,6 @@ const defaultEmbedCapabilities = computed(() =>
   postProcessingCapabilitiesForDefaults(
     settingsDraft.default_quality,
     settings.quality_options,
-    settingsDraft.default_post_processing.save_as,
   ),
 );
 
@@ -92,14 +91,6 @@ function setDefaultPostProcessing(next: typeof settingsDraft.default_post_proces
   // video choice merely because the currently configured audio format cannot
   // carry it; the download toolbar filters only the task being submitted.
   Object.assign(settingsDraft.default_post_processing, next);
-}
-
-function setDefaultPostProcessingSaveAs(value: string | string[]): void {
-  if (value !== "sidecar" && value !== "embed") return;
-  setDefaultPostProcessing({
-    ...settingsDraft.default_post_processing,
-    save_as: value,
-  });
 }
 
 function updateContainer(container: string): void {
@@ -378,39 +369,11 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
           Post-Processing
         </FieldLegend>
         <FieldGroup>
-          <FieldGroup data-slot="checkbox-group">
-            <FieldLabel
-              v-for="field in POST_PROCESSING_FIELDS"
-              :key="field.key"
-              :class="
-                defaultEmbedCapabilities[field.key]
-                  ? 'cursor-pointer'
-                  : 'cursor-not-allowed opacity-60'
-              "
-            >
-              <Checkbox
-                :checked="settingsDraft.default_post_processing[field.key]"
-                :disabled="!defaultEmbedCapabilities[field.key]"
-                @update:checked="
-                  (value: boolean) =>
-                    setDefaultPostProcessing({
-                      ...settingsDraft.default_post_processing,
-                      [field.key]: Boolean(value),
-                    })
-                "
-              />
-              <span>{{ field.label }}</span>
-            </FieldLabel>
-          </FieldGroup>
-          <SegmentedControl
-            :model-value="settingsDraft.default_post_processing.save_as"
-            label="Save as"
-            label-placement="start"
-            @update:model-value="setDefaultPostProcessingSaveAs"
-          >
-            <SegmentedControlItem value="sidecar">Sidecar</SegmentedControlItem>
-            <SegmentedControlItem value="embed">Embed</SegmentedControlItem>
-          </SegmentedControl>
+          <PostProcessingFields
+            :model-value="settingsDraft.default_post_processing"
+            :capabilities="defaultEmbedCapabilities"
+            @update:model-value="setDefaultPostProcessing"
+          />
         </FieldGroup>
       </FieldSet>
 

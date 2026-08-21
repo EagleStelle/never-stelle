@@ -132,11 +132,7 @@ export function useDownloadDashboard() {
     getPostProcessing: () =>
       constrainPostProcessingSelection(
         downloadPostProcessing,
-        postProcessingCapabilitiesForQuality(
-          downloadSelection,
-          qualityOptions.value,
-          downloadPostProcessing.save_as,
-        ),
+        postProcessingCapabilitiesForQuality(downloadSelection, qualityOptions.value),
       ),
     toast: sonner.toast,
     url,

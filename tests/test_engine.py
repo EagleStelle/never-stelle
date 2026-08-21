@@ -101,35 +101,42 @@ def test_normalize_quality_selection_defaults_and_validates():
 
 def test_normalize_post_processing_defaults_and_validates():
     assert normalize_post_processing(None) == {
-        "metadata": False,
-        "subtitles": False,
-        "automatic_subtitles": False,
-        "chapters": False,
-        "thumbnail": False,
-        "save_as": "sidecar",
-    }
-    assert normalize_post_processing({"metadata": True, "save_as": "embed"}) == {
-        "metadata": True,
-        "subtitles": False,
-        "automatic_subtitles": False,
-        "chapters": False,
-        "thumbnail": False,
-        "save_as": "embed",
+        "metadata": "off",
+        "subtitles": "off",
+        "automatic_subtitles": "off",
+        "chapters": "off",
+        "thumbnail": "off",
+        "subtitle_languages": [],
     }
     assert normalize_post_processing(
-        {"subtitles": True, "automatic_subtitles": True, "chapters": True}
+        {"metadata": "embed", "chapters": "both", "thumbnail": "nonsense"}
     ) == {
-        "metadata": False,
-        "subtitles": True,
-        "automatic_subtitles": True,
-        "chapters": True,
-        "thumbnail": False,
-        "save_as": "sidecar",
+        "metadata": "embed",
+        "subtitles": "off",
+        "automatic_subtitles": "off",
+        "chapters": "both",
+        "thumbnail": "off",
+        "subtitle_languages": [],
     }
-    assert normalize_post_processing({"save_as": "invalid"})["save_as"] == "sidecar"
-    assert not post_processing_requested({"save_as": "embed"})
-    assert post_processing_requested({"automatic_subtitles": True})
-    assert post_processing_requested({"chapters": True})
+    assert normalize_post_processing({"subtitle_languages": " EN , ja ,en, "}) == {
+        "metadata": "off",
+        "subtitles": "off",
+        "automatic_subtitles": "off",
+        "chapters": "off",
+        "thumbnail": "off",
+        "subtitle_languages": ["en", "ja"],
+    }
+    assert not post_processing_requested({"metadata": "off"})
+    assert post_processing_requested({"automatic_subtitles": "sidecar"})
+    assert post_processing_requested({"chapters": "both"})
+
+
+def test_normalize_post_processing_rejects_the_retired_boolean_shape():
+    # m0005 converts stored rows; nothing reads the old form at runtime.
+    retired = {"metadata": True, "subtitles": True, "save_as": "embed"}
+    assert not post_processing_requested(retired)
+    assert normalize_post_processing(retired)["metadata"] == "off"
+    assert "save_as" not in normalize_post_processing(retired)
 
 
 def test_container_ffmpeg_build_includes_chapter_metadata_demuxer():
@@ -142,7 +149,7 @@ def test_container_ffmpeg_build_includes_chapter_metadata_demuxer():
 
 
 def test_metadata_sidecar_options_cover_gallerydl_and_integrated_ytdlp():
-    processing = {"metadata": True, "save_as": "sidecar"}
+    processing = {"metadata": "sidecar"}
     cmd = gallerydl.build_gallerydl_command(
         "https://example.test/post/1",
         "/media",
@@ -168,7 +175,7 @@ def test_metadata_sidecar_options_cover_gallerydl_and_integrated_ytdlp():
 
 
 def test_metadata_embed_waits_for_the_app_finalization_stage():
-    processing = {"metadata": True, "save_as": "embed"}
+    processing = {"metadata": "embed"}
     cmd = gallerydl.build_gallerydl_command(
         "https://example.test/post/1",
         "/media",
@@ -195,7 +202,7 @@ def test_metadata_embed_waits_for_the_app_finalization_stage():
 
 
 def test_thumbnail_options_capture_extractor_payload_for_finalization():
-    processing = {"thumbnail": True, "save_as": "sidecar"}
+    processing = {"thumbnail": "sidecar"}
     cmd = gallerydl.build_gallerydl_command(
         "https://example.test/post/1",
         "/media",
@@ -219,7 +226,7 @@ def test_thumbnail_options_capture_extractor_payload_for_finalization():
 
 
 def test_audio_metadata_and_thumbnail_request_youtube_music_cover_metadata():
-    processing = {"metadata": True, "thumbnail": True, "save_as": "embed"}
+    processing = {"metadata": "embed", "thumbnail": "embed"}
     quality = {"mode": "audio", "audio_format": "mp3"}
     both = ytdlp.build_ytdlp_command(
         "https://www.youtube.com/watch?v=Yb9FzUPpk0Y",
@@ -256,13 +263,13 @@ def test_audio_metadata_and_thumbnail_request_youtube_music_cover_metadata():
         "/usr/bin/ffmpeg",
         "/media/%(id)s.%(ext)s",
         quality={"mode": "audio", "audio_format": "mp3"},
-        post_processing={"thumbnail": True, "save_as": "embed"},
+        post_processing={"thumbnail": "embed"},
     )
     assert "--extractor-args" not in thumbnail_only
 
 
 def test_subtitle_options_capture_extractor_payload_for_finalization():
-    processing = {"subtitles": True, "automatic_subtitles": True, "save_as": "embed"}
+    processing = {"subtitles": "embed", "automatic_subtitles": "embed"}
     cmd = gallerydl.build_gallerydl_command(
         "https://example.test/post/1",
         "/media",
@@ -294,7 +301,7 @@ def test_subtitle_options_capture_extractor_payload_for_finalization():
 
 
 def test_chapter_options_capture_extractor_payload_for_finalization():
-    processing = {"chapters": True, "save_as": "embed"}
+    processing = {"chapters": "embed"}
     cmd = gallerydl.build_gallerydl_command(
         "https://example.test/post/1",
         "/media",
@@ -1427,14 +1434,14 @@ def test_downloader_commands_route_intermediates_and_extractor_payloads_to_task_
         "/media/creator/clip.%(ext)s",
         output_dir="/media",
         metadata_sidecar="/scratch/nvs-download-task-1/downloads.tsv",
-        post_processing={"metadata": True},
+        post_processing={"metadata": "sidecar"},
     )
     gallery_cmd = gallerydl.build_gallerydl_command(
         "https://example.test/post/1",
         "/media",
         f"creator{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
         metadata_sidecar="/scratch/nvs-download-task-1/downloads.tsv",
-        post_processing={"metadata": True},
+        post_processing={"metadata": "sidecar"},
     )
 
     ytdlp_paths = [ytdlp_cmd[index + 1] for index, value in enumerate(ytdlp_cmd) if value == "--paths"]

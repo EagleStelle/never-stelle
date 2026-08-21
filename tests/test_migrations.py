@@ -214,6 +214,97 @@ def test_test_fixture_learning_is_purged(tmp_path, monkeypatch):
     assert seeded == ["gallerydl:1"]
 
 
+def _seed_post_processing(path, saved: dict, task: dict, job: dict) -> None:
+    connection = sqlite3.connect(str(path))
+    try:
+        connection.executescript(SCHEMA)
+        connection.execute(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES ('app', ?, '')",
+            (json.dumps({"default_post_processing": saved}),),
+        )
+        connection.execute(
+            "INSERT INTO download_tasks (id, created_at, updated_at, encoding)"
+            " VALUES ('task-1', '', '', ?)",
+            (json.dumps({"post_processing": task, "quality": {"mode": "video"}}),),
+        )
+        connection.execute(
+            "INSERT INTO download_enrichment_jobs (id, payload, created_at, updated_at)"
+            " VALUES ('completion:task-1', ?, '', '')",
+            (json.dumps({"post_processing": job}),),
+        )
+        connection.execute("PRAGMA user_version = 4")
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _post_processing_rows() -> tuple[dict, dict, dict]:
+    with database_module.transaction() as connection:
+        saved = json.loads(
+            connection.execute("SELECT value FROM app_settings WHERE key = 'app'").fetchone()["value"]
+        )
+        task = json.loads(
+            connection.execute("SELECT encoding FROM download_tasks WHERE id = 'task-1'").fetchone()[
+                "encoding"
+            ]
+        )
+        job = json.loads(
+            connection.execute(
+                "SELECT payload FROM download_enrichment_jobs WHERE id = 'completion:task-1'"
+            ).fetchone()["payload"]
+        )
+    return saved["default_post_processing"], task["post_processing"], job["post_processing"]
+
+
+def test_post_processing_booleans_become_per_feature_modes(tmp_path, monkeypatch):
+    _seed_post_processing(
+        tmp_path / "never-stelle.sqlite3",
+        saved={"metadata": True, "thumbnail": True, "chapters": False, "save_as": "embed"},
+        task={"subtitles": True, "automatic_subtitles": True, "save_as": "sidecar"},
+        # A row saved before save_as existed defaulted to writing beside the media.
+        job={"metadata": True},
+    )
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+    saved, task, job = _post_processing_rows()
+
+    assert saved == {
+        "metadata": "embed",
+        "subtitles": "off",
+        "automatic_subtitles": "off",
+        "chapters": "off",
+        "thumbnail": "embed",
+        "subtitle_languages": [],
+    }
+    assert task["subtitles"] == "sidecar"
+    assert task["automatic_subtitles"] == "sidecar"
+    assert task["metadata"] == "off"
+    assert job["metadata"] == "sidecar"
+    # The retired key is gone everywhere, and the sibling payload is untouched.
+    assert all("save_as" not in row for row in (saved, task, job))
+    assert task["subtitle_languages"] == []
+
+
+def test_post_processing_migration_is_idempotent(tmp_path, monkeypatch):
+    _seed_post_processing(
+        tmp_path / "never-stelle.sqlite3",
+        saved={"metadata": True, "save_as": "embed"},
+        task={"chapters": True, "save_as": "sidecar"},
+        job={"thumbnail": True, "save_as": "embed"},
+    )
+    use_temp_db(tmp_path, monkeypatch)
+    database_module.initialize_database()
+    first = _post_processing_rows()
+
+    from backend.app.db.migrations import m0005_post_processing_feature_modes as migration
+
+    with database_module.transaction() as connection:
+        migration.upgrade(connection)
+
+    assert _post_processing_rows() == first
+
+
 _OLD_HISTORY = """
 CREATE TABLE download_history (
     id                  TEXT PRIMARY KEY,

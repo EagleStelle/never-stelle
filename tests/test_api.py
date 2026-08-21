@@ -350,16 +350,13 @@ def test_add_task_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
             "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
             "source_templates": source_templates,
             "quality": {},
-            "post_processing": {"metadata": True, "save_as": "sidecar"},
+            "post_processing": {"metadata": "sidecar"},
         },
     )
 
     assert response.status_code == 200
     assert captured["source_templates"] == source_templates
-    assert captured["quality"]["_post_processing"] == {
-        "metadata": True,
-        "save_as": "sidecar",
-    }
+    assert captured["quality"]["_post_processing"] == {"metadata": "sidecar"}
 
 
 def test_probe_fields_saves_field_roles_without_url_priority_hint(tmp_path, monkeypatch):

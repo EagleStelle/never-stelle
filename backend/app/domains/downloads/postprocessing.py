@@ -18,6 +18,8 @@ from xml.sax.saxutils import escape
 from backend.app.domains.downloads.constants import (
     AUDIO_EXTENSIONS,
     IMAGE_EXTENSIONS,
+    POST_PROCESSING_FEATURES,
+    SUBTITLE_LANGUAGES_ALL,
     VIDEO_AUDIO_CODEC_ENCODERS,
     VIDEO_AUDIO_CODEC_FOURCC,
     VIDEO_CODEC_ENCODERS,
@@ -27,7 +29,9 @@ from backend.app.domains.downloads.constants import (
     codec_supported_by_container,
     normalize_post_processing,
     normalize_quality_selection,
+    post_processing_embeds,
     post_processing_requested,
+    post_processing_sidecars,
     video_audio_codec_supported_by_container,
 )
 from backend.app.domains.downloads.naming import detect_ffmpeg_location, strip_placeholder_title
@@ -1619,37 +1623,53 @@ def _ordered_subtitle_languages(
     captions: dict[str, Any],
     *,
     automatic: bool,
+    languages: list[str] | None = None,
 ) -> list[str]:
-    languages = [
+    available = [
         str(language).strip()
         for language in captions
         if str(language).strip() and str(language).strip().lower() != "live_chat"
     ]
-    ordered: list[str] = []
-
-    def add(candidate: str) -> None:
-        match = next((language for language in languages if language.casefold() == candidate.casefold()), "")
-        if match and match not in ordered:
-            ordered.append(match)
-
     source_language = str(payload.get("language") or "").strip()
-    # yt-dlp exposes translated automatic captions for hundreds of languages.
-    # The `*-orig` track is the actual ASR output; preferring English selected a
-    # translated endpoint that commonly responds with HTTP 429 or empty content.
-    if automatic:
-        if source_language:
-            add(f"{source_language}-orig")
-        for language in languages:
-            if language.lower().endswith("-orig"):
-                add(language)
-    if source_language:
-        add(source_language)
-    add("en")
-    for language in languages:
-        if language.lower().startswith("en"):
-            add(language)
-    for language in languages:
-        add(language)
+
+    def variants(request: str) -> list[str]:
+        """One requested code expanded to the tracks that satisfy it."""
+        wanted = request.casefold()
+        if not wanted:
+            return []
+        exact = [language for language in available if language.casefold() == wanted]
+        regional = [
+            language
+            for language in available
+            if language not in exact and language.casefold().startswith(f"{wanted}-")
+        ]
+        # yt-dlp exposes translated automatic captions for hundreds of languages.
+        # The `*-orig` track is the actual ASR output; preferring the plain code
+        # selected a translated endpoint that commonly answers HTTP 429 or empty.
+        if not automatic:
+            return exact + regional
+        original = [language for language in regional if language.casefold().endswith("-orig")]
+        return original + exact + [language for language in regional if language not in original]
+
+    requested = [text for language in (languages or []) if (text := str(language).strip())]
+    if any(language.casefold() == SUBTITLE_LANGUAGES_ALL for language in requested):
+        every_original = (
+            [language for language in available if language.casefold().endswith("-orig")]
+            if automatic
+            else []
+        )
+        selected = [*variants(source_language), *every_original, *variants("en"), *available]
+    elif requested:
+        selected = [name for language in requested for name in variants(language)]
+    else:
+        # Default to the source track alone. Embedding every translated caption
+        # is what made this path slow enough to be rate limited.
+        selected = (variants(source_language) or variants("en") or available[:1])[:1]
+
+    ordered: list[str] = []
+    for language in selected:
+        if language not in ordered:
+            ordered.append(language)
     return ordered
 
 
@@ -1725,12 +1745,15 @@ def _prepare_subtitle_category(
     key: str,
     *,
     automatic: bool,
+    languages: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     captions = payload.get(key)
     if not isinstance(captions, dict):
         return []
     tracks: list[dict[str, Any]] = []
-    for language in _ordered_subtitle_languages(payload, captions, automatic=automatic):
+    for language in _ordered_subtitle_languages(
+        payload, captions, automatic=automatic, languages=languages
+    ):
         # Download one preferred representation per language. Multiple entries
         # for a language are alternate formats rather than distinct captions.
         for item in _ordered_subtitle_formats(captions.get(language))[:2]:
@@ -1748,13 +1771,20 @@ def prepare_subtitle_post_processing(
     automatic: bool,
     sidecars: list[Path] | None = None,
     extractor_payload: dict[str, Any] | None = None,
+    languages: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     payload = _resolved_payload(metadata, sidecars, extractor_payload)
     tracks: list[dict[str, Any]] = []
     if manual:
-        tracks.extend(_prepare_subtitle_category(payload, "subtitles", automatic=False))
+        tracks.extend(
+            _prepare_subtitle_category(payload, "subtitles", automatic=False, languages=languages)
+        )
     if automatic:
-        tracks.extend(_prepare_subtitle_category(payload, "automatic_captions", automatic=True))
+        tracks.extend(
+            _prepare_subtitle_category(
+                payload, "automatic_captions", automatic=True, languages=languages
+            )
+        )
     return tracks
 
 
@@ -1955,6 +1985,7 @@ def apply_subtitle_post_processing(
     cleanup_sidecars: bool = True,
     prepared_subtitles: list[dict[str, Any]] | None = None,
     silent_unsupported: bool = False,
+    languages: list[str] | None = None,
 ) -> None:
     raise_if_cancelled()
     source_sidecars = list(sidecars or [])
@@ -1965,6 +1996,7 @@ def apply_subtitle_post_processing(
             manual=manual,
             automatic=automatic,
             sidecars=source_sidecars,
+            languages=languages,
         )
     if manual and not any(not track.get("automatic") for track in tracks):
         logger.warning("Subtitle extraction skipped: the extractor returned no usable manual subtitles")
@@ -2040,18 +2072,6 @@ def prepare_chapter_post_processing(
     return chapters
 
 
-def _write_chapter_sidecar(path: Path, chapters: list[dict[str, Any]]) -> Path:
-    target = path.with_name(f"{path.stem}.chapters.json")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with scratch_file(prefix="nvs-chapter-sidecar-", suffix=".json") as temporary:
-        temporary.write_text(
-            json.dumps({"chapters": chapters}, ensure_ascii=False, indent=2, default=str) + "\n",
-            encoding="utf-8",
-        )
-        publish_scratch_file(temporary, target, cancel_check=raise_if_cancelled)
-    return target
-
-
 def _ffmetadata_escape(value: str) -> str:
     escaped = str(value).replace("\\", "\\\\")
     for character in ("=", ";", "#"):
@@ -2059,7 +2079,7 @@ def _ffmetadata_escape(value: str) -> str:
     return escaped
 
 
-def _materialize_chapters(chapters: list[dict[str, Any]]) -> Path:
+def _ffmetadata_chapters(chapters: list[dict[str, Any]]) -> str:
     lines = [";FFMETADATA1"]
     for chapter in chapters:
         start = int(round(float(chapter["start_time"]) * 1000))
@@ -2073,8 +2093,42 @@ def _materialize_chapters(chapters: list[dict[str, Any]]) -> Path:
                 f"title={_ffmetadata_escape(str(chapter['title']))}",
             ]
         )
+    return "\n".join(lines) + "\n"
+
+
+def _ogm_timestamp(seconds: float) -> str:
+    total = max(0, int(round(float(seconds) * 1000)))
+    hours, remainder = divmod(total, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    return f"{hours:02d}:{minutes:02d}:{remainder // 1000:02d}.{remainder % 1000:03d}"
+
+
+def _ogm_chapters(chapters: list[dict[str, Any]]) -> str:
+    """Simple/OGM chapter text, the format mkvmerge --chapters reads natively."""
+    lines: list[str] = []
+    for index, chapter in enumerate(chapters, start=1):
+        # The format carries start times and names only; it has no end field.
+        lines.append(f"CHAPTER{index:02d}={_ogm_timestamp(chapter['start_time'])}")
+        lines.append(f"CHAPTER{index:02d}NAME={chapter['title']}")
+    return "\n".join(lines) + "\n"
+
+
+def _write_chapter_sidecar(path: Path, chapters: list[dict[str, Any]]) -> None:
+    """Emit the two formats chapter tools actually read: ffmpeg/mpv, and mkvmerge."""
+    for suffix, text in (
+        (".chapters.ffmeta", _ffmetadata_chapters(chapters)),
+        (".chapters.txt", _ogm_chapters(chapters)),
+    ):
+        target = path.with_name(f"{path.stem}{suffix}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with scratch_file(prefix="nvs-chapter-sidecar-", suffix=suffix) as temporary:
+            temporary.write_text(text, encoding="utf-8")
+            publish_scratch_file(temporary, target, cancel_check=raise_if_cancelled)
+
+
+def _materialize_chapters(chapters: list[dict[str, Any]]) -> Path:
     chapter_path = scratch_temp_path(prefix="nvs-chapter-input-", suffix=".ffmetadata")
-    chapter_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    chapter_path.write_text(_ffmetadata_chapters(chapters), encoding="utf-8")
     return chapter_path
 
 
@@ -2349,31 +2403,54 @@ def apply_finalized_post_processing(
     selection = normalize_quality_selection(quality)
     source_sidecars = list(sidecars or [])
     extractor_payload = _resolved_payload(metadata, source_sidecars, extractor_payload)
-    subtitles_requested = processing["subtitles"] or processing["automatic_subtitles"]
+    subtitle_languages = list(processing["subtitle_languages"])
+    subtitles_requested = (
+        processing["subtitles"] != "off" or processing["automatic_subtitles"] != "off"
+    )
     auto_output = (
         selection["video_container"] == "auto"
         if selection["mode"] == "video"
         else selection["audio_format"] == "auto"
     )
-    silent_unsupported = processing["save_as"] == "embed" and auto_output
+
+    def _embeds(feature: str) -> bool:
+        return post_processing_embeds(processing, feature)
+
+    def _sidecars(feature: str) -> bool:
+        return post_processing_sidecars(processing, feature)
+
+    def _silent(feature: str) -> bool:
+        # An unsupported container is not worth reporting when the user did not
+        # choose it, or when the sidecar already carries the same content.
+        return auto_output or _sidecars(feature)
+
+    def _tracks_for(mode: str) -> list[dict[str, Any]]:
+        manual = processing["subtitles"] in {mode, "both"}
+        automatic = processing["automatic_subtitles"] in {mode, "both"}
+        return [
+            track
+            for track in (prepared_subtitles or [])
+            if (automatic if track.get("automatic") else manual)
+        ]
 
     prepared_thumbnail = (
         prepare_thumbnail_post_processing(
             metadata,
             sidecars=source_sidecars,
             extractor_payload=extractor_payload,
-            prefer_cover_art=selection["mode"] == "audio" and processing["metadata"],
+            prefer_cover_art=selection["mode"] == "audio" and processing["metadata"] != "off",
         )
-        if processing["thumbnail"]
+        if processing["thumbnail"] != "off"
         else None
     )
     prepared_subtitles = (
         prepare_subtitle_post_processing(
             metadata,
-            manual=processing["subtitles"],
-            automatic=processing["automatic_subtitles"],
+            manual=processing["subtitles"] != "off",
+            automatic=processing["automatic_subtitles"] != "off",
             sidecars=source_sidecars,
             extractor_payload=extractor_payload,
+            languages=subtitle_languages,
         )
         if subtitles_requested
         else None
@@ -2384,89 +2461,98 @@ def apply_finalized_post_processing(
             sidecars=source_sidecars,
             extractor_payload=extractor_payload,
         )
-        if processing["chapters"]
+        if processing["chapters"] != "off"
         else None
     )
 
     # Every embed rewrites the whole file, so the enabled ones go in together and
     # each pass below only runs for what one command could not carry.
     embedded: dict[Path, set[str]] = {}
-    if processing["save_as"] == "embed":
+    if any(_embeds(feature) for feature in POST_PROCESSING_FEATURES):
         payload = finalized_metadata_payload(
             metadata,
             finalized,
             sidecars=source_sidecars,
             extractor_payload=extractor_payload,
         )
+        embed_tracks = _tracks_for("embed")
         requested = {
-            "metadata": payload if processing["metadata"] else None,
-            "subtitles": prepared_subtitles if subtitles_requested else None,
-            "chapters": prepared_chapters if processing["chapters"] else None,
+            "metadata": payload if _embeds("metadata") else None,
+            "subtitles": embed_tracks or None,
+            "chapters": prepared_chapters if _embeds("chapters") else None,
             # Carries (bytes, extension), so an empty download is not a request.
-            "thumbnail": prepared_thumbnail if processing["thumbnail"] and prepared_thumbnail[0] else None,
+            "thumbnail": prepared_thumbnail if _embeds("thumbnail") and prepared_thumbnail[0] else None,
         }
         for path in paths:
             raise_if_cancelled()
             embedded[path] = _embed_media_features(path, requested)
 
-    def _pending(feature: str) -> list[Path]:
+    def _targets(feature: str, mode: str) -> list[Path]:
+        """Who still needs this mode: embed retries only what the pass could not carry."""
+        if not (_embeds(feature) if mode == "embed" else _sidecars(feature)):
+            return []
+        if mode != "embed":
+            return paths
         return [path for path in paths if feature not in embedded.get(path, set())]
 
-    canonical_sidecars: set[Path] = set()
-    if processing["metadata"] and (pending := _pending("metadata")):
-        canonical_sidecars = apply_metadata_post_processing(
-            pending,
-            metadata,
-            finalized,
-            save_as=processing["save_as"],
-            sidecars=source_sidecars,
-            output_root=output_root,
-            silent_unsupported=silent_unsupported,
-            extractor_payload=extractor_payload,
-            cleanup_sidecars=False,
-        )
-    raise_if_cancelled()
-    if subtitles_requested and (pending := _pending("subtitles")):
+    def _dispatch(feature: str, apply: Any, **kwargs: Any) -> set[Path]:
+        written: set[Path] = set()
+        for mode in ("embed", "sidecar"):
+            raise_if_cancelled()
+            if targets := _targets(feature, mode):
+                written |= apply(targets, metadata, save_as=mode, **kwargs) or set()
+        return written
+
+    shared = {
+        "sidecars": source_sidecars,
+        "output_root": output_root,
+        "cleanup_sidecars": False,
+    }
+    canonical_sidecars = _dispatch(
+        "metadata",
+        lambda targets, meta, **kwargs: apply_metadata_post_processing(
+            targets, meta, finalized, **kwargs
+        ),
+        silent_unsupported=_silent("metadata"),
+        extractor_payload=extractor_payload,
+        **shared,
+    )
+    for mode in ("embed", "sidecar"):
+        raise_if_cancelled()
+        manual = processing["subtitles"] in {mode, "both"}
+        automatic = processing["automatic_subtitles"] in {mode, "both"}
+        targets = _targets("subtitles", mode) if mode == "embed" else paths
+        if not (manual or automatic) or not targets:
+            continue
         apply_subtitle_post_processing(
-            pending,
+            targets,
             metadata,
-            manual=processing["subtitles"],
-            automatic=processing["automatic_subtitles"],
-            save_as=processing["save_as"],
-            sidecars=source_sidecars,
-            output_root=output_root,
-            cleanup_sidecars=False,
-            prepared_subtitles=prepared_subtitles,
-            silent_unsupported=silent_unsupported,
+            manual=manual,
+            automatic=automatic,
+            save_as=mode,
+            prepared_subtitles=_tracks_for(mode),
+            silent_unsupported=_silent("subtitles") and _silent("automatic_subtitles"),
+            languages=subtitle_languages,
+            **shared,
         )
-    raise_if_cancelled()
-    if processing["chapters"] and (pending := _pending("chapters")):
-        apply_chapter_post_processing(
-            pending,
-            metadata,
-            save_as=processing["save_as"],
-            sidecars=source_sidecars,
-            output_root=output_root,
-            cleanup_sidecars=False,
-            prepared_chapters=prepared_chapters,
-            silent_unsupported=silent_unsupported,
-        )
-    raise_if_cancelled()
-    if processing["thumbnail"] and (pending := _pending("thumbnail")):
-        # Artwork goes last in the fallback order: FFmpeg's Matroska muxer turns an
-        # existing attached-picture stream into a regular MJPEG/PNG video stream
-        # during a later subtitle or chapter remux. The combined pass has no later
-        # remux, so it attaches artwork directly.
-        apply_thumbnail_post_processing(
-            pending,
-            metadata,
-            save_as=processing["save_as"],
-            sidecars=source_sidecars,
-            output_root=output_root,
-            cleanup_sidecars=False,
-            prepared_thumbnail=prepared_thumbnail,
-            silent_unsupported=silent_unsupported,
-        )
+    _dispatch(
+        "chapters",
+        apply_chapter_post_processing,
+        prepared_chapters=prepared_chapters,
+        silent_unsupported=_silent("chapters"),
+        **shared,
+    )
+    # Artwork goes last in the fallback order: FFmpeg's Matroska muxer turns an
+    # existing attached-picture stream into a regular MJPEG/PNG video stream
+    # during a later subtitle or chapter remux. The combined pass has no later
+    # remux, so it attaches artwork directly.
+    _dispatch(
+        "thumbnail",
+        apply_thumbnail_post_processing,
+        prepared_thumbnail=prepared_thumbnail,
+        silent_unsupported=_silent("thumbnail"),
+        **shared,
+    )
     raise_if_cancelled()
     _remove_source_sidecars(source_sidecars, output_root, keep=canonical_sidecars)
     return True

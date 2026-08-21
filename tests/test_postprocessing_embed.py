@@ -8,12 +8,11 @@ import backend.app.domains.downloads.postprocessing as postprocessing_module
 from backend.app.domains.downloads.workers.completion_finalization import FinalizedCompletionOutput
 
 ALL_ENABLED = {
-    "metadata": True,
-    "thumbnail": True,
-    "subtitles": True,
-    "automatic_subtitles": False,
-    "chapters": True,
-    "save_as": "embed",
+    "metadata": "embed",
+    "thumbnail": "embed",
+    "subtitles": "embed",
+    "automatic_subtitles": "off",
+    "chapters": "embed",
 }
 
 
@@ -116,7 +115,7 @@ def test_every_enabled_embed_rides_one_ffmpeg_pass(embed_harness):
 
 
 def test_disabled_features_contribute_nothing_to_the_pass(embed_harness):
-    embed_harness["run"]({**ALL_ENABLED, "subtitles": False, "thumbnail": False})
+    embed_harness["run"]({**ALL_ENABLED, "subtitles": "off", "thumbnail": "off"})
 
     assert len(embed_harness["commands"]) == 1
     command = embed_harness["commands"][0]
@@ -129,7 +128,9 @@ def test_disabled_features_contribute_nothing_to_the_pass(embed_harness):
 
 
 def test_a_single_enabled_feature_is_left_to_its_own_embedder(embed_harness):
-    embed_harness["run"]({**ALL_ENABLED, "subtitles": False, "thumbnail": False, "chapters": False})
+    embed_harness["run"](
+        {**ALL_ENABLED, "subtitles": "off", "thumbnail": "off", "chapters": "off"}
+    )
 
     # One feature is one pass either way, and its own embedder reports failures better.
     assert embed_harness["commands"] == []
@@ -145,7 +146,57 @@ def test_a_failed_combined_pass_falls_back_to_every_feature(embed_harness):
 
 
 def test_sidecar_mode_never_builds_a_combined_pass(embed_harness):
-    embed_harness["run"]({**ALL_ENABLED, "save_as": "sidecar"})
+    embed_harness["run"](dict.fromkeys(ALL_ENABLED, "sidecar"))
 
     assert embed_harness["commands"] == []
     assert embed_harness["fallbacks"] == ["metadata", "subtitle", "chapter", "thumbnail"]
+
+
+def test_both_embeds_in_one_pass_and_still_writes_every_sidecar(embed_harness):
+    embed_harness["run"](dict.fromkeys(ALL_ENABLED, "both"))
+
+    # The embed half is still folded into a single stream copy.
+    assert len(embed_harness["commands"]) == 1
+    command = embed_harness["commands"][0]
+    assert "ffmetadata" in command
+    assert "-c:s" in command
+    assert "-attach" in command
+    # The sidecar half runs for every feature even though the embed succeeded.
+    assert embed_harness["fallbacks"] == ["metadata", "subtitle", "chapter", "thumbnail"]
+
+
+def test_each_feature_follows_its_own_mode(embed_harness):
+    embed_harness["run"](
+        {
+            "metadata": "embed",
+            "subtitles": "embed",
+            "automatic_subtitles": "off",
+            "chapters": "sidecar",
+            "thumbnail": "off",
+        }
+    )
+
+    assert len(embed_harness["commands"]) == 1
+    command = embed_harness["commands"][0]
+    assert "title=Title" in command
+    assert "-c:s" in command
+    # Chapters were routed to a sidecar, artwork was off, so neither joins the pass.
+    assert "ffmetadata" not in command
+    assert "-attach" not in command
+    assert embed_harness["fallbacks"] == ["chapter"]
+
+
+def test_the_retired_boolean_shape_selects_nothing(embed_harness):
+    # Stored rows are converted by m0005, so a boolean reaching here is not a request.
+    embed_harness["run"](
+        {
+            "metadata": True,
+            "thumbnail": True,
+            "subtitles": True,
+            "chapters": True,
+            "save_as": "embed",
+        }
+    )
+
+    assert embed_harness["commands"] == []
+    assert embed_harness["fallbacks"] == []

@@ -6,12 +6,10 @@ import IconMusic from "~icons/material-symbols/music-note";
 import IconTune from "~icons/material-symbols/tune";
 import TaskFilters from "@/components/task/Filters.vue";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
 import { DialogShell as Dialog } from "@/components/ui/dialog";
 import {
   FieldGroup,
-  FieldLabel,
   FieldLegend,
   FieldSeparator,
   FieldSet,
@@ -20,15 +18,13 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control";
+import PostProcessingFields from "@/features/downloads/PostProcessingFields.vue";
 import UrlForm from "@/features/downloads/UrlForm.vue";
 import { qualityFieldsFor, type QualityField } from "@/features/downloads/qualityFields";
 import { useDashboard } from "@/composables/useDashboard";
 import { useIsMobile } from "@/composables/useBreakpoints";
 import type { PostProcessingSelection, QualitySelection } from "@/types";
-import {
-  POST_PROCESSING_FIELDS,
-  postProcessingCapabilitiesForQuality,
-} from "@/utils/dashboard";
+import { postProcessingCapabilitiesForQuality } from "@/utils/dashboard";
 
 const {
   downloadSelection: selection,
@@ -56,11 +52,7 @@ const advancedQualityFields = computed(() =>
 const hasAdvancedFields = computed(() => advancedQualityFields.value.length > 0);
 
 const embedCapabilities = computed(() =>
-  postProcessingCapabilitiesForQuality(
-    selection,
-    qualityOptions.value,
-    postProcessing.save_as,
-  ),
+  postProcessingCapabilitiesForQuality(selection, qualityOptions.value),
 );
 
 function update(patch: Partial<QualitySelection>): void {
@@ -80,11 +72,6 @@ function setPostProcessing(next: PostProcessingSelection): void {
   // unsupported choices are filtered only when a task is queued, so returning
   // to a compatible video target restores the exact manual/auto subtitle state.
   setDownloadPostProcessing(next);
-}
-
-function setPostProcessingSaveAs(value: string | string[]): void {
-  if (value !== "sidecar" && value !== "embed") return;
-  setPostProcessing({ ...postProcessing, save_as: value });
 }
 
 </script>
@@ -174,39 +161,11 @@ function setPostProcessingSaveAs(value: string | string[]): void {
         <FieldSet>
           <FieldLegend>Post-Processing</FieldLegend>
           <FieldGroup>
-            <FieldGroup data-slot="checkbox-group">
-              <FieldLabel
-                v-for="field in POST_PROCESSING_FIELDS"
-                :key="field.key"
-                :class="
-                  embedCapabilities[field.key]
-                    ? 'cursor-pointer'
-                    : 'cursor-not-allowed opacity-60'
-                "
-              >
-                <Checkbox
-                  :checked="postProcessing[field.key]"
-                  :disabled="!embedCapabilities[field.key]"
-                  @update:checked="
-                    (value: boolean) =>
-                      setPostProcessing({
-                        ...postProcessing,
-                        [field.key]: Boolean(value),
-                      })
-                  "
-                />
-                <span>{{ field.label }}</span>
-              </FieldLabel>
-            </FieldGroup>
-            <SegmentedControl
-              :model-value="postProcessing.save_as"
-              label="Save as"
-              label-placement="start"
-              @update:model-value="setPostProcessingSaveAs"
-            >
-              <SegmentedControlItem value="sidecar">Sidecar</SegmentedControlItem>
-              <SegmentedControlItem value="embed">Embed</SegmentedControlItem>
-            </SegmentedControl>
+            <PostProcessingFields
+              :model-value="postProcessing"
+              :capabilities="embedCapabilities"
+              @update:model-value="setPostProcessing"
+            />
           </FieldGroup>
         </FieldSet>
       </div>

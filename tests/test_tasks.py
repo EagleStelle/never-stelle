@@ -401,28 +401,28 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
         "audio_bitrate": "320",
     }
     assert captured["task"]["post_processing"] == {
-        "metadata": False,
-        "subtitles": False,
-        "automatic_subtitles": False,
-        "chapters": False,
-        "thumbnail": False,
-        "save_as": "sidecar",
+        "metadata": "off",
+        "subtitles": "off",
+        "automatic_subtitles": "off",
+        "chapters": "off",
+        "thumbnail": "off",
+        "subtitle_languages": [],
     }
 
     operations_module.queue_task(
         "https://example.test/watch?v=metadata",
         quality={
             "mode": "video",
-            "_post_processing": {"metadata": True, "save_as": "embed"},
+            "_post_processing": {"metadata": "both", "subtitle_languages": ["en"]},
         },
     )
     assert captured["task"]["post_processing"] == {
-        "metadata": True,
-        "subtitles": False,
-        "automatic_subtitles": False,
-        "chapters": False,
-        "thumbnail": False,
-        "save_as": "embed",
+        "metadata": "both",
+        "subtitles": "off",
+        "automatic_subtitles": "off",
+        "chapters": "off",
+        "thumbnail": "off",
+        "subtitle_languages": ["en"],
     }
 
     operations_module.queue_task("https://example.test/watch?v=2", quality=None)
@@ -842,32 +842,62 @@ def test_manual_and_auto_subtitle_sidecars_are_separate_and_use_final_name(tmp_p
     assert not extractor_sidecar.exists()
 
 
-def test_subtitles_collect_every_manual_and_auto_caption_language():
-    payload = {
-        "language": "ja",
-        "subtitles": {
-            "en": [{"ext": "vtt", "data": "WEBVTT\n\nEnglish"}],
-            "ja": [{"ext": "vtt", "data": "WEBVTT\n\nJapanese"}],
-            "fr": [{"ext": "vtt", "data": "WEBVTT\n\nFrench"}],
-        },
-        "automatic_captions": {
-            "en": [{"ext": "vtt", "data": "WEBVTT\n\nTranslated"}],
-            "ja-orig": [{"ext": "vtt", "data": "WEBVTT\n\nOriginal ASR"}],
-            "fr": [{"ext": "vtt", "data": "WEBVTT\n\nFrench auto"}],
-            "de": [{"ext": "vtt", "data": "WEBVTT\n\nGerman auto"}],
-            "es": [{"ext": "vtt", "data": "WEBVTT\n\nSpanish auto"}],
-            "zh-Hans": [{"ext": "vtt", "data": "WEBVTT\n\nChinese auto"}],
-        },
-    }
+_CAPTION_PAYLOAD = {
+    "language": "ja",
+    "subtitles": {
+        "en": [{"ext": "vtt", "data": "WEBVTT\n\nEnglish"}],
+        "ja": [{"ext": "vtt", "data": "WEBVTT\n\nJapanese"}],
+        "fr": [{"ext": "vtt", "data": "WEBVTT\n\nFrench"}],
+    },
+    "automatic_captions": {
+        "en": [{"ext": "vtt", "data": "WEBVTT\n\nTranslated"}],
+        "ja-orig": [{"ext": "vtt", "data": "WEBVTT\n\nOriginal ASR"}],
+        "fr": [{"ext": "vtt", "data": "WEBVTT\n\nFrench auto"}],
+        "de": [{"ext": "vtt", "data": "WEBVTT\n\nGerman auto"}],
+        "es": [{"ext": "vtt", "data": "WEBVTT\n\nSpanish auto"}],
+        "zh-Hans": [{"ext": "vtt", "data": "WEBVTT\n\nChinese auto"}],
+    },
+}
 
+
+def _caption_tracks(languages: list[str] | None) -> list[tuple[str, bool]]:
     tracks = postprocessing_module.prepare_subtitle_post_processing(
         {},
         manual=True,
         automatic=True,
-        extractor_payload=payload,
+        extractor_payload=_CAPTION_PAYLOAD,
+        languages=languages,
+    )
+    return [(track["language"], track["automatic"]) for track in tracks]
+
+
+def test_subtitles_default_to_the_source_language_alone():
+    tracks = postprocessing_module.prepare_subtitle_post_processing(
+        {},
+        manual=True,
+        automatic=True,
+        extractor_payload=_CAPTION_PAYLOAD,
     )
 
     assert [(track["language"], track["automatic"]) for track in tracks] == [
+        ("ja", False),
+        ("ja-orig", True),
+    ]
+    assert tracks[0]["data"].endswith(b"Japanese")
+    # The ASR original, never the translated `en` endpoint.
+    assert tracks[1]["data"].endswith(b"Original ASR")
+
+
+def test_subtitles_honor_a_requested_language_list():
+    assert _caption_tracks(["en", "zh"]) == [
+        ("en", False),
+        ("en", True),
+        ("zh-Hans", True),
+    ]
+
+
+def test_subtitles_collect_every_manual_and_auto_caption_language_on_request():
+    assert _caption_tracks(["all"]) == [
         ("ja", False),
         ("en", False),
         ("fr", False),
@@ -878,8 +908,6 @@ def test_subtitles_collect_every_manual_and_auto_caption_language():
         ("es", True),
         ("zh-Hans", True),
     ]
-    assert tracks[0]["data"].endswith(b"Japanese")
-    assert tracks[3]["data"].endswith(b"Original ASR")
 
 
 def test_chapter_sidecar_uses_final_name_and_normalizes_boundaries(tmp_path: Path):
@@ -908,14 +936,19 @@ def test_chapter_sidecar_uses_final_name_and_normalizes_boundaries(tmp_path: Pat
         output_root=tmp_path,
     )
 
-    sidecar = media.with_name(f"{media.stem}.chapters.json")
-    assert json.loads(sidecar.read_text(encoding="utf-8")) == {
-        "chapters": [
-            {"start_time": 0.0, "end_time": 5.5, "title": "Intro"},
-            {"start_time": 5.5, "end_time": 20.0, "title": "Main"},
-            {"start_time": 20.0, "end_time": 30.0, "title": "Chapter 3"},
-        ]
-    }
+    ffmeta = media.with_name(f"{media.stem}.chapters.ffmeta")
+    assert ffmeta.read_text(encoding="utf-8") == (
+        ";FFMETADATA1\n"
+        "[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=5500\ntitle=Intro\n"
+        "[CHAPTER]\nTIMEBASE=1/1000\nSTART=5500\nEND=20000\ntitle=Main\n"
+        "[CHAPTER]\nTIMEBASE=1/1000\nSTART=20000\nEND=30000\ntitle=Chapter 3\n"
+    )
+    ogm = media.with_name(f"{media.stem}.chapters.txt")
+    assert ogm.read_text(encoding="utf-8") == (
+        "CHAPTER01=00:00:00.000\nCHAPTER01NAME=Intro\n"
+        "CHAPTER02=00:00:05.500\nCHAPTER02NAME=Main\n"
+        "CHAPTER03=00:00:20.000\nCHAPTER03NAME=Chapter 3\n"
+    )
     assert not extractor_sidecar.exists()
 
 
@@ -1004,12 +1037,11 @@ def test_finalized_post_processing_reads_extractor_payload_once_for_all_sidecars
         {},
         finalized,
         post_processing={
-            "metadata": True,
-            "thumbnail": True,
-            "subtitles": True,
-            "automatic_subtitles": True,
-            "chapters": True,
-            "save_as": "sidecar",
+            "metadata": "sidecar",
+            "thumbnail": "sidecar",
+            "subtitles": "sidecar",
+            "automatic_subtitles": "sidecar",
+            "chapters": "sidecar",
         },
         quality={"mode": "video", "video_container": "mp4"},
         sidecars=[extractor_sidecar],
@@ -1021,7 +1053,8 @@ def test_finalized_post_processing_reads_extractor_payload_once_for_all_sidecars
     assert media.with_suffix(".jpg").read_bytes() == b"cover"
     assert media.with_name(f"{media.stem}.en.vtt").is_file()
     assert media.with_name(f"{media.stem}.en.auto.vtt").is_file()
-    assert media.with_name(f"{media.stem}.chapters.json").is_file()
+    assert media.with_name(f"{media.stem}.chapters.ffmeta").is_file()
+    assert media.with_name(f"{media.stem}.chapters.txt").is_file()
     assert not extractor_sidecar.exists()
 
 
@@ -1085,12 +1118,10 @@ def test_finalized_embed_attaches_thumbnail_after_subtitle_remux(
         {},
         finalized,
         post_processing={
-            "metadata": True,
-            "thumbnail": True,
-            "subtitles": True,
-            "automatic_subtitles": False,
-            "chapters": True,
-            "save_as": "embed",
+            "metadata": "embed",
+            "thumbnail": "embed",
+            "subtitles": "embed",
+            "chapters": "embed",
         },
         quality={"mode": "video", "video_container": "mkv"},
         output_root=tmp_path,
@@ -2733,7 +2764,7 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
         output_root=str(tmp_path),
         extra_tokens={"artist": "creator"},
         token_roles={"example": {"artist": "username"}},
-        post_processing={"metadata": True, "save_as": "sidecar"},
+        post_processing={"metadata": "sidecar"},
         needs_metadata_probe=True,
         needs_field_probe=True,
     )
@@ -2761,12 +2792,12 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
         "extra_tokens": {"artist": "creator"},
         "token_roles": {"example": {"artist": "username"}},
         "post_processing": {
-            "metadata": True,
-            "subtitles": False,
-            "automatic_subtitles": False,
-            "chapters": False,
-            "thumbnail": False,
-            "save_as": "sidecar",
+            "metadata": "sidecar",
+            "subtitles": "off",
+            "automatic_subtitles": "off",
+            "chapters": "off",
+            "thumbnail": "off",
+            "subtitle_languages": [],
         },
         "needs_metadata_probe": True,
         "needs_field_probe": True,

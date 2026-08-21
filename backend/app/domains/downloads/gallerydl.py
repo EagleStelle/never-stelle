@@ -157,9 +157,9 @@ def _ytdl_downloader_options(
             postprocessor_args["Merger+ffmpeg_o"] = merger_args
         ffmpeg_location = detect_ffmpeg_location()
     if (
-        processing["subtitles"]
-        or processing["automatic_subtitles"]
-        or processing["chapters"]
+        processing["subtitles"] != "off"
+        or processing["automatic_subtitles"] != "off"
+        or processing["chapters"] != "off"
     ):
         # gallery-dl removes its private `_ytdl_info_dict` after the delegated
         # download, so its own metadata postprocessor cannot reliably expose

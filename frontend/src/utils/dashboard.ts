@@ -23,7 +23,7 @@ import {
   type MenuKey,
   type PageKey,
   type PostProcessingSelection,
-  type PostProcessingSaveAs,
+  type PostProcessingMode,
   type QualityOptions,
   type QualityPreset,
   type QualitySelection,
@@ -526,30 +526,52 @@ export function createQualitySelection(
   };
 }
 
+const POST_PROCESSING_MODES: PostProcessingMode[] = ["off", "sidecar", "embed", "both"];
+
+function postProcessingMode(value: unknown): PostProcessingMode {
+  const mode = String(value ?? "").trim().toLowerCase();
+  return POST_PROCESSING_MODES.includes(mode as PostProcessingMode)
+    ? (mode as PostProcessingMode)
+    : "off";
+}
+
+export function normalizeSubtitleLanguages(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : String(value ?? "").split(",");
+  const languages: string[] = [];
+  for (const entry of values) {
+    const text = String(entry ?? "").trim().toLowerCase();
+    if (text && !languages.includes(text)) languages.push(text);
+  }
+  return languages;
+}
+
 export function createPostProcessingSelection(
   source: Partial<PostProcessingSelection> = {},
 ): PostProcessingSelection {
   return {
-    metadata: Boolean(source.metadata),
-    subtitles: Boolean(source.subtitles),
-    automatic_subtitles: Boolean(source.automatic_subtitles),
-    chapters: Boolean(source.chapters),
-    thumbnail: Boolean(source.thumbnail),
-    save_as: source.save_as === "embed" ? "embed" : "sidecar",
+    metadata: postProcessingMode(source.metadata),
+    subtitles: postProcessingMode(source.subtitles),
+    automatic_subtitles: postProcessingMode(source.automatic_subtitles),
+    chapters: postProcessingMode(source.chapters),
+    thumbnail: postProcessingMode(source.thumbnail),
+    subtitle_languages: normalizeSubtitleLanguages(source.subtitle_languages),
   };
 }
 
-export type PostProcessingCapability = Exclude<keyof PostProcessingSelection, "save_as">;
+export type PostProcessingCapability = Exclude<
+  keyof PostProcessingSelection,
+  "subtitle_languages"
+>;
 export type PostProcessingCapabilities = Record<PostProcessingCapability, boolean>;
 export const POST_PROCESSING_FIELDS: Array<{
   key: PostProcessingCapability;
   label: string;
 }> = [
   { key: "metadata", label: "Metadata" },
-  { key: "subtitles", label: "Subtitles" },
-  { key: "automatic_subtitles", label: "Subtitles (auto-generated)" },
   { key: "chapters", label: "Chapters" },
   { key: "thumbnail", label: "Thumbnail" },
+  { key: "subtitles", label: "Subtitles" },
+  { key: "automatic_subtitles", label: "Subtitles (auto-generated)" },
 ];
 
 const ALL_POST_PROCESSING_CAPABILITIES: PostProcessingCapabilities = {
@@ -583,9 +605,7 @@ function embedCapabilitiesForPreset(
 export function postProcessingCapabilitiesForQuality(
   quality: QualitySelection,
   options: QualityOptions,
-  saveAs: PostProcessingSaveAs,
 ): PostProcessingCapabilities {
-  if (saveAs === "sidecar") return { ...ALL_POST_PROCESSING_CAPABILITIES };
   return quality.mode === "audio"
     ? embedCapabilitiesForPreset(options.audio_formats, quality.audio_format)
     : embedCapabilitiesForPreset(options.video_containers, quality.video_container);
@@ -594,9 +614,7 @@ export function postProcessingCapabilitiesForQuality(
 export function postProcessingCapabilitiesForDefaults(
   quality: QualitySelection,
   options: QualityOptions,
-  saveAs: PostProcessingSaveAs,
 ): PostProcessingCapabilities {
-  if (saveAs === "sidecar") return { ...ALL_POST_PROCESSING_CAPABILITIES };
   const video = embedCapabilitiesForPreset(options.video_containers, quality.video_container);
   const audio = embedCapabilitiesForPreset(options.audio_formats, quality.audio_format);
   return {
@@ -614,14 +632,25 @@ export function constrainPostProcessingSelection(
   selection: PostProcessingSelection,
   capabilities: PostProcessingCapabilities,
 ): PostProcessingSelection {
+  // A container that cannot carry a feature keeps the sidecar half of the
+  // request rather than dropping the feature outright.
+  const constrain = (
+    mode: PostProcessingMode,
+    embeddable: boolean,
+  ): PostProcessingMode => {
+    if (embeddable || mode === "off" || mode === "sidecar") return mode;
+    return "sidecar";
+  };
   return createPostProcessingSelection({
     ...selection,
-    metadata: capabilities.metadata && selection.metadata,
-    subtitles: capabilities.subtitles && selection.subtitles,
-    automatic_subtitles:
-      capabilities.automatic_subtitles && selection.automatic_subtitles,
-    chapters: capabilities.chapters && selection.chapters,
-    thumbnail: capabilities.thumbnail && selection.thumbnail,
+    metadata: constrain(selection.metadata, capabilities.metadata),
+    subtitles: constrain(selection.subtitles, capabilities.subtitles),
+    automatic_subtitles: constrain(
+      selection.automatic_subtitles,
+      capabilities.automatic_subtitles,
+    ),
+    chapters: constrain(selection.chapters, capabilities.chapters),
+    thumbnail: constrain(selection.thumbnail, capabilities.thumbnail),
   });
 }
 

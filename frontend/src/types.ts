@@ -196,15 +196,15 @@ export interface QualityOptions {
   audio_bitrates: QualityPreset[];
 }
 
-export type PostProcessingSaveAs = "sidecar" | "embed";
+export type PostProcessingMode = "off" | "sidecar" | "embed" | "both";
 
 export interface PostProcessingSelection {
-  metadata: boolean;
-  subtitles: boolean;
-  automatic_subtitles: boolean;
-  chapters: boolean;
-  thumbnail: boolean;
-  save_as: PostProcessingSaveAs;
+  metadata: PostProcessingMode;
+  subtitles: PostProcessingMode;
+  automatic_subtitles: PostProcessingMode;
+  chapters: PostProcessingMode;
+  thumbnail: PostProcessingMode;
+  subtitle_languages: string[];
 }
 
 export interface CookieFile {

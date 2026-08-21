@@ -90,12 +90,12 @@ def test_settings_response_exposes_supported_template_tokens_only(monkeypatch):
         "quality",
     ]
     assert response["default_post_processing"] == {
-        "metadata": False,
-        "subtitles": False,
-        "automatic_subtitles": False,
-        "chapters": False,
-        "thumbnail": False,
-        "save_as": "sidecar",
+        "metadata": "off",
+        "subtitles": "off",
+        "automatic_subtitles": "off",
+        "chapters": "off",
+        "thumbnail": "off",
+        "subtitle_languages": [],
     }
 
 

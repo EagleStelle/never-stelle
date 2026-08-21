@@ -210,7 +210,7 @@ def test_run_task_cancellation_during_post_processing_removes_task_and_workspace
         "status": "running",
         "output_dir": str(tmp_path),
         "resolved_folder": str(tmp_path),
-        "post_processing": {"metadata": True, "save_as": "sidecar"},
+        "post_processing": {"metadata": "sidecar"},
     }
     store = {task_id: task}
     workspaces: list[Path] = []

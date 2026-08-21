@@ -52,7 +52,7 @@ AUDIO_EXTENSIONS = {
 }
 MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS | AUDIO_EXTENSIONS
 
-POST_PROCESSING_MODES = {"sidecar", "embed"}
+POST_PROCESSING_MODES = ("off", "sidecar", "embed", "both")
 POST_PROCESSING_FEATURES = (
     "metadata",
     "subtitles",
@@ -60,24 +60,41 @@ POST_PROCESSING_FEATURES = (
     "chapters",
     "thumbnail",
 )
+# Requesting every language pulls yt-dlp's hundreds of translated caption tracks.
+SUBTITLE_LANGUAGES_ALL = "all"
+
+
+def _normalized_subtitle_languages(raw: Any) -> list[str]:
+    values = raw if isinstance(raw, list | tuple) else str(raw or "").split(",")
+    languages: list[str] = []
+    for value in values:
+        text = str(value or "").strip().lower()
+        if text and text not in languages:
+            languages.append(text)
+    return languages
 
 
 def normalize_post_processing(raw: Any) -> dict[str, Any]:
     data = raw if isinstance(raw, dict) else {}
-    mode = str(data.get("save_as") or "").strip().lower()
-    return {
-        "metadata": bool(data.get("metadata", False)),
-        "subtitles": bool(data.get("subtitles", False)),
-        "automatic_subtitles": bool(data.get("automatic_subtitles", False)),
-        "chapters": bool(data.get("chapters", False)),
-        "thumbnail": bool(data.get("thumbnail", False)),
-        "save_as": mode if mode in POST_PROCESSING_MODES else "sidecar",
-    }
+    processing: dict[str, Any] = {}
+    for feature in POST_PROCESSING_FEATURES:
+        mode = str(data.get(feature) or "").strip().lower()
+        processing[feature] = mode if mode in POST_PROCESSING_MODES else "off"
+    processing["subtitle_languages"] = _normalized_subtitle_languages(data.get("subtitle_languages"))
+    return processing
 
 
 def post_processing_requested(raw: Any) -> bool:
     processing = normalize_post_processing(raw)
-    return any(processing[feature] for feature in POST_PROCESSING_FEATURES)
+    return any(processing[feature] != "off" for feature in POST_PROCESSING_FEATURES)
+
+
+def post_processing_embeds(processing: dict[str, Any], feature: str) -> bool:
+    return processing.get(feature) in {"embed", "both"}
+
+
+def post_processing_sidecars(processing: dict[str, Any], feature: str) -> bool:
+    return processing.get(feature) in {"sidecar", "both"}
 
 
 def default_post_processing() -> dict[str, Any]:
@@ -541,7 +558,7 @@ def artwork_extractor_args(quality: Any = None, post_processing: Any = None) -> 
     """Extractor args worth requesting when a run pairs audio artwork with metadata."""
     selection = normalize_quality_selection(quality)
     processing = normalize_post_processing(post_processing)
-    if selection["mode"] != "audio" or not (processing["metadata"] and processing["thumbnail"]):
+    if selection["mode"] != "audio" or "off" in (processing["metadata"], processing["thumbnail"]):
         return {}
     return {
         extractor: {key: list(values) for key, values in args.items()}
