@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import errno
+import os
 import tempfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
 from backend.app.core.config import SCRATCH_DIR
+
+# tempfile stages at 0600; published media must stay readable to other services.
+# os.umask has no read-only form, so sample it at import, before workers exist.
+_UMASK = os.umask(0o022)
+os.umask(_UMASK)
+
+PUBLISHED_FILE_MODE = 0o666 & ~_UMASK
 
 
 def _is_scratch_dir(path: Path) -> bool:
@@ -49,6 +57,15 @@ def scratch_file(*, prefix: str, suffix: str) -> Iterator[Path]:
         remove_scratch_path(path)
 
 
+def _publish(staged: Path, target: Path) -> None:
+    """Move one staged file into place with a library-readable mode."""
+    try:
+        staged.chmod(PUBLISHED_FILE_MODE)
+    except OSError:
+        pass  # filesystems without permission bits (exFAT, NTFS mounts)
+    staged.replace(target)
+
+
 def _copy_file(source: Path, target: Path, cancel_check: Callable[[], None] | None = None) -> None:
     with source.open("rb") as source_file, target.open("wb") as target_file:
         while chunk := source_file.read(1024 * 1024):
@@ -73,7 +90,7 @@ def publish_scratch_file(
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        source_path.replace(target_path)
+        _publish(source_path, target_path)
         return target_path
     except OSError as exc:
         # Separate bind mounts may expose the same st_dev while rename(2) still
@@ -93,7 +110,7 @@ def publish_scratch_file(
         staging_path = Path(runtime_file.name)
     try:
         _copy_file(source_path, staging_path, cancel_check)
-        staging_path.replace(target_path)
+        _publish(staging_path, target_path)
     finally:
         staging_path.unlink(missing_ok=True)
     remove_scratch_path(source_path)

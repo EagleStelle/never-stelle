@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import errno
+import os
+import stat
 from pathlib import Path
+
+import pytest
 
 import backend.app.runtime.scratch as scratch_module
 from backend.app.domains.downloads import audio as audio_module
@@ -59,6 +63,35 @@ def test_publish_scratch_file_moves_completed_file_to_target(tmp_path, monkeypat
     assert published == target
     assert target.read_bytes() == b"complete"
     assert not temporary.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="chmod only carries mode bits on POSIX")
+def test_scratch_files_stay_private(tmp_path, monkeypatch):
+    """Cookie jars share this primitive, so only the publish may widen the mode."""
+    scratch_root = tmp_path / "scratch"
+    monkeypatch.setattr(scratch_module, "SCRATCH_DIR", scratch_root)
+
+    cookie = Path(scratch_module.write_scratch_file(b"jar", prefix="nvs-cookie-", suffix=".txt"))
+    staged = scratch_module.scratch_temp_path(prefix="nvs-publish-", suffix=".mp4")
+
+    for path in (cookie, staged):
+        assert not stat.S_IMODE(path.stat().st_mode) & (stat.S_IRGRP | stat.S_IROTH), path
+
+
+@pytest.mark.skipif(os.name != "posix", reason="chmod only carries mode bits on POSIX")
+def test_publish_scratch_file_widens_the_tempfile_mode(tmp_path, monkeypatch):
+    """tempfile stages at 0600; /media is read by other services as their own user."""
+    scratch_root = tmp_path / "scratch"
+    monkeypatch.setattr(scratch_module, "SCRATCH_DIR", scratch_root)
+    temporary = scratch_module.scratch_temp_path(prefix="nvs-publish-", suffix=".m4a")
+    temporary.write_bytes(b"remuxed")
+    assert stat.S_IMODE(temporary.stat().st_mode) == 0o600
+    target = tmp_path / "media" / "final.m4a"
+
+    scratch_module.publish_scratch_file(temporary, target)
+
+    assert stat.S_IMODE(target.stat().st_mode) == scratch_module.PUBLISHED_FILE_MODE
+    assert stat.S_IMODE(target.stat().st_mode) & stat.S_IROTH
 
 
 def test_publish_scratch_file_falls_back_when_bind_mount_rename_raises_exdev(
