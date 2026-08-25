@@ -12,14 +12,23 @@ from .storage import load_saved_settings_file
 from .tokens import get_effective_token_roles, normalize_token_name
 
 BUILTIN_FOLDER_TEMPLATE = "{{username}}"
+BUILTIN_SUBFOLDER_TEMPLATE = "{{id}}"
 BUILTIN_FILENAME_TEMPLATE = "{{username}} - {{title}} [{{id}}]"
+
+TEMPLATE_KEYS = ("folder_template", "subfolder_template", "filename_template")
+_BUILTIN_TEMPLATES = {
+    "folder_template": BUILTIN_FOLDER_TEMPLATE,
+    "subfolder_template": BUILTIN_SUBFOLDER_TEMPLATE,
+    "filename_template": BUILTIN_FILENAME_TEMPLATE,
+}
 
 
 def normalize_template_settings(raw: Any) -> dict[str, str]:
     source = raw if isinstance(raw, dict) else {}
-    folder_template = str(source.get("folder_template") or "").strip() or BUILTIN_FOLDER_TEMPLATE
-    filename_template = str(source.get("filename_template") or "").strip() or BUILTIN_FILENAME_TEMPLATE
-    return {"folder_template": folder_template, "filename_template": filename_template}
+    return {
+        key: str(source.get(key) or "").strip() or builtin
+        for key, builtin in _BUILTIN_TEMPLATES.items()
+    }
 
 
 def _template_role_replacements(token_roles: dict[str, str] | None) -> dict[str, str]:
@@ -48,10 +57,7 @@ def apply_template_role_tokens(
     token_roles: dict[str, str] | None = None,
 ) -> dict[str, str]:
     settings = normalize_template_settings(template_settings or {})
-    return {
-        "folder_template": _apply_template_role_tokens(settings["folder_template"], token_roles),
-        "filename_template": _apply_template_role_tokens(settings["filename_template"], token_roles),
-    }
+    return {key: _apply_template_role_tokens(settings[key], token_roles) for key in TEMPLATE_KEYS}
 
 
 def normalize_source_template_selection(

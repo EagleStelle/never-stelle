@@ -29,7 +29,7 @@ from .store import (
     save_history_entry_row,
     update_task,
 )
-from .templates import template_columns, template_settings_from_columns
+from .templates import template_row_fields, template_settings_from_row
 from .urls import canonicalize_source_url, detect_source_key, resolve_redirect_url
 from .worker import ensure_worker, has_active_task, request_cancel
 
@@ -103,7 +103,7 @@ def queue_task(
         "progress_pct": 0,
         "output_dir": output_dir,
         "output_template": output_template,
-        **template_columns(resolved_settings.template_settings),
+        **template_row_fields(resolved_settings.template_settings),
         "quality": quality,
         "post_processing": post_processing,
         "resolved_folder": output_dir,
@@ -195,7 +195,7 @@ def retry_task(task_id: str) -> None:
     }
     output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
     if source_url and output_dir:
-        template_settings = template_settings_from_columns(task)
+        template_settings = template_settings_from_row(task)
         updates["output_template"] = engine.build_output_template(
             source_url,
             output_dir,
@@ -315,7 +315,7 @@ def resolve_task_file(task_id: str) -> tuple[Path, str]:
         parsed_media_id, _ = parse_filename_media_id(filename)
         filename = clean_template_display_filename(
             filename,
-            template_settings_from_columns(task),
+            template_settings_from_row(task),
             creator=str(task.get("creator") or ""),
             title=str(task.get("title") or "").strip(),
             media_id=str(task.get("media_id") or "").strip() or parsed_media_id,

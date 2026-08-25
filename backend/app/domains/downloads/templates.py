@@ -2,18 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.app.domains.settings import TEMPLATE_KEYS
 
-def template_columns(template_settings: dict[str, str] | None) -> dict[str, str]:
+
+def template_row_fields(template_settings: dict[str, str] | None) -> dict[str, str]:
+    """The templates a task or history row records, trimmed."""
     settings = template_settings if isinstance(template_settings, dict) else {}
-    return {
-        "folder_template": str(settings.get("folder_template") or "").strip(),
-        "filename_template": str(settings.get("filename_template") or "").strip(),
-    }
+    return {key: str(settings.get(key) or "").strip() for key in TEMPLATE_KEYS}
 
 
-def template_settings_from_columns(payload: dict[str, Any]) -> dict[str, str] | None:
-    folder_template = str(payload.get("folder_template") or "").strip()
-    filename_template = str(payload.get("filename_template") or "").strip()
-    if not (folder_template or filename_template):
-        return None
-    return {"folder_template": folder_template, "filename_template": filename_template}
+def template_settings_from_row(payload: dict[str, Any]) -> dict[str, str] | None:
+    """The templates a row was written with, or None when it carries none."""
+    fields = template_row_fields(payload)
+    return fields if any(fields.values()) else None

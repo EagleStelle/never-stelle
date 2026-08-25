@@ -24,13 +24,13 @@ from backend.app.domains.downloads.workers.completion_creators import (
     _role_token_value,
     _template_folder_text,
 )
+from backend.app.domains.downloads.workers.completion_folders import _move_group_to_template_folder
 from backend.app.domains.downloads.workers.completion_metadata import _filename_template
 from backend.app.domains.downloads.workers.completion_outputs import (
     _clean_resolved_filename,
     _cleanup_duplicate_library_media,
     _coerce_audio_output_extension,
     _item_source_url,
-    _move_group_to_template_folder,
 )
 from backend.app.domains.downloads.workers.completion_values import (
     _display_creator_candidate,

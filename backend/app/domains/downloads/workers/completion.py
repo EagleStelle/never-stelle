@@ -18,6 +18,10 @@ from backend.app.domains.downloads.workers.completion_finalization import (
     FinalizedCompletionOutput,
     _finalize_completed_output,
 )
+from backend.app.domains.downloads.workers.completion_folders import (
+    _move_group_to_template_folder,
+    _render_template_folder,
+)
 from backend.app.domains.downloads.workers.completion_learning import (
     _cleanup_file,
     _learn_field_roles_from_download,
@@ -50,9 +54,7 @@ from backend.app.domains.downloads.workers.completion_outputs import (
     _existing_output_paths,
     _has_output_media,
     _item_source_url,
-    _move_group_to_template_folder,
     _output_identity,
-    _render_template_folder,
 )
 from backend.app.domains.downloads.workers.completion_values import (
     _best_creator_candidate,

@@ -5881,6 +5881,89 @@ def test_a_real_creator_folder_is_left_alone(tmp_path: Path):
     assert path.is_file()
 
 
+_SUBFOLDER_TEMPLATES = {
+    "folder_template": "{{username}}",
+    "subfolder_template": "{{id}}",
+    "filename_template": "{{title}} [{{id}}]",
+}
+
+
+def _downloaded_group(tmp_path: Path, names: list[str]) -> list[Path]:
+    source = tmp_path / "Creator"
+    source.mkdir()
+    paths = []
+    for name in names:
+        path = source / name
+        path.write_bytes(b"media")
+        paths.append(path)
+    return paths
+
+
+def test_a_multi_file_post_moves_into_its_own_subfolder(tmp_path: Path):
+    paths = _downloaded_group(tmp_path, ["Cap [abc123]_1.jpg", "Cap [abc123]_2.jpg"])
+
+    final_path = completion_module._move_group_to_template_folder(
+        paths[0],
+        tmp_path,
+        _SUBFOLDER_TEMPLATES,
+        "Creator",
+        "abc123",
+        group_paths=paths,
+    )
+
+    subfolder = tmp_path / "Creator" / "abc123"
+    assert final_path == subfolder / "Cap [abc123]_1.jpg"
+    assert sorted(path.name for path in subfolder.iterdir()) == [
+        "Cap [abc123]_1.jpg",
+        "Cap [abc123]_2.jpg",
+    ]
+
+
+def test_a_single_file_download_skips_the_subfolder(tmp_path: Path):
+    paths = _downloaded_group(tmp_path, ["Clip [abc123].mp4"])
+
+    final_path = completion_module._move_group_to_template_folder(
+        paths[0],
+        tmp_path,
+        _SUBFOLDER_TEMPLATES,
+        "Creator",
+        "abc123",
+        group_paths=paths,
+    )
+
+    assert final_path == tmp_path / "Creator" / "Clip [abc123].mp4"
+
+
+def test_an_empty_subfolder_template_keeps_a_multi_file_post_flat(tmp_path: Path):
+    paths = _downloaded_group(tmp_path, ["Cap [abc123]_1.jpg", "Cap [abc123]_2.jpg"])
+
+    final_path = completion_module._move_group_to_template_folder(
+        paths[0],
+        tmp_path,
+        {**_SUBFOLDER_TEMPLATES, "subfolder_template": ""},
+        "Creator",
+        "abc123",
+        group_paths=paths,
+    )
+
+    assert final_path == tmp_path / "Creator" / "Cap [abc123]_1.jpg"
+
+
+def test_a_scan_reads_the_creator_above_a_subfolder():
+    root = Path("/media/instagram")
+    path = root / "NASA" / "ABC123" / "Cool Rocket [ABC123]_1.jpg"
+    compiled = scan_module._CompiledTemplates(
+        scan_module.compile_template("{{username}}"),
+        scan_module.compile_template("{{id}}"),
+        scan_module.compile_template("{{title}} [{{id}}]"),
+    )
+
+    assert scan_module._creator_for_file(root, path, set(), compiled) == "NASA"
+    # Without a subfolder template the extra segment is not a subfolder, so it is not trimmed.
+    flat = scan_module._CompiledTemplates(compiled.folder, None, compiled.filename)
+    assert scan_module._creator_for_file(root, path, set(), flat) == ""
+
+
 def test_multibyte_title_shortening_and_byte_safety():
     # Long Japanese ASMR title with emojis and symbols (92 chars, 221 bytes)
     japanese_title = (

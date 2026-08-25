@@ -7,12 +7,7 @@ from typing import Any
 
 from backend.app.core.paths import path_key as _path_key
 from backend.app.domains.downloads.audio import audio_container_matches, convert_audio_output
-from backend.app.domains.downloads.constants import (
-    CREATOR_FIELDS,
-    TEMPLATE_RE,
-    audio_output_extension,
-    quality_label,
-)
+from backend.app.domains.downloads.constants import audio_output_extension
 from backend.app.domains.downloads.engine import Engine
 from backend.app.domains.downloads.files import (
     find_newest_media_file,
@@ -22,11 +17,7 @@ from backend.app.domains.downloads.files import (
 )
 from backend.app.domains.downloads.formats import media_id_from_url, reconstruct_url
 from backend.app.domains.downloads.learning import update_learned_formats_with_download
-from backend.app.domains.downloads.naming import (
-    clean_template_filename,
-    sanitize_path_literal,
-    strip_numbered_suffix,
-)
+from backend.app.domains.downloads.naming import clean_template_filename, strip_numbered_suffix
 from backend.app.domains.downloads.scan import parse_filename_media_id
 from backend.app.domains.downloads.store import (
     load_history_entries_for_media_id,
@@ -38,10 +29,7 @@ from backend.app.domains.downloads.workers.completion_creators import (
     _filename_media_id,
 )
 from backend.app.domains.downloads.workers.completion_metadata import _filename_template
-from backend.app.domains.downloads.workers.completion_values import (
-    _clean_creator_candidate,
-    _display_creator_candidate,
-)
+from backend.app.domains.downloads.workers.completion_values import _display_creator_candidate
 from backend.app.domains.downloads.workers.pathing import (
     _media_kind,
     _preferred_output_path,
@@ -495,124 +483,3 @@ def _clean_resolved_filename(
             return renamed, renamed.name
 
     return path, path.name
-
-def _render_template_folder(
-    output_root: Path,
-    template_settings: dict[str, str] | None,
-    creator: str,
-    media_id: str,
-    nickname: str = "",
-    extra_tokens: dict[str, str] | None = None,
-    cleaning: dict[str, Any] | None = None,
-    quality: dict[str, str] | None = None,
-    title: str = "",
-) -> Path | None:
-    folder_template = str((template_settings or {}).get("folder_template") or "").strip()
-    if not folder_template:
-        return None
-    creator = _display_creator_candidate(creator, cleaning)
-    nickname = _display_creator_candidate(nickname, cleaning) or creator
-    media_id = str(media_id or "").strip()
-
-    def replace(match: re.Match[str]) -> str:
-        field = match.group(1).strip().lower()
-        if extra_tokens:
-            override = extra_tokens.get(field)
-            if override is not None and str(override).strip():
-                if field in CREATOR_FIELDS:
-                    override = _display_creator_candidate(str(override), cleaning)
-                return str(override)
-        if field == "nickname":
-            return nickname
-        if field == "username":
-            return creator
-        if field == "id":
-            return media_id
-        if field == "title":
-            return sanitize_path_literal(title)
-        if field == "quality" and quality is not None:
-            return quality_label(quality)
-        return ""
-
-    rendered = TEMPLATE_RE.sub(replace, folder_template)
-    if not rendered.strip():
-        return None
-    segments = [
-        sanitize_path_literal(segment)
-        for segment in re.split(r"[\\/]+", rendered)
-        if sanitize_path_literal(segment) and sanitize_path_literal(segment) not in {".", ".."}
-    ]
-    if not segments:
-        return None
-    return output_root.joinpath(*segments)
-
-def _placeholder_creator_escape(selected_path: Path, output_root: Path) -> Path | None:
-    """The output root, when the engine filed the download under a non-name.
-
-    A null folder token leaves the engine writing a literal "None" directory. Our
-    template renders nothing for that row, so the file stayed there, reading as though
-    that were the creator.
-    """
-    parent = selected_path.parent
-    if _path_key(parent.parent) != _path_key(output_root):
-        return None
-    return None if _clean_creator_candidate(parent.name) else output_root
-
-
-def _move_group_to_template_folder(
-    selected_path: Path,
-    output_root: Path,
-    template_settings: dict[str, str] | None,
-    creator: str,
-    media_id: str,
-    nickname: str = "",
-    extra_tokens: dict[str, str] | None = None,
-    cleaning: dict[str, Any] | None = None,
-    quality: dict[str, str] | None = None,
-    title: str = "",
-    group_paths: list[Path] | None = None,
-) -> Path:
-    target_dir = _render_template_folder(
-        output_root,
-        template_settings,
-        creator,
-        media_id,
-        nickname,
-        extra_tokens,
-        cleaning,
-        quality,
-        title,
-    )
-    if target_dir is None:
-        target_dir = _placeholder_creator_escape(selected_path, output_root)
-    if target_dir is None or _path_key(selected_path.parent) == _path_key(target_dir):
-        return selected_path
-    try:
-        target_dir.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        return selected_path
-
-    source_parent = selected_path.parent
-    selected = selected_path
-    selected_key = _path_key(selected_path)
-    paths = group_paths if group_paths else find_numbered_media_siblings(selected_path) or [selected_path]
-    for index, path in enumerate(paths):
-        target = _unique_sibling_path(target_dir / path.name)
-        if _path_key(path) == _path_key(target):
-            moved = path
-        else:
-            try:
-                path.replace(target)
-                moved = target
-            except OSError:
-                moved = path
-        paths[index] = moved
-        if _path_key(path) == selected_key:
-            selected = moved
-    if _path_key(source_parent) != _path_key(output_root):
-        try:
-            if source_parent.exists() and not any(source_parent.iterdir()):
-                source_parent.rmdir()
-        except OSError:
-            pass
-    return selected

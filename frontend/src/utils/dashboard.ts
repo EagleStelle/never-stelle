@@ -248,6 +248,7 @@ export function createTemplateSettings(
 ) {
   return {
     folder_template: source.folder_template || "{{username}}",
+    subfolder_template: source.subfolder_template || "{{id}}",
     filename_template: source.filename_template || "{{username}} - {{title}} [{{id}}]",
   };
 }

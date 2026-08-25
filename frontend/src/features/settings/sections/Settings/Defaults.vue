@@ -42,6 +42,11 @@ import PostProcessingFields from "@/features/downloads/PostProcessingFields.vue"
 import { COOKIE_POLICY_FIELDS } from "@/features/settings/cookiePolicy";
 import { useSettingsContext } from "@/features/settings/context";
 import {
+  TEMPLATE_FIELDS,
+  templateFieldSlug,
+  type TemplateFieldDef,
+} from "@/features/settings/templateFields";
+import {
   GLOBAL_NAMING_KEY,
   useNamingSettings,
 } from "@/features/settings/composables/useNamingSettings";
@@ -231,9 +236,6 @@ function isDropTarget(role: FieldRole, index: number): boolean {
   return drag.role === role && drag.over === index && drag.from !== index;
 }
 
-const FOLDER_INPUT_ID = "defaultFolderTemplate";
-const FILENAME_INPUT_ID = "defaultFilenameTemplate";
-
 const templateTokens = computed(() => settings.template_tokens || []);
 
 // Track the last focused template input so token clicks insert into it.
@@ -243,21 +245,27 @@ function recordFocus(id: string): void {
   lastFocusedInputId.value = id;
 }
 
+function templateInputId(field: TemplateFieldDef): string {
+  return `default-${templateFieldSlug(field)}-template`;
+}
+
+function templateField(id: string): TemplateFieldDef | undefined {
+  return TEMPLATE_FIELDS.find((field) => templateInputId(field) === id);
+}
+
 function templateValue(id: string): string {
-  return id === FOLDER_INPUT_ID
-    ? settingsDraft.template_settings.folder_template
-    : settingsDraft.template_settings.filename_template;
+  const field = templateField(id);
+  return field ? settingsDraft.template_settings[field.key] : "";
 }
 
 function setTemplate(id: string, value: string): void {
-  if (id === FOLDER_INPUT_ID)
-    settingsDraft.template_settings.folder_template = value;
-  else settingsDraft.template_settings.filename_template = value;
+  const field = templateField(id);
+  if (field) settingsDraft.template_settings[field.key] = value;
 }
 
 function insertToken(token: string): void {
   const targetId = lastFocusedInputId.value;
-  if (targetId !== FOLDER_INPUT_ID && targetId !== FILENAME_INPUT_ID) return;
+  if (!templateField(targetId)) return;
   const current = templateValue(targetId);
   const el = document.getElementById(targetId) as HTMLInputElement | null;
   const start = el?.selectionStart ?? current.length;
@@ -485,30 +493,32 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
           Templates
         </FieldLegend>
         <FieldGroup>
-          <Field>
-            <FieldLabel :for="FOLDER_INPUT_ID">Folder</FieldLabel>
+          <Field v-for="field in TEMPLATE_FIELDS" :key="field.key">
+            <FieldLabel :for="templateInputId(field)" class="items-center gap-1.5">
+              <span>{{ field.label }}</span>
+              <Tooltip v-if="field.help">
+                <TooltipTrigger as-child>
+                  <button
+                    type="button"
+                    class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-(--glass-border) bg-black/20 text-[0.625rem] font-semibold leading-none text-muted-foreground transition-all duration-300 ease-glass hover:border-accent hover:text-white focus-visible:ring-2 focus-visible:ring-accent in-[.light-mode]:bg-white/40 in-[.light-mode]:hover:text-black"
+                    :aria-label="`${field.label} help`"
+                  >
+                    i
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {{ field.help }}
+                </TooltipContent>
+              </Tooltip>
+            </FieldLabel>
             <FieldContent>
               <Input
-                :id="FOLDER_INPUT_ID"
-                :model-value="settingsDraft.template_settings.folder_template"
-                placeholder="{{username}}"
-                @focus="recordFocus(FOLDER_INPUT_ID)"
+                :id="templateInputId(field)"
+                :model-value="templateValue(templateInputId(field))"
+                :placeholder="field.builtin"
+                @focus="recordFocus(templateInputId(field))"
                 @update:model-value="
-                  (v) => setTemplate(FOLDER_INPUT_ID, String(v))
-                "
-              />
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel :for="FILENAME_INPUT_ID">Filename</FieldLabel>
-            <FieldContent>
-              <Input
-                :id="FILENAME_INPUT_ID"
-                :model-value="settingsDraft.template_settings.filename_template"
-                placeholder="{{username}} - {{title}} [{{id}}]"
-                @focus="recordFocus(FILENAME_INPUT_ID)"
-                @update:model-value="
-                  (v) => setTemplate(FILENAME_INPUT_ID, String(v))
+                  (v) => setTemplate(templateInputId(field), String(v))
                 "
               />
             </FieldContent>

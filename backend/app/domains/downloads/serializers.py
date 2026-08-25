@@ -32,7 +32,7 @@ from .store import (
     load_task_store,
     spent_enrichment_job_ids,
 )
-from .templates import template_settings_from_columns
+from .templates import template_settings_from_row
 from .urls import detect_source_key
 
 
@@ -71,7 +71,7 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
     parsed_media_id, _ = parse_filename_media_id(raw_filename)
     media_id = str(task.get("media_id") or "").strip() or parsed_media_id
     creator = str(task.get("creator") or "")
-    template_settings = template_settings_from_columns(task)
+    template_settings = template_settings_from_row(task)
     quality = normalize_quality_selection(task.get("quality"))
     resolved_filename = (
         clean_template_display_filename(

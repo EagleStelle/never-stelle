@@ -29,7 +29,11 @@ export function useTokenRoles(settingsDraft: SavedSettings) {
     if (!formats) return;
     for (const format of Object.keys(formats)) {
       const templateSettings = formats[format];
-      for (const field of ["folder_template", "filename_template"] as const) {
+      for (const field of [
+        "folder_template",
+        "subfolder_template",
+        "filename_template",
+      ] as const) {
         templateSettings[field] = String(templateSettings[field] || "").replace(
           TEMPLATE_TOKEN_RE,
           (match, rawToken) =>

@@ -32,6 +32,8 @@ export type SourceLocationOptions = Record<string, string[]>;
 
 export interface TemplateSettings {
   folder_template: string;
+  // Extra folder for a post that brought back several files; "" keeps them flat.
+  subfolder_template: string;
   filename_template: string;
 }
 

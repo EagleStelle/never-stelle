@@ -677,6 +677,7 @@ def test_v1_templates_survive_onto_the_effective_settings(tmp_path, monkeypatch)
 
     assert get_effective_saved_settings()["source_templates"]["youtube"][_V1_TEMPLATE] == {
         "folder_template": "{{username}}",
+        "subfolder_template": "{{id}}",
         "filename_template": "{{title}} [{{id}}]",
     }
 

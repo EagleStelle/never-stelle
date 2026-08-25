@@ -297,6 +297,7 @@ def test_normalize_source_templates_applies_role_backed_scrape_tokens():
 
     assert result["rule34video"][format_template] == {
         "folder_template": "{{artist}}",
+        "subfolder_template": "{{id}}",
         "filename_template": "{{title}} [{{id}}]",
     }
 
@@ -843,6 +844,7 @@ def test_get_effective_template_settings_uses_format_keyed_source_template(monke
 
     assert result == {
         "folder_template": "{{username}}/clips",
+        "subfolder_template": "{{id}}",
         "filename_template": "{{title}} -- {{id}}",
     }
 
@@ -1077,6 +1079,7 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
     assert resolved.output_dir == str(_TWITTER_ROOT)
     assert resolved.template_settings == {
         "folder_template": "{{username}}/{{id}}",
+        "subfolder_template": "{{id}}",
         "filename_template": "{{username}} - {{id}}",
     }
 
@@ -1127,5 +1130,6 @@ def test_resolve_task_settings_matches_format(monkeypatch):
     assert resolved.source_key == "twitter"
     assert resolved.template_settings == {
         "folder_template": "FormatSpecificFolder",
+        "subfolder_template": "{{id}}",
         "filename_template": "FormatSpecificFilename",
     }

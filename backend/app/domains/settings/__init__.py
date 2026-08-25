@@ -74,6 +74,8 @@ from backend.app.domains.settings.storage import load_saved_settings_file, save_
 from backend.app.domains.settings.templates import (
     BUILTIN_FILENAME_TEMPLATE,
     BUILTIN_FOLDER_TEMPLATE,
+    BUILTIN_SUBFOLDER_TEMPLATE,
+    TEMPLATE_KEYS,
     get_effective_template_settings,
     normalize_source_template_selection,
     normalize_template_settings,
@@ -89,7 +91,9 @@ from backend.app.domains.settings.tokens import (
 __all__ = [
     "BUILTIN_FILENAME_TEMPLATE",
     "BUILTIN_FOLDER_TEMPLATE",
+    "BUILTIN_SUBFOLDER_TEMPLATE",
     "DEFAULT_COOKIE_POLICY",
+    "TEMPLATE_KEYS",
     "CookieLease",
     "CookiePolicy",
     "add_source_and_learn_format",

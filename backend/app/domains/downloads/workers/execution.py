@@ -35,7 +35,7 @@ from backend.app.domains.downloads.store import (
     remove_task_record,
     update_task,
 )
-from backend.app.domains.downloads.templates import template_columns, template_settings_from_columns
+from backend.app.domains.downloads.templates import template_row_fields, template_settings_from_row
 from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
 from backend.app.domains.downloads.workers.completion import (
     _attempt_output_paths,
@@ -195,7 +195,7 @@ def _engine_run_order(task: dict[str, Any]) -> list[Engine]:
 
 
 def _task_template_settings(task: dict[str, Any]) -> dict[str, str] | None:
-    return template_settings_from_columns(task)
+    return template_settings_from_row(task)
 
 
 def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
@@ -528,7 +528,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                             "last_log_lines": [],
                             "output_dir": "",
                             "output_template": "",
-                            **template_columns(template_settings),
+                            **template_row_fields(template_settings),
                         },
                     )
                 )

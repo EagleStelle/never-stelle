@@ -11,7 +11,7 @@ from backend.app.db import repositories
 from backend.app.domains.downloads import history as history_module
 from backend.app.domains.downloads import serializers
 from backend.app.domains.downloads.formats import learn_download
-from backend.app.domains.downloads.templates import template_columns, template_settings_from_columns
+from backend.app.domains.downloads.templates import template_row_fields, template_settings_from_row
 from tests.support import use_temp_db
 
 
@@ -75,19 +75,21 @@ def test_download_tables_use_real_task_and_history_columns(tmp_path, monkeypatch
     } <= history_columns
 
 
-def test_template_column_helpers_trim_symmetrically():
-    columns = template_columns(
+def test_template_row_helpers_trim_symmetrically():
+    fields = template_row_fields(
         {
             "folder_template": "  {{username}}  ",
+            "subfolder_template": "  {{id}}  ",
             "filename_template": "  {{title}} [{{id}}]  ",
         }
     )
 
-    assert columns == {
+    assert fields == {
         "folder_template": "{{username}}",
+        "subfolder_template": "{{id}}",
         "filename_template": "{{title}} [{{id}}]",
     }
-    assert template_settings_from_columns(columns) == columns
+    assert template_settings_from_row(fields) == fields
 
 
 def test_settings_payload_roundtrips_through_app_settings(tmp_path, monkeypatch):

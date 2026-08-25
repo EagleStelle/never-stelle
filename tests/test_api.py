@@ -243,6 +243,7 @@ def test_settings_put_accepts_format_keyed_source_templates(tmp_path, monkeypatc
     assert response.status_code == 200
     assert response.json()["source_templates"]["twitter"][format_template] == {
         "folder_template": "{{username}}/clips",
+        "subfolder_template": "{{id}}",
         "filename_template": "{{title}} -- {{id}}",
     }
 

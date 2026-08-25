@@ -5,6 +5,7 @@ import re
 import threading
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -284,17 +285,36 @@ def _relative_folder(base: Path, folder: Path) -> str:
     return "" if relative == Path(".") else relative.as_posix()
 
 
+@dataclass(frozen=True)
+class _CompiledTemplates:
+    """The folder, subfolder and filename matchers of one source format."""
+
+    folder: re.Pattern[str] | None
+    subfolder: re.Pattern[str] | None
+    filename: re.Pattern[str] | None
+
+
+def _folder_match_candidates(folder_text: str, subfolder: re.Pattern[str] | None) -> list[str]:
+    # A multi-file post sits one level deeper, so the creator folder is its parent.
+    head, separator, tail = folder_text.rpartition("/")
+    if separator and subfolder is not None and subfolder.match(tail):
+        return [folder_text, head]
+    return [folder_text]
+
+
 def _creator_for_file(
     root: Path,
     path: Path,
     source_folders: set[str],
-    folder_pattern: re.Pattern[str] | None,
-    filename_pattern: re.Pattern[str] | None,
+    templates: _CompiledTemplates,
 ) -> str:
     # Follow the templates: creator from the {{username}} folder first, then the filename.
     folder_text = _relative_folder(_folder_base(root, path, source_folders), path.parent)
-    creator = _match_template(folder_pattern, folder_text).get("creator", "")
-    return creator or _match_template(filename_pattern, path.stem).get("creator", "")
+    for candidate in _folder_match_candidates(folder_text, templates.subfolder):
+        creator = _match_template(templates.folder, candidate).get("creator", "")
+        if creator:
+            return creator
+    return _match_template(templates.filename, path.stem).get("creator", "")
 
 
 def _completed_records() -> dict[str, dict[str, Any]]:
@@ -714,7 +734,7 @@ class _TemplateResolver:
         self._per_source = per_source
         self._token_roles = token_roles or {}
         self._slug_tokens = slug_tokens or {}
-        self._cache: dict[str, dict[str, tuple[re.Pattern[str] | None, re.Pattern[str] | None]]] = {}
+        self._cache: dict[str, dict[str, _CompiledTemplates]] = {}
         self.base_filename = compile_template(base.get("filename_template") or "")
 
     def slug_rules_for(self, source_key: str) -> list[dict[str, str]]:
@@ -731,9 +751,7 @@ class _TemplateResolver:
             formats.insert(0, preferred)
         return formats
 
-    def for_source_format(
-        self, source_key: str, format_template: str = ""
-    ) -> tuple[re.Pattern[str] | None, re.Pattern[str] | None]:
+    def for_source_format(self, source_key: str, format_template: str = "") -> _CompiledTemplates:
         if source_key not in self._cache:
             self._cache[source_key] = {}
         if format_template not in self._cache[source_key]:
@@ -741,8 +759,9 @@ class _TemplateResolver:
             settings = templates_dict.get(format_template) or self._base
             roles = self._token_roles.get(normalize_source_key(source_key)) or {}
             slug_names = {rule["token"] for rule in self.slug_rules_for(source_key) if rule.get("token")}
-            self._cache[source_key][format_template] = (
+            self._cache[source_key][format_template] = _CompiledTemplates(
                 compile_template(settings.get("folder_template") or "", roles, slug_names),
+                compile_template(settings.get("subfolder_template") or "", roles, slug_names),
                 compile_template(settings.get("filename_template") or "", roles, slug_names),
             )
         return self._cache[source_key][format_template]
@@ -953,26 +972,20 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
         )
         # Try to find a matching template for the disk file among all formats configured,
         # starting with the format that owns the folder the file was found in.
-        best_match = None
-        best_fields = None
+        compiled: _CompiledTemplates | None = None
+        filename_fields: dict[str, str] = {}
         matched_fmt = ""
 
         for fmt in templates.all_formats_for(source_key, folder_format):
-            folder_pat, filename_pat = templates.for_source_format(source_key, fmt)
-            fields = _match_template(filename_pat, path.stem)
+            candidate = templates.for_source_format(source_key, fmt)
+            fields = _match_template(candidate.filename, path.stem)
             if fields:
-                best_match = (folder_pat, filename_pat)
-                best_fields = fields
-                matched_fmt = fmt
+                compiled, filename_fields, matched_fmt = candidate, fields, fmt
                 break
-                
-        if best_match:
-            folder_pattern, filename_pattern = best_match
-            filename_fields = best_fields
-        else:
-            folder_pattern, filename_pattern = templates.for_source_format(source_key, "")
-            filename_fields = _match_template(filename_pattern, path.stem)
-            matched_fmt = ""
+
+        if compiled is None:
+            compiled = templates.for_source_format(source_key, "")
+            filename_fields = _match_template(compiled.filename, path.stem)
 
         title = filename_fields.get("title", title)
         source_roles = token_role_map.get(source_key) or {}
@@ -980,7 +993,7 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
         slug_names = {rule["token"] for rule in slug_rules if rule.get("token")}
         # Recover configured URL parts from the filename so links reconstruct generically.
         slug_values = _slug_values_from_fields(slug_rules, source_roles, slug_names, filename_fields)
-        disk_creator = _creator_for_file(root, path, source_folders, folder_pattern, filename_pattern)
+        disk_creator = _creator_for_file(root, path, source_folders, compiled)
         folder_template, filename_template = templates.templates_for_format(source_key, matched_fmt)
         prior = records.get(task_id) or {}
         prior_creator = str(prior.get("creator") or "").strip()
