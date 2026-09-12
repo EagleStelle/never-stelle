@@ -50,22 +50,32 @@ RUN --mount=type=cache,id=never-stelle-ffmpeg-source,target=/var/cache/ffmpeg \
     x265-dev \
     xz \
     zlib-dev \
-    && archive="/var/cache/ffmpeg/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
-    && if ! tar -tJf "$archive" >/dev/null 2>&1; then \
+    && archive="/var/cache/ffmpeg/ffmpeg-${FFMPEG_VERSION}.tar" \
+    && if ! tar -tf "$archive" >/dev/null 2>&1; then \
         rm -f "$archive" "$archive.tmp"; \
-        curl --fail --location \
-            --retry 8 \
-            --retry-all-errors \
-            --retry-delay 2 \
-            --connect-timeout 20 \
-            --speed-limit 1024 \
-            --speed-time 30 \
-            --output "$archive.tmp" \
-            "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"; \
-        tar -tJf "$archive.tmp" >/dev/null; \
-        mv "$archive.tmp" "$archive"; \
+        for url in \
+            "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
+            "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" \
+            "https://git.ffmpeg.org/gitweb/ffmpeg.git/snapshot/n${FFMPEG_VERSION}.tar.gz" \
+        ; do \
+            if curl --fail --location --ipv4 \
+                --retry 3 \
+                --retry-all-errors \
+                --retry-delay 2 \
+                --connect-timeout 15 \
+                --speed-limit 1024 \
+                --speed-time 30 \
+                --output "$archive.tmp" \
+                "$url" \
+                && tar -tf "$archive.tmp" >/dev/null 2>&1; then \
+                mv "$archive.tmp" "$archive"; \
+                break; \
+            fi; \
+            rm -f "$archive.tmp"; \
+        done; \
+        tar -tf "$archive" >/dev/null; \
     fi \
-    && tar -xJf "$archive" --strip-components=1 \
+    && tar -xf "$archive" --strip-components=1 \
     && ./configure \
     --prefix=/opt/ffmpeg \
     --disable-autodetect \
