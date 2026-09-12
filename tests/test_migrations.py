@@ -137,6 +137,32 @@ def test_upgrade_from_a_stamped_version_backs_the_database_up_first(tmp_path, mo
     assert "site_locations" in json.loads(row[0])
 
 
+def test_only_the_newest_snapshot_survives_an_upgrade(tmp_path, monkeypatch):
+    database_path = tmp_path / "never-stelle.sqlite3"
+    _seed_pre_migration_db(database_path, _legacy_payload(), version=1)
+    for version in (0, 1):
+        (tmp_path / f"never-stelle.sqlite3.v{version}.bak").write_bytes(b"old")
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    assert [path.name for path in sorted(tmp_path.glob("*.bak"))] == ["never-stelle.sqlite3.v1.bak"]
+    # The survivor is the copy this upgrade took, not the placeholder it replaced.
+    assert (tmp_path / "never-stelle.sqlite3.v1.bak").read_bytes() != b"old"
+
+
+def test_snapshots_are_pruned_with_nothing_to_upgrade(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+    database_module.initialize_database()
+    database_module.close_database()
+    for version in (2, 3, 4):
+        (tmp_path / f"never-stelle.sqlite3.v{version}.bak").write_bytes(b"old")
+
+    database_module.initialize_database()
+
+    assert [path.name for path in sorted(tmp_path.glob("*.bak"))] == ["never-stelle.sqlite3.v4.bak"]
+
+
 def test_fresh_database_is_not_backed_up(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
     database_module.initialize_database()

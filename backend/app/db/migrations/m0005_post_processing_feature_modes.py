@@ -14,6 +14,8 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
+from . import table_exists
+
 _FEATURES = ("metadata", "subtitles", "automatic_subtitles", "chapters", "thumbnail")
 # Every place a selection was stored: saved defaults, queued tasks, finished rows,
 # and the dry payload an enrichment job replays a completion from.
@@ -39,15 +41,8 @@ def _rewritten(raw: Any) -> dict[str, Any] | None:
     return selection
 
 
-def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
-    row = connection.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
-    ).fetchone()
-    return row is not None
-
-
 def _migrate_rows(connection: sqlite3.Connection, table: str, column: str) -> None:
-    if not _table_exists(connection, table):
+    if not table_exists(connection, table):
         return
     rows = connection.execute(f"SELECT id, {column} FROM {table}").fetchall()  # noqa: S608
     for row_id, blob in rows:
