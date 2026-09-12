@@ -81,11 +81,6 @@ def _cancel_pending(task_id: str) -> bool:
         return task_id in _cancel_requested
 
 
-def _clear_cancel(task_id: str) -> None:
-    with _cancel_lock:
-        _cancel_requested.discard(task_id)
-
-
 def _register_process(task_id: str, process: subprocess.Popen[str]) -> None:
     with _cancel_lock:
         _active_processes[task_id] = process

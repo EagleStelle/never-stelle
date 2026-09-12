@@ -10,8 +10,6 @@ import backend.app.domains.settings.storage as settings_storage_module
 import backend.app.domains.settings.templates as settings_templates_module
 from backend.app.core.config import MEDIA_DIR
 from backend.app.domains.downloads.learning import (
-    ensure_fields_learned,
-    get_learned_fields,
     learn_missing_fields_for_format,
     save_learned_fields,
     save_missing_learned_fields,
@@ -694,45 +692,6 @@ def test_format_field_probe_promotes_literal_url_creator_template(monkeypatch):
         "https://www.tiktok.com/@{creator}/video/{id}",
     ]
     assert saved_settings[-1]["source_fields"]["tiktok"] == result
-
-
-def test_ensure_fields_learned_skips_existing_records(monkeypatch):
-    import backend.app.domains.downloads.learning as learning_mod
-    import backend.app.domains.downloads.probe as probe_mod
-
-    monkeypatch.setattr(
-        learning_mod,
-        "load_saved_settings_file",
-        lambda: {"source_fields": {"youtube": {"username": ["channel"]}}},
-    )
-    monkeypatch.setattr(probe_mod, "probe_fields", lambda *args: (_ for _ in ()).throw(AssertionError("skip")))
-
-    assert ensure_fields_learned("https://youtube.com/watch?v=x", "youtube") == {}
-
-
-def test_ensure_fields_learned_saves_first_successful_probe(monkeypatch):
-    import backend.app.domains.downloads.learning as learning_mod
-    import backend.app.domains.downloads.probe as probe_mod
-
-    payload: dict = {}
-    monkeypatch.setattr(learning_mod, "load_saved_settings_file", lambda: payload)
-
-    def save(data):
-        updated = dict(data)
-        payload.clear()
-        payload.update(updated)
-
-    monkeypatch.setattr(learning_mod, "save_saved_settings_file", save)
-    monkeypatch.setattr(
-        probe_mod,
-        "probe_fields",
-        lambda url, key: {"source_key": "youtube", "field_roles": {"username": ["uploader_id"]}},
-    )
-
-    assert ensure_fields_learned("https://youtube.com/watch?v=x", "youtube") == {
-        "username": ["uploader_id"]
-    }
-    assert get_learned_fields("", "youtube") == {"username": ["uploader_id"]}
 
 
 def test_get_effective_title_cleaning_resolves_per_source(monkeypatch):

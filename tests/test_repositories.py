@@ -272,19 +272,19 @@ def test_fetch_history_page_returns_opaque_next_cursor(tmp_path, monkeypatch):
 
 
 
-def test_source_activity_revision_ignores_progress_writes(tmp_path, monkeypatch):
-    # Anything cached against this revision must survive a running download, which
-    # rewrites its own row several times a minute for the whole transfer.
+def test_source_activity_rows_ignore_progress_writes(tmp_path, monkeypatch):
+    # Source profiles are derived from this, so a running download rewriting its own
+    # row several times a minute must not change the answer.
     use_temp_db(tmp_path, monkeypatch)
     repositories.merge_task_payload(
         "t1", {"source_url": "https://example.test/a/1", "source_key": "example", "status": "running"}
     )
-    before = repositories.source_activity_revision()
+    before = repositories.source_activity_rows()
 
     repositories.merge_task_payload("t1", {"progress_pct": 41, "last_log_lines": ["a", "b"]})
     repositories.merge_task_payload("t1", {"progress_pct": 87})
 
-    assert repositories.source_activity_revision() == before
+    assert repositories.source_activity_rows() == before
 
 
 def test_task_updated_at_is_repository_managed(tmp_path, monkeypatch):
@@ -406,14 +406,18 @@ def test_delete_task_row_if_status_rejects_invalid_status_filter(tmp_path, monke
         repositories.delete_task_row_if_status("t1", {"pendnig"})
 
 
-def test_source_activity_revision_moves_when_a_new_source_appears(tmp_path, monkeypatch):
+def test_source_activity_rows_carry_one_sample_url_per_source(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
     repositories.merge_task_payload("t1", {"source_url": "https://example.test/a/1", "source_key": "example"})
-    before = repositories.source_activity_revision()
+    repositories.merge_task_payload("t2", {"source_url": "https://example.test/a/2", "source_key": "example"})
 
-    repositories.merge_task_payload("t2", {"source_url": "https://other.test/b/2", "source_key": "other"})
+    rows = repositories.source_activity_rows()
+    assert [key for key, _ in rows] == ["example"]
+    assert rows[0][1].startswith("https://example.test/")
 
-    assert repositories.source_activity_revision() != before
+    repositories.merge_task_payload("t3", {"source_url": "https://other.test/b/2", "source_key": "other"})
+
+    assert [key for key, _ in repositories.source_activity_rows()] == ["example", "other"]
 
 
 def test_load_task_payload_returns_one_row(tmp_path, monkeypatch):
@@ -491,7 +495,7 @@ def test_save_history_rows_writes_the_whole_batch(tmp_path, monkeypatch):
     entries = repositories.load_history_payload()["entries"]
     assert len(entries) == 5
     assert entries["disk:3"]["source_url"] == "https://example.test/p/3"
-    assert repositories.count_history_by_source() == {"example": 5}
+    assert repositories.count_history_by_source_and_media() == {"video": {"example": 5}}
 
 
 def test_build_counts_splits_platform_totals_by_media_type(tmp_path, monkeypatch):

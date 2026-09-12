@@ -3,7 +3,7 @@ from __future__ import annotations
 import backend.app.core.config as config_module
 import backend.app.domains.settings.storage as storage_module
 from backend.app.core.pacing import CpuPacer, available_cores, background_cpu_budget
-from backend.app.core.resolution import invalidate, resolution_scope, resolved, scope_active
+from backend.app.core.resolution import invalidate, resolution_scope, resolved
 from tests.support import use_temp_db
 
 
@@ -24,7 +24,6 @@ def test_resolution_is_pass_through_without_a_scope():
     resolved("k", factory)
 
     assert calls["n"] == 2
-    assert scope_active() is False
 
 
 def test_scope_resolves_each_key_once():

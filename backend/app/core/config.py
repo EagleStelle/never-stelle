@@ -88,9 +88,6 @@ for _tmp_var in ("TMPDIR", "TEMP", "TMP"):
 tempfile.tempdir = str(SCRATCH_DIR)
 
 SITE_KEYS: tuple[str, ...] = ()
-SITE_LABELS = {"all": "All"}
-
-
 _MAX_WORKER_POOL_SIZE = 16
 
 

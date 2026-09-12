@@ -51,6 +51,19 @@ AUDIO_EXTENSIONS = {
     ".wav",
 }
 MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS | AUDIO_EXTENSIONS
+MEDIA_KINDS = ("image", "video")
+_IMAGE_SUFFIXES = tuple(sorted(IMAGE_EXTENSIONS))
+
+
+def media_kind_for(resolved_filename: Any, engine: Any) -> str:
+    """Which of ``MEDIA_KINDS`` one row belongs to, from its filename and engine."""
+    name = str(resolved_filename or "").lower()
+    if name.endswith(_IMAGE_SUFFIXES):
+        return "image"
+    if "." in name:
+        return "video"
+    return "image" if str(engine or "").lower() == "gallerydl" else "video"
+
 
 POST_PROCESSING_MODES = ("off", "sidecar", "embed", "both")
 POST_PROCESSING_FEATURES = (

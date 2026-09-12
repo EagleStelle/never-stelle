@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 from yt_dlp import YoutubeDL
 
+import backend.app.db.repositories as repositories
 import backend.app.domains.downloads.files as files_module
 import backend.app.domains.downloads.gallerydl as gallerydl_module
 import backend.app.domains.downloads.history as history_module
@@ -33,10 +34,7 @@ from backend.app.core.sources import source_label_from_key
 from backend.app.domains.downloads import (
     canonicalize_source_url,
     convert_template_to_ytdlp,
-    count_tasks,
-    counts_by_menu,
     detect_source_key,
-    engine_by_name,
     extract_downloaded_path,
     is_media_file,
     parse_filename_media_id,
@@ -72,7 +70,7 @@ from backend.app.domains.downloads.ytdlp import (
     clean_filename_title,
     clean_social_title,
 )
-from tests.support import use_temp_db
+from tests.support import engine_by_name, use_temp_db
 from yt_dlp_plugins.postprocessor.never_stelle_capture import NeverStelleCapturePP
 
 
@@ -2659,7 +2657,6 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
     monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
-    monkeypatch.setattr(gallerydl_module, "count_gallerydl_items", lambda *args, **kwargs: 2)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -2769,7 +2766,7 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
         needs_field_probe=True,
     )
 
-    jobs = store_module.load_enrichment_jobs()
+    jobs = repositories.load_enrichment_jobs_payload()
     assert len(jobs) == 1
     payload = jobs[0]["payload"]
     assert payload == {
@@ -2912,7 +2909,7 @@ def test_enrichment_worker_deletes_stale_job_when_history_row_is_missing(
     assert job is not None
     enrichment_module._process_enrichment_job(job)
 
-    assert store_module.load_enrichment_jobs() == []
+    assert repositories.load_enrichment_jobs_payload() == []
 
 
 def test_enrichment_worker_does_not_start_when_queue_is_empty(monkeypatch: pytest.MonkeyPatch):
@@ -3004,7 +3001,6 @@ def test_gallerydl_same_source_assets_share_one_row_and_source_id(
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
-    monkeypatch.setattr(gallerydl_module, "count_gallerydl_items", lambda *args, **kwargs: 2)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -3251,7 +3247,6 @@ def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
-    monkeypatch.setattr(gallerydl_module, "count_gallerydl_items", lambda *args, **kwargs: 1)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -3447,11 +3442,6 @@ def test_worker_runs_gallerydl_without_preflight(
     monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
-    monkeypatch.setattr(
-        gallerydl_module,
-        "count_gallerydl_items",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("worker must not count before download")),
-    )
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -3532,11 +3522,6 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
 
-    monkeypatch.setattr(
-        gallerydl_module,
-        "count_gallerydl_items",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("worker must not count before download")),
-    )
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -5387,37 +5372,6 @@ def test_scan_media_library_recovers_stale_completed_path(tmp_path: Path, monkey
         "resolved_filename": media_file.name,
     }
     assert removed == []
-
-
-def test_count_tasks_and_by_menu():
-    tasks = [
-        {"status": "pending", "source_key": "youtube"},
-        {"status": "running", "source_key": "youtube"},
-        {"status": "completed", "source_key": "tiktok"},
-        {"status": "failed", "source_key": ""},
-    ]
-    counts = count_tasks(tasks)
-    assert counts == {"queued": 1, "running": 1, "completed": 1, "failed": 1}
-    by_menu = counts_by_menu(tasks)
-    assert by_menu["all"]["queued"] == 1
-    assert by_menu["all"]["failed"] == 1
-    assert by_menu["youtube"]["running"] == 1
-    assert by_menu["tiktok"]["completed"] == 1
-    assert "" not in by_menu
-    assert "others" not in by_menu
-
-
-def test_counts_by_menu_does_not_seed_empty_unresolved(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(
-        serializers_module,
-        "get_effective_source_profiles",
-        lambda: [],
-    )
-
-    by_menu = counts_by_menu([{"status": "completed", "source_key": "youtube"}])
-
-    assert "others" not in by_menu
-    assert by_menu["youtube"]["completed"] == 1
 
 
 def test_history_preserves_completed_engine(monkeypatch: pytest.MonkeyPatch):

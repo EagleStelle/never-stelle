@@ -16,7 +16,7 @@ from backend.app.domains.downloads.constants import (
     post_processing_requested,
     quality_needs_ffmpeg,
 )
-from backend.app.domains.downloads.engine import Engine, all_engines, select_engine
+from backend.app.domains.downloads.engine import Engine, all_engines, default_engine
 from backend.app.domains.downloads.history import save_history_entry
 from backend.app.domains.downloads.naming import detect_ffmpeg_location
 from backend.app.domains.downloads.postprocessing import (
@@ -190,7 +190,7 @@ def _run_engine_attempts(
 
 
 def _engine_run_order(task: dict[str, Any]) -> list[Engine]:
-    primary = select_engine(str(task.get("source_url") or ""))
+    primary = default_engine()
     return [primary, *[engine for engine in all_engines() if engine is not primary]]
 
 

@@ -8,13 +8,13 @@ import backend.app.domains.downloads.rename as rename_module
 import backend.app.domains.downloads.resolve as resolve_module
 import backend.app.domains.downloads.scan as scan_module
 import backend.app.domains.downloads.workers.enrichment as enrichment_module
+from backend.app.db.repositories import load_enrichment_jobs_payload as load_enrichment_jobs
 from backend.app.domains.downloads.constants import RESOLVE_JOB_KIND
 from backend.app.domains.downloads.serializers import history_to_api, library_activity
 from backend.app.domains.downloads.store import (
     claim_next_enrichment_job,
     enqueue_enrichment_job,
     history_resolve_flagged_ids,
-    load_enrichment_jobs,
     load_history,
     load_history_entry,
     remove_history_record,

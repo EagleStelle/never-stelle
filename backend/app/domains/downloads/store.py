@@ -9,11 +9,9 @@ from backend.app.db.repositories import (
     clear_rename_journal_entries,
     clear_seeded_downloads,
     complete_enrichment_job_payload,
-    count_active_by_source,
     count_active_by_source_and_media,
     count_active_download_tasks,
     count_enrichment_jobs_payload,
-    count_history_by_source,
     count_history_by_source_and_media,
     count_history_rows,
     count_pending_tasks,
@@ -25,7 +23,6 @@ from backend.app.db.repositories import (
     fail_running_tasks,
     learned_formats_revision,
     load_active_task_store_payload,
-    load_enrichment_jobs_payload,
     load_failed_enrichment_job_ids,
     load_history_entries_by_media_id,
     load_history_entry_by_path,
@@ -113,14 +110,6 @@ def load_history_entries_for_media_id(media_id: str) -> list[tuple[str, dict[str
 
 def load_history_entry_for_path(resolved_full_path: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
     return load_history_entry_by_path(resolved_full_path)
-
-
-def history_counts_by_source() -> dict[str, int]:
-    return count_history_by_source()
-
-
-def active_counts_by_source() -> dict[str, dict[str, int]]:
-    return count_active_by_source()
 
 
 def history_counts_by_source_and_media() -> dict[str, dict[str, int]]:
@@ -215,10 +204,6 @@ def complete_enrichment_job(job_id: str) -> None:
 
 def retry_enrichment_job(job_id: str, error: str, *, max_attempts: int = 3) -> bool:
     return retry_enrichment_job_payload(job_id, error, max_attempts=max_attempts)
-
-
-def load_enrichment_jobs() -> list[dict[str, Any]]:
-    return load_enrichment_jobs_payload()
 
 
 def fail_running_task_records(error: str) -> int:

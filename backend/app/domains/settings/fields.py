@@ -226,17 +226,27 @@ def _effective_fields(source_url: str = "") -> dict[str, list[str]]:
 
 
 def get_effective_title_cleaning(source_url: str = "") -> dict[str, Any]:
-    return resolved(f"settings.cleaning:{source_url}", lambda: _effective_title_cleaning(source_url))
-
-
-def _effective_title_cleaning(source_url: str = "") -> dict[str, Any]:
-    from backend.app.domains.downloads.constants import normalize_title_cleaning
-
-    payload = load_saved_settings_file()
-    defaults = get_effective_naming_defaults(payload)
-    mapping = normalize_source_title_cleaning(payload.get("source_title_cleaning"), defaults)
+    # Keyed on the source, not the URL: serializing a history page asks this once per
+    # row, and every distinct URL used to rebuild the whole cleaning map from scratch.
+    defaults, mapping = resolved("settings.cleaning_map", _title_cleaning_map)
     if not source_url or not mapping:
         return defaults
-    profile = get_source_profile_for_url(source_url, payload=payload)
+    key = normalize_source_key(get_source_profile_for_url(source_url)["key"])
+    return resolved(f"settings.cleaning:{key}", lambda: _source_title_cleaning(key, mapping, defaults))
+
+
+def _title_cleaning_map() -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    payload = load_saved_settings_file()
+    defaults = get_effective_naming_defaults(payload)
+    return defaults, normalize_source_title_cleaning(payload.get("source_title_cleaning"), defaults)
+
+
+def _source_title_cleaning(
+    source_key: str,
+    mapping: dict[str, dict[str, Any]],
+    defaults: dict[str, Any],
+) -> dict[str, Any]:
+    from backend.app.domains.downloads.constants import normalize_title_cleaning
+
     # A full set, so downstream re-normalization can't fall back past the configured defaults.
-    return normalize_title_cleaning(mapping.get(profile["key"], {}), defaults)
+    return normalize_title_cleaning(mapping.get(source_key, {}), defaults)

@@ -3,13 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 import backend.app.domains.downloads.enrich as enrich
 import backend.app.domains.downloads.formats as formats
 import backend.app.domains.downloads.gallerydl as gallerydl
 import backend.app.domains.downloads.ytdlp as ytdlp
-from backend.app.domains.downloads import engine_by_name, engine_for_task, select_engine
+from backend.app.domains.downloads import default_engine
 from backend.app.domains.downloads.constants import (
     PROGRESS_RE,
     audio_format_selector,
@@ -33,6 +31,7 @@ from backend.app.domains.downloads.workers.progress import (
     TaskProgress,
 )
 from backend.app.domains.downloads.workers.runner import _count_progress
+from tests.support import engine_by_name
 
 
 def _gallerydl_postprocessors(cmd: list[str]) -> list[dict[str, object]]:
@@ -753,36 +752,12 @@ def _has_cli_pair(cmd: list[str], option: str, value: str) -> bool:
     return any(left == option and right == value for left, right in zip(cmd, cmd[1:], strict=False))
 
 
-@pytest.mark.parametrize(
-    "url",
-    [
-        "https://www.youtube.com/watch?v=1",
-        "https://www.pixiv.net/en/artworks/12345",
-        "https://i.imgur.com/abc.jpg",
-        "not a url",
-    ],
-)
-def test_select_engine_always_defaults_to_gallerydl(url):
-    assert select_engine(url).name == "gallerydl"
+def test_default_engine_is_gallerydl():
+    assert default_engine().name == "gallerydl"
 
 
 def test_all_engines_includes_both_backends():
     assert {engine.name for engine in all_engines()} == {"ytdlp", "gallerydl"}
-
-
-def test_engine_by_name_falls_back_to_gallerydl():
-    assert engine_by_name("gallerydl").name == "gallerydl"
-    assert engine_by_name("ytdlp").name == "ytdlp"
-    assert engine_by_name("bogus").name == "gallerydl"
-
-
-def test_engine_for_task_prefers_explicit_engine_over_url():
-    task = {"engine": "gallerydl", "source_url": "https://www.youtube.com/watch?v=1"}
-    assert engine_for_task(task).name == "gallerydl"
-
-
-def test_engine_for_task_defaults_to_gallerydl_when_untagged():
-    assert engine_for_task({"source_url": "https://www.pixiv.net/en/artworks/1"}).name == "gallerydl"
 
 
 def test_looks_unsupported_flags_wrong_engine_errors():
@@ -1367,23 +1342,6 @@ def test_gallerydl_audio_mode_lossless_omits_bitrate_filter(monkeypatch):
         'downloader.ytdl.raw-options.postprocessors=[{"key":"FFmpegExtractAudio","preferredcodec":"flac"}]',
     )
     assert not any("abr<=" in str(arg) for arg in cmd if "ytdl.format" in str(arg))
-
-
-def test_count_gallerydl_items_disables_tiktok_audio(monkeypatch):
-    captured: dict[str, list[str]] = {}
-
-    class Result:
-        returncode = 0
-        stdout = "https://example.test/1.jpg\nhttps://example.test/2.jpg\n"
-
-    def fake_run(cmd, **kwargs):
-        captured["cmd"] = cmd
-        return Result()
-
-    monkeypatch.setattr(gallerydl.subprocess, "run", fake_run)
-
-    assert gallerydl.count_gallerydl_items("https://www.tiktok.com/@x/photo/1") == 2
-    assert _has_cli_pair(captured["cmd"], "-o", "extractor.tiktok.audio=false")
 
 
 def test_ytdlp_command_enables_youtube_js_solver():

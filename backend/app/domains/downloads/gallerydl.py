@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
-from backend.app.domains.downloads.workers.processes import run_task_subprocess
 from backend.app.domains.settings import get_effective_title_cleaning
 
 from .constants import (
@@ -66,8 +64,6 @@ _GALLERYDL_FIELD = {
 }
 # Directory and filename packed into one output_template; only the builder splits it.
 _TEMPLATE_SEP = "\x1f"
-_COUNT_TIMEOUT_SECONDS = 60
-_MAX_COUNT = 5000
 _TIKTOK_NO_AUDIO_OPTION = "extractor.tiktok.audio=false"
 # Piped output drops byte progress entirely, so ask for a custom writer instead.
 # `success` matches the piped format, so path parsing is unchanged; `progress-total`
@@ -229,50 +225,6 @@ def _directory_segments(folder: str) -> list[str]:
         for segment in re.split(r"[\\/]+", str(folder or ""))
         if segment.strip() and segment.strip() not in {".", ".."}
     ]
-
-
-def _gallerydl_list_urls(
-    source_url: str,
-    *,
-    cookies_file: str = "",
-    excluded_extensions: set[str] | None = None,
-) -> list[str]:
-    # `-g` lists file URLs without downloading; callers use it only for counts.
-    cmd = ["gallery-dl", "-g", "-o", _TIKTOK_NO_AUDIO_OPTION]
-    filter_expr = _excluded_extension_filter(excluded_extensions)
-    if filter_expr:
-        cmd.extend(["--filter", filter_expr])
-    if cookies_file:
-        cmd.extend(["--cookies", cookies_file])
-    cmd.append(source_url)
-    try:
-        result = run_task_subprocess(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=_COUNT_TIMEOUT_SECONDS,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    if result.returncode != 0:
-        return []
-    return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
-
-
-def count_gallerydl_items(
-    source_url: str,
-    *,
-    cookies_file: str = "",
-    excluded_extensions: set[str] | None = None,
-) -> int:
-    urls = _gallerydl_list_urls(
-        source_url,
-        cookies_file=cookies_file,
-        excluded_extensions=excluded_extensions,
-    )
-    return min(len(urls), _MAX_COUNT)
 
 
 def _escape_literal(value: str) -> str:

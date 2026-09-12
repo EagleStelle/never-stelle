@@ -113,15 +113,15 @@ def test_remove_pending_task_allows_cancelling_and_removing_running_task(monkeyp
 
 def test_clear_pending_tasks_cancels_and_removes_running_and_pending_tasks(monkeypatch):
     """Clear queue cancels and removes running tasks and removes pending/failed tasks."""
-    tasks = [
-        {"vid": "task-running", "status": "running"},
-        {"vid": "task-pending", "status": "pending"},
-        {"vid": "task-failed", "status": "failed"},
-    ]
+    tasks = {
+        "task-running": {"status": "running"},
+        "task-pending": {"status": "pending"},
+        "task-failed": {"status": "failed"},
+    }
     cancelled: list[str] = []
     removed: list[str] = []
 
-    monkeypatch.setattr(operations_module, "fetch_tasks", lambda: tasks)
+    monkeypatch.setattr(operations_module, "load_active_task_store", lambda: {"tasks": tasks})
     monkeypatch.setattr(operations_module, "request_cancel", cancelled.append)
     monkeypatch.setattr(operations_module, "remove_task_record", removed.append)
     monkeypatch.setattr(

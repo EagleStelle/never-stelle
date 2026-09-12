@@ -12,6 +12,7 @@ from backend.app.domains.settings import get_effective_source_profiles, get_effe
 from backend.app.integrations.swaratelle import client as swaratelle
 
 from .constants import (
+    MEDIA_KINDS,
     RESOLVE_JOB_KIND,
     STATUS_LABELS,
     STATUS_ORDER,
@@ -22,14 +23,10 @@ from .files import recover_task_path
 from .naming import clean_template_display_filename
 from .scan import parse_filename_media_id
 from .store import (
-    active_counts_by_source,
     active_counts_by_source_and_media,
-    history_counts_by_source,
     history_counts_by_source_and_media,
     load_active_task_store,
-    load_history,
     load_history_entries_page,
-    load_task_store,
     spent_enrichment_job_ids,
 )
 from .templates import template_settings_from_row
@@ -59,6 +56,9 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
         resolved_path = str(task.get("resolved_full_path") or "").strip()
         resolved_folder = str(task.get("resolved_folder") or "").strip()
         recovered_filename = str(task.get("resolved_filename") or "").strip()
+    # resolve_files=False is the disk-free path a history page runs on, so a row that
+    # never recorded its size reports 0 rather than costing a stat per entry.
+    file_size = _file_size(resolved_path, task.get("file_size")) if resolve_files else safe_int(task.get("file_size"))
     source_url = str(task.get("source_url") or "")
     task_type = str(task.get("engine") or "gallerydl")
     source_key = normalize_source_key(task.get("source_key")) or detect_source_key(source_url)
@@ -95,7 +95,7 @@ def task_to_api(task_id: str, task: dict[str, Any], *, resolve_files: bool = Tru
         "progress_pct": progress_pct,
         "source_url": source_url,
         "creator": creator,
-        "file_size": _file_size(resolved_path, task.get("file_size")),
+        "file_size": file_size,
         "resolved_folder": resolved_folder or str(task.get("resolved_folder") or ""),
         "resolved_filename": resolved_filename,
         "resolved_full_path": resolved_path or str(task.get("resolved_full_path") or ""),
@@ -154,21 +154,6 @@ def history_to_api(
         and enrichment_job_id(RESOLVE_JOB_KIND, str(task_id)) in spent,
     }
     return task_to_api(task_id, task, resolve_files=False)
-
-
-def fetch_tasks() -> list[dict[str, Any]]:
-    tasks = []
-    seen: set[str] = set()
-    for task_id, task in (load_task_store().get("tasks") or {}).items():
-        tasks.append(task_to_api(task_id, task))
-        seen.add(str(task_id))
-    spent = spent_enrichment_job_ids()
-    for task_id, entry in (load_history().get("entries") or {}).items():
-        if str(task_id) in seen:
-            continue
-        tasks.append(history_to_api(task_id, entry, spent))
-    tasks.sort(key=lambda task: (STATUS_ORDER.get(task["status"], 99), task["vid"]))
-    return tasks
 
 
 def fetch_active_tasks() -> list[dict[str, Any]]:
@@ -339,53 +324,55 @@ def fetch_history_page(cursor: str = "", limit: int = 50, source_key: str = "", 
     return _fetch_local_history_page(cursor, limit, normalized_source, search)
 
 
+_COUNT_FIELDS = ("queued", "running", "completed", "failed")
+
+
+def _summed_active(by_media: dict[str, dict[str, dict[str, int]]]) -> dict[str, dict[str, int]]:
+    summed: dict[str, dict[str, int]] = {}
+    for by_source in by_media.values():
+        for key, statuses in by_source.items():
+            bucket = summed.setdefault(key, {})
+            for status, count in statuses.items():
+                bucket[status] = bucket.get(status, 0) + int(count or 0)
+    return summed
+
+
+def _summed_completed(by_media: dict[str, dict[str, int]]) -> dict[str, int]:
+    summed: dict[str, int] = {}
+    for by_source in by_media.values():
+        for key, count in by_source.items():
+            summed[key] = summed.get(key, 0) + int(count or 0)
+    return summed
+
+
 def build_counts() -> dict[str, Any]:
-    # Counts from SQL only (queue statuses + history COUNT); no per-row serialization or disk stat.
-    active = active_counts_by_source()
-    completed = history_counts_by_source()
+    # Counts from SQL only; no per-row serialization or disk stat. Each row lands in
+    # exactly one media bucket, so "all" is that breakdown summed and the poll never
+    # counts the same table twice.
     active_by_media = active_counts_by_source_and_media()
     completed_by_media = history_counts_by_source_and_media()
+    active_by_media["all"] = _summed_active(active_by_media)
+    completed_by_media["all"] = _summed_completed(completed_by_media)
     swaratelle_counts = swaratelle.fetch_counts()
     if swaratelle_counts:
-        active[swaratelle.SOURCE_KEY] = {
+        active_by_media["all"][swaratelle.SOURCE_KEY] = {
             "pending": int(swaratelle_counts.get("queued", 0)),
             "running": int(swaratelle_counts.get("running", 0)),
             "failed": int(swaratelle_counts.get("failed", 0)),
         }
-        completed[swaratelle.SOURCE_KEY] = int(swaratelle_counts.get("completed", 0))
+        completed_by_media["all"][swaratelle.SOURCE_KEY] = int(swaratelle_counts.get("completed", 0))
+
     keys: list[str] = []
-    for key in (
-        *[
-            key
-            for profile in get_effective_source_profiles()
-            if (key := normalize_source_key(profile.get("key")))
-        ],
-        *active.keys(),
-        *completed.keys(),
+    for raw_key in (
+        *[profile.get("key") for profile in get_effective_source_profiles()],
+        *active_by_media["all"],
+        *completed_by_media["all"],
     ):
-        key = normalize_source_key(key)
+        key = normalize_source_key(raw_key)
         if key and key not in keys:
             keys.append(key)
 
-    def counts_for(key: str) -> dict[str, int]:
-        status = active.get(key, {})
-        return {
-            "queued": int(status.get("pending", 0)),
-            "running": int(status.get("running", 0)),
-            "completed": int(completed.get(key, 0)),
-            "failed": int(status.get("failed", 0)),
-        }
-
-    totals = {
-        "queued": sum(int(status.get("pending", 0)) for status in active.values()),
-        "running": sum(int(status.get("running", 0)) for status in active.values()),
-        "completed": sum(int(value or 0) for value in completed.values()),
-        "failed": sum(int(status.get("failed", 0)) for status in active.values()),
-    }
-    by_menu = {key: counts_for(key) for key in keys}
-    by_menu["all"] = totals
-
-    def counts_for_media(media: str, key: str) -> dict[str, int]:
+    def counts_for(media: str, key: str) -> dict[str, int]:
         status = active_by_media.get(media, {}).get(key, {})
         return {
             "queued": int(status.get("pending", 0)),
@@ -394,17 +381,19 @@ def build_counts() -> dict[str, Any]:
             "failed": int(status.get("failed", 0)),
         }
 
-    by_media_menu: dict[str, dict[str, dict[str, int]]] = {"all": by_menu}
-    for media in ("image", "video"):
-        media_by_menu = {key: counts_for_media(media, key) for key in keys}
-        media_by_menu["all"] = {
-            "queued": sum(counts["queued"] for counts in media_by_menu.values()),
-            "running": sum(counts["running"] for counts in media_by_menu.values()),
-            "completed": sum(counts["completed"] for counts in media_by_menu.values()),
-            "failed": sum(counts["failed"] for counts in media_by_menu.values()),
-        }
-        by_media_menu[media] = media_by_menu
-    return {"counts": totals, "counts_by_menu": by_menu, "counts_by_media_menu": by_media_menu}
+    def menu_for(media: str) -> dict[str, dict[str, int]]:
+        menu = {key: counts_for(media, key) for key in keys}
+        # Totals cover every source holding rows, including one that never resolved to a key.
+        present = [
+            counts_for(media, key)
+            for key in {*active_by_media.get(media, {}), *completed_by_media.get(media, {})}
+        ]
+        menu["all"] = {field: sum(counts[field] for counts in present) for field in _COUNT_FIELDS}
+        return menu
+
+    by_media_menu = {media: menu_for(media) for media in ("all", *MEDIA_KINDS)}
+    by_menu = by_media_menu["all"]
+    return {"counts": by_menu["all"], "counts_by_menu": by_menu, "counts_by_media_menu": by_media_menu}
 
 
 def library_activity() -> dict[str, Any]:
@@ -422,28 +411,3 @@ def library_activity() -> dict[str, Any]:
         "resolving": resolve_in_progress(),
         "resolve_passes": resolve_pass_reports(),
     }
-
-
-def count_tasks(tasks: list[dict[str, Any]]) -> dict[str, int]:
-    return {
-        "queued": sum(1 for task in tasks if task["status"] == "pending"),
-        "running": sum(1 for task in tasks if task["status"] == "running"),
-        "completed": sum(1 for task in tasks if task["status"] == "completed"),
-        "failed": sum(1 for task in tasks if task["status"] == "failed"),
-    }
-
-
-def counts_by_menu(tasks: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
-    result = {"all": count_tasks(tasks)}
-    source_keys = [
-        key
-        for profile in get_effective_source_profiles()
-        if (key := normalize_source_key(profile.get("key")))
-    ]
-    task_keys = [normalize_source_key(task.get("source_key")) for task in tasks]
-    for key in task_keys:
-        if key and key not in source_keys:
-            source_keys.append(key)
-    for site in source_keys:
-        result[site] = count_tasks([task for task, key in zip(tasks, task_keys, strict=True) if key == site])
-    return result

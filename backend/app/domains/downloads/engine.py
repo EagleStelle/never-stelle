@@ -190,23 +190,11 @@ class GallerydlEngine(Engine):
 _YTDLP = YtdlpEngine()
 _GALLERYDL = GallerydlEngine()
 _ENGINES: tuple[Engine, ...] = (_GALLERYDL, _YTDLP)
-_BY_NAME: dict[str, Engine] = {engine.name: engine for engine in _ENGINES}
 
 
 def all_engines() -> tuple[Engine, ...]:
     return _ENGINES
 
 
-def select_engine(source_url: str) -> Engine:
+def default_engine() -> Engine:
     return _GALLERYDL
-
-
-def engine_by_name(name: str) -> Engine:
-    return _BY_NAME.get(str(name or "").strip().lower(), _GALLERYDL)
-
-
-def engine_for_task(task: dict[str, Any]) -> Engine:
-    name = str(task.get("engine") or "").strip().lower()
-    if name in _BY_NAME:
-        return _BY_NAME[name]
-    return select_engine(str(task.get("source_url") or ""))

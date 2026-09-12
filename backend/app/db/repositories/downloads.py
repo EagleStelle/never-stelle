@@ -12,7 +12,7 @@ from backend.app.db.repositories.utils import (
     _payload_source_key,
     _safe_float,
 )
-from backend.app.domains.downloads.constants import IMAGE_EXTENSIONS
+from backend.app.domains.downloads.constants import media_kind_for
 
 
 def _insert_sql(table: str, columns: tuple[str, ...]) -> str:
@@ -43,6 +43,7 @@ _TASK_COLUMNS = (
     "updated_at",
     "encoding",
     "last_log_lines",
+    "media_kind",
 )
 _TASK_SELECT = ", ".join(_TASK_COLUMNS)
 _TASK_STATUSES = {"pending", "running", "completed", "failed"}
@@ -70,6 +71,7 @@ _HISTORY_COLUMNS = (
     "created_at",
     "updated_at",
     "encoding",
+    "media_kind",
 )
 _HISTORY_SELECT = ", ".join(_HISTORY_COLUMNS)
 _HISTORY_STORAGE_KEYS = set(_HISTORY_COLUMNS)
@@ -86,7 +88,6 @@ _ENRICHMENT_COLUMNS = (
     "updated_at",
 )
 _ENRICHMENT_SELECT = ", ".join(_ENRICHMENT_COLUMNS)
-_ENRICHMENT_STATUSES = {"pending", "running", "failed"}
 _ENRICHMENT_INSERT_SQL = """
     INSERT INTO download_enrichment_jobs
         (id, kind, status, attempts, error, payload, created_at, updated_at)
@@ -99,19 +100,6 @@ _ENRICHMENT_INSERT_SQL = """
         updated_at = excluded.updated_at
     WHERE download_enrichment_jobs.status != 'running'
 """
-
-
-def _media_kind_sql() -> tuple[str, tuple[str, ...]]:
-    image_suffixes = tuple(f"%{suffix}" for suffix in sorted(IMAGE_EXTENSIONS))
-    image_checks = " OR ".join("LOWER(resolved_filename) LIKE ?" for _ in image_suffixes)
-    return (
-        "CASE "
-        f"WHEN ({image_checks}) THEN 'image' "
-        "WHEN INSTR(resolved_filename, '.') > 0 THEN 'video' "
-        "WHEN LOWER(engine) = 'gallerydl' THEN 'image' "
-        "ELSE 'video' END",
-        image_suffixes,
-    )
 
 
 def _json_dict(value: Any) -> dict[str, Any]:
@@ -241,11 +229,13 @@ def _task_row_values(task_id: str, payload: dict[str, Any], now: str) -> tuple[A
         str(payload.get("updated_at") or now),
         _encode(_compact_encoding(payload, _TASK_STORAGE_KEYS)),
         _encode(list(payload.get("last_log_lines") or [])),
+        media_kind_for(_text(payload, "resolved_filename"), _text(payload, "engine")),
     )
 
 
 def _history_row_values(task_id: str, payload: dict[str, Any], now: str) -> tuple[Any, ...]:
     source_url = _text(payload, "source_url")
+    resolved_full_path = _text(payload, "resolved_full_path")
     return (
         str(task_id),
         source_url,
@@ -254,8 +244,8 @@ def _history_row_values(task_id: str, payload: dict[str, Any], now: str) -> tupl
         _text(payload, "creator"),
         _text(payload, "title"),
         _text(payload, "media_id"),
-        _text(payload, "resolved_full_path"),
-        path_key(_text(payload, "resolved_full_path")) if _text(payload, "resolved_full_path") else "",
+        resolved_full_path,
+        path_key(resolved_full_path) if resolved_full_path else "",
         _text(payload, "resolved_folder"),
         _text(payload, "resolved_filename"),
         safe_int(payload.get("file_size")),
@@ -267,6 +257,7 @@ def _history_row_values(task_id: str, payload: dict[str, Any], now: str) -> tupl
         str(payload.get("created_at") or now),
         str(payload.get("updated_at") or now),
         _encode(_compact_encoding(payload, _HISTORY_STORAGE_KEYS)),
+        media_kind_for(_text(payload, "resolved_filename"), _text(payload, "engine")),
     )
 
 
@@ -289,32 +280,12 @@ def load_active_task_store_payload() -> dict[str, Any]:
     return {"tasks": {row["id"]: _task_payload_from_row(row) for row in rows}}
 
 
-def count_active_by_source() -> dict[str, dict[str, int]]:
-    # Status tallies for queued/running/failed straight from SQL, no JSON decode or disk I/O.
-    with transaction() as connection:
-        rows = connection.execute(
-            "SELECT source_key, status, COUNT(*) AS n "
-            "FROM download_tasks WHERE status != 'completed' "
-            "GROUP BY source_key, status"
-        ).fetchall()
-    result: dict[str, dict[str, int]] = {}
-    for row in rows:
-        key = str(row["source_key"] or "")
-        result.setdefault(key, {})[str(row["status"] or "pending")] = int(row["n"] or 0)
-    return result
-
-
 def count_active_by_source_and_media() -> dict[str, dict[str, dict[str, int]]]:
-    media_sql, params = _media_kind_sql()
     with transaction() as connection:
         rows = connection.execute(
-            f"""
-            SELECT source_key, status, {media_sql} AS media_kind, COUNT(*) AS n
-            FROM download_tasks
-            WHERE status != 'completed'
-            GROUP BY source_key, status, media_kind
-            """,
-            params,
+            "SELECT source_key, status, media_kind, COUNT(*) AS n "
+            "FROM download_tasks WHERE status != 'completed' "
+            "GROUP BY source_key, status, media_kind"
         ).fetchall()
     result: dict[str, dict[str, dict[str, int]]] = {}
     for row in rows:
@@ -325,25 +296,11 @@ def count_active_by_source_and_media() -> dict[str, dict[str, dict[str, int]]]:
     return result
 
 
-def count_history_by_source() -> dict[str, int]:
-    # Completed tally per source from SQL COUNT, no disk stat per row.
-    with transaction() as connection:
-        rows = connection.execute(
-            "SELECT source_key, COUNT(*) AS n FROM download_history GROUP BY source_key"
-        ).fetchall()
-    return {str(row["source_key"] or ""): int(row["n"] or 0) for row in rows}
-
-
 def count_history_by_source_and_media() -> dict[str, dict[str, int]]:
-    media_sql, params = _media_kind_sql()
+    # Covered by idx_history_source_media, so the tally never reads a table row.
     with transaction() as connection:
         rows = connection.execute(
-            f"""
-            SELECT source_key, {media_sql} AS media_kind, COUNT(*) AS n
-            FROM download_history
-            GROUP BY source_key, media_kind
-            """,
-            params,
+            "SELECT source_key, media_kind, COUNT(*) AS n FROM download_history GROUP BY source_key, media_kind"
         ).fetchall()
     result: dict[str, dict[str, int]] = {}
     for row in rows:
@@ -404,34 +361,30 @@ def load_history_page(
     ]
 
 
-def source_activity_revision() -> tuple[int | str, ...]:
-    """Fingerprint of the source mix only, blind to progress churn.
+def source_activity_rows() -> list[tuple[str, str]]:
+    """Every source the queue and history know about, as ``(source_key, sample url)``.
 
-    A fingerprint that tracked "anything changed" moved on every progress write,
-    which made anything keyed on it recompute twice a second for a whole download. Source
-    profiles depend only on which URLs and source keys exist, so this counts rows
-    and distinct values and deliberately carries no timestamp: a running download
-    rewrites its own row constantly without changing any of these. Every column
-    read is indexed and no JSON is decoded, so the probe stays sub-millisecond
-    as history grows.
+    Source profiles only depend on which sources exist, so this reads distinct keys
+    off an index and fetches one URL per key. Deriving the same answer from the
+    stored payloads decoded both tables in full, which grew with the library and
+    was thrown away again the moment a row was added.
     """
-    query = (
-        "SELECT COUNT(*), COUNT(DISTINCT source_key),"
-        " COALESCE(MIN(source_key), ''), COALESCE(MAX(source_key), '') FROM {table}"
-    )
+    samples: dict[str, str] = {}
     with transaction() as connection:
-        tasks = connection.execute(query.format(table="download_tasks")).fetchone()
-        history = connection.execute(query.format(table="download_history")).fetchone()
-    return (
-        int(tasks[0]),
-        int(tasks[1]),
-        str(tasks[2]),
-        str(tasks[3]),
-        int(history[0]),
-        int(history[1]),
-        str(history[2]),
-        str(history[3]),
-    )
+        for table in ("download_tasks", "download_history"):
+            keys = [
+                str(row[0] or "")
+                for row in connection.execute(f"SELECT DISTINCT source_key FROM {table}").fetchall()
+            ]
+            for key in keys:
+                if key in samples:
+                    continue
+                row = connection.execute(
+                    f"SELECT source_url FROM {table} WHERE source_key = ? AND source_url != '' LIMIT 1",
+                    (key,),
+                ).fetchone()
+                samples[key] = str(row[0]) if row else ""
+    return sorted(samples.items())
 
 
 def load_task_payload(task_id: str) -> dict[str, Any]:

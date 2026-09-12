@@ -11,7 +11,7 @@ from backend.app.domains.settings import get_effective_saved_settings, get_effec
 from backend.app.integrations.swaratelle import client as swaratelle
 
 from .constants import normalize_post_processing, normalize_quality_selection
-from .engine import select_engine
+from .engine import default_engine
 from .files import find_numbered_media_siblings, recover_task_path
 from .formats import reconstruct_url_candidates
 from .history import find_active_by_source, find_history_by_id, find_history_by_source
@@ -19,9 +19,10 @@ from .learning import learn_source_id_signature
 from .naming import clean_template_display_filename
 from .planning import resolve_task_settings
 from .scan import parse_filename_media_id
-from .serializers import fetch_tasks, history_to_api, task_to_api
+from .serializers import history_to_api, task_to_api
 from .slideshow import build_slideshow_archive
 from .store import (
+    load_active_task_store,
     load_learned_formats,
     load_task_store,
     remove_task_record,
@@ -91,7 +92,7 @@ def queue_task(
         raise ValueError(f"Choose a valid {label} download location from Settings.")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    engine = select_engine(source_url)
+    engine = default_engine()
     task_id = f"{engine.id_prefix}:{uuid.uuid4().hex[:12]}"
     output_template = engine.build_output_template(source_url, output_dir, resolved_settings.template_settings, quality)
     now = utc_now()
@@ -185,7 +186,7 @@ def retry_task(task_id: str) -> None:
     if task.get("status") != "failed":
         raise PermissionError("Only failed downloads can be retried.")
     source_url = canonicalize_source_url(str(task.get("source_url") or ""))
-    engine = select_engine(source_url)
+    engine = default_engine()
     updates: dict[str, Any] = {
         "status": "pending",
         "progress_pct": 0,
@@ -208,11 +209,9 @@ def retry_task(task_id: str) -> None:
 
 def clear_pending_tasks() -> dict[str, Any]:
     # Non-completed (queued/failed/running) tasks are clearable. Completed downloads are permanent.
-    tasks = fetch_tasks()
     cleared = 0
-    for task in tasks:
-        vid = task["vid"]
-        status = task["status"]
+    for vid, task in (load_active_task_store().get("tasks") or {}).items():
+        status = str(task.get("status") or "")
         if status in {"pending", "failed"}:
             if remove_task_record_if_status(vid, {"pending", "failed"}):
                 cleared += 1

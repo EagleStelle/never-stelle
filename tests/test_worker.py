@@ -219,7 +219,7 @@ def _stream_engine_progress(
 ):
     """Run the streaming loop over ``lines``, returning the row writes it caused."""
     import backend.app.domains.downloads.workers.runner as runner_module
-    from backend.app.domains.downloads.engine import engine_by_name
+    from tests.support import engine_by_name
 
     writes: list[dict] = []
     volatile.forget(task_id)

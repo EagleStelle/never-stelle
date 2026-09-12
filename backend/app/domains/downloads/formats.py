@@ -247,10 +247,6 @@ def _clean_creator(value: str, *, strip_at: bool = True) -> str:
     return value.strip()
 
 
-def _creator_match_value(value: Any) -> str:
-    return unquote(str(value or "")).strip().strip("/").lstrip("@").strip().casefold()
-
-
 def _creator_exact_value(value: Any) -> str:
     return unquote(str(value or "")).strip().strip("/").lstrip("@").strip()
 

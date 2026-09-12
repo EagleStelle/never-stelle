@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import threading
 from collections.abc import Iterable
 from typing import Any
 
@@ -16,13 +15,10 @@ from backend.app.core.sources import (
     source_profile_for_url,
     source_profile_settings_managed,
 )
-from backend.app.db.repositories import load_history_payload, load_task_store_payload, source_activity_revision
+from backend.app.db.repositories import source_activity_rows
 from backend.app.integrations.swaratelle import client as swaratelle
 
 from .storage import SAVED_SETTINGS_KEY, load_saved_settings_file, save_saved_settings_file
-
-_activity_cache_lock = threading.RLock()
-_activity_cache: tuple[tuple[Any, ...], list[dict[str, Any]]] | None = None
 
 
 def _profiles_from_keys(keys: Iterable[str]) -> list[dict[str, str]]:
@@ -53,41 +49,17 @@ def configured_source_profiles(raw: Any) -> Any:
     return raw.get("source_profiles") or {}
 
 
-def _config_fingerprint(config_profiles: list[dict[str, Any]]) -> tuple[Any, ...]:
-    return tuple((profile.get("key"), tuple(profile.get("hosts") or [])) for profile in config_profiles)
-
-
 def _activity_source_profiles(config_profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    # Profiles inferred from downloaded URLs. Cached against a source-only DB
-    # revision: a running download rewrites its row twice a second, and keying on
-    # a generic "anything changed" fingerprint made every poll re-decode the whole
-    # task and history tables. Which sources exist only changes when rows appear,
-    # disappear, or get re-keyed.
-    global _activity_cache
-    revision = resolved("settings.activity_revision", source_activity_revision)
-    signature = (revision, _config_fingerprint(config_profiles))
-    with _activity_cache_lock:
-        if _activity_cache is not None and _activity_cache[0] == signature:
-            return _activity_cache[1]
-
-    payloads: list[dict[str, Any]] = []
-    for store in (load_task_store_payload(), load_history_payload()):
-        collection = store.get("tasks") or store.get("entries") or {}
-        if isinstance(collection, dict):
-            payloads.extend(item for item in collection.values() if isinstance(item, dict))
-
+    # Profiles inferred from what has been downloaded. The rows are a distinct read
+    # over an indexed column, so this costs the same whether history holds a hundred
+    # entries or a hundred thousand.
     profiles: list[dict[str, Any]] = []
-    for payload in payloads:
-        source_url = str(payload.get("source_url") or "")
+    for source_key, source_url in resolved("settings.activity_rows", source_activity_rows):
         if source_url:
             profiles.append(source_profile_for_url(source_url, config_profiles))
-        elif payload.get("source_key") or payload.get("site_category"):
-            profiles.append({"key": normalize_source_key(payload.get("source_key") or payload.get("site_category"))})
-
-    result = merge_source_profiles(profiles)
-    with _activity_cache_lock:
-        _activity_cache = (signature, result)
-    return result
+        elif normalize_source_key(source_key):
+            profiles.append({"key": normalize_source_key(source_key)})
+    return merge_source_profiles(profiles)
 
 
 def get_effective_source_profiles(

@@ -218,28 +218,6 @@ def learn_missing_fields_for_format(
     return save_missing_learned_fields(source_url, key, result.get("field_roles"))
 
 
-def ensure_fields_learned(source_url: str, source_key: str = "") -> dict[str, list[str]]:
-    """Probe fields once for a source that has no learned record yet."""
-    key = normalize_source_key(source_key) if str(source_key or "").strip() else ""
-    if not key:
-        return {}
-    if not str(source_url or "").strip() or has_learned_fields(source_url, source_key):
-        return {}
-    try:
-        from .probe import probe_fields
-
-        result = probe_fields(source_url, source_key)
-    except Exception:
-        return {}
-    promote_learned_format_from_probe(source_url, result.get("fields"))
-    return save_learned_fields(
-        source_url,
-        str(result.get("source_key") or source_key),
-        result.get("field_roles"),
-        only_when_missing=True,
-    )
-
-
 def learn_source_format(source_url: str, media_id: str, metadata: dict[str, Any] | None = None) -> bool:
     learned = load_learned_formats()
     updated = learn_download(learned, source_url, media_id, metadata)

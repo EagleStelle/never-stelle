@@ -67,7 +67,3 @@ def invalidate(*keys: str) -> None:
         return
     for cached in [cached for cached in store if any(cached.startswith(key) for key in keys)]:
         store.pop(cached, None)
-
-
-def scope_active() -> bool:
-    return _scope.get() is not None
