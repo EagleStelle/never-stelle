@@ -33,8 +33,8 @@ def _unique_existing_files(paths: Iterable[Path | str]) -> list[Path]:
 def drop_file_cache(paths: Iterable[Path | str]) -> None:
     """Tell Linux the app is done with completed media files.
 
-    This reduces Docker/Synology memory growth caused by file page cache after
-    large downloads. It is a no-op on platforms without posix_fadvise support.
+    This reduces container memory growth caused by file page cache after large
+    downloads. It is a no-op on platforms without posix_fadvise support.
     """
     if not _has_dontneed_advice():
         return

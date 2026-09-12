@@ -52,9 +52,9 @@ def _cgroup_v1_quota() -> float | None:
 def available_cores() -> float:
     """Cores this process may actually use, honoring a container CPU limit.
 
-    ``os.cpu_count()`` reports the host on a NAS running Docker, which would let a
-    scan claim far more than the container is allowed. The cgroup quota is the real
-    ceiling when one is set.
+    ``os.cpu_count()`` reports the host under Docker, which would let a scan claim far
+    more than the container is allowed. The cgroup quota is the real ceiling when one
+    is set.
     """
     global _capacity_cache
     with _capacity_lock:

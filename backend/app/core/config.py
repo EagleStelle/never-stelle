@@ -107,7 +107,7 @@ def source_root(source_key: str) -> Path:
     return (MEDIA_DIR / key) if key else MEDIA_DIR
 
 
-# Recursively walking the media tree is expensive on a NAS; the location list
+# Recursively walking the media tree is expensive on slow storage; the location list
 # barely changes, so it is cached and refreshed off the caller's thread. A caller
 # never pays for the walk: it gets the last result while a single background
 # thread rebuilds it, so a request or a download never blocks on the filesystem.
