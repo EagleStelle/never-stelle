@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote, urlparse
@@ -13,11 +14,17 @@ import httpx
 
 from backend.app.core.sources import favicon_url_for_host, host_from_url
 
+from . import breaker
+
 SOURCE_KEY = "iwara"
 SOURCE_LABEL = "Iwara"
 SOURCE_HOSTS = ("iwara.tv", "oreno3d.com")
 BACKEND_NAME = "swaratelle"
 REQUEST_TIMEOUT_SECONDS = 10.0
+
+# Tight budget for the calls that run on every poll, full budget for user actions.
+POLL_TIMEOUT = httpx.Timeout(connect=2.0, read=5.0, write=5.0, pool=2.0)
+ACTION_TIMEOUT = httpx.Timeout(REQUEST_TIMEOUT_SECONDS)
 
 _STATUS_LABELS = {
     "pending": "Queued",
@@ -153,30 +160,51 @@ def _attachment_content_disposition(filename: str) -> str:
     return f"attachment; filename*=UTF-8''{quote(filename)}"
 
 
+_client_lock = threading.Lock()
+_client: httpx.Client | None = None
+
+# Only these trip the breaker. A 4xx or 5xx means the remote answered.
+_TRANSPORT_FAILURES = (httpx.TransportError,)
+
+
+def _shared_client() -> httpx.Client:
+    global _client
+    with _client_lock:
+        if _client is None:
+            _client = httpx.Client(timeout=ACTION_TIMEOUT)
+        return _client
+
+
 def _request_json(
     method: str,
     path: str,
     *,
     params: dict[str, Any] | None = None,
     json: dict[str, Any] | None = None,
+    timeout: httpx.Timeout | None = None,
 ) -> Any:
     try:
-        response = httpx.request(
+        response = _shared_client().request(
             method,
             _api_url(path),
             params=params,
             json=json,
             headers=_headers(),
-            timeout=REQUEST_TIMEOUT_SECONDS,
+            timeout=timeout or ACTION_TIMEOUT,
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
+        breaker.record_success()
         raise SwaratelleError(
             _response_error(exc.response), status_code=exc.response.status_code
         ) from exc
+    except _TRANSPORT_FAILURES as exc:
+        breaker.record_failure()
+        raise SwaratelleError(f"Could not reach Swaratelle: {exc}") from exc
     except httpx.HTTPError as exc:
         raise SwaratelleError(f"Could not reach Swaratelle: {exc}") from exc
 
+    breaker.record_success()
     if not response.content:
         return {}
     try:
@@ -446,9 +474,16 @@ def open_download_file(task_id: str) -> SwaratelleDownload:
     except httpx.HTTPStatusError as exc:
         exc.response.close()
         client.close()
+        breaker.record_success()
         raise SwaratelleError(
             _response_error(exc.response), status_code=exc.response.status_code
         ) from exc
+    except _TRANSPORT_FAILURES as exc:
+        if response is not None:
+            response.close()
+        client.close()
+        breaker.record_failure()
+        raise SwaratelleError(f"Could not reach Swaratelle: {exc}") from exc
     except httpx.HTTPError as exc:
         if response is not None:
             response.close()
@@ -460,6 +495,7 @@ def open_download_file(task_id: str) -> SwaratelleDownload:
         client.close()
         raise
 
+    breaker.record_success()
     upstream_disposition = response.headers.get("content-disposition", "")
     filename = _filename_from_content_disposition(upstream_disposition) or f"{video_id}.download"
     headers = {
@@ -477,10 +513,10 @@ def open_download_file(task_id: str) -> SwaratelleDownload:
 
 
 def fetch_active_tasks(*, quiet: bool = True) -> list[dict[str, Any]]:
-    if not is_configured():
+    if not is_configured() or not breaker.allow():
         return []
     try:
-        payload = _request_json("GET", "/downloads/active")
+        payload = _request_json("GET", "/downloads/active", timeout=POLL_TIMEOUT)
     except SwaratelleError:
         if quiet:
             return []
@@ -507,7 +543,7 @@ def history_cursor_for_task(task: dict[str, Any]) -> str:
 
 
 def fetch_history_page(cursor: str = "", limit: int = 50, search: str = "", *, quiet: bool = True) -> dict[str, Any]:
-    if not is_configured():
+    if not is_configured() or not breaker.allow():
         return {"entries": []}
     params: dict[str, Any] = {"limit": max(1, int(limit))}
     if cursor:
@@ -515,7 +551,7 @@ def fetch_history_page(cursor: str = "", limit: int = 50, search: str = "", *, q
     if search:
         params["q"] = search
     try:
-        payload = _request_json("GET", "/history", params=params)
+        payload = _request_json("GET", "/history", params=params, timeout=POLL_TIMEOUT)
     except SwaratelleError:
         if quiet:
             return {"entries": []}
@@ -535,10 +571,10 @@ def fetch_history_page(cursor: str = "", limit: int = 50, search: str = "", *, q
 
 
 def fetch_counts(*, quiet: bool = True) -> dict[str, int]:
-    if not is_configured():
+    if not is_configured() or not breaker.allow():
         return {}
     try:
-        payload = _request_json("GET", "/counts")
+        payload = _request_json("GET", "/counts", timeout=POLL_TIMEOUT)
     except SwaratelleError:
         if quiet:
             return {}
@@ -553,7 +589,7 @@ def fetch_counts(*, quiet: bool = True) -> dict[str, int]:
 
 
 def scan_media_library(*, quiet: bool = True) -> dict[str, int]:
-    if not is_configured():
+    if not is_configured() or not breaker.allow():
         return {"checked": 0, "missing": 0, "added": 0}
     try:
         payload = _request_json("POST", "/scan")
@@ -567,3 +603,24 @@ def scan_media_library(*, quiet: bool = True) -> dict[str, int]:
         "missing": _integer(payload, "missing", "removed", "deleted"),
         "added": _integer(payload, "added", "imported", "created"),
     }
+
+
+def close_client() -> None:
+    global _client
+    with _client_lock:
+        if _client is not None:
+            _client.close()
+            _client = None
+
+
+def _probe_remote() -> None:
+    """Reach the remote so _request_json can report the outcome to the breaker."""
+    if not is_configured():
+        return
+    try:
+        _request_json("GET", "/counts", timeout=POLL_TIMEOUT)
+    except SwaratelleError:
+        pass
+
+
+breaker.register_probe(_probe_remote)
