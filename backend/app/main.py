@@ -6,10 +6,11 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 
+from backend.app.api.compression import TextGZipMiddleware
 from backend.app.api.deps import require_authenticated_session
 from backend.app.api.routers import api_router
+from backend.app.api.static import BuiltAssets
 from backend.app.core.config import FRONTEND_DIR
 from backend.app.core.resolution import resolution_scope
 from backend.app.runtime.lifespan import lifespan
@@ -27,11 +28,12 @@ def create_app() -> FastAPI:
         redoc_url=None,
         openapi_url=None,
     )
+    application.add_middleware(TextGZipMiddleware)
     application.include_router(api_router, prefix="/api")
 
     assets_dir = FRONTEND_DIR / "assets"
     if assets_dir.exists():
-        application.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+        application.mount("/assets", BuiltAssets(directory=assets_dir), name="assets")
 
     register_resolution_scope(application)
     register_exception_handlers(application)
