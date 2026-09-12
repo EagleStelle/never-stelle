@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, useTemplateRef } from "vue";
+import { computed, defineAsyncComponent, onMounted, useTemplateRef } from "vue";
 import { useElementSize } from "@vueuse/core";
 
 import BarStatus from "@/components/layout/BarStatus.vue";
@@ -11,11 +11,13 @@ import Login from "@/features/auth/Login.vue";
 import DownloadPanel from "@/features/downloads/Panel.vue";
 import PlaylistDialog from "@/features/downloads/PlaylistDialog.vue";
 import ResolveDialog from "@/features/downloads/ResolveDialog.vue";
-import SettingsView from "@/features/settings/View.vue";
 import { Toaster } from "@/components/ui/sonner";
 
 import { provideDashboard } from "@/composables/useDashboard";
 import { useAuth } from "@/composables/useAuth";
+
+// Loaded on its own chunk, keeping the largest surface out of first paint.
+const SettingsView = defineAsyncComponent(() => import("@/features/settings/View.vue"));
 
 const auth = useAuth();
 const authReady = auth.ready;

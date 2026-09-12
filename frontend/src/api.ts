@@ -175,16 +175,26 @@ export function deletePlatformCookies(platform: string, cookieId = ""): Promise<
   return jsonRequest<UiConfigResponse>(path, { method: "DELETE" }, "Could not remove cookies.");
 }
 
-export function getTasks(): Promise<TasksResponse> {
-  return jsonRequest<TasksResponse>("/api/downloads", {}, "Could not load tasks.");
+export function getTasks(signal?: AbortSignal): Promise<TasksResponse> {
+  return jsonRequest<TasksResponse>("/api/downloads", { signal }, "Could not load tasks.");
 }
 
-export function getHistory(cursor: string | undefined, limit: number, sourceKey = "", search = ""): Promise<HistoryResponse> {
+export function getHistory(
+  cursor: string | undefined,
+  limit: number,
+  sourceKey = "",
+  search = "",
+  signal?: AbortSignal,
+): Promise<HistoryResponse> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
   if (sourceKey) params.set("source_key", sourceKey);
   if (search) params.set("q", search);
-  return jsonRequest<HistoryResponse>(`/api/downloads/history?${params.toString()}`, {}, "Could not load history.");
+  return jsonRequest<HistoryResponse>(
+    `/api/downloads/history?${params.toString()}`,
+    { signal },
+    "Could not load history.",
+  );
 }
 
 export function probeUrl(url: string): Promise<ProbeResponse> {

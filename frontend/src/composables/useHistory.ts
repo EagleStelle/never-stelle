@@ -23,7 +23,8 @@ export function useHistory({ sourceKey, search, enabled }: UseHistoryOptions) {
     string | undefined
   >({
     queryKey: [...HISTORY_QUERY_KEY, HISTORY_PAGE_SIZE, sourceKey, searchQuery],
-    queryFn: ({ pageParam }) => getHistory(pageParam, HISTORY_PAGE_SIZE, sourceKey.value, searchQuery.value),
+    queryFn: ({ pageParam, signal }) =>
+      getHistory(pageParam, HISTORY_PAGE_SIZE, sourceKey.value, searchQuery.value, signal),
     initialPageParam: undefined,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled,

@@ -106,7 +106,8 @@ export function useTaskQueue({
 
   const tasksQuery = useQuery<TasksResponse>({
     queryKey: TASKS_QUERY_KEY,
-    queryFn: getTasks,
+    // Forwarding the signal aborts a poll the next one supersedes.
+    queryFn: ({ signal }) => getTasks(signal),
     enabled: auth.authenticated,
     staleTime: 1000,
   });
