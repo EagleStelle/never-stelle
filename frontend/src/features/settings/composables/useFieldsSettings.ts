@@ -346,5 +346,3 @@ export function useFieldsSettings(
     runProbe,
   };
 }
-
-export const useFieldSettings = useFieldsSettings;

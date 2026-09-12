@@ -1,6 +1,6 @@
 import type { Component } from "vue";
 
-export const PAGE_KEYS = ["downloads", "history", "settings"] as const;
+export const PAGE_KEYS = ["downloads", "history"] as const;
 
 export type SourceKey = string;
 export type MenuKey = "all" | SourceKey;

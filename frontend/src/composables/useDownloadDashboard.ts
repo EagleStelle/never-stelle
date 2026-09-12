@@ -69,13 +69,8 @@ const SETTINGS_SECTION_BY_SLUG = Object.fromEntries(
   ]),
 ) as Record<string, SettingsSection>;
 
-const LEGACY_SETTINGS_SECTION_BY_SLUG: Record<string, SettingsSection> = {
-  downloads: "locations",
-  quality: "defaults",
-};
-
 function settingsSectionFromSlug(slug: string): SettingsSection {
-  return SETTINGS_SECTION_BY_SLUG[slug] || LEGACY_SETTINGS_SECTION_BY_SLUG[slug] || "locations";
+  return SETTINGS_SECTION_BY_SLUG[slug] || "locations";
 }
 
 function sourceInitials(label: string): string {
@@ -190,7 +185,6 @@ export function useDownloadDashboard() {
   );
 
   if (!isPageKey(activePage.value)) activePage.value = "downloads";
-  if (activePage.value === "settings") activePage.value = "downloads";
   if (!isFilterKey(activeFilter.value)) activeFilter.value = "all";
   if (!isMediaFilter(mediaFilter.value)) mediaFilter.value = "all";
   if (!isViewMode(viewMode.value)) viewMode.value = "grid";
@@ -361,12 +355,7 @@ export function useDownloadDashboard() {
 
   function applyCurrentRoute(): void {
     const path = window.location.pathname || "/";
-    // Accept legacy /settings/<slug> deep-links as a page + open the modal over it.
-    const legacy = path.startsWith("/settings")
-      ? path.split("/").filter(Boolean).at(-1) || "account"
-      : null;
-    const slug =
-      legacy ?? new URLSearchParams(window.location.search).get("settings");
+    const slug = new URLSearchParams(window.location.search).get("settings");
     applyingRoute = true;
     activePage.value = path.startsWith("/history") ? "history" : "downloads";
     if (slug !== null) {

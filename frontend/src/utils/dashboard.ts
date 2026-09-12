@@ -31,7 +31,6 @@ import {
   type PlatformScrapeRules,
   type SavedSettings,
   type ScrapeRule,
-  type SettingsSection,
   type SourceFields,
   type SourceLocationOptions,
   type SourceLocations,
@@ -1004,23 +1003,6 @@ export function isPageKey(value: string | null): value is PageKey {
   return PAGE_KEYS.includes(value as PageKey);
 }
 
-export function isSettingsSection(
-  value: string | null,
-): value is SettingsSection {
-  return (
-    value === "account" ||
-    value === "locations" ||
-    value === "cookies" ||
-    value === "defaults" ||
-    value === "format" ||
-    value === "templates" ||
-    value === "naming" ||
-    value === "fields" ||
-    value === "scraper" ||
-    value === "slug"
-  );
-}
-
 export function isFilterKey(value: string | null): value is TaskFilter {
   return value === "all" || value === "active" || value === "done";
 }
@@ -1035,12 +1017,6 @@ export function isViewMode(value: string | null): value is ViewMode {
 
 export function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
-}
-
-export function formatTimestamp(value: string): string {
-  if (!value) return "";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
 }
 
 export function emptyTaskCounts(): TaskCounts {
