@@ -141,6 +141,7 @@ WORKDIR /app
 ENV LD_LIBRARY_PATH=/opt/ffmpeg/lib \
     PATH="/opt/ffmpeg/bin:${PATH}" \
     PYTHONPATH=/app \
+    NEVER_STELLE_IMPERSONATE_PATH=/opt/impersonate \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -156,10 +157,19 @@ COPY --link --from=ffmpeg-builder /opt/ffmpeg /opt/ffmpeg
 
 RUN --mount=type=bind,from=python-wheels,source=/wheels,target=/wheels \
     --mount=type=bind,source=requirements.txt,target=requirements.txt \
-    apk add --no-cache --virtual .strip-deps binutils \
+    apk add --no-cache --virtual .strip-deps binutils upx \
     && pip install --root-user-action=ignore --no-index --find-links=/wheels --no-compile -r requirements.txt \
     && python -m pip uninstall --root-user-action=ignore -y pip setuptools wheel \
     && find /usr/local/lib/python*/site-packages -type f \( -name '*.so' -o -name '*.so.*' \) -exec strip --strip-unneeded {} + \
+    # yt-dlp loads every installed request handler at startup, so curl_cffi lives off the
+    # default path and is only added to PYTHONPATH for attempts that impersonate.
+    && site="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')" \
+    && mkdir -p "$NEVER_STELLE_IMPERSONATE_PATH" \
+    && mv "$site"/curl_cffi "$site"/curl_cffi-*.dist-info "$site"/_cffi_backend*.so "$NEVER_STELLE_IMPERSONATE_PATH"/ \
+    && rm -rf "$site"/cffi "$site"/cffi-*.dist-info "$site"/pycparser "$site"/pycparser-*.dist-info \
+    && upx --best "$NEVER_STELLE_IMPERSONATE_PATH"/curl_cffi/_wrapper*.so \
+    && PYTHONPATH="$NEVER_STELLE_IMPERSONATE_PATH" yt-dlp --list-impersonate-targets | grep -v unavailable | grep -q curl_cffi \
+    && ! python -c 'import curl_cffi' 2>/dev/null \
     && apk del .strip-deps \
     && find /usr/local -type d -name '__pycache__' -prune -exec rm -rf '{}' + \
     && rm -rf \

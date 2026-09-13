@@ -9,11 +9,11 @@ import httpx
 
 from backend.app.core.sources import normalize_source_key
 from backend.app.domains.settings import (
-    cookie_rotation,
     detect_cookie_source,
     scraper_token_from_field,
 )
 
+from .access import access_rotation
 from .constants import TEMPLATE_RE
 from .formats import _canonical_shape, _prepare_url, extract_url_part, match_template
 from .naming import sanitize_path_literal
@@ -229,28 +229,12 @@ def fetch_html(url: str, cookie_source_key: str = "") -> str:
         return ""
     headers = {"User-Agent": _FETCH_UA, "Accept-Language": "en-US,en;q=0.9"}
 
-    # Attempt 1: Anonymous request
-    try:
-        response = httpx.get(
-            url,
-            follow_redirects=True,
-            timeout=_FETCH_TIMEOUT_SECONDS,
-            headers=headers,
-        )
-        if response.status_code < 400:
-            content_type = response.headers.get("content-type", "").lower()
-            if not content_type or "html" in content_type or "xml" in content_type:
-                if response.text and response.text.strip():
-                    return response.text
-    except Exception:
-        pass
-
-    # Attempt 2: walk the source's jars until one returns the page
-    source_key = cookie_source_key or detect_cookie_source(url)
-    with closing(cookie_rotation(source_key)) as rotation:
-        for lease in rotation:
-            jar = _load_cookie_jar(lease.path)
-            if not jar:
+    # httpx has no browser fingerprint, so the rotation is anonymous then each jar.
+    rotation = access_rotation(lambda: cookie_source_key or detect_cookie_source(url), fingerprint=False)
+    with closing(rotation):
+        for access in rotation:
+            jar = _load_cookie_jar(access.cookies_file)
+            if access.cookies_file and not jar:
                 continue
             try:
                 response = httpx.get(
@@ -258,17 +242,24 @@ def fetch_html(url: str, cookie_source_key: str = "") -> str:
                     follow_redirects=True,
                     timeout=_FETCH_TIMEOUT_SECONDS,
                     headers=headers,
-                    cookies=httpx.Cookies(jar),
+                    cookies=httpx.Cookies(jar) if jar else None,
                 )
             except Exception:
                 continue
             if response.status_code < 400:
                 content_type = response.headers.get("content-type", "").lower()
-                if not content_type or "html" in content_type or "xml" in content_type:
+                if (not content_type or "html" in content_type or "xml" in content_type) and response.text.strip():
                     return response.text
-            lease.banned = response.status_code in {403, 429}
+                continue
+            access.report(_http_failure(response))
 
     return ""
+
+
+def _http_failure(response: httpx.Response) -> str:
+    """A failed response in the engines' wording, so jars rest by the same rules."""
+    challenge = response.headers.get("cf-mitigated", "").lower() == "challenge"
+    return f"HTTP Error {response.status_code}" + (" Cloudflare challenge" if challenge else "")
 
 
 def _template_token_names(template_settings: Any) -> set[str]:

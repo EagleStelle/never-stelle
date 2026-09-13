@@ -46,6 +46,7 @@ def _run_engine_to_task(
     total_items: int = 0,
     keep_gallerydl_audio: bool = False,
     progress: TaskProgress | None = None,
+    env: dict[str, str] | None = None,
 ) -> tuple[int, str, list[str]]:
     """Run one downloader invocation, streaming progress into the task store.
 
@@ -68,6 +69,7 @@ def _run_engine_to_task(
             bufsize=1,
             # POSIX: own session so the whole tree can be signalled on cancel.
             start_new_session=(os.name != "nt"),
+            env=env,
         )
         _register_process(task_id, process)
         if process.stdout is not None:

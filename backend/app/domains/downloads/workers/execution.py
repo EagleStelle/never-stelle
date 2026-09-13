@@ -9,6 +9,12 @@ from typing import Any
 from backend.app.core.paths import path_key as _path_key
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
+from backend.app.domains.downloads.access import (
+    AccessIdentity,
+    access_env,
+    access_rotation,
+    impersonation_target,
+)
 from backend.app.domains.downloads.cache import drop_file_cache
 from backend.app.domains.downloads.constants import (
     normalize_post_processing,
@@ -67,14 +73,12 @@ from backend.app.domains.downloads.workers.processes import (
 from backend.app.domains.downloads.workers.progress import TaskProgress
 from backend.app.domains.downloads.workers.runner import _run_engine_to_task
 from backend.app.domains.settings import (
-    cookie_rotation,
     detect_cookie_source,
     get_effective_fields,
     has_cookies_for_source,
     load_scrape_rules,
     load_slug_tokens,
     load_token_roles,
-    looks_rate_limited,
 )
 from backend.app.runtime.scratch import remove_scratch_path, scratch_temp_dir
 
@@ -141,13 +145,13 @@ def _run_engine_attempts(
     post_processing: dict[str, Any] | None = None,
     progress: TaskProgress | None = None,
 ) -> tuple[int, str, list[str]]:
-    def _attempt(cookies_file: str) -> tuple[int, str, list[str]]:
+    def _attempt(access: AccessIdentity) -> tuple[int, str, list[str]]:
         cmd = engine.build_command(
             source_url,
             output_dir=output_dir,
             ffmpeg_location=ffmpeg_location,
             output_template=output_template,
-            cookies_file=cookies_file,
+            access=access,
             creator_sidecar=creator_sidecar,
             metadata_sidecar=metadata_sidecar,
             excluded_extensions=excluded_extensions,
@@ -157,31 +161,42 @@ def _run_engine_attempts(
         run_kwargs: dict[str, Any] = {"total_items": total_items, "progress": progress}
         if quality and quality.get("mode") == "audio":
             run_kwargs["keep_gallerydl_audio"] = True
+        env = access_env(access)
+        if env is not None:
+            run_kwargs["env"] = env
         return _run_engine_to_task(engine, task_id, cmd, **run_kwargs)
 
-    # Anonymous first: a cookie is only spent when the public path actually fails.
-    rc, last_dest, emitted_paths = _attempt("")
-    if rc == 0 or _has_output_media(last_dest, emitted_paths) or _cancel_pending(task_id):
-        return rc, last_dest, emitted_paths
-    if not has_cookies_for_source(cookie_source_key):
-        return rc, last_dest, emitted_paths
-
-    # Walk the source's jars until one works. The rotation hands out the coldest jar
-    # first, so parallel tasks spread over the list instead of queueing on entry one.
+    # Cheapest first: a fingerprint only after a wall, a cookie only once the public path fails.
+    rc, last_dest, emitted_paths = 1, "", []
     tried = 0
-    with closing(cookie_rotation(cookie_source_key)) as rotation:
-        for lease in rotation:
-            tried += 1
-            append_task_log(task_id, f"[never-stelle] Attempting download with cookies ({lease.filename})...")
-            rc, last_dest, emitted_paths = _attempt(lease.path)
+    walled = False
+    with closing(access_rotation(cookie_source_key)) as rotation:
+        for access in rotation:
+            if access.lease is not None:
+                tried += 1
+                append_task_log(
+                    task_id, f"[never-stelle] Attempting download with cookies ({access.lease.filename})..."
+                )
+            elif access.impersonate:
+                append_task_log(
+                    task_id, f"[never-stelle] Blocked by an anti-bot wall; retrying as {access.impersonate}..."
+                )
+            rc, last_dest, emitted_paths = _attempt(access)
             if rc == 0 or _has_output_media(last_dest, emitted_paths) or _cancel_pending(task_id):
                 return rc, last_dest, emitted_paths
-            lease.banned = looks_rate_limited(_task_log_tail(task_id))
-            append_task_log(
-                task_id,
-                f"[never-stelle] {lease.filename} did not work; trying the next cookies file...",
-            )
-    if not tried:
+            access.report(_task_log_tail(task_id))
+            if access.walled and not access.impersonate and not walled and not impersonation_target():
+                append_task_log(
+                    task_id,
+                    "[never-stelle] Blocked by an anti-bot wall and no impersonation backend is installed.",
+                )
+            walled = walled or access.walled
+            if access.lease is not None:
+                append_task_log(
+                    task_id,
+                    f"[never-stelle] {access.lease.filename} did not work; trying the next cookies file...",
+                )
+    if not tried and has_cookies_for_source(cookie_source_key):
         append_task_log(
             task_id,
             "[never-stelle] Every cookies file for this source is resting; skipped the signed-in attempt.",

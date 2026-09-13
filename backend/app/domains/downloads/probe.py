@@ -11,19 +11,17 @@ from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
 
 from backend.app.core.sources import normalize_source_key, source_key_from_url
 from backend.app.domains.downloads.workers.processes import run_task_subprocess
-from backend.app.domains.settings import (
-    cookie_rotation,
-    detect_cookie_source,
-    has_cookies_for_source,
-    looks_rate_limited,
-)
+from backend.app.domains.settings import detect_cookie_source, has_cookies_for_source
 
+from .access import AccessIdentity, access_env, access_rotation
 from .constants import (
     FIELD_CANDIDATES,
     field_roles_from_probe_fields,
     promote_field_roles,
 )
 from .formats import _prepare_url
+from .gallerydl import gallerydl_access_args
+from .ytdlp import ytdlp_access_args
 
 # YouTube mix/radio playlists carry an ``RD`` list id and are endless, so we
 # never expand them; we download only the video the link points at.
@@ -85,11 +83,8 @@ def _probe_cookie_source(url: str, source_key: str = "") -> str:
     return ""
 
 
-def _probe_cookie_rotation(url: str, source_key: str = "") -> Iterator[Any]:
-    """Every jar the source has, one at a time, until the caller finds one that works."""
-    key = _probe_cookie_source(url, source_key)
-    if key:
-        yield from cookie_rotation(key)
+def _probe_rotation(url: str, source_key: str = "", *, with_cookies: bool = True) -> Iterator[AccessIdentity]:
+    return access_rotation(lambda: _probe_cookie_source(url, source_key) if with_cookies else "")
 
 
 def _strip_playlist_param(url: str) -> str:
@@ -131,10 +126,10 @@ def _flat_playlist(url: str) -> dict[str, Any]:
         "ejs:github",
     ]
 
-    def _exec(cookies_file: str) -> subprocess.CompletedProcess[str]:
-        extra = ["--cookies", cookies_file] if cookies_file else []
+    def _exec(access: AccessIdentity) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            cmd + extra + ["--playlist-end", str(_MAX_ENTRIES), url],
+            cmd + ytdlp_access_args(access) + ["--playlist-end", str(_MAX_ENTRIES), url],
+            env=access_env(access),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -142,16 +137,13 @@ def _flat_playlist(url: str) -> dict[str, Any]:
             timeout=_PROBE_TIMEOUT_SECONDS,
         )
 
-    # Anonymous read first; cookies are only borrowed when the public listing fails.
-    result = _exec("")
-    if result.returncode != 0:
-        with closing(_probe_cookie_rotation(url)) as rotation:
-            for lease in rotation:
-                retry = _exec(lease.path)
-                if retry.returncode == 0:
-                    result = retry
-                    break
-                lease.banned = looks_rate_limited(retry.stderr or retry.stdout)
+    # Anonymous read first; a fingerprint or cookie is only spent when the public listing fails.
+    with closing(_probe_rotation(url)) as rotation:
+        for access in rotation:
+            result = _exec(access)
+            if result.returncode == 0:
+                break
+            access.report(result.stderr or result.stdout)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip().splitlines()
         # Rejected link is client input: ValueError -> route maps to 400, not 502.
@@ -290,11 +282,13 @@ def _ytdlp_dump(
         "--remote-components",
         "ejs:github",
     ]
-    def _exec(extra_args: list[str]) -> tuple[dict[str, Any] | None, str]:
+
+    def _exec(access: AccessIdentity) -> tuple[dict[str, Any] | None, str]:
         try:
             result = _run_probe_command(
-                cmd + extra_args + [url],
+                cmd + ytdlp_access_args(access) + [url],
                 low_priority=low_priority,
+                env=access_env(access),
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -313,16 +307,14 @@ def _ytdlp_dump(
         except json.JSONDecodeError:
             return None, ""
 
-    info, error = _exec([])
-    if info is not None or not with_cookies:
-        return info, error
-    with closing(_probe_cookie_rotation(url, cookie_source_key)) as rotation:
-        for lease in rotation:
-            info, cookie_error = _exec(["--cookies", lease.path])
+    error = ""
+    with closing(_probe_rotation(url, cookie_source_key, with_cookies=with_cookies)) as rotation:
+        for access in rotation:
+            info, attempt_error = _exec(access)
             if info is not None:
                 return info, ""
-            lease.banned = looks_rate_limited(cookie_error)
-            error = cookie_error or error
+            access.report(attempt_error)
+            error = attempt_error or error
     return None, error
 
 
@@ -350,11 +342,12 @@ def _gallerydl_dump(
     cmd = ["gallery-dl", "-j", "-o", _GALLERYDL_TIKTOK_NO_AUDIO_OPTION]
     errors: list[str] = []
 
-    def _exec(extra_args: list[str]) -> dict[str, Any] | None:
+    def _exec(access: AccessIdentity) -> dict[str, Any] | None:
         try:
             result = _run_probe_command(
-                cmd + extra_args + [url],
+                cmd + gallerydl_access_args(access) + [url],
                 low_priority=low_priority,
+                env=access_env(access),
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -373,16 +366,13 @@ def _gallerydl_dump(
         metadata = _gallerydl_richest_metadata(data)
         return metadata or None
 
-    metadata = _exec([])
-    if metadata is not None or not with_cookies:
-        return metadata
-    with closing(_probe_cookie_rotation(url, cookie_source_key)) as rotation:
-        for lease in rotation:
+    with closing(_probe_rotation(url, cookie_source_key, with_cookies=with_cookies)) as rotation:
+        for access in rotation:
             errors.clear()
-            metadata = _exec(["--cookies", lease.path])
+            metadata = _exec(access)
             if metadata is not None:
                 return metadata
-            lease.banned = looks_rate_limited(" ".join(errors))
+            access.report(" ".join(errors))
     return None
 
 

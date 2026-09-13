@@ -60,7 +60,7 @@ def test_build_ytdlp_command_omits_print_without_sidecar():
     assert "--print-to-file" not in cmd
 
 
-def _stub_worker_cookie_rotation(monkeypatch, worker_module, paths=("/tmp/cookies-jar1.txt",)):
+def _stub_worker_cookie_rotation(monkeypatch, worker_module, paths=("/tmp/cookies-jar1.txt",), *, target=""):
     from backend.app.domains.settings import CookieLease
 
     leases = [
@@ -71,9 +71,19 @@ def _stub_worker_cookie_rotation(monkeypatch, worker_module, paths=("/tmp/cookie
     def fake_rotation(source_key, **kwargs):
         yield from leases
 
-    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: True)
-    monkeypatch.setattr(worker_module, "cookie_rotation", fake_rotation)
+    _stub_access(monkeypatch, fake_rotation, target=target)
     return leases
+
+
+def _stub_access(monkeypatch, rotation, *, target=""):
+    import backend.app.domains.downloads.access as access_module
+    import backend.app.domains.downloads.workers.execution as worker_module
+
+    monkeypatch.setattr(access_module, "has_cookies_for_source", lambda source_key: True)
+    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: True)
+    monkeypatch.setattr(access_module, "cookie_rotation", rotation)
+    monkeypatch.setattr(access_module, "impersonation_target", lambda: target)
+    monkeypatch.setattr(worker_module, "impersonation_target", lambda: target)
 
 
 def _run_attempts(worker_module):
@@ -132,8 +142,7 @@ def test_run_engine_attempts_spends_no_cookie_when_anonymous_succeeds(monkeypatc
         leased.append(source_key)
         raise AssertionError("no cookie should be leased after an anonymous success")
 
-    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: True)
-    monkeypatch.setattr(worker_module, "cookie_rotation", fail_rotation)
+    _stub_access(monkeypatch, fail_rotation)
     monkeypatch.setattr(worker_module, "_run_engine_to_task", fake_run_engine)
 
     rc, _, _ = _run_attempts(worker_module)
@@ -173,6 +182,60 @@ def test_run_engine_attempts_retries_every_cookie_until_one_works(monkeypatch):
     assert used == ["/tmp/jar1.txt", "/tmp/jar2.txt", "/tmp/jar3.txt"]
     # The two that failed on a rate limit rest; the one that worked does not.
     assert [lease.banned for lease in leases] == [True, True, False]
+
+
+def test_run_engine_attempts_retries_behind_a_fingerprint_after_a_wall(monkeypatch):
+    import backend.app.domains.downloads.workers.execution as worker_module
+
+    attempts: list[tuple[str, bool, str]] = []
+    tails: list[str] = []
+
+    def fake_run_engine(engine, task_id, cmd, total_items=0, progress=None, env=None):
+        impersonate = cmd[cmd.index("--impersonate") + 1] if "--impersonate" in cmd else ""
+        attempts.append((impersonate, "--cookies" in cmd, (env or {}).get("PYTHONPATH", "")))
+        if impersonate and "--cookies" in cmd:
+            return 0, "/tmp/out.mp4", ["/tmp/out.mp4"]
+        tails.append("ERROR: Got HTTP Error 403 caused by Cloudflare anti-bot challenge")
+        return 1, "", []
+
+    leases = _stub_worker_cookie_rotation(monkeypatch, worker_module, ["/tmp/jar1.txt"], target="chrome")
+    monkeypatch.setenv("NEVER_STELLE_IMPERSONATE_PATH", "/opt/impersonate")
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.setattr(worker_module, "_run_engine_to_task", fake_run_engine)
+    monkeypatch.setattr(worker_module, "append_task_log", lambda task_id, message: None)
+    monkeypatch.setattr(worker_module, "_task_log_tail", lambda task_id: tails[-1])
+
+    rc, _, _ = _run_attempts(worker_module)
+
+    assert rc == 0
+    # Only impersonated attempts load the fingerprint backend.
+    assert attempts == [
+        ("", False, ""),
+        ("chrome", False, "/opt/impersonate"),
+        ("chrome", True, "/opt/impersonate"),
+    ]
+    # A 403 wall blocks every jar alike, so it never rests the one that hit it.
+    assert leases[0].banned is False
+
+
+def test_run_engine_attempts_skips_the_fingerprint_without_a_wall(monkeypatch):
+    import backend.app.domains.downloads.workers.execution as worker_module
+
+    attempts: list[bool] = []
+
+    def fake_run_engine(engine, task_id, cmd, total_items=0, progress=None):
+        attempts.append("--impersonate" in cmd)
+        return (0, "/tmp/out.mp4", ["/tmp/out.mp4"]) if "--cookies" in cmd else (1, "", [])
+
+    _stub_worker_cookie_rotation(monkeypatch, worker_module)
+    monkeypatch.setattr(worker_module, "_run_engine_to_task", fake_run_engine)
+    monkeypatch.setattr(worker_module, "append_task_log", lambda task_id, message: None)
+    monkeypatch.setattr(worker_module, "_task_log_tail", lambda task_id: "ERROR: Unsupported URL")
+
+    rc, _, _ = _run_attempts(worker_module)
+
+    assert rc == 0
+    assert attempts == [False, False]
 
 
 def test_run_engine_attempts_rests_a_cookie_that_came_back_rate_limited(monkeypatch):

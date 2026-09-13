@@ -5,6 +5,7 @@ whole download stack at app startup.
 
 - constants   : status labels/order, media extensions, regexes
 - urls        : source-url canonicalization + site detection
+- access      : how each attempt reaches a site (anonymous, fingerprint, cookie jars)
 - store       : queue/history persistence + normalization
 - naming      : engine-agnostic title/filename cleaning + tool detection
 - ytdlp       : yt-dlp output templates + command building

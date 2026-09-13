@@ -32,6 +32,14 @@ RATE_LIMIT_MARKERS = (
     "please wait a few minutes",
 )
 
+# Anti-bot walls (Cloudflare, DDoS-Guard) block every jar alike, so they never rest one.
+ANTIBOT_MARKERS = (
+    "cloudflare challenge",
+    "cloudflare captcha",
+    "cloudflare anti-bot",
+    "ddos-guard challenge",
+)
+
 # Never spin: a wake-up is only useful once some jar's timer has actually elapsed.
 _WAKE_EPSILON_SECONDS = 0.05
 
@@ -68,6 +76,11 @@ _STATES: dict[str, _CookieState] = {}
 def looks_rate_limited(text: Any) -> bool:
     value = str(text or "").lower()
     return any(marker in value for marker in RATE_LIMIT_MARKERS)
+
+
+def looks_antibot_walled(text: Any) -> bool:
+    value = str(text or "").lower()
+    return any(marker in value for marker in ANTIBOT_MARKERS)
 
 
 def reset_cookie_pool() -> None:

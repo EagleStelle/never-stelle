@@ -240,11 +240,16 @@ def _stub_rotation(monkeypatch, paths, source_key="instagram"):
         for index, path in enumerate(paths, start=1)
     ]
 
-    def fake_rotation(url, key=""):
+    def fake_rotation(key, **kwargs):
+        assert key == source_key
         yield from leases
 
+    import backend.app.domains.downloads.access as access_module
+
     monkeypatch.setattr(probe_module, "has_cookies_for_source", lambda key: key == source_key)
-    monkeypatch.setattr(probe_module, "_probe_cookie_rotation", fake_rotation)
+    monkeypatch.setattr(access_module, "has_cookies_for_source", lambda key: key == source_key)
+    monkeypatch.setattr(access_module, "cookie_rotation", fake_rotation)
+    monkeypatch.setattr(access_module, "impersonation_target", lambda: "")
     return leases
 
 
@@ -275,6 +280,34 @@ def test_ytdlp_dump_falls_back_to_a_leased_cookie_after_anonymous_fails(monkeypa
     assert "--cookies" not in calls[0]
     assert calls[1][-3:] == ["--cookies", "/tmp/instagram-jar1.txt", "https://www.instagram.com/reel/abc123/"]
     assert lease.banned is False
+
+
+def test_ytdlp_dump_loads_the_fingerprint_backend_only_when_impersonating(monkeypatch):
+    calls: list[tuple[bool, str]] = []
+
+    def fake_run(cmd, **kwargs):
+        impersonating = "--impersonate" in cmd
+        calls.append((impersonating, (kwargs.get("env") or {}).get("PYTHONPATH", "")))
+
+        class Result:
+            returncode = 0 if impersonating else 1
+            stdout = '{"id": "abc123"}\n' if impersonating else ""
+            stderr = "" if impersonating else "ERROR: Got HTTP Error 403 caused by Cloudflare anti-bot challenge"
+
+        return Result()
+
+    monkeypatch.setattr(probe_module.subprocess, "run", fake_run)
+    _stub_rotation(monkeypatch, [])
+    import backend.app.domains.downloads.access as access_module
+
+    monkeypatch.setattr(access_module, "impersonation_target", lambda: "chrome")
+    monkeypatch.setenv("NEVER_STELLE_IMPERSONATE_PATH", "/opt/impersonate")
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+
+    info, _ = probe_module._ytdlp_dump("https://example.test/v/1", cookie_source_key="instagram")
+
+    assert info == {"id": "abc123"}
+    assert calls == [(False, ""), (True, "/opt/impersonate")]
 
 
 def test_ytdlp_dump_low_priority_uses_windows_priority_flag(monkeypatch):

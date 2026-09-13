@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import gallerydl, ytdlp
+from .access import AccessIdentity
 from .constants import PROGRESS_RE
 from .files import extract_downloaded_path
 from .formats import media_id_from_url
@@ -21,7 +22,6 @@ class Engine:
         self,
         source_url: str,
         *,
-        cookies_file: str = "",
         excluded_extensions: set[str] | None = None,
     ) -> int:
         return 0
@@ -43,7 +43,7 @@ class Engine:
         output_dir: str,
         ffmpeg_location: str,
         output_template: str,
-        cookies_file: str = "",
+        access: AccessIdentity | None = None,
         creator_sidecar: str = "",
         metadata_sidecar: str = "",
         excluded_extensions: set[str] | None = None,
@@ -86,7 +86,7 @@ class YtdlpEngine(Engine):
         output_dir: str,
         ffmpeg_location: str,
         output_template: str,
-        cookies_file: str = "",
+        access: AccessIdentity | None = None,
         creator_sidecar: str = "",
         metadata_sidecar: str = "",
         excluded_extensions: set[str] | None = None,
@@ -99,7 +99,7 @@ class YtdlpEngine(Engine):
             ffmpeg_location,
             output_template,
             output_dir=output_dir,
-            cookies_file=cookies_file,
+            access=access,
             creator_sidecar=creator_sidecar,
             metadata_sidecar=metadata_sidecar,
             quality=quality,
@@ -128,7 +128,6 @@ class GallerydlEngine(Engine):
         self,
         source_url: str,
         *,
-        cookies_file: str = "",
         excluded_extensions: set[str] | None = None,
     ) -> int:
         # Counting for real means a second extraction pass, which costs a request and
@@ -155,7 +154,7 @@ class GallerydlEngine(Engine):
         output_dir: str,
         ffmpeg_location: str,
         output_template: str,
-        cookies_file: str = "",
+        access: AccessIdentity | None = None,
         creator_sidecar: str = "",
         metadata_sidecar: str = "",
         excluded_extensions: set[str] | None = None,
@@ -167,7 +166,7 @@ class GallerydlEngine(Engine):
             source_url,
             output_dir,
             output_template,
-            cookies_file=cookies_file,
+            access=access,
             metadata_sidecar=metadata_sidecar,
             excluded_extensions=excluded_extensions,
             quality=quality,

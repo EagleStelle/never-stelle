@@ -8,6 +8,7 @@ import backend.app.domains.downloads.formats as formats
 import backend.app.domains.downloads.gallerydl as gallerydl
 import backend.app.domains.downloads.ytdlp as ytdlp
 from backend.app.domains.downloads import default_engine
+from backend.app.domains.downloads.access import AccessIdentity
 from backend.app.domains.downloads.constants import (
     PROGRESS_RE,
     audio_format_selector,
@@ -1372,17 +1373,52 @@ def test_downloader_commands_use_the_leased_cookie_file():
         "https://twitter.com/DohaVT/status/1",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
-        cookies_file="/cookies/twitter-2.txt",
+        access=AccessIdentity(cookies_file="/cookies/twitter-2.txt"),
     )
     gallery_cmd = gallerydl.build_gallerydl_command(
         "https://twitter.com/DohaVT/status/1",
         "/media/twitter",
         f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
-        cookies_file="/cookies/twitter-2.txt",
+        access=AccessIdentity(cookies_file="/cookies/twitter-2.txt"),
     )
 
     assert ytdlp_cmd[ytdlp_cmd.index("--cookies") + 1] == "/cookies/twitter-2.txt"
     assert gallery_cmd[gallery_cmd.index("--cookies") + 1] == "/cookies/twitter-2.txt"
+
+
+def test_downloader_commands_impersonate_only_when_asked():
+    plain_ytdlp = ytdlp.build_ytdlp_command("https://example.test/v/1", "/usr/bin/ffmpeg", "/media/out.%(ext)s")
+    plain_gallery = gallerydl.build_gallerydl_command(
+        "https://example.test/p/1", "/media", f"creator{gallerydl._TEMPLATE_SEP}clip.{{extension}}"
+    )
+    assert "--impersonate" not in plain_ytdlp
+    assert not any("browser=" in arg or "cmdline-args" in arg for arg in plain_gallery)
+
+    access = AccessIdentity(impersonate="chrome")
+    ytdlp_cmd = ytdlp.build_ytdlp_command(
+        "https://example.test/v/1", "/usr/bin/ffmpeg", "/media/out.%(ext)s", access=access
+    )
+    gallery_cmd = gallerydl.build_gallerydl_command(
+        "https://example.test/p/1",
+        "/media",
+        f"creator{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        access=access,
+    )
+
+    assert ytdlp_cmd[ytdlp_cmd.index("--impersonate") + 1] == "chrome"
+    assert "--cookies" not in ytdlp_cmd
+    assert _has_cli_pair(gallery_cmd, "-o", "browser=chrome")
+    cmdline = '["--impersonate","chrome","--retries","3","--socket-timeout","30"]'
+    assert _has_cli_pair(gallery_cmd, "-o", f"downloader.ytdl.cmdline-args={cmdline}")
+    assert _has_cli_pair(gallery_cmd, "-o", f"extractor.ytdl.cmdline-args={cmdline}")
+
+
+def test_gallerydl_access_args_skip_browser_presets_it_does_not_ship():
+    args = gallerydl.gallerydl_access_args(AccessIdentity(impersonate="safari", cookies_file="/c.txt"))
+
+    assert not any(arg.startswith("browser=") for arg in args)
+    assert 'downloader.ytdl.cmdline-args=["--impersonate","safari","--retries","5","--socket-timeout","30"]' in args
+    assert args[-2:] == ["--cookies", "/c.txt"]
 
 
 def test_downloader_commands_route_intermediates_and_extractor_payloads_to_task_scratch():

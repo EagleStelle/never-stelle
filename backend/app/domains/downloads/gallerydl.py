@@ -8,6 +8,7 @@ from typing import Any
 from backend.app.core.config import SCRATCH_DIR
 from backend.app.domains.settings import get_effective_title_cleaning
 
+from .access import AccessIdentity
 from .constants import (
     FIELD_ROLE_CHAINS,
     MEDIA_EXTENSIONS,
@@ -82,11 +83,45 @@ _PROGRESS_CHUNK_SIZE = 131072
 _YTDL_EXTRACTOR_ENABLED_OPTION = "extractor.ytdl.enabled=true"
 _YTDL_JS_RUNTIMES = json.dumps({"node": {}}, separators=(",", ":"))
 _YTDL_REMOTE_COMPONENTS = json.dumps(["ejs:github"], separators=(",", ":"))
+_HTTP_TIMEOUT_SECONDS = 30
+_RETRIES = 3
+_COOKIE_RETRIES = 5
+# Browser families gallery-dl ships header and cipher presets for.
+_GALLERYDL_BROWSERS = ("chrome", "firefox")
 
 
 def _ytdl_options(name: str, value: str) -> list[str]:
     """One setting for both integration points: the delegating downloader and the extractor."""
     return ["-o", f"downloader.ytdl.{name}={value}", "-o", f"extractor.ytdl.{name}={value}"]
+
+
+def _access_retries(access: AccessIdentity) -> int:
+    return _COOKIE_RETRIES if access.cookies_file else _RETRIES
+
+
+def gallerydl_access_args(access: AccessIdentity) -> list[str]:
+    """Cookies and browser fingerprint for gallery-dl's own requests and its yt-dlp handoff."""
+    args: list[str] = []
+    target = access.impersonate
+    if target:
+        if target in _GALLERYDL_BROWSERS:
+            args.extend(["-o", f"browser={target}"])
+        # Only yt-dlp's CLI parser builds an ImpersonateTarget, and parsed args replace
+        # gallery-dl's own ytdl options, so the ones it set are passed back alongside.
+        cmdline = [
+            "--impersonate",
+            target,
+            "--retries",
+            str(_access_retries(access)),
+            "--socket-timeout",
+            str(_HTTP_TIMEOUT_SECONDS),
+        ]
+        args.extend(_ytdl_options("cmdline-args", json.dumps(cmdline, separators=(",", ":"))))
+        args.extend(["-o", "downloader.ytdl.raw-options.ignoreerrors=true"])
+    if access.cookies_file:
+        args.extend(_ytdl_options("raw-options.cookies", access.cookies_file.replace("\\", "/")))
+        args.extend(["--cookies", access.cookies_file])
+    return args
 
 
 def _ytdl_downloader_options(
@@ -304,13 +339,14 @@ def build_gallerydl_command(
     output_dir: str,
     output_template: str,
     *,
-    cookies_file: str = "",
+    access: AccessIdentity | None = None,
     metadata_sidecar: str = "",
     excluded_extensions: set[str] | None = None,
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
     cleaning: dict[str, Any] | None = None,
 ) -> list[str]:
+    access = access or AccessIdentity()
     folder, _, filename = str(output_template or "").partition(_TEMPLATE_SEP)
     directory = json.dumps(_directory_segments(folder), ensure_ascii=False)
     task_scratch = Path(metadata_sidecar).parent if metadata_sidecar else SCRATCH_DIR
@@ -338,10 +374,11 @@ def build_gallerydl_command(
         "-o",
         f"downloader.http.chunk-size={_PROGRESS_CHUNK_SIZE}",
         "-o",
-        "downloader.http.timeout=30",
+        f"downloader.http.timeout={_HTTP_TIMEOUT_SECONDS}",
         "--retries",
-        "3",
+        str(_access_retries(access)),
         *_ytdl_downloader_options(quality, processing, extractor_directory, trim_length),
+        *gallerydl_access_args(access),
     ]
     if filename:
         cmd.extend(["--filename", filename])
@@ -359,18 +396,8 @@ def build_gallerydl_command(
     filter_expr = _excluded_extension_filter(excluded_extensions)
     if filter_expr:
         cmd.extend(["--filter", filter_expr])
-    if cookies_file:
-        cmd.extend(
-            [
-                "--cookies",
-                cookies_file,
-                "--sleep-request",
-                "2",
-                "--retries",
-                "5",
-                *_ytdl_options("raw-options.cookies", cookies_file.replace("\\", "/")),
-            ]
-        )
+    if access.cookies_file:
+        cmd.extend(["--sleep-request", "2"])
     cmd.append(source_url)
     return cmd
 

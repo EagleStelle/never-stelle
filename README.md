@@ -21,6 +21,7 @@
 - Reconcile history against files on disk.
 - Customize output with folder and filename templates.
 - Rotate any number of cookie files per source, spreading requests across them under per-source rate limits, and retry the whole list when one stops working.
+- Retry behind a browser TLS fingerprint when a site answers with an anti-bot wall, before and alongside cookie rotation.
 - Protect the app with session-based login and in-app account management.
 
 ## Docker
@@ -310,6 +311,7 @@ Continuous integration runs the backend suite and the frontend build on every pu
 
 - [gallery-dl](https://github.com/mikf/gallery-dl): the default broker for images, videos, slideshows, galleries, and supported child extractors.
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp): integrated through gallery-dl for streams and retained as a fallback engine.
+- [curl_cffi](https://github.com/lexiforest/curl_cffi): browser TLS fingerprints for yt-dlp impersonation.
 - [FastAPI](https://fastapi.tiangolo.com/): the backend framework.
 - [Vue](https://vuejs.org/) and [Vite](https://vite.dev/): the frontend application and build tooling.
 - [TanStack Query](https://tanstack.com/query/latest): client-side API state.

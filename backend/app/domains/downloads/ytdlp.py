@@ -7,6 +7,7 @@ from typing import Any
 from backend.app.core.config import SCRATCH_DIR
 from backend.app.domains.settings import get_effective_fields, get_effective_title_cleaning
 
+from .access import AccessIdentity
 from .constants import (
     FIELD_ROLE_CHAINS,
     SAFE_PREDOWNLOAD_TRIM_CHARS,
@@ -160,13 +161,21 @@ def read_creator_sidecar(path: str) -> str:
     return "" if value.lower() == "unknown" else value
 
 
+def ytdlp_access_args(access: AccessIdentity) -> list[str]:
+    """Cookies and browser fingerprint for one attempt."""
+    args = ["--impersonate", access.impersonate] if access.impersonate else []
+    if access.cookies_file:
+        args.extend(["--cookies", access.cookies_file])
+    return args
+
+
 def build_ytdlp_command(
     source_url: str,
     ffmpeg_location: str,
     output_template: str,
     *,
     output_dir: str = "",
-    cookies_file: str = "",
+    access: AccessIdentity | None = None,
     creator_sidecar: str = "",
     metadata_sidecar: str = "",
     quality: dict[str, str] | None = None,
@@ -305,11 +314,11 @@ def build_ytdlp_command(
             ]
         )
         cmd.extend(["--print-to-file", f"after_move:{item_template}", metadata_sidecar])
-    if cookies_file:
+    access = access or AccessIdentity()
+    cmd.extend(ytdlp_access_args(access))
+    if access.cookies_file:
         cmd.extend(
             [
-                "--cookies",
-                cookies_file,
                 "--sleep-requests",
                 "1",
                 "--min-sleep-interval",
