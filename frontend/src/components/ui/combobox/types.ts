@@ -6,6 +6,5 @@ export type ComboboxItemOption = {
   label: string
   icon?: Component
   iconUrl?: string
-  initials?: string
   disabled?: boolean
 }

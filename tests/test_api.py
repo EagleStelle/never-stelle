@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 import backend.app.domains.downloads.scan as scan_module
+from backend.app.api.routers import sources as sources_router
 from backend.app.db import repositories
 from backend.app.domains.downloads import cache as cache_module
 from backend.app.domains.downloads import operations as operations_module
@@ -654,3 +655,32 @@ def test_settings_put_round_trips_global_defaults(tmp_path, monkeypatch):
     assert body["source_title_cleaning"] == {"youtube": {"separator": "dash", "stem_max_chars": 0}}
     # The built-ins stay reported as-is; they are what the defaults fall back to.
     assert body["cookie_policy_defaults"]["limit"] == 20
+
+
+def test_source_icon_requires_login(tmp_path, monkeypatch):
+    use_temp_auth_db(tmp_path, monkeypatch)
+
+    assert client.get("/api/sources/youtube/icon").status_code == 401
+
+
+def test_source_icon_is_served_with_validators(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    icon = tmp_path / "youtube.webp"
+    icon.write_bytes(b"RIFF\x00\x00\x00\x00WEBP")
+    monkeypatch.setattr(sources_router, "stored_icon", lambda key: (icon, icon.stat()) if key == "youtube" else None)
+
+    response = client.get("/api/sources/youtube/icon")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/webp"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"].startswith("private")
+    assert response.content == icon.read_bytes()
+
+    revalidated = client.get("/api/sources/youtube/icon", headers={"If-None-Match": response.headers["etag"]})
+    assert revalidated.status_code == 304
+    assert revalidated.content == b""
+
+    missing = client.get("/api/sources/unknown/icon")
+    assert missing.status_code == 404
+    assert missing.headers["cache-control"] == "no-store"

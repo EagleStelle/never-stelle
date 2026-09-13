@@ -109,11 +109,6 @@ def _normalize_bool_flag(value: Any) -> bool:
     return bool(value)
 
 
-def favicon_url_for_host(host: str) -> str:
-    host = _display_host(host)
-    return f"https://www.google.com/s2/favicons?domain={host}&sz=64" if host else ""
-
-
 def normalize_source_profile(raw: Any, fallback_key: str = "") -> dict[str, Any] | None:
     if isinstance(raw, str):
         raw = {"key": raw}
@@ -130,17 +125,11 @@ def normalize_source_profile(raw: Any, fallback_key: str = "") -> dict[str, Any]
     if not key:
         return None
     label = str(raw.get("label") or raw.get("name") or source_label_from_key(key)).strip()
-    icon = str(raw.get("icon") or "").strip()
-    icon_url = str(raw.get("icon_url") or raw.get("iconUrl") or "").strip()
-    if not icon_url and hosts:
-        icon_url = favicon_url_for_host(hosts[0])
 
     profile = {
         "key": key,
         "label": label or source_label_from_key(key),
         "hosts": hosts,
-        "icon": icon,
-        "icon_url": icon_url,
     }
     for source_name, target_name in (
         ("folder_template", "folder_template"),
@@ -233,13 +222,9 @@ def source_profile_for_url(source_url: str, profiles: Iterable[dict[str, Any]] |
             if host and host not in hosts:
                 hosts.append(host)
             out["hosts"] = hosts
-            if not out.get("icon_url") and host:
-                out["icon_url"] = favicon_url_for_host(host)
             return out
     return {
         "key": key,
         "label": source_label_from_key(key),
         "hosts": [host] if host else [],
-        "icon": "",
-        "icon_url": favicon_url_for_host(host),
     }

@@ -2,18 +2,11 @@ import type { Component } from "vue";
 import IconWarning from "~icons/material-symbols/warning";
 import IconCheck from "~icons/material-symbols/check-circle";
 import IconClock from "~icons/material-symbols/schedule";
-import IconFolder from "~icons/material-symbols/folder";
 import IconSpinner from "~icons/material-symbols/sync";
 
 import type { SourceProfile } from "@/types";
 
 export const DEFAULT_SOURCE_PROFILES: SourceProfile[] = [];
-
-export const SOURCE_ICON_COMPONENTS: Record<string, Component> = {
-  "material-symbols:folder": IconFolder,
-};
-
-export const FALLBACK_SOURCE_ICON = IconFolder;
 
 // Reuse toasts name each state the way Swaratelle names it, so a delegated Iwara
 // download and a local one report the same outcome in the same words.

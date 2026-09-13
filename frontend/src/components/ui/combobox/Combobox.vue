@@ -15,6 +15,7 @@ import ComboboxList from "@/components/ui/combobox/ComboboxList.vue"
 import ComboboxSelect from "@/components/ui/combobox/ComboboxSelect.vue"
 import ComboboxTrigger from "@/components/ui/combobox/ComboboxTrigger.vue"
 import ComboboxViewport from "@/components/ui/combobox/ComboboxViewport.vue"
+import ComboboxItemIcon from "@/components/ui/combobox/ComboboxItemIcon.vue"
 import type { ComboboxItemOption } from "@/components/ui/combobox/types"
 
 defineOptions({
@@ -58,6 +59,9 @@ const layout = computed(
 )
 
 const open = ref(false)
+
+// Any option with an icon reserves the icon slot on every row.
+const hasIcons = computed(() => props.items.some((item) => item.icon || item.iconUrl))
 
 const activeItem = computed(
   () => props.items.find((item) => item.key === props.modelValue) || null,
@@ -126,6 +130,7 @@ const handleOpenChange = (isOpen: boolean) => {
               :id="controlId"
               :item="activeItem"
               :items="items"
+              :has-icons="hasIcons"
               :placeholder="placeholder"
               :layout="layout"
             />
@@ -153,25 +158,7 @@ const handleOpenChange = (isOpen: boolean) => {
                 </ComboboxItemIndicator>
 
                 <div class="flex items-center gap-2">
-                  <img
-                    v-if="item.iconUrl"
-                    :src="item.iconUrl"
-                    class="w-4 h-4 shrink-0 rounded-lg"
-                    alt=""
-                    aria-hidden="true"
-                  />
-                  <component
-                    :is="item.icon"
-                    v-else-if="item.icon"
-                    class="w-4 h-4 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span
-                    v-else-if="item.initials"
-                    class="inline-flex h-5 min-w-5 items-center justify-center rounded glass-soft px-1 text-[0.65rem] font-semibold"
-                  >
-                    {{ item.initials }}
-                  </span>
+                  <ComboboxItemIcon v-if="hasIcons" :item="item" />
                   <span>{{ item.label }}</span>
                 </div>
               </ComboboxItem>

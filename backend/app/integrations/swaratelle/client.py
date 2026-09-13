@@ -12,7 +12,7 @@ from urllib.parse import quote, unquote, urlparse
 
 import httpx
 
-from backend.app.core.sources import favicon_url_for_host, host_from_url
+from backend.app.core.sources import host_from_url
 
 from . import breaker
 
@@ -93,8 +93,6 @@ def source_profile() -> dict[str, Any]:
         "key": SOURCE_KEY,
         "label": SOURCE_LABEL,
         "hosts": list(SOURCE_HOSTS),
-        "icon": "",
-        "icon_url": favicon_url_for_host("iwara.tv"),
         "external": True,
         "external_backend": BACKEND_NAME,
         "settings_managed": False,

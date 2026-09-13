@@ -6,6 +6,7 @@ import IconStop from "~icons/material-symbols/stop";
 import IconRetry from "~icons/material-symbols/replay";
 
 import { Button } from "@/components/ui/button";
+import { IconImage } from "@/components/ui/icon-image";
 import {
   Card,
   CardAction,
@@ -18,9 +19,9 @@ import SourcePicker from "@/components/task/SourcePicker.vue";
 
 import { taskFileUrl } from "@/api";
 import type { SourceProfile, TaskItem } from "@/types";
+import { sourceIconUrl } from "@/utils/dashboard";
 import {
   resolveHint,
-  sourceIconUrl,
   sourceLink,
   taskProgressState,
   taskProgressStyle,
@@ -78,12 +79,9 @@ function hasActions(task: TaskItem): boolean {
     >
       <CardHeader>
         <CardTitle>
-          <img
-            v-if="sourceIconUrl(task, props.sourceProfiles)"
-            :src="sourceIconUrl(task, props.sourceProfiles)"
-            class="mr-1.5 inline h-4 w-4 rounded-lg align-[-2px]"
-            alt=""
-            aria-hidden="true"
+          <IconImage
+            :src="sourceIconUrl(task.source_key)"
+            class="mr-1.5 inline h-4 w-4 align-[-2px]"
           />
           {{ taskTitle(task, props.sourceProfiles) }}
         </CardTitle>

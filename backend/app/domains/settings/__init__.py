@@ -46,6 +46,7 @@ from backend.app.domains.settings.fields import (
     scraper_token_from_field,
 )
 from backend.app.domains.settings.formats import add_source_and_learn_format, set_learned_format_templates
+from backend.app.domains.settings.icons import queue_icons, stored_icon
 from backend.app.domains.settings.locations import (
     iter_resolved_source_locations,
     normalize_source_location_selection,
@@ -152,6 +153,7 @@ __all__ = [
     "normalize_template_settings",
     "normalize_token_name",
     "persist_settings",
+    "queue_icons",
     "release_cookie",
     "reorder_ytdlp_cookies",
     "require_settings_managed_source",
@@ -162,4 +164,5 @@ __all__ = [
     "scraper_field",
     "scraper_token_from_field",
     "set_learned_format_templates",
+    "stored_icon",
 ]

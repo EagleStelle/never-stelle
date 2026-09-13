@@ -7,6 +7,7 @@ import IconRetry from "~icons/material-symbols/replay";
 import { reactive } from "vue";
 
 import { Button } from "@/components/ui/button";
+import { IconImage } from "@/components/ui/icon-image";
 import {
   Table,
   TableBody,
@@ -19,10 +20,10 @@ import SourcePicker from "@/components/task/SourcePicker.vue";
 
 import { taskFileUrl } from "@/api";
 import type { SourceProfile, TaskItem } from "@/types";
+import { sourceIconUrl } from "@/utils/dashboard";
 import {
   formatSize,
   resolveHint,
-  sourceIconUrl,
   sourceLink,
   taskProgressState,
   taskProgressStyle,
@@ -81,12 +82,9 @@ function toggle(set: Set<string>, id: string): void {
         <TableCell class="w-1/2 max-w-0 min-w-72">
           <div class="flex flex-col gap-1.5">
             <div class="flex items-center gap-2">
-              <img
-                v-if="sourceIconUrl(task, props.sourceProfiles)"
-                :src="sourceIconUrl(task, props.sourceProfiles)"
-                class="h-4 w-4 rounded-lg shrink-0"
-                alt=""
-                aria-hidden="true"
+              <IconImage
+                :src="sourceIconUrl(task.source_key)"
+                class="h-4 w-4 shrink-0"
               />
               <a
                 v-if="sourceLink(task)"

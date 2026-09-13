@@ -6,7 +6,6 @@ from typing import Any
 from backend.app.core.config import APP_CONFIG_KEY, get_config_source_profiles, load_app_config
 from backend.app.core.resolution import is_scoped, resolved
 from backend.app.core.sources import (
-    favicon_url_for_host,
     host_from_url,
     merge_source_profiles,
     normalize_source_key,
@@ -151,7 +150,6 @@ def ensure_source_profile_for_url(url_or_host: str) -> str:
             "key": key,
             "label": source_label_from_key(key),
             "hosts": [host] if host else [],
-            "icon_url": favicon_url_for_host(host) if host else "",
         }
     )
     payload["source_profiles"] = saved_profiles

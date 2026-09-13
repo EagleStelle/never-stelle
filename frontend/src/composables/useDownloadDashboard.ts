@@ -11,12 +11,7 @@ import { useAuth } from "@/composables/useAuth";
 import { useTaskQueue } from "@/composables/useTaskQueue";
 import { useHistory } from "@/composables/useHistory";
 import { useSonner } from "@/composables/useSonner";
-import {
-  COUNT_ICONS,
-  FALLBACK_SOURCE_ICON,
-  PAGE_ROUTES,
-  SOURCE_ICON_COMPONENTS,
-} from "@/ui";
+import { COUNT_ICONS, PAGE_ROUTES } from "@/ui";
 import type {
   MediaFilter,
   MenuKey,
@@ -40,10 +35,9 @@ import {
   isMenuKey,
   isPageKey,
   isViewMode,
-  faviconUrlForHost,
-  hostFromUrl,
   mergeSourceProfiles,
   postProcessingCapabilitiesForQuality,
+  sourceIconUrl,
   sourceLabelFromKey,
 } from "@/utils/dashboard";
 import { mediaKindForTask } from "@/utils/task";
@@ -71,13 +65,6 @@ const SETTINGS_SECTION_BY_SLUG = Object.fromEntries(
 
 function settingsSectionFromSlug(slug: string): SettingsSection {
   return SETTINGS_SECTION_BY_SLUG[slug] || "locations";
-}
-
-function sourceInitials(label: string): string {
-  const parts = label.trim().split(/\s+/).filter(Boolean);
-  const value =
-    parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : label.slice(0, 2);
-  return value.toUpperCase() || "?";
 }
 
 function hasSourceCounts(counts?: Partial<TaskCounts>): boolean {
@@ -219,10 +206,6 @@ export function useDownloadDashboard() {
             key,
             label: sourceLabelFromKey(key),
             hosts: [],
-            icon: "",
-            icon_url: faviconUrlForHost(
-              hostFromUrl(String(task.source_url || "")),
-            ),
           },
         ];
       }),
@@ -236,8 +219,6 @@ export function useDownloadDashboard() {
         key,
         label: sourceLabelFromKey(key),
         hosts: [],
-        icon: "",
-        icon_url: "",
       })),
   );
   const sourceProfiles = computed<SourceProfile[]>(() =>
@@ -253,11 +234,7 @@ export function useDownloadDashboard() {
     const profiles = sourceProfiles.value.map((profile) => ({
       key: profile.key,
       label: profile.label,
-      icon:
-        SOURCE_ICON_COMPONENTS[profile.icon || profile.key] ||
-        FALLBACK_SOURCE_ICON,
-      iconUrl: profile.icon_url || "",
-      initials: sourceInitials(profile.label),
+      iconUrl: sourceIconUrl(profile.key),
     })).sort((a, b) => a.label.localeCompare(b.label));
 
     return [

@@ -60,7 +60,6 @@ import {
   createTemplateSettings,
   displayHost,
   errorMessage,
-  faviconUrlForHost,
   hostFromUrl,
   mergeSourceProfiles,
   normalizeSourceKey,
@@ -265,14 +264,12 @@ function sourceProfileFromUrlDraft(url: string, profiles: SourceProfile[]): Sour
     return createSourceProfile({
       ...existing,
       hosts: [...new Set([...(existing.hosts || []), host])],
-      icon_url: existing.icon_url || faviconUrlForHost(host),
     });
   }
   return createSourceProfile({
     key,
     label: sourceLabelFromKey(key),
     hosts: [host],
-    icon_url: faviconUrlForHost(host),
     settings_managed: true,
   });
 }
@@ -1141,7 +1138,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     for (const host of profile.hosts || []) {
       if (host && !existing.hosts.includes(host)) existing.hosts.push(host);
     }
-    if (!existing.icon_url && profile.icon_url) existing.icon_url = profile.icon_url;
   }
 
   function syncPendingLearnsForKey(sourceKey: string, templates: string[]): void {

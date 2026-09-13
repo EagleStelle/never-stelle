@@ -112,11 +112,8 @@ export function extractUrl(sourceUrl: unknown): string {
   return match ? match[0].replace(/[.,;:!?)\]}»]+$/, "") : text;
 }
 
-export function faviconUrlForHost(host: string): string {
-  const display = displayHost(host);
-  return display
-    ? `https://www.google.com/s2/favicons?domain=${display}&sz=64`
-    : "";
+export function sourceIconUrl(sourceKey: string): string {
+  return sourceKey ? `/api/sources/${encodeURIComponent(sourceKey)}/icon` : "";
 }
 
 export function createSourceProfile(
@@ -133,8 +130,6 @@ export function createSourceProfile(
     hosts: Array.isArray(source.hosts)
       ? source.hosts.map(String).filter(Boolean)
       : [],
-    icon: source.icon || "",
-    icon_url: source.icon_url || "",
   };
   if (source.external !== undefined)
     profile.external = Boolean(source.external);

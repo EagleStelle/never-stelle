@@ -2,6 +2,7 @@
 import type { HTMLAttributes } from "vue"
 import { computed } from "vue"
 import { ChevronsUpDownIcon } from "@lucide/vue"
+import ComboboxItemIcon from "@/components/ui/combobox/ComboboxItemIcon.vue"
 import type { ComboboxItemOption } from "@/components/ui/combobox/types"
 
 defineOptions({
@@ -17,6 +18,8 @@ const props = withDefaults(
     placeholder?: string
     class?: HTMLAttributes["class"]
     layout?: "fit" | "fill"
+    /** Reserves the icon slot on the face and sizers. */
+    hasIcons?: boolean
   }>(),
   { layout: "fit" },
 )
@@ -30,7 +33,6 @@ interface SizerItem {
   label: string
   icon?: any
   iconUrl?: string
-  initials?: string
 }
 
 const sizerItems = computed<SizerItem[]>(() => {
@@ -44,7 +46,6 @@ const sizerItems = computed<SizerItem[]>(() => {
         label: item.label,
         icon: item.icon,
         iconUrl: item.iconUrl,
-        initials: item.initials,
       })
       existingKeys.add(item.key)
     }
@@ -56,7 +57,6 @@ const sizerItems = computed<SizerItem[]>(() => {
       label: props.item.label,
       icon: props.item.icon,
       iconUrl: props.item.iconUrl,
-      initials: props.item.initials,
     })
   }
 
@@ -89,25 +89,7 @@ const sizerItems = computed<SizerItem[]>(() => {
       aria-hidden="true"
       class="pointer-events-none invisible col-start-1 row-start-1 min-w-0 max-w-[min(28rem,calc(100vw-5rem))] flex items-center gap-2 text-left whitespace-nowrap"
     >
-      <img
-        v-if="sizer.iconUrl"
-        :src="sizer.iconUrl"
-        class="w-4 h-4 shrink-0 rounded-lg"
-        alt=""
-        aria-hidden="true"
-      />
-      <component
-        :is="sizer.icon"
-        v-else-if="sizer.icon"
-        class="w-4 h-4 shrink-0"
-        aria-hidden="true"
-      />
-      <span
-        v-else-if="sizer.initials"
-        class="inline-flex h-5 min-w-5 items-center justify-center rounded glass-soft px-1 text-[0.65rem] font-semibold"
-      >
-        {{ sizer.initials }}
-      </span>
+      <ComboboxItemIcon v-if="props.hasIcons" :item="sizer" />
       <span>{{ sizer.label }}</span>
     </div>
 
@@ -119,25 +101,7 @@ const sizerItems = computed<SizerItem[]>(() => {
       ]"
     >
       <template v-if="item">
-        <img
-          v-if="item.iconUrl"
-          :src="item.iconUrl"
-          class="w-4 h-4 shrink-0 rounded-lg"
-          alt=""
-          aria-hidden="true"
-        />
-        <component
-          :is="item.icon"
-          v-else-if="item.icon"
-          class="w-4 h-4 shrink-0"
-          aria-hidden="true"
-        />
-        <span
-          v-else-if="item.initials"
-          class="inline-flex h-5 min-w-5 items-center justify-center rounded glass-soft px-1 text-[0.65rem] font-semibold"
-        >
-          {{ item.initials }}
-        </span>
+        <ComboboxItemIcon v-if="props.hasIcons" :item="item" />
       </template>
       <span class="truncate">{{ activeLabel || placeholderText }}</span>
     </div>

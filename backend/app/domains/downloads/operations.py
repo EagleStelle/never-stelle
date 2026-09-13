@@ -7,7 +7,7 @@ from typing import Any
 from backend.app.core.config import is_allowed_location, load_app_config
 from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
-from backend.app.domains.settings import get_effective_saved_settings, get_effective_title_cleaning
+from backend.app.domains.settings import get_effective_saved_settings, get_effective_title_cleaning, queue_icons
 from backend.app.integrations.swaratelle import client as swaratelle
 
 from .constants import normalize_post_processing, normalize_quality_selection
@@ -117,6 +117,7 @@ def queue_task(
     }
     task = update_task(task_id, **task)
     ensure_worker()
+    queue_icons([source_key])
     return [task_to_api(task_id, task)], False
 
 

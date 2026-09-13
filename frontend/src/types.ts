@@ -46,8 +46,6 @@ export interface SourceProfile {
   key: string;
   label: string;
   hosts: string[];
-  icon?: string;
-  icon_url?: string;
   external?: boolean;
   external_backend?: string;
   settings_managed?: boolean;

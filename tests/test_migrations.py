@@ -758,3 +758,30 @@ def test_source_location_migration_without_a_settings_row(tmp_path, monkeypatch)
     with database_module.transaction() as connection:
         assert connection.execute("SELECT COUNT(*) AS n FROM app_settings").fetchone()["n"] == 0
         assert migrations.current_version(connection) == migrations.latest_version()
+
+
+def test_icon_state_leaves_saved_settings(tmp_path, monkeypatch):
+    payload = {
+        "source_profiles": [
+            {
+                "key": "youtube",
+                "label": "YouTube",
+                "hosts": ["youtube.com"],
+                "icon": "",
+                "icon_url": "https://www.google.com/s2/favicons?domain=youtube.com&sz=64",
+            },
+            {"key": "pixiv", "label": "Pixiv", "iconUrl": "https://example.test/icon.png"},
+        ],
+        "template_settings": {"folder_template": "{{creator}}"},
+    }
+    _seed_pre_migration_db(tmp_path / "never-stelle.sqlite3", payload, version=6)
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    stored = _stored_payload()
+    assert stored["source_profiles"] == [
+        {"key": "youtube", "label": "YouTube", "hosts": ["youtube.com"]},
+        {"key": "pixiv", "label": "Pixiv"},
+    ]
+    assert stored["template_settings"] == {"folder_template": "{{creator}}"}

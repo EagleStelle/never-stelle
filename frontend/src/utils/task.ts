@@ -1,5 +1,5 @@
 import type { SourceProfile, TaskItem } from "@/types";
-import { faviconUrlForHost, hostFromUrl, sourceLabelFromKey } from "@/utils/dashboard";
+import { sourceLabelFromKey } from "@/utils/dashboard";
 
 const IMAGE_EXTENSIONS = new Set([
   "jpg",
@@ -56,13 +56,6 @@ function sourceLabel(task: TaskItem, profiles: SourceProfile[] = []): string {
 export function sourceLink(task: TaskItem): string {
   const url = String(task.source_url || "").trim();
   return /^https?:\/\//i.test(url) ? url : "";
-}
-
-// Profile icon, else favicon of the source host.
-export function sourceIconUrl(task: TaskItem, profiles: SourceProfile[] = []): string {
-  const profile = sourceProfileFor(task, profiles);
-  if (profile?.icon_url) return profile.icon_url;
-  return faviconUrlForHost(hostFromUrl(String(task.source_url || ""))).trim();
 }
 
 // Display title: filename, else "<site> <status>".

@@ -42,6 +42,7 @@ MEDIA_DIR = (RUNTIME_ROOT / "media").resolve()  # download library (also the def
 SCRATCH_DIR = (RUNTIME_ROOT / "scratch").resolve()  # temp files, partial downloads, caches
 
 DATABASE_PATH = (DATA_DIR / "never-stelle.sqlite3").resolve()
+ICONS_DIR = (DATA_DIR / "icons").resolve()  # <source_key>.webp per source
 DEFAULT_LIBRARY_DIR = MEDIA_DIR
 
 
