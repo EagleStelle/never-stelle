@@ -77,7 +77,12 @@ from backend.app.domains.settings import (
     load_slug_tokens,
     load_token_roles,
 )
-from backend.app.runtime.scratch import remove_scratch_path, scratch_temp_dir
+from backend.app.runtime.scratch import (
+    remove_scratch_path,
+    remove_staging_path,
+    scratch_temp_dir,
+    staging_temp_dir,
+)
 
 
 def _should_try_next_engine(rc: int, last_dest: str, emitted_paths: list[str]) -> bool:
@@ -118,6 +123,7 @@ def _run_engine_attempts(
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
     progress: TaskProgress | None = None,
+    part_directory: str = "",
 ) -> tuple[int, str, list[str]]:
     def _attempt(access: AccessIdentity) -> tuple[int, str, list[str]]:
         cmd = engine.build_command(
@@ -128,6 +134,7 @@ def _run_engine_attempts(
             access=access,
             creator_sidecar=creator_sidecar,
             metadata_sidecar=metadata_sidecar,
+            part_directory=part_directory,
             quality=quality,
             post_processing=post_processing,
         )
@@ -252,6 +259,8 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
     task_scratch = scratch_temp_dir(prefix="nvs-download-task-")
     creator_sidecar = str(task_scratch / "creator.txt")
     metadata_sidecar = str(task_scratch / "downloads.tsv")
+    # Downloader parts, on the output's mount.
+    task_parts = staging_temp_dir(output_root, prefix="nvs-download-task-")
 
     rc = 1
     last_dest = ""
@@ -310,6 +319,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 quality,
                 post_processing,
                 progress,
+                str(task_parts),
             )
             if _cancel_pending(task_id):
                 break
@@ -372,7 +382,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
             probed_media_fields: dict[str, tuple[str, dict[str, Any]]] = {}
             # gallery-dl's yt-dlp handoff writes its info.json beside the part file.
             payload_index = (
-                scratch_payload_index((task_scratch / "extractor", task_scratch / "parts"))
+                scratch_payload_index((task_scratch / "extractor", task_parts))
                 if has_post_processing
                 else {}
             )
@@ -552,6 +562,6 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
         else:
             update_task(task_id, status="failed", error=str(exc))
     finally:
-        # Downloader fragments, extractor payloads and worker sidecars all live
-        # below this task-owned directory, so every exit path has one cleanup.
+        # Every exit path removes both task-owned workspaces.
         remove_scratch_path(task_scratch)
+        remove_staging_path(task_parts)

@@ -44,7 +44,7 @@ def embed_harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "ffmpeg")
     monkeypatch.setattr(postprocessing_module, "_ffprobe_streams", lambda *args, **kwargs: [])
-    monkeypatch.setattr(postprocessing_module, "publish_scratch_file", lambda *args, **kwargs: None)
+    monkeypatch.setattr(postprocessing_module, "publish_staged_file", lambda *args, **kwargs: None)
     monkeypatch.setattr(postprocessing_module, "_ytdlp_session", nullcontext)
     monkeypatch.setattr(postprocessing_module, "_fetch_thumbnail", lambda *args, **kwargs: (b"cover", ".jpg"))
     monkeypatch.setattr(

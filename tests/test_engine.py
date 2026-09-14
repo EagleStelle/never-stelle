@@ -1390,13 +1390,15 @@ def test_gallerydl_access_args_skip_browser_presets_it_does_not_ship():
     assert args[-2:] == ["--cookies", "/c.txt"]
 
 
-def test_downloader_commands_route_intermediates_and_extractor_payloads_to_task_scratch():
+def test_downloader_commands_route_parts_to_staging_and_extractor_payloads_to_task_scratch():
+    part_directory = "/media/example/.nvs-staging/nvs-download-task-1"
     ytdlp_cmd = ytdlp.build_ytdlp_command(
         "https://example.test/watch/1",
         "/usr/bin/ffmpeg",
         "/media/creator/clip.%(ext)s",
         output_dir="/media",
         metadata_sidecar="/scratch/nvs-download-task-1/downloads.tsv",
+        part_directory=part_directory,
         post_processing={"metadata": "sidecar"},
     )
     gallery_cmd = gallerydl.build_gallerydl_command(
@@ -1404,24 +1406,38 @@ def test_downloader_commands_route_intermediates_and_extractor_payloads_to_task_
         "/media",
         f"creator{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
         metadata_sidecar="/scratch/nvs-download-task-1/downloads.tsv",
+        part_directory=part_directory,
         post_processing={"metadata": "sidecar"},
     )
 
     ytdlp_paths = [ytdlp_cmd[index + 1] for index, value in enumerate(ytdlp_cmd) if value == "--paths"]
     assert "home:/media" in ytdlp_paths
-    assert "temp:/scratch/nvs-download-task-1/parts" in ytdlp_paths
+    assert f"temp:{part_directory}" in ytdlp_paths
     assert "infojson:/scratch/nvs-download-task-1/extractor" in ytdlp_paths
     assert ytdlp_cmd[ytdlp_cmd.index("--output") + 1] == "creator/clip.%(ext)s"
-    assert _has_cli_pair(
-        gallery_cmd,
-        "-o",
-        "downloader.part-directory=/scratch/nvs-download-task-1/parts",
-    )
+    assert _has_cli_pair(gallery_cmd, "-o", f"downloader.part-directory={part_directory}")
     gallery_postprocessors = _gallerydl_postprocessors(gallery_cmd)
     assert gallery_postprocessors[0]["base-directory"] == "/scratch/nvs-download-task-1"
     assert gallery_postprocessors[0]["filename"] == "downloads.tsv"
     assert gallery_postprocessors[1]["directory"] == "/scratch/nvs-download-task-1/extractor"
     assert "--postprocessor-option" not in gallery_cmd
+
+
+def test_downloader_commands_keep_tool_default_parts_without_a_part_directory():
+    ytdlp_cmd = ytdlp.build_ytdlp_command(
+        "https://example.test/watch/1",
+        "/usr/bin/ffmpeg",
+        "/media/creator/clip.%(ext)s",
+        output_dir="/media",
+    )
+    gallery_cmd = gallerydl.build_gallerydl_command(
+        "https://example.test/post/1",
+        "/media",
+        f"creator{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+    )
+
+    assert not any(str(arg).startswith("temp:") for arg in ytdlp_cmd)
+    assert not any(str(arg).startswith("downloader.part-directory=") for arg in gallery_cmd)
 
 
 def test_downloader_commands_and_templates_obey_naming_limits():

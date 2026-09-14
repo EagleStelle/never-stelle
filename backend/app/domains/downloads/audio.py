@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 from backend.app.domains.downloads.workers.processes import raise_if_cancelled, run_task_subprocess
-from backend.app.runtime.scratch import publish_scratch_file, remove_scratch_path, scratch_temp_path
+from backend.app.runtime.scratch import publish_staged_file, staging_file
 
 from .constants import (
     AUDIO_BITRATE_PRESETS,
@@ -79,9 +79,8 @@ def convert_audio_output(source: Path, target: Path, quality: dict[str, str] | N
     selection = normalize_quality_selection(quality)
     if not audio_output_extension(selection) or not (ffmpeg := detect_ffmpeg_location()):
         return False
-    temporary = scratch_temp_path(prefix="nvs-audio-convert-", suffix=target.suffix)
-    try:
-        # The scratch file's extension picks the muxer, and on the encode pass
+    with staging_file(target, prefix="nvs-audio-convert-") as temporary:
+        # The staged file's extension picks the muxer, and on the encode pass
         # its default encoder. Publish only after ffmpeg produced a valid file.
         converted = _run_ffmpeg(ffmpeg, source, temporary, ["-c:a", "copy"])
         if not converted:
@@ -89,7 +88,5 @@ def convert_audio_output(source: Path, target: Path, quality: dict[str, str] | N
             converted = _run_ffmpeg(ffmpeg, source, temporary, _encode_args(selection))
         if not converted:
             return False
-        publish_scratch_file(temporary, target, cancel_check=raise_if_cancelled)
+        publish_staged_file(temporary, target, cancel_check=raise_if_cancelled)
         return True
-    finally:
-        remove_scratch_path(temporary)

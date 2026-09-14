@@ -12,7 +12,7 @@ from typing import Any
 from urllib.parse import unquote
 
 from backend.app.core.coercion import safe_int
-from backend.app.core.config import MEDIA_DIR
+from backend.app.core.config import MEDIA_DIR, STAGING_DIR_NAME
 from backend.app.core.pacing import CpuPacer
 from backend.app.core.paths import path_key as _path_key
 from backend.app.core.resolution import resolution_scope
@@ -252,7 +252,8 @@ def _iter_media_files(roots: Iterable[Path]) -> Iterable[tuple[Path, Path, os.st
             for entry in listing:
                 try:
                     if entry.is_dir(follow_symlinks=False):
-                        pending.append(entry.path)
+                        if entry.name != STAGING_DIR_NAME:
+                            pending.append(entry.path)
                         continue
                 except OSError:
                     continue

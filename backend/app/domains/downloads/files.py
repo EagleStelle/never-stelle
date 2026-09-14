@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from backend.app.core.config import STAGING_DIR_NAME
+
 from .constants import MEDIA_EXTENSIONS
 from .naming import strip_numbered_suffix
 from .store import update_task
@@ -57,7 +59,7 @@ def find_newest_media_file(root: Path, started_at: float) -> Path | None:
     candidates: list[Path] = []
     try:
         for path in root.rglob("*"):
-            if not is_media_file(path):
+            if STAGING_DIR_NAME in path.parts or not is_media_file(path):
                 continue
             try:
                 if path.stat().st_mtime + 2 >= started_at:

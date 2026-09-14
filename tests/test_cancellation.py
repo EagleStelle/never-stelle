@@ -82,29 +82,30 @@ def test_cancelled_thumbnail_conversion_removes_its_temporary_output(tmp_path, m
     assert list(scratch_root.iterdir()) == []
 
 
-def test_cancelled_cross_filesystem_publish_removes_staging_file(tmp_path, monkeypatch):
-    scratch_root = tmp_path / "scratch"
-    monkeypatch.setattr(scratch_module, "SCRATCH_DIR", scratch_root)
-    source = scratch_module.scratch_temp_path(prefix="nvs-publish-", suffix=".mp4")
-    source.write_bytes(b"x" * (2 * 1024 * 1024))
-    target = tmp_path / "media" / "clip.mp4"
-    target.parent.mkdir()
-    original_replace = Path.replace
-
-    def replace_across_mount(path: Path, destination: Path):
-        if path == source.resolve():
-            raise OSError(errno.EXDEV, "cross-device", str(path), str(destination))
-        return original_replace(path, destination)
+def test_cancelled_cross_filesystem_publish_removes_its_copy(tmp_path, monkeypatch):
+    media_root = tmp_path / "media"
+    monkeypatch.setattr(scratch_module, "MEDIA_DIR", media_root)
+    target = media_root / "example" / "Creator" / "clip.mp4"
+    target.parent.mkdir(parents=True)
 
     def cancel_copy() -> None:
         raise processes_module.TaskCancelled()
 
-    monkeypatch.setattr(Path, "replace", replace_across_mount)
+    with scratch_module.staging_file(target, prefix="nvs-publish-") as source:
+        source.write_bytes(b"x" * (2 * 1024 * 1024))
+        original_replace = Path.replace
 
-    with pytest.raises(processes_module.TaskCancelled):
-        scratch_module.publish_scratch_file(source, target, cancel_check=cancel_copy)
+        def replace_across_mount(path: Path, destination: Path):
+            if path == source:
+                raise OSError(errno.EXDEV, "cross-device", str(path), str(destination))
+            return original_replace(path, destination)
 
-    assert source.exists()
+        monkeypatch.setattr(Path, "replace", replace_across_mount)
+
+        with pytest.raises(processes_module.TaskCancelled):
+            scratch_module.publish_staged_file(source, target, cancel_check=cancel_copy)
+
+        assert source.exists()
     assert not target.exists()
     assert list(target.parent.iterdir()) == []
 
@@ -282,4 +283,5 @@ def test_run_task_cancellation_during_post_processing_removes_task_and_workspace
     assert task_id not in store
     assert workspaces and not workspaces[0].exists()
     assert list(scratch_root.iterdir()) == []
+    assert not (tmp_path / ".nvs-staging").exists()
     assert not processes_module.has_active_task(task_id)

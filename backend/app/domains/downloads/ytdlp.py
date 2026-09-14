@@ -178,6 +178,7 @@ def build_ytdlp_command(
     access: AccessIdentity | None = None,
     creator_sidecar: str = "",
     metadata_sidecar: str = "",
+    part_directory: str = "",
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
     cleaning: dict[str, Any] | None = None,
@@ -220,7 +221,6 @@ def build_ytdlp_command(
         selected_format,
     ]
     task_scratch = Path(metadata_sidecar).parent if metadata_sidecar else SCRATCH_DIR
-    part_directory = str(task_scratch / "parts").replace("\\", "/")
     extractor_directory = str(task_scratch / "extractor").replace("\\", "/")
     final_output_template = output_template
     if output_dir:
@@ -230,14 +230,9 @@ def build_ytdlp_command(
             pass
         else:
             final_output_template = final_output_template.replace("\\", "/")
-            cmd.extend(
-                [
-                    "--paths",
-                    f"home:{output_dir}",
-                    "--paths",
-                    f"temp:{part_directory}",
-                ]
-            )
+            cmd.extend(["--paths", f"home:{output_dir}"])
+            if part_directory:
+                cmd.extend(["--paths", f"temp:{Path(part_directory).as_posix()}"])
     if audio_mode:
         target_format = audio_postprocess_format(selection)
         if target_format:

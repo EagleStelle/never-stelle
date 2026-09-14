@@ -14,7 +14,7 @@ from backend.app.domains.settings import (
     get_effective_title_cleaning,
     possible_filename_templates,
 )
-from backend.app.runtime.scratch import publish_scratch_file, scratch_file
+from backend.app.runtime.scratch import publish_staged_file, staging_file
 
 from .files import is_media_file, payload_path_string
 from .naming import (
@@ -210,16 +210,15 @@ def plan_history_renames(
 
 def _swap_on_disk(old: Path, new: Path) -> None:
     if _path_key(old) == _path_key(new):
-        # Case-only changes need an intermediate name on Windows. Keep that
-        # intermediate in scratch, never beside the user's media.
-        with scratch_file(prefix="nvs-case-rename-", suffix=old.suffix) as staging:
+        # Case-only changes need an intermediate name on Windows.
+        with staging_file(old, prefix="nvs-case-rename-") as staging:
             staging.unlink(missing_ok=True)
             shutil.move(old, staging)
             try:
-                publish_scratch_file(staging, new)
+                publish_staged_file(staging, new)
             except Exception:
                 if staging.is_file():
-                    publish_scratch_file(staging, old)
+                    publish_staged_file(staging, old)
                 raise
         return
     if new.exists():

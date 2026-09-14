@@ -40,11 +40,12 @@ from backend.app.domains.downloads.workers.processes import (
     run_task_subprocess,
 )
 from backend.app.runtime.scratch import (
-    publish_scratch_file,
+    publish_staged_file,
     remove_scratch_path,
     scratch_file,
     scratch_temp_dir,
     scratch_temp_path,
+    staging_file,
 )
 
 logger = logging.getLogger(__name__)
@@ -401,11 +402,10 @@ def finalized_metadata_payload(extractor: dict[str, Any], finalized: Any) -> dic
 
 
 def _publish_bytes(target: Path, data: bytes) -> Path:
-    """Stage bytes in scratch, then move them over the target in one step."""
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with scratch_file(prefix="nvs-publish-", suffix=target.suffix) as temporary:
+    """Stage bytes on the target's mount, then move them over the target in one step."""
+    with staging_file(target, prefix="nvs-publish-") as temporary:
         temporary.write_bytes(data)
-        publish_scratch_file(temporary, target, cancel_check=raise_if_cancelled)
+        publish_staged_file(temporary, target, cancel_check=raise_if_cancelled)
     return target
 
 
@@ -806,45 +806,43 @@ def _repair_empty_vpcc(
 ) -> bool:
     """Losslessly rebuild malformed VP codec metadata without re-encoding media."""
 
-    neutralized_path = scratch_temp_path(prefix="nvs-vpcc-input-", suffix=path.suffix)
     try:
-        shutil.copyfile(path, neutralized_path)
-        with neutralized_path.open("r+b") as handle:
-            for offset in offsets:
-                handle.seek(offset)
-                if handle.read(4) != b"vpcC":
-                    return False
-                handle.seek(offset)
-                handle.write(b"free")
+        with staging_file(path, prefix="nvs-vpcc-input-") as neutralized_path:
+            shutil.copyfile(path, neutralized_path)
+            with neutralized_path.open("r+b") as handle:
+                for offset in offsets:
+                    handle.seek(offset)
+                    if handle.read(4) != b"vpcC":
+                        return False
+                    handle.seek(offset)
+                    handle.write(b"free")
 
-        # With the invalid empty box ignored, FFmpeg infers the VP parameters
-        # directly from the compressed frames. A stream-copy remux then writes
-        # a valid vpcC box; no video or audio samples are encoded.
-        streams = _ffprobe_streams(ffmpeg, neutralized_path)
-        if not any(
-            stream.get("codec_type") == "video"
-            and _stream_codec_key(stream, VIDEO_CODEC_FOURCC) == "vp9"
-            for stream in streams
-        ):
-            return False
-        target_container = (
-            _stream_copy_target_container(streams, "mp4") if choose_native_container else "mp4"
-        )
-        return _publish_stream_copy_remux(
-            ffmpeg,
-            neutralized_path,
-            path,
-            "mp4",
-            target_container or "mp4",
-            paths,
-            path_updates,
-            log_label="Empty VP codec header repair",
-        )
+            # With the invalid empty box ignored, FFmpeg infers the VP parameters
+            # directly from the compressed frames. A stream-copy remux then writes
+            # a valid vpcC box; no video or audio samples are encoded.
+            streams = _ffprobe_streams(ffmpeg, neutralized_path)
+            if not any(
+                stream.get("codec_type") == "video"
+                and _stream_codec_key(stream, VIDEO_CODEC_FOURCC) == "vp9"
+                for stream in streams
+            ):
+                return False
+            target_container = (
+                _stream_copy_target_container(streams, "mp4") if choose_native_container else "mp4"
+            )
+            return _publish_stream_copy_remux(
+                ffmpeg,
+                neutralized_path,
+                path,
+                "mp4",
+                target_container or "mp4",
+                paths,
+                path_updates,
+                log_label="Empty VP codec header repair",
+            )
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("Empty VP codec header repair skipped for %s: %s", path, exc)
         return False
-    finally:
-        remove_scratch_path(neutralized_path)
 
 
 def _stream_codec_key(stream: dict[str, Any], codecs: dict[str, tuple[str, ...]]) -> str:
@@ -944,26 +942,26 @@ def _publish_stream_copy_remux(
     log_label: str,
 ) -> bool:
     target_path = _unique_remux_target(source_path, target_container, current_container)
-    output_path = scratch_temp_path(prefix="nvs-stream-copy-remux-", suffix=target_path.suffix)
     try:
-        produced, detail = _run_ffmpeg(
-            [*_stream_copy_command(ffmpeg, str(input_path)), str(output_path)],
-            output_path,
-        )
-        if not produced:
-            logger.warning("%s skipped for %s: %s", log_label, source_path, detail)
-            return False
-        output_streams = _ffprobe_streams(ffmpeg, output_path)
-        output_video, output_audio = _incompatible_output_streams(output_streams, target_container)
-        if (
-            not output_streams
-            or output_video
-            or output_audio
-            or (target_container == "mp4" and _empty_vpcc_type_offsets(output_path))
-        ):
-            logger.warning("%s skipped for %s: invalid remux output", log_label, source_path)
-            return False
-        publish_scratch_file(output_path, target_path, cancel_check=raise_if_cancelled)
+        with staging_file(target_path, prefix="nvs-stream-copy-remux-") as output_path:
+            produced, detail = _run_ffmpeg(
+                [*_stream_copy_command(ffmpeg, str(input_path)), str(output_path)],
+                output_path,
+            )
+            if not produced:
+                logger.warning("%s skipped for %s: %s", log_label, source_path, detail)
+                return False
+            output_streams = _ffprobe_streams(ffmpeg, output_path)
+            output_video, output_audio = _incompatible_output_streams(output_streams, target_container)
+            if (
+                not output_streams
+                or output_video
+                or output_audio
+                or (target_container == "mp4" and _empty_vpcc_type_offsets(output_path))
+            ):
+                logger.warning("%s skipped for %s: invalid remux output", log_label, source_path)
+                return False
+            publish_staged_file(output_path, target_path, cancel_check=raise_if_cancelled)
         if target_path != source_path:
             try:
                 source_path.unlink(missing_ok=True)
@@ -974,8 +972,6 @@ def _publish_stream_copy_remux(
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("%s skipped for %s: %s", log_label, source_path, exc)
         return False
-    finally:
-        remove_scratch_path(output_path)
 
 
 def _repair_container_codecs(ffmpeg: str, path: Path, container: str) -> bool:
@@ -998,30 +994,28 @@ def _repair_container_codecs(ffmpeg: str, path: Path, container: str) -> bool:
         logger.warning("Codec compatibility repair skipped for %s: no compatible encoder", path)
         return False
 
-    output_path = scratch_temp_path(prefix="nvs-codec-repair-", suffix=path.suffix)
     try:
-        cmd = _stream_copy_command(ffmpeg, str(path))
-        for ordinal in video_streams:
-            cmd.extend([f"-c:v:{ordinal}", VIDEO_CODEC_ENCODERS[video_codec]["ffmpeg"]])
-        for ordinal in audio_streams:
-            cmd.extend([f"-c:a:{ordinal}", VIDEO_AUDIO_CODEC_ENCODERS[audio_codec]])
-        cmd.append(str(output_path))
-        produced, detail = _run_ffmpeg(cmd, output_path)
-        if not produced:
-            logger.warning("Codec compatibility repair skipped for %s: %s", path, detail)
-            return False
-        repaired_streams = _ffprobe_streams(ffmpeg, output_path)
-        repaired_video, repaired_audio = _incompatible_output_streams(repaired_streams, container)
-        if repaired_video or repaired_audio:
-            logger.warning("Codec compatibility repair skipped for %s: output remains incompatible", path)
-            return False
-        publish_scratch_file(output_path, path, cancel_check=raise_if_cancelled)
-        return True
+        with staging_file(path, prefix="nvs-codec-repair-") as output_path:
+            cmd = _stream_copy_command(ffmpeg, str(path))
+            for ordinal in video_streams:
+                cmd.extend([f"-c:v:{ordinal}", VIDEO_CODEC_ENCODERS[video_codec]["ffmpeg"]])
+            for ordinal in audio_streams:
+                cmd.extend([f"-c:a:{ordinal}", VIDEO_AUDIO_CODEC_ENCODERS[audio_codec]])
+            cmd.append(str(output_path))
+            produced, detail = _run_ffmpeg(cmd, output_path)
+            if not produced:
+                logger.warning("Codec compatibility repair skipped for %s: %s", path, detail)
+                return False
+            repaired_streams = _ffprobe_streams(ffmpeg, output_path)
+            repaired_video, repaired_audio = _incompatible_output_streams(repaired_streams, container)
+            if repaired_video or repaired_audio:
+                logger.warning("Codec compatibility repair skipped for %s: output remains incompatible", path)
+                return False
+            publish_staged_file(output_path, path, cancel_check=raise_if_cancelled)
+            return True
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("Codec compatibility repair skipped for %s: %s", path, exc)
         return False
-    finally:
-        remove_scratch_path(output_path)
 
 
 def _video_container_candidates(paths: list[Path]) -> list[tuple[Path, str]]:
@@ -1789,14 +1783,14 @@ def _embed_pass(ffmpeg: str, path: Path, requested: dict[str, Any], features: se
                 cmd.extend(["-attach", str(cover)])
                 cmd.extend([f"-metadata:s:t:{retained_attachments}", f"mimetype={_thumbnail_mime_type(cover)}"])
                 cmd.extend([f"-metadata:s:t:{retained_attachments}", f"filename=cover{cover.suffix.lower()}"])
-            output_path = staged(scratch_temp_path(prefix="nvs-embed-", suffix=path.suffix))
+            output_path = cleanup.enter_context(staging_file(path, prefix="nvs-embed-"))
             produced, detail = _run_ffmpeg([*cmd, str(output_path)], output_path)
             if produced and tracks and _subtitle_stream_count(ffmpeg, output_path) < existing_subtitles + len(tracks):
                 produced, detail = False, "the output kept too few subtitle streams"
             if not produced:
                 logger.warning("Embed skipped for %s: %s", path, detail)
                 return set()
-            publish_scratch_file(output_path, path, cancel_check=raise_if_cancelled)
+            publish_staged_file(output_path, path, cancel_check=raise_if_cancelled)
             return features
         except (OSError, subprocess.SubprocessError) as exc:
             logger.warning("Embed skipped for %s: %s", path, exc)

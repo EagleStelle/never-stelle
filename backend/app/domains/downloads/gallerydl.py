@@ -324,6 +324,7 @@ def build_gallerydl_command(
     *,
     access: AccessIdentity | None = None,
     metadata_sidecar: str = "",
+    part_directory: str = "",
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
     cleaning: dict[str, Any] | None = None,
@@ -332,7 +333,6 @@ def build_gallerydl_command(
     folder, _, filename = str(output_template or "").partition(_TEMPLATE_SEP)
     directory = json.dumps(_directory_segments(folder), ensure_ascii=False)
     task_scratch = Path(metadata_sidecar).parent if metadata_sidecar else SCRATCH_DIR
-    part_directory = str(task_scratch / "parts").replace("\\", "/")
     extractor_directory = str(task_scratch / "extractor").replace("\\", "/")
     flags = normalize_title_cleaning(cleaning if cleaning is not None else get_effective_title_cleaning(source_url))
     stem_max = int(flags.get("stem_max_chars") or 0)
@@ -344,8 +344,6 @@ def build_gallerydl_command(
         str(Path(output_dir)),
         "-o",
         _TIKTOK_NO_AUDIO_OPTION,
-        "-o",
-        f"downloader.part-directory={part_directory}",
         "-o",
         f"directory={directory}",
         "-o",
@@ -362,6 +360,8 @@ def build_gallerydl_command(
         *_ytdl_downloader_options(quality, processing, trim_length),
         *gallerydl_access_args(access),
     ]
+    if part_directory:
+        cmd.extend(["-o", f"downloader.part-directory={Path(part_directory).as_posix()}"])
     if filename:
         cmd.extend(["--filename", filename])
     postprocessors = _gallerydl_postprocessors(

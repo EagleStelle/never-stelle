@@ -12,12 +12,13 @@ from backend.app.domains.downloads.worker import ensure_enrichment_worker, ensur
 from backend.app.domains.settings import get_effective_source_profiles, queue_icons
 from backend.app.integrations.swaratelle import breaker as swaratelle_breaker
 from backend.app.integrations.swaratelle import client as swaratelle_client
-from backend.app.runtime.scratch import cleanup_runtime_scratch
+from backend.app.runtime.scratch import cleanup_media_staging, cleanup_runtime_scratch
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     cleanup_runtime_scratch()
+    cleanup_media_staging()
     initialize_database()
     ensure_auth_settings()
     ensure_worker()
@@ -32,3 +33,4 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         close_database()
         clear_slideshow_archives()
         cleanup_runtime_scratch()
+        cleanup_media_staging()

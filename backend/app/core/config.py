@@ -39,7 +39,9 @@ RUNTIME_ROOT = _runtime_root()
 # Fixed container-relative roots; the host side is remapped via volume mounts only.
 DATA_DIR = (RUNTIME_ROOT / "data").resolve()  # sqlite db, config.yaml, built frontend
 MEDIA_DIR = (RUNTIME_ROOT / "media").resolve()  # download library (also the default download root)
-SCRATCH_DIR = (RUNTIME_ROOT / "scratch").resolve()  # temp files, partial downloads, caches
+SCRATCH_DIR = (RUNTIME_ROOT / "scratch").resolve()  # private temp files and caches
+# Hidden folder in each source folder for files bound for the library, on the media mount.
+STAGING_DIR_NAME = ".nvs-staging"
 
 DATABASE_PATH = (DATA_DIR / "never-stelle.sqlite3").resolve()
 ICONS_DIR = (DATA_DIR / "icons").resolve()  # <source_key>.webp per source
@@ -132,7 +134,9 @@ def _walk_location_dirs(root: Path, out: list[str], budget: int) -> int:
         try:
             with os.scandir(current) as entries:
                 children = sorted(
-                    (entry.path for entry in entries if entry.is_dir(follow_symlinks=False)),
+                    entry.path
+                    for entry in entries
+                    if entry.name != STAGING_DIR_NAME and entry.is_dir(follow_symlinks=False)
                 )
         except OSError:
             continue
