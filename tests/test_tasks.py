@@ -40,6 +40,7 @@ from backend.app.domains.downloads import (
     parse_filename_media_id,
 )
 from backend.app.domains.downloads import store as store_module
+from backend.app.domains.downloads.constants import normalize_post_processing
 from backend.app.domains.downloads.formats import (
     conflicts_with_source,
     creator_from_url,
@@ -71,7 +72,6 @@ from backend.app.domains.downloads.ytdlp import (
     clean_social_title,
 )
 from tests.support import engine_by_name, use_temp_db
-from yt_dlp_plugins.postprocessor.never_stelle_capture import NeverStelleCapturePP
 
 
 def _patch_worker_task_store(monkeypatch: pytest.MonkeyPatch, store: dict, update_task):
@@ -445,33 +445,58 @@ def test_extractor_metadata_sidecars_are_discovered_in_task_scratch(tmp_path: Pa
     sidecar = nested / "raw.info.json"
     sidecar.write_text('{"title":"Raw title"}', encoding="utf-8")
 
-    assert worker_module._metadata_sidecars_for(
-        raw,
-        scratch_root=extractor_root,
-        output_root=output_root,
-    ) == [sidecar]
+    index = postprocessing_module.scratch_payload_index((extractor_root, tmp_path / "missing"))
+    assert postprocessing_module.metadata_sidecars_for(raw, index) == [sidecar]
 
 
-def test_delegated_ytdlp_payload_capture_preserves_subtitles_for_gallerydl(tmp_path: Path):
+def test_delegated_ytdlp_info_json_preserves_subtitles_for_gallerydl(tmp_path: Path):
     media = tmp_path / "media" / "clip.mkv"
     media.parent.mkdir()
     media.write_bytes(b"media")
-    extractor_root = tmp_path / "extractor"
+    parts_root = tmp_path / "parts"
+    parts_root.mkdir()
+    info = {
+        "id": "clip",
+        "title": "clip",
+        "ext": "mkv",
+        "extractor": "generic",
+        "extractor_key": "Generic",
+        "subtitles": {"en": [{"ext": "vtt", "url": "https://example.test/en.vtt"}]},
+        "automatic_captions": {"ja-orig": [{"ext": "vtt", "url": "https://example.test/ja.vtt"}]},
+    }
 
-    processor = NeverStelleCapturePP(YoutubeDL({"quiet": True}), str(extractor_root))
-    _, captured = processor.run(
-        {
-            "filepath": str(media),
-            "subtitles": {"en": [{"ext": "vtt", "url": "https://example.test/en.vtt"}]},
-            "automatic_captions": {
-                "ja-orig": [{"ext": "vtt", "url": "https://example.test/ja.vtt"}]
-            },
-        }
+    # The same params gallery-dl's handoff passes, and the outtmpl it sets for a part file.
+    ydl = YoutubeDL({"quiet": True, "writeinfojson": True, "clean_infojson": False})
+    ydl.params["outtmpl"] = {"default": str(parts_root / "clip.%(ext)s")}
+    assert ydl._write_info_json("video", info, ydl.prepare_filename(info, "infojson"))
+
+    index = postprocessing_module.scratch_payload_index((parts_root,))
+    sidecars = postprocessing_module.metadata_sidecars_for(media, index)
+    assert len(sidecars) == 1
+    payload = postprocessing_module.extractor_payload_from_sidecars(sidecars, {})
+    assert payload["subtitles"] == info["subtitles"]
+    assert payload["automatic_captions"] == info["automatic_captions"]
+
+
+def _finalized_for(media: Path, title: str = "Title") -> FinalizedCompletionOutput:
+    return FinalizedCompletionOutput(
+        source_url="https://example.test/post/abc",
+        source_key="example",
+        creator="Creator",
+        media_id="abc",
+        final_path=media,
+        display_filename=media.name,
+        title=title,
+        keep_paths=[media],
     )
 
-    sidecars = postprocessing_module.metadata_sidecars_for(media, scratch_root=extractor_root)
-    assert len(sidecars) == 1
-    assert postprocessing_module.extractor_payload_from_sidecars(sidecars) == captured
+
+def _embed_request(**features: object) -> dict[str, object]:
+    return {"metadata": None, "subtitles": None, "chapters": None, "thumbnail": None, **features}
+
+
+_EMBED_WARNINGS_ON = dict.fromkeys(("metadata", "subtitles", "chapters", "thumbnail"), False)
+_EMBED_WARNINGS_OFF = dict.fromkeys(_EMBED_WARNINGS_ON, True)
 
 
 def test_user_metadata_sidecar_uses_the_final_settings_pipeline_values(tmp_path: Path):
@@ -485,24 +510,15 @@ def test_user_metadata_sidecar_uses_the_final_settings_pipeline_values(tmp_path:
         encoding="utf-8",
     )
     ytdlp_sidecar.write_text('{"comments":[{"text":"kept too"}]}', encoding="utf-8")
-    sidecars = worker_module._metadata_sidecars_for(raw)
+    sidecars = postprocessing_module.metadata_sidecars_for(raw)
 
     final = tmp_path / "Creator" / "Creator - Title [abc].mp4"
-    finalized = FinalizedCompletionOutput(
-        source_url="https://example.test/post/abc",
-        source_key="example",
-        creator="Creator",
-        media_id="abc",
-        final_path=final,
-        display_filename=final.name,
-        title="Title",
-        keep_paths=[final],
-    )
-    postprocessing_module.apply_metadata_post_processing(
+    postprocessing_module.apply_finalized_post_processing(
         [final],
-        {"description": "Description"},
-        finalized,
-        save_as="sidecar",
+        postprocessing_module.extractor_payload_from_sidecars(sidecars, {"description": "Description"}),
+        _finalized_for(final),
+        post_processing={"metadata": "sidecar"},
+        quality={"mode": "video", "video_container": "mp4"},
         sidecars=sidecars,
         output_root=tmp_path,
     )
@@ -535,16 +551,6 @@ def test_embedded_metadata_uses_the_final_settings_pipeline_values(
         '{"description":"Full extractor value","timestamp":1785542400}',
         encoding="utf-8",
     )
-    finalized = FinalizedCompletionOutput(
-        source_url="https://example.test/post/abc",
-        source_key="example",
-        creator="Creator",
-        media_id="abc",
-        final_path=media,
-        display_filename=media.name,
-        title="Title",
-        keep_paths=[media],
-    )
     captured: dict[str, list[str]] = {}
 
     def fake_run(cmd, **kwargs):
@@ -555,11 +561,12 @@ def test_embedded_metadata_uses_the_final_settings_pipeline_values(
     monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(postprocessing_module.subprocess, "run", fake_run)
 
-    postprocessing_module.apply_metadata_post_processing(
+    postprocessing_module.apply_finalized_post_processing(
         [media],
-        {},
-        finalized,
-        save_as="embed",
+        postprocessing_module.extractor_payload_from_sidecars([raw_sidecar], {}),
+        _finalized_for(media),
+        post_processing={"metadata": "embed"},
+        quality={"mode": "video", "video_container": "mkv"},
         sidecars=[raw_sidecar],
     )
 
@@ -592,8 +599,13 @@ def test_metadata_embed_discards_source_metadata_and_omits_empty_title(
     monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(postprocessing_module, "run_task_subprocess", fake_run)
 
-    assert postprocessing_module._embed_metadata(media, {"artist": "Creator"})
-    metadata_index = captured["cmd"].index("-map_metadata")
+    assert postprocessing_module._embed_features(
+        "/usr/bin/ffmpeg",
+        media,
+        _embed_request(metadata={"artist": "Creator"}),
+        silent=_EMBED_WARNINGS_ON,
+    ) == {"metadata"}
+    metadata_index = captured["cmd"].index("-map_metadata:g")
     assert captured["cmd"][metadata_index + 1] == "-1"
     assert not any(value.startswith("title=") for value in captured["cmd"])
     assert "artist=Creator" in captured["cmd"]
@@ -630,10 +642,7 @@ def test_song_metadata_uses_real_track_numbers_and_portable_music_fields(tmp_pat
         title="Video title",
         keep_paths=[media],
     )
-    payload = postprocessing_module.finalized_metadata_payload(
-        {},
-        finalized,
-        extractor_payload={
+    payload = postprocessing_module.finalized_metadata_payload({
             "track": "Actual song title",
             "track_number": 3,
             "track_count": 12,
@@ -646,8 +655,7 @@ def test_song_metadata_uses_real_track_numbers_and_portable_music_fields(tmp_pat
             "performers": ["Orchestra"],
             "genres": ["Rock", "Pop"],
             "album": "Album",
-        },
-    )
+        }, finalized)
 
     assert payload["title"] == "Actual song title"
     assert payload["artist"] == "Track Artist, Guest Artist"
@@ -672,11 +680,7 @@ def test_song_title_and_playlist_position_are_never_used_as_track_number(tmp_pat
         keep_paths=[media],
     )
 
-    payload = postprocessing_module.finalized_metadata_payload(
-        {},
-        finalized,
-        extractor_payload={"track": "Song title", "playlist_index": 7},
-    )
+    payload = postprocessing_module.finalized_metadata_payload({"track": "Song title", "playlist_index": 7}, finalized)
 
     assert "track" not in payload
 
@@ -696,29 +700,15 @@ def test_metadata_title_rejects_carousel_position_and_synthetic_delegation_url(
         keep_paths=[media],
     )
 
-    positional = postprocessing_module.finalized_metadata_payload(
-        {},
-        finalized,
-        extractor_payload={"title": "20", "num": 20, "count": 21},
-    )
-    delegated = postprocessing_module.finalized_metadata_payload(
-        {},
-        finalized,
-        extractor_payload={
+    positional = postprocessing_module.finalized_metadata_payload({"title": "20", "num": 20, "count": 21}, finalized)
+    delegated = postprocessing_module.finalized_metadata_payload({
             "title": "20",
             "original_url": "https://example.test/post/abc/20.mp4",
-        },
-    )
+        }, finalized)
     legitimate = postprocessing_module.finalized_metadata_payload(
-        {},
-        finalized,
-        extractor_payload={"title": "20", "original_url": "https://example.test/post/abc"},
+        {"title": "20", "original_url": "https://example.test/post/abc"}, finalized
     )
-    empty = postprocessing_module.finalized_metadata_payload(
-        {},
-        finalized,
-        extractor_payload={"title": "None"},
-    )
+    empty = postprocessing_module.finalized_metadata_payload({"title": "None"}, finalized)
 
     assert "title" not in positional
     assert "title" not in delegated
@@ -745,9 +735,7 @@ def test_youtube_generated_song_description_supplies_portable_credits(tmp_path: 
         "Associated Performer: Orchestra\n\nAuto-generated by YouTube."
     )
 
-    payload = postprocessing_module.finalized_metadata_payload(
-        {}, finalized, extractor_payload={"description": description}
-    )
+    payload = postprocessing_module.finalized_metadata_payload({"description": description}, finalized)
 
     assert payload["composer"] == "Composer Name, Writer Name"
     assert payload["performer"] == "Orchestra"
@@ -767,8 +755,8 @@ def test_music_cover_art_precedes_scraped_thumbnail_and_has_a_fallback():
         ],
     }
 
-    assert postprocessing_module._thumbnail_url(payload, prefer_cover_art=True)[0] == cover
-    assert postprocessing_module._thumbnail_url(payload)[0] == scraped
+    assert postprocessing_module._thumbnail_url(payload, prefer_cover_art=True) == cover
+    assert postprocessing_module._thumbnail_url(payload) == scraped
 
 
 def test_thumbnail_sidecar_uses_the_final_media_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -779,13 +767,15 @@ def test_thumbnail_sidecar_uses_the_final_media_name(tmp_path: Path, monkeypatch
 
     monkeypatch.setattr(
         postprocessing_module,
-        "_download_thumbnail",
-        lambda payload, **_: (b"thumbnail-bytes", ".webp"),
+        "_fetch_thumbnail",
+        lambda ydl, payload, **_: (b"thumbnail-bytes", ".webp"),
     )
-    postprocessing_module.apply_thumbnail_post_processing(
+    postprocessing_module.apply_finalized_post_processing(
         [media],
-        {},
-        save_as="sidecar",
+        postprocessing_module.extractor_payload_from_sidecars([extractor_sidecar], {}),
+        _finalized_for(media),
+        post_processing={"thumbnail": "sidecar"},
+        quality={"mode": "video", "video_container": "mp4"},
         sidecars=[extractor_sidecar],
         output_root=tmp_path,
     )
@@ -794,19 +784,147 @@ def test_thumbnail_sidecar_uses_the_final_media_name(tmp_path: Path, monkeypatch
     assert not extractor_sidecar.exists()
 
 
-def test_thumbnail_sidecar_never_overwrites_an_image_download(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_images_take_metadata_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
     media = tmp_path / "Creator - Image [abc].webp"
     media.write_bytes(b"original-image")
-    monkeypatch.setattr(
-        postprocessing_module,
-        "_download_thumbnail",
-        lambda payload, **_: (b"thumbnail-bytes", ".webp"),
+
+    def no_fetch(*args, **kwargs):
+        raise AssertionError("an image never fetches artwork or captions")
+
+    monkeypatch.setattr(postprocessing_module, "_fetch_thumbnail", no_fetch)
+    monkeypatch.setattr(postprocessing_module, "_subtitle_tracks", no_fetch)
+
+    postprocessing_module.apply_finalized_post_processing(
+        [media],
+        {"chapters": [{"start_time": 0, "end_time": 1, "title": "Intro"}]},
+        _finalized_for(media, "Image"),
+        post_processing=dict.fromkeys(
+            ("metadata", "subtitles", "automatic_subtitles", "chapters", "thumbnail"), "sidecar"
+        ),
+        quality=None,
     )
 
-    postprocessing_module.apply_thumbnail_post_processing([media], {}, save_as="sidecar")
-
     assert media.read_bytes() == b"original-image"
-    assert media.with_name(f"{media.stem}.thumbnail.webp").read_bytes() == b"thumbnail-bytes"
+    assert sorted(path.name for path in tmp_path.iterdir()) == [media.name, f"{media.name}.json"]
+    assert "Extraction skipped" not in caplog.text
+
+
+_GALLERYDL_VIDEO_PAYLOAD = {"category": "tiktok", "desc": "", "video": {"cover": "https://cdn.test/cover"}}
+_YTDLP_VIDEO_INFO = {
+    "id": "abc",
+    "extractor_key": "TikTok",
+    "track": "original sound",
+    "thumbnails": [{"url": "https://cdn.test/cover.jpg"}],
+    "subtitles": {"eng-US": [{"ext": "vtt", "url": "https://cdn.test/en.vtt"}]},
+    "automatic_captions": {},
+}
+
+
+def _probe_media_info_calls(monkeypatch: pytest.MonkeyPatch, info: dict) -> list[str]:
+    import backend.app.domains.downloads.probe as probe_module
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        probe_module,
+        "probe_media_info",
+        lambda url, **kwargs: calls.append(url) or dict(info),
+    )
+    return calls
+
+
+def test_gallerydl_video_payload_gains_ytdlp_artwork_and_captions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    calls = _probe_media_info_calls(monkeypatch, _YTDLP_VIDEO_INFO)
+    finalized = _finalized_for(tmp_path / "Creator - Title [abc].mp4")
+    probed: dict = {}
+
+    payload = completion_metadata_module._with_ytdlp_media_fields(
+        dict(_GALLERYDL_VIDEO_PAYLOAD),
+        finalized,
+        normalize_post_processing({"metadata": "embed", "thumbnail": "embed", "subtitles": "embed"}),
+        probed,
+        single_item=False,
+    )
+    completion_metadata_module._with_ytdlp_media_fields(
+        dict(_GALLERYDL_VIDEO_PAYLOAD),
+        finalized,
+        normalize_post_processing({"thumbnail": "embed"}),
+        probed,
+        single_item=False,
+    )
+
+    assert calls == ["https://example.test/post/abc"]
+    assert payload["thumbnails"] == _YTDLP_VIDEO_INFO["thumbnails"]
+    assert payload["subtitles"] == _YTDLP_VIDEO_INFO["subtitles"]
+    # Tags stay with the downloader's payload, so a sound name never becomes the title.
+    assert "track" not in payload
+    assert payload["video"] == _GALLERYDL_VIDEO_PAYLOAD["video"]
+
+
+@pytest.mark.parametrize(
+    ("name", "payload", "processing", "single_item", "info_id"),
+    [
+        ("Photo [abc].jpg", _GALLERYDL_VIDEO_PAYLOAD, {"thumbnail": "embed"}, True, "abc"),
+        ("Clip [abc].mp4", _GALLERYDL_VIDEO_PAYLOAD, {"metadata": "embed"}, True, "abc"),
+        ("Clip [abc].mp4", _YTDLP_VIDEO_INFO, {"thumbnail": "embed"}, True, "abc"),
+        ("Clip [abc].mp4", _GALLERYDL_VIDEO_PAYLOAD, {"thumbnail": "embed"}, False, "other"),
+    ],
+)
+def test_ytdlp_media_fields_are_left_out_when_they_cannot_apply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name, payload, processing, single_item, info_id
+):
+    _probe_media_info_calls(monkeypatch, {**_YTDLP_VIDEO_INFO, "id": info_id})
+
+    result = completion_metadata_module._with_ytdlp_media_fields(
+        dict(payload),
+        _finalized_for(tmp_path / name),
+        normalize_post_processing(processing),
+        {},
+        single_item=single_item,
+    )
+
+    assert result == payload
+
+
+def test_media_info_probe_asks_extractors_for_subtitles(monkeypatch: pytest.MonkeyPatch):
+    import backend.app.domains.downloads.probe as probe_module
+
+    commands: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        commands.append(cmd)
+        return SimpleNamespace(returncode=0, stdout=json.dumps(_YTDLP_VIDEO_INFO), stderr="")
+
+    monkeypatch.setattr(probe_module, "_run_probe_command", fake_run)
+
+    info = probe_module.probe_media_info("https://www.tiktok.com/@creator/video/1", with_cookies=False)
+
+    assert info["subtitles"] == _YTDLP_VIDEO_INFO["subtitles"]
+    assert "--write-subs" in commands[0] and "--write-auto-subs" in commands[0]
+    assert "--no-download" in commands[0]
+
+
+def test_regional_three_letter_caption_codes_match_a_two_letter_request():
+    tracks = postprocessing_module._subtitle_tracks(
+        None,
+        {
+            "subtitles": {
+                "spa-ES": [{"ext": "vtt", "data": "WEBVTT\n\nSpanish"}],
+                "eng-US": [{"ext": "vtt", "data": "WEBVTT\n\nEnglish"}],
+            }
+        },
+        manual=True,
+        automatic=False,
+        languages=[],
+    )
+    command: list[str] = []
+    postprocessing_module._subtitle_stream_metadata(command, 0, tracks[0])
+
+    assert [track["language"] for track in tracks] == ["eng-US"]
+    assert "language=eng" in command
 
 
 def test_manual_and_auto_subtitle_sidecars_are_separate_and_use_final_name(tmp_path: Path):
@@ -825,12 +943,12 @@ def test_manual_and_auto_subtitle_sidecars_are_separate_and_use_final_name(tmp_p
         encoding="utf-8",
     )
 
-    postprocessing_module.apply_subtitle_post_processing(
+    postprocessing_module.apply_finalized_post_processing(
         [media],
-        {},
-        manual=True,
-        automatic=True,
-        save_as="sidecar",
+        postprocessing_module.extractor_payload_from_sidecars([extractor_sidecar], {}),
+        _finalized_for(media),
+        post_processing={"subtitles": "sidecar", "automatic_subtitles": "sidecar"},
+        quality={"mode": "video", "video_container": "mp4"},
         sidecars=[extractor_sidecar],
         output_root=tmp_path,
     )
@@ -858,24 +976,15 @@ _CAPTION_PAYLOAD = {
 }
 
 
-def _caption_tracks(languages: list[str] | None) -> list[tuple[str, bool]]:
-    tracks = postprocessing_module.prepare_subtitle_post_processing(
-        {},
-        manual=True,
-        automatic=True,
-        extractor_payload=_CAPTION_PAYLOAD,
-        languages=languages,
+def _caption_tracks(languages: list[str]) -> list[tuple[str, bool]]:
+    tracks = postprocessing_module._subtitle_tracks(
+        None, _CAPTION_PAYLOAD, manual=True, automatic=True, languages=languages
     )
     return [(track["language"], track["automatic"]) for track in tracks]
 
 
 def test_subtitles_default_to_the_source_language_alone():
-    tracks = postprocessing_module.prepare_subtitle_post_processing(
-        {},
-        manual=True,
-        automatic=True,
-        extractor_payload=_CAPTION_PAYLOAD,
-    )
+    tracks = postprocessing_module._subtitle_tracks(None, _CAPTION_PAYLOAD, manual=True, automatic=True, languages=[])
 
     assert [(track["language"], track["automatic"]) for track in tracks] == [
         ("ja", False),
@@ -908,6 +1017,78 @@ def test_subtitles_collect_every_manual_and_auto_caption_language_on_request():
     ]
 
 
+def test_subtitle_urls_download_through_ytdlp():
+    vtt = b"WEBVTT\n\n00:00.000 --> 00:01.000\nhello\n"
+    url = "data:text/vtt;base64,V0VCVlRUCgowMDowMC4wMDAgLS0+IDAwOjAxLjAwMApoZWxsbwo="
+
+    with postprocessing_module._ytdlp_session() as ydl:
+        tracks = postprocessing_module._subtitle_tracks(
+            ydl, {"subtitles": {"en": [{"ext": "vtt", "url": url}]}}, manual=True, automatic=False, languages=[]
+        )
+
+    assert tracks == [{"language": "en", "automatic": False, "extension": "vtt", "data": vtt}]
+
+
+def test_failed_subtitle_download_is_skipped_with_a_warning(caplog: pytest.LogCaptureFixture):
+    from yt_dlp.utils import DownloadError
+
+    def refuse(name, info, subtitle=False):
+        assert subtitle
+        assert info["http_headers"]["Referer"] == "https://example.test/watch"
+        raise DownloadError("HTTP Error 429: Too Many Requests")
+
+    tracks = postprocessing_module._subtitle_tracks(
+        SimpleNamespace(dl=refuse),
+        {
+            "webpage_url": "https://example.test/watch",
+            "subtitles": {"en": [{"ext": "vtt", "url": "https://cdn.example.test/en.vtt"}]},
+        },
+        manual=True,
+        automatic=False,
+        languages=[],
+    )
+
+    assert tracks == []
+    assert "HTTP Error 429" in caplog.text
+
+
+def test_thumbnail_downloads_through_ytdlp_and_sniffs_its_format():
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+    requests: list[object] = []
+
+    class Response:
+        headers = {"Content-Type": "application/octet-stream"}
+
+        def __init__(self) -> None:
+            self._body = [png]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc) -> None:
+            return None
+
+        def read(self, size: int) -> bytes:
+            return self._body.pop() if self._body else b""
+
+        def close(self) -> None:
+            return None
+
+    def urlopen(request):
+        requests.append(request)
+        return Response()
+
+    data, extension = postprocessing_module._fetch_thumbnail(
+        SimpleNamespace(urlopen=urlopen),
+        {"thumbnail": "https://cdn.example.test/cover", "http_headers": {"Referer": "https://example.test/"}},
+        prefer_cover_art=False,
+    )
+
+    assert (data, extension) == (png, ".png")
+    assert requests[0].url == "https://cdn.example.test/cover"
+    assert requests[0].headers["Referer"] == "https://example.test/"
+
+
 def test_chapter_sidecar_uses_final_name_and_normalizes_boundaries(tmp_path: Path):
     media = tmp_path / "Creator - Title [abc].mp4"
     media.write_bytes(b"video")
@@ -926,10 +1107,12 @@ def test_chapter_sidecar_uses_final_name_and_normalizes_boundaries(tmp_path: Pat
         encoding="utf-8",
     )
 
-    postprocessing_module.apply_chapter_post_processing(
+    postprocessing_module.apply_finalized_post_processing(
         [media],
-        {},
-        save_as="sidecar",
+        postprocessing_module.extractor_payload_from_sidecars([extractor_sidecar], {}),
+        _finalized_for(media),
+        post_processing={"chapters": "sidecar"},
+        quality={"mode": "video", "video_container": "mp4"},
         sidecars=[extractor_sidecar],
         output_root=tmp_path,
     )
@@ -967,13 +1150,14 @@ def test_chapters_embed_from_the_same_normalized_payload(
     monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(postprocessing_module.subprocess, "run", fake_run)
 
-    postprocessing_module.apply_chapter_post_processing(
+    postprocessing_module.apply_finalized_post_processing(
         [media],
-        {},
-        save_as="embed",
-        prepared_chapters=[
-            {"start_time": 0.0, "end_time": 12.345, "title": "Intro; #1 = ready"}
-        ],
+        {
+            "chapters": [{"start_time": 0.0, "end_time": 12.345, "title": "Intro; #1 = ready"}]
+        },
+        _finalized_for(media),
+        post_processing={"chapters": "embed"},
+        quality={"mode": "video", "video_container": "mkv"},
     )
 
     assert media.read_bytes() == b"embedded"
@@ -985,7 +1169,7 @@ def test_chapters_embed_from_the_same_normalized_payload(
     assert r"title=Intro\; \#1 \= ready" in captured["chapters"]
 
 
-def test_finalized_post_processing_reads_extractor_payload_once_for_all_sidecars(
+def test_every_sidecar_mode_writes_from_one_payload(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     media = tmp_path / "Creator - Title [abc].mp4"
@@ -1005,34 +1189,12 @@ def test_finalized_post_processing_reads_extractor_payload_once_for_all_sidecars
         ),
         encoding="utf-8",
     )
-    finalized = FinalizedCompletionOutput(
-        source_url="https://example.test/post/abc",
-        source_key="example",
-        creator="Creator",
-        media_id="abc",
-        final_path=media,
-        display_filename=media.name,
-        title="Title",
-        keep_paths=[media],
-    )
-    original_extract = postprocessing_module._extractor_payload
-    calls = 0
-
-    def count_extract(sidecars, metadata):
-        nonlocal calls
-        calls += 1
-        return original_extract(sidecars, metadata)
-
-    monkeypatch.setattr(postprocessing_module, "_extractor_payload", count_extract)
-    monkeypatch.setattr(
-        postprocessing_module,
-        "_download_thumbnail",
-        lambda payload, **_: (b"cover", ".jpg"),
-    )
+    finalized = _finalized_for(media)
+    monkeypatch.setattr(postprocessing_module, "_fetch_thumbnail", lambda ydl, payload, **_: (b"cover", ".jpg"))
 
     assert postprocessing_module.apply_finalized_post_processing(
         [media],
-        {},
+        postprocessing_module.extractor_payload_from_sidecars([extractor_sidecar], {}),
         finalized,
         post_processing={
             "metadata": "sidecar",
@@ -1046,7 +1208,6 @@ def test_finalized_post_processing_reads_extractor_payload_once_for_all_sidecars
         output_root=tmp_path,
     )
 
-    assert calls == 1
     assert Path(f"{media}.json").is_file()
     assert media.with_suffix(".jpg").read_bytes() == b"cover"
     assert media.with_name(f"{media.stem}.en.vtt").is_file()
@@ -1054,79 +1215,6 @@ def test_finalized_post_processing_reads_extractor_payload_once_for_all_sidecars
     assert media.with_name(f"{media.stem}.chapters.ffmeta").is_file()
     assert media.with_name(f"{media.stem}.chapters.txt").is_file()
     assert not extractor_sidecar.exists()
-
-
-def test_finalized_embed_attaches_thumbnail_after_subtitle_remux(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    media = tmp_path / "Creator - Title [abc].mkv"
-    media.write_bytes(b"video")
-    finalized = FinalizedCompletionOutput(
-        source_url="https://example.test/post/abc",
-        source_key="example",
-        creator="Creator",
-        media_id="abc",
-        final_path=media,
-        display_filename=media.name,
-        title="Title",
-        keep_paths=[media],
-    )
-    calls: list[str] = []
-
-    monkeypatch.setattr(
-        postprocessing_module,
-        "prepare_thumbnail_post_processing",
-        lambda *args, **kwargs: (b"cover", ".jpg"),
-    )
-    monkeypatch.setattr(
-        postprocessing_module,
-        "prepare_subtitle_post_processing",
-        lambda *args, **kwargs: [
-            {"language": "en", "automatic": False, "extension": "vtt", "data": b"WEBVTT\n"}
-        ],
-    )
-    monkeypatch.setattr(
-        postprocessing_module,
-        "prepare_chapter_post_processing",
-        lambda *args, **kwargs: [{"start_time": 0, "end_time": 1, "title": "Intro"}],
-    )
-    monkeypatch.setattr(
-        postprocessing_module,
-        "apply_metadata_post_processing",
-        lambda *args, **kwargs: calls.append("metadata") or set(),
-    )
-    monkeypatch.setattr(
-        postprocessing_module,
-        "apply_subtitle_post_processing",
-        lambda *args, **kwargs: calls.append("subtitles"),
-    )
-    monkeypatch.setattr(
-        postprocessing_module,
-        "apply_chapter_post_processing",
-        lambda *args, **kwargs: calls.append("chapters"),
-    )
-    monkeypatch.setattr(
-        postprocessing_module,
-        "apply_thumbnail_post_processing",
-        lambda *args, **kwargs: calls.append("thumbnail"),
-    )
-
-    assert postprocessing_module.apply_finalized_post_processing(
-        [media],
-        {},
-        finalized,
-        post_processing={
-            "metadata": "embed",
-            "thumbnail": "embed",
-            "subtitles": "embed",
-            "chapters": "embed",
-        },
-        quality={"mode": "video", "video_container": "mkv"},
-        output_root=tmp_path,
-        extractor_payload={},
-    )
-
-    assert calls == ["metadata", "subtitles", "chapters", "thumbnail"]
 
 
 def test_manual_and_auto_subtitles_embed_as_distinct_streams(
@@ -1156,14 +1244,10 @@ def test_manual_and_auto_subtitles_embed_as_distinct_streams(
     )
     monkeypatch.setattr(postprocessing_module.subprocess, "run", fake_run)
 
-    postprocessing_module.apply_subtitle_post_processing(
-        [media],
-        {},
-        manual=True,
-        automatic=True,
-        save_as="embed",
-        prepared_subtitles=tracks,
-    )
+    assert postprocessing_module._embed_features(
+        "/usr/bin/ffmpeg",
+        media, _embed_request(subtitles=tracks), silent=_EMBED_WARNINGS_ON
+    ) == {"subtitles"}
 
     assert media.read_bytes() == b"embedded"
     assert len(captured) == 1
@@ -1223,7 +1307,10 @@ def test_many_subtitles_embed_through_bounded_bundle_batches(
     )
     monkeypatch.setattr(postprocessing_module.subprocess, "run", fake_run)
 
-    assert postprocessing_module._embed_subtitles(media, tracks)
+    assert postprocessing_module._embed_features(
+        "/usr/bin/ffmpeg",
+        media, _embed_request(subtitles=tracks), silent=_EMBED_WARNINGS_ON
+    ) == {"subtitles"}
 
     bundle_calls = [cmd for cmd in calls if "nvs-subtitle-bundle-" in cmd[-1]]
     assert len(bundle_calls) == 5
@@ -1246,10 +1333,18 @@ def test_thumbnail_embed_uses_container_aware_tags_after_finalization(
         path.write_bytes(b"embedded")
         return True
 
-    monkeypatch.setattr(postprocessing_module, "_download_thumbnail", lambda payload, **_: (b"thumbnail-bytes", ".jpg"))
+    monkeypatch.setattr(
+        postprocessing_module, "_fetch_thumbnail", lambda ydl, payload, **_: (b"thumbnail-bytes", ".jpg")
+    )
     monkeypatch.setattr(postprocessing_module, "_embed_thumbnail_with_mutagen", fake_embed)
 
-    postprocessing_module.apply_thumbnail_post_processing([media], {}, save_as="embed")
+    postprocessing_module.apply_finalized_post_processing(
+        [media],
+        {},
+        _finalized_for(media),
+        post_processing={"thumbnail": "embed"},
+        quality={"mode": "audio", "audio_format": "mp3"},
+    )
 
     assert media.read_bytes() == b"embedded"
     assert captured["path"] == media
@@ -1260,9 +1355,7 @@ def test_thumbnail_embed_uses_container_aware_tags_after_finalization(
 def test_webp_thumbnail_is_converted_before_mp4_embedding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     media = tmp_path / "Title [abc].mp4"
     media.write_bytes(b"video")
-    cover = tmp_path / "cover.webp"
-    cover.write_bytes(b"webp")
-    converted = tmp_path / "converted.png"
+    converted = scratch_module.scratch_temp_path(prefix="nvs-converted-cover-", suffix=".png")
     converted.write_bytes(b"png")
     captured: dict[str, Path] = {}
 
@@ -1278,7 +1371,10 @@ def test_webp_thumbnail_is_converted_before_mp4_embedding(tmp_path: Path, monkey
         lambda path, thumbnail: captured.update(path=path, thumbnail=thumbnail) is None,
     )
 
-    assert postprocessing_module._embed_thumbnail(media, cover)
+    assert postprocessing_module._embed_features(
+        "/usr/bin/ffmpeg",
+        media, _embed_request(thumbnail=(b"webp", ".webp")), silent=_EMBED_WARNINGS_ON
+    ) == {"thumbnail"}
     assert captured == {"path": media, "thumbnail": converted}
     assert not converted.exists()
 
@@ -1306,16 +1402,6 @@ def test_unsupported_metadata_embed_does_not_fail_the_download(
 ):
     media = tmp_path / "Title [abc].mkv"
     media.write_bytes(b"original")
-    finalized = FinalizedCompletionOutput(
-        source_url="https://example.test/post/abc",
-        source_key="example",
-        creator="Creator",
-        media_id="abc",
-        final_path=media,
-        display_filename=media.name,
-        title="Title",
-        keep_paths=[media],
-    )
 
     monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(
@@ -1324,10 +1410,25 @@ def test_unsupported_metadata_embed_does_not_fail_the_download(
         lambda *args, **kwargs: SimpleNamespace(returncode=1, stderr="unsupported metadata", stdout=""),
     )
 
-    postprocessing_module.apply_metadata_post_processing([media], {}, finalized, save_as="embed")
+    postprocessing_module.apply_finalized_post_processing(
+        [media],
+        {},
+        _finalized_for(media),
+        post_processing={"metadata": "embed"},
+        quality={"mode": "video", "video_container": "mkv"},
+    )
 
     assert media.read_bytes() == b"original"
     assert "unsupported metadata" in caplog.text
+    # The rejected tags are kept beside the media instead.
+    assert json.loads(Path(f"{media}.json").read_text(encoding="utf-8"))["title"] == "Title"
+
+
+_AAC_EMBED_REQUEST = _embed_request(
+    metadata={"title": "Title"},
+    thumbnail=(b"cover", ".jpg"),
+    subtitles=[{"language": "en", "automatic": False, "extension": "vtt", "data": b"WEBVTT\n"}],
+)
 
 
 def test_auto_output_silently_skips_unsupported_embed_targets(
@@ -1335,27 +1436,9 @@ def test_auto_output_silently_skips_unsupported_embed_targets(
 ):
     media = tmp_path / "Title [abc].aac"
     media.write_bytes(b"audio")
-    cover = tmp_path / "cover.jpg"
-    cover.write_bytes(b"cover")
-    tracks = [
-        {"language": "en", "automatic": False, "extension": "vtt", "data": b"WEBVTT\n"}
-    ]
 
-    assert not postprocessing_module._embed_metadata(
-        media,
-        {"title": "Title"},
-        silent_unsupported=True,
-    )
-    assert not postprocessing_module._embed_thumbnail(
-        media,
-        cover,
-        silent_unsupported=True,
-    )
-    assert not postprocessing_module._embed_subtitles(
-        media,
-        tracks,
-        silent_unsupported=True,
-    )
+    silent = _EMBED_WARNINGS_OFF
+    assert postprocessing_module._embed_features("/usr/bin/ffmpeg", media, _AAC_EMBED_REQUEST, silent=silent) == set()
 
     assert not caplog.text
 
@@ -1365,12 +1448,9 @@ def test_explicit_unsupported_embed_targets_remain_diagnostic(
 ):
     media = tmp_path / "Title [abc].aac"
     media.write_bytes(b"audio")
-    cover = tmp_path / "cover.jpg"
-    cover.write_bytes(b"cover")
 
-    assert not postprocessing_module._embed_metadata(media, {"title": "Title"})
-    assert not postprocessing_module._embed_thumbnail(media, cover)
-    assert not postprocessing_module._embed_subtitles(media, [])
+    silent = _EMBED_WARNINGS_ON
+    assert postprocessing_module._embed_features("/usr/bin/ffmpeg", media, _AAC_EMBED_REQUEST, silent=silent) == set()
 
     assert "Metadata embed skipped" in caplog.text
     assert "Thumbnail embed skipped" in caplog.text
@@ -1381,26 +1461,16 @@ def test_image_metadata_embed_writes_lossless_xmp_without_sidecar(tmp_path: Path
     media = tmp_path / "Creator - Photo [abc].jpg"
     original_scan = b"compressed-image-data"
     media.write_bytes(b"\xff\xd8\xff\xe0\x00\x04JF\xff\xda" + original_scan)
-    finalized = FinalizedCompletionOutput(
-        source_url="https://example.test/post/abc",
-        source_key="example",
-        creator="Creator",
-        media_id="abc",
-        final_path=media,
-        display_filename=media.name,
-        title="Photo",
-        keep_paths=[media],
-    )
 
-    sidecars = postprocessing_module.apply_metadata_post_processing(
+    postprocessing_module.apply_finalized_post_processing(
         [media],
         {"description": "Gallery description", "upload_date": "20260801"},
-        finalized,
-        save_as="embed",
+        _finalized_for(media, "Photo"),
+        post_processing={"metadata": "embed"},
+        quality=None,
     )
 
     embedded = media.read_bytes()
-    assert not sidecars
     assert embedded.endswith(original_scan)
     assert b"http://ns.adobe.com/xap/1.0/" in embedded
     assert b"Photo" in embedded
@@ -1419,23 +1489,16 @@ def test_image_metadata_embed_falls_back_to_sidecar_when_lossless_writer_is_unav
 ):
     media = tmp_path / "Creator - Photo [abc].webp"
     media.write_bytes(b"RIFFnot-a-real-webp")
-    finalized = FinalizedCompletionOutput(
-        source_url="https://example.test/post/abc",
-        source_key="example",
-        creator="Creator",
-        media_id="abc",
-        final_path=media,
-        display_filename=media.name,
-        title="Photo",
-        keep_paths=[media],
-    )
 
-    sidecars = postprocessing_module.apply_metadata_post_processing(
-        [media], {}, finalized, save_as="embed"
+    postprocessing_module.apply_finalized_post_processing(
+        [media],
+        {},
+        _finalized_for(media, "Photo"),
+        post_processing={"metadata": "embed"},
+        quality=None,
     )
 
     sidecar = Path(f"{media}.json")
-    assert sidecars == {sidecar}
     assert json.loads(sidecar.read_text(encoding="utf-8"))["title"] == "Photo"
 
 
@@ -2815,11 +2878,9 @@ def test_complete_sidecar_metadata_skips_completion_enrichment(tmp_path: Path):
     path = tmp_path / "ChannelHandle - Nice clip [abc123].mp4"
     path.write_bytes(b"video")
 
-    class GalleryDlEngine:
-        name = "gallerydl"
-
     needed = completion_metadata_module._single_output_metadata_enrichment_needed(
-        [{"path": path, "engine": GalleryDlEngine()}],
+        [path],
+        engine_by_name("gallerydl"),
         {
             path_key(path): {
                 "id": "abc123",
@@ -3622,7 +3683,7 @@ def test_worker_renames_display_creator_to_handle_and_template_folder(
 
     monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
-    monkeypatch.setattr(worker_module, "_engine_run_order", lambda task: [engine_by_name("ytdlp")])
+    monkeypatch.setattr(worker_module, "all_engines", lambda: (engine_by_name("ytdlp"),))
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
@@ -3694,7 +3755,7 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
 
     monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
-    monkeypatch.setattr(worker_module, "_engine_run_order", lambda task: [engine_by_name("ytdlp")])
+    monkeypatch.setattr(worker_module, "all_engines", lambda: (engine_by_name("ytdlp"),))
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)

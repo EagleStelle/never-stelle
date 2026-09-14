@@ -93,7 +93,7 @@ def queue_task(
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     engine = default_engine()
-    task_id = f"{engine.id_prefix}:{uuid.uuid4().hex[:12]}"
+    task_id = f"{engine.name}:{uuid.uuid4().hex[:12]}"
     output_template = engine.build_output_template(source_url, output_dir, resolved_settings.template_settings, quality)
     now = utc_now()
     task = {

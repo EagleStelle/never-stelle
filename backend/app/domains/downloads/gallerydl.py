@@ -127,7 +127,6 @@ def gallerydl_access_args(access: AccessIdentity) -> list[str]:
 def _ytdl_downloader_options(
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
-    extractor_directory: str = "",
     trim_length: int = SAFE_PREDOWNLOAD_TRIM_CHARS,
 ) -> list[str]:
     selection = normalize_quality_selection(quality)
@@ -192,17 +191,9 @@ def _ytdl_downloader_options(
         or processing["automatic_subtitles"] != "off"
         or processing["chapters"] != "off"
     ):
-        # gallery-dl removes its private `_ytdl_info_dict` after the delegated
-        # download, so its own metadata postprocessor cannot reliably expose
-        # yt-dlp's subtitle URLs or chapters to the app's finalization stage.
-        # Capture that untouched payload in task scratch before gallery-dl
-        # discards it.
-        postprocessors.append(
-            {
-                "key": "NeverStelleCapture",
-                "directory": extractor_directory,
-            }
-        )
+        # gallery-dl drops yt-dlp's info dict, so yt-dlp writes it beside the part file.
+        options.extend(_ytdl_options("raw-options.writeinfojson", "true"))
+        options.extend(_ytdl_options("raw-options.clean_infojson", "false"))
     if postprocessors:
         options.extend(
             _ytdl_options("raw-options.postprocessors", json.dumps(postprocessors, separators=(",", ":")))
@@ -264,14 +255,6 @@ def _directory_segments(folder: str) -> list[str]:
 
 def _escape_literal(value: str) -> str:
     return value.replace("{", "{{").replace("}", "}}")
-
-
-def _excluded_extension_filter(excluded_extensions: set[str] | None) -> str:
-    values = sorted({str(ext or "").strip().lower().lstrip(".") for ext in (excluded_extensions or set())})
-    values = [value for value in values if value]
-    if not values:
-        return ""
-    return f"extension not in {tuple(values)!r}"
 
 
 def _gallerydl_field(
@@ -341,7 +324,6 @@ def build_gallerydl_command(
     *,
     access: AccessIdentity | None = None,
     metadata_sidecar: str = "",
-    excluded_extensions: set[str] | None = None,
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
     cleaning: dict[str, Any] | None = None,
@@ -377,7 +359,7 @@ def build_gallerydl_command(
         f"downloader.http.timeout={_HTTP_TIMEOUT_SECONDS}",
         "--retries",
         str(_access_retries(access)),
-        *_ytdl_downloader_options(quality, processing, extractor_directory, trim_length),
+        *_ytdl_downloader_options(quality, processing, trim_length),
         *gallerydl_access_args(access),
     ]
     if filename:
@@ -393,9 +375,6 @@ def build_gallerydl_command(
         # app's after-move metadata row into the extractor-payload directory.
         serialized = json.dumps(postprocessors, ensure_ascii=False, separators=(",", ":"))
         cmd.extend(["-o", f"postprocessors={serialized}"])
-    filter_expr = _excluded_extension_filter(excluded_extensions)
-    if filter_expr:
-        cmd.extend(["--filter", filter_expr])
     if access.cookies_file:
         cmd.extend(["--sleep-request", "2"])
     cmd.append(source_url)

@@ -6,7 +6,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from backend.app.core.paths import path_key as _path_key
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
 from backend.app.domains.downloads.access import (
@@ -22,16 +21,15 @@ from backend.app.domains.downloads.constants import (
     post_processing_requested,
     quality_needs_ffmpeg,
 )
-from backend.app.domains.downloads.engine import Engine, all_engines, default_engine
+from backend.app.domains.downloads.engine import Engine, all_engines
 from backend.app.domains.downloads.history import save_history_entry
 from backend.app.domains.downloads.naming import detect_ffmpeg_location
 from backend.app.domains.downloads.postprocessing import (
     apply_finalized_post_processing,
     ensure_container_codec_compatibility,
     extractor_payload_from_sidecars,
-)
-from backend.app.domains.downloads.postprocessing import (
-    metadata_sidecars_for as _metadata_sidecars_for,
+    metadata_sidecars_for,
+    scratch_payload_index,
 )
 from backend.app.domains.downloads.store import (
     append_task_log,
@@ -46,7 +44,6 @@ from backend.app.domains.downloads.urls import canonicalize_source_url, detect_s
 from backend.app.domains.downloads.workers.completion import (
     _attempt_output_paths,
     _child_task_id,
-    _dedupe_output_records,
     _download_groups,
     _existing_output_paths,
     _extractor_metadata_fields,
@@ -60,9 +57,9 @@ from backend.app.domains.downloads.workers.completion import (
     _read_metadata_sidecar,
     _resolved_task_creator,
     _single_output_metadata_enrichment_needed,
+    _with_ytdlp_media_fields,
 )
 from backend.app.domains.downloads.workers.enrichment import enqueue_completion_enrichment
-from backend.app.domains.downloads.workers.pathing import _fallback_excluded_extensions
 from backend.app.domains.downloads.workers.processes import (
     TaskCancelled,
     _cancel_pending,
@@ -82,32 +79,10 @@ from backend.app.domains.settings import (
 )
 from backend.app.runtime.scratch import remove_scratch_path, scratch_temp_dir
 
-# Log markers meaning the backend has no extractor or no downloadable media
-# formats for the URL. These are engine capability signals, not platform routes.
-_UNSUPPORTED_MARKERS = (
-    "unsupported url",
-    "unsupportederror",
-    "no suitable extractor",
-    "no video formats found",
-    "no formats found",
-)
 
-
-def _looks_unsupported(task: dict[str, Any]) -> bool:
-    tail = " ".join(task.get("last_log_lines") or []).lower()
-    return any(marker in tail for marker in _UNSUPPORTED_MARKERS)
-
-
-def _should_try_next_engine(rc: int, task: dict[str, Any], last_dest: str, emitted_paths: list[str]) -> bool:
-    if rc == 0:
-        return False
-    # If this engine already produced media, do not blindly redownload through
-    # another backend. Failed empty runs are the dynamic capability probe.
-    if _has_output_media(last_dest, emitted_paths):
-        return False
-    if _looks_unsupported(task):
-        return True
-    return True
+def _should_try_next_engine(rc: int, last_dest: str, emitted_paths: list[str]) -> bool:
+    # Media from a failed run is kept, never downloaded again through another backend.
+    return rc != 0 and not _has_output_media(last_dest, emitted_paths)
 
 
 def _failure_detail(engine: Engine, rc: int, task: dict[str, Any]) -> str:
@@ -140,7 +115,6 @@ def _run_engine_attempts(
     creator_sidecar: str,
     metadata_sidecar: str,
     total_items: int,
-    excluded_extensions: set[str] | None = None,
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
     progress: TaskProgress | None = None,
@@ -154,17 +128,18 @@ def _run_engine_attempts(
             access=access,
             creator_sidecar=creator_sidecar,
             metadata_sidecar=metadata_sidecar,
-            excluded_extensions=excluded_extensions,
             quality=quality,
             post_processing=post_processing,
         )
-        run_kwargs: dict[str, Any] = {"total_items": total_items, "progress": progress}
-        if quality and quality.get("mode") == "audio":
-            run_kwargs["keep_gallerydl_audio"] = True
-        env = access_env(access)
-        if env is not None:
-            run_kwargs["env"] = env
-        return _run_engine_to_task(engine, task_id, cmd, **run_kwargs)
+        return _run_engine_to_task(
+            engine,
+            task_id,
+            cmd,
+            total_items=total_items,
+            keep_audio=bool(quality and quality.get("mode") == "audio"),
+            progress=progress,
+            env=access_env(access),
+        )
 
     # Cheapest first: a fingerprint only after a wall, a cookie only once the public path fails.
     rc, last_dest, emitted_paths = 1, "", []
@@ -204,11 +179,6 @@ def _run_engine_attempts(
     return rc, last_dest, emitted_paths
 
 
-def _engine_run_order(task: dict[str, Any]) -> list[Engine]:
-    primary = default_engine()
-    return [primary, *[engine for engine in all_engines() if engine is not primary]]
-
-
 def _task_template_settings(task: dict[str, Any]) -> dict[str, str] | None:
     return template_settings_from_row(task)
 
@@ -244,7 +214,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
     raw_source_key = normalize_source_key(task.get("source_key"))
     task_source_key = raw_source_key or detect_source_key(source_url)
     cookie_source_key = raw_source_key or detect_cookie_source(source_url)
-    candidates = _engine_run_order(task)
+    candidates = all_engines()
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
 
@@ -289,8 +259,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
     started_at = time.time()
     used_engine = candidates[0]
     failure_details: list[str] = []
-    output_records: list[dict[str, Any]] = []
-    output_record_keys: set[str] = set()
+    output_paths: list[Path] = []
     try:
         raise_if_cancelled(task_id)
         record_task_progress(task_id, progress.prepare(0.6))
@@ -321,13 +290,8 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 output_template = engine.build_output_template(
                     source_url, output_dir, template_settings, quality, extra_tokens
                 )
-            excluded_extensions = _fallback_excluded_extensions(engine, output_records)
             # Counting is a courtesy pass for the progress bar, never worth a cookie.
-            total_items = (
-                0
-                if engine.emits_progress
-                else engine.count_items(source_url, excluded_extensions=excluded_extensions)
-            )
+            total_items = 0 if engine.emits_progress else engine.count_items(source_url)
 
             started_at = time.time()
             used_engine = engine
@@ -343,26 +307,19 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 creator_sidecar,
                 metadata_sidecar,
                 total_items,
-                excluded_extensions,
                 quality,
                 post_processing,
                 progress,
             )
             if _cancel_pending(task_id):
                 break
-            attempt_paths = _attempt_output_paths(last_dest, emitted_paths)
-            for path in attempt_paths:
-                path_key = _path_key(path)
-                if path_key in output_record_keys:
-                    continue
-                output_records.append({"path": path, "engine": engine})
-                output_record_keys.add(path_key)
+            # Only a run without media hands over, so every output path belongs to this engine.
+            output_paths = [Path(path) for path in _attempt_output_paths(last_dest, emitted_paths)]
             if rc == 0:
                 break
 
-            failed_task = load_task(task_id)
-            failure_details.append(_failure_detail(engine, rc, failed_task))
-            if index + 1 < len(candidates) and _should_try_next_engine(rc, failed_task, last_dest, emitted_paths):
+            failure_details.append(_failure_detail(engine, rc, load_task(task_id)))
+            if index + 1 < len(candidates) and _should_try_next_engine(rc, last_dest, emitted_paths):
                 append_task_log(
                     task_id,
                     f"[never-stelle] {engine.name} did not produce media; trying {candidates[index + 1].name}...",
@@ -373,30 +330,24 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
         raise_if_cancelled(task_id)
 
         current_task = load_task(task_id)
-        if rc == 0 or output_records:
+        if rc == 0 or output_paths:
             raise_if_cancelled(task_id)
             filename_template = _filename_template(template_settings)
             metadata_by_path = _read_metadata_sidecar(metadata_sidecar)
             if has_post_processing:
                 raise_if_cancelled(task_id)
                 _probe_single_output_metadata_inline(
-                    output_records,
+                    output_paths,
+                    used_engine,
                     metadata_by_path,
                     source_url,
                     task_source_key,
                     template_settings,
                 )
             metadata_enrichment_needed = _single_output_metadata_enrichment_needed(
-                output_records, metadata_by_path, template_settings
+                output_paths, used_engine, metadata_by_path, template_settings
             )
             raise_if_cancelled(task_id)
-            output_records = _dedupe_output_records(
-                output_records,
-                filename_template,
-                metadata_by_path,
-                source_url,
-            )
-            output_paths = [Path(record["path"]) for record in output_records]
             if not output_paths:
                 output_paths = _metadata_output_paths(metadata_by_path)
             if not output_paths:
@@ -415,18 +366,16 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     error=f"{used_engine.name} finished, but no media file was found.",
                 )
                 return
-            selection_engine = output_records[0]["engine"] if output_records else used_engine
-            collapse_source_items = any(record["engine"].name == "gallerydl" for record in output_records)
-            groups = _download_groups(
-                output_paths,
-                selection_engine,
-                filename_template,
-                metadata_by_path,
-                source_url,
-                collapse_source_items,
-            )
+            groups = _download_groups(output_paths, used_engine, filename_template, metadata_by_path, source_url)
             completed_rows: list[tuple[str, dict[str, Any]]] = []
             enrichment_jobs: list[tuple[str, dict[str, str], bool, bool]] = []
+            probed_media_fields: dict[str, tuple[str, dict[str, Any]]] = {}
+            # gallery-dl's yt-dlp handoff writes its info.json beside the part file.
+            payload_index = (
+                scratch_payload_index((task_scratch / "extractor", task_scratch / "parts"))
+                if has_post_processing
+                else {}
+            )
             field_roles_ready = False
             field_roles_checked = False
             for index, group in enumerate(groups):
@@ -434,11 +383,6 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 record_task_progress(task_id, progress.finalize(index / len(groups)))
                 media_id = str(group.get("media_id") or "").strip()
                 raw_path = Path(group["path"])
-                row_engine = used_engine.name
-                for record in output_records:
-                    if _path_key(record["path"]) == _path_key(raw_path):
-                        row_engine = record["engine"].name
-                        break
                 metadata = dict(group.get("metadata") or {})
                 raw_group_paths = [Path(path) for path in list(group.get("paths") or [raw_path])]
                 extraction_sidecars = (
@@ -446,11 +390,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                         dict.fromkeys(
                             sidecar
                             for group_path in raw_group_paths
-                            for sidecar in _metadata_sidecars_for(
-                                group_path,
-                                scratch_root=task_scratch / "extractor",
-                                output_root=output_root,
-                            )
+                            for sidecar in metadata_sidecars_for(group_path, payload_index)
                         )
                     )
                     if has_post_processing
@@ -481,6 +421,15 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 # Rich extractor metadata is only for post-processing; merging it
                 # after naming keeps Fields/Templates independent without a copy.
                 metadata = {**_extractor_metadata_fields(extractor_payload), **metadata}
+                if has_post_processing:
+                    raise_if_cancelled(task_id)
+                    extractor_payload = _with_ytdlp_media_fields(
+                        extractor_payload,
+                        finalized,
+                        post_processing,
+                        probed_media_fields,
+                        single_item=len(groups) == 1,
+                    )
                 raise_if_cancelled(task_id)
                 remuxed_paths: dict[Path, Path] = {}
                 media_changed = ensure_container_codec_compatibility(
@@ -497,13 +446,12 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 raise_if_cancelled(task_id)
                 media_changed = apply_finalized_post_processing(
                     finalized.keep_paths,
-                    metadata,
+                    extractor_payload,
                     finalized,
                     post_processing=post_processing,
                     quality=quality,
                     sidecars=extraction_sidecars,
                     output_root=output_root,
-                    extractor_payload=extractor_payload,
                 ) or media_changed
                 if media_changed:
                     drop_file_cache(finalized.keep_paths)
@@ -517,7 +465,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                     field_roles_ready = _learn_field_roles_from_download(
                         finalized.source_url,
                         finalized.source_key,
-                        row_engine,
+                        used_engine.name,
                         metadata,
                     )
                     field_roles_checked = True
@@ -531,7 +479,7 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                             "status": "completed",
                             "progress_pct": 100,
                             "error": "",
-                            "engine": row_engine,
+                            "engine": used_engine.name,
                             "creator": finalized.creator,
                             "media_id": finalized.media_id,
                             "source_url": finalized.source_url,

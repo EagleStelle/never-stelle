@@ -120,43 +120,7 @@ def _attempt_output_paths(last_dest: str, emitted_paths: list[str]) -> list[Path
 def _has_output_media(last_dest: str, emitted_paths: list[str]) -> bool:
     return bool(_attempt_output_paths(last_dest, emitted_paths))
 
-def _output_identity(
-    path: Path,
-    engine: Engine,
-    filename_template: str,
-    metadata: dict[str, str],
-    source_url: str,
-) -> str:
-    source_media_id = media_id_from_url(source_url)
-    media_id = _filename_media_id(path, filename_template, metadata)
-    if engine.name == "gallerydl" and source_media_id:
-        return source_media_id
-    return media_id or _path_key(path)
 
-def _dedupe_output_records(
-    records: list[dict[str, Any]],
-    filename_template: str,
-    metadata_by_path: dict[str, dict[str, str]],
-    source_url: str,
-) -> list[dict[str, Any]]:
-    kept: list[dict[str, Any]] = []
-    seen_cross_engine: dict[tuple[str, str], str] = {}
-    for record in records:
-        path = Path(record["path"])
-        engine = record["engine"]
-        metadata = metadata_by_path.get(_path_key(path), {})
-        identity = _output_identity(path, engine, filename_template, metadata, source_url)
-        key = (identity, _media_kind(path))
-        existing_engine = seen_cross_engine.get(key)
-        if existing_engine and existing_engine != engine.name:
-            try:
-                path.unlink(missing_ok=True)
-            except OSError:
-                pass
-            continue
-        kept.append(record)
-        seen_cross_engine.setdefault(key, engine.name)
-    return kept
 
 def _cleanup_duplicate_library_media(root: Path, media_id: str, keep_paths: list[Path]) -> None:
     media_id = str(media_id or "").strip()
@@ -311,12 +275,11 @@ def _download_groups(
     filename_template: str,
     metadata_by_path: dict[str, dict[str, str]],
     source_url: str,
-    collapse_source_items: bool | None = None,
 ) -> list[dict[str, Any]]:
     groups: list[dict[str, Any]] = []
     by_key: dict[str, dict[str, Any]] = {}
     source_media_id = media_id_from_url(source_url)
-    collapse_source_items = engine.name == "gallerydl" if collapse_source_items is None else collapse_source_items
+    collapse_source_items = engine.bundles_post_files
     for path in paths:
         metadata = metadata_by_path.get(_path_key(path), {})
         media_id = _filename_media_id(path, filename_template, metadata)
@@ -341,10 +304,7 @@ def _download_groups(
     for group in groups:
         selected = ""
         for path in group["paths"]:
-            if not selected:
-                selected = str(path)
-            elif not collapse_source_items or engine.name == "gallerydl":
-                selected = _preferred_output_path(engine, selected, path)
+            selected = _preferred_output_path(engine, selected, path)
         group["path"] = Path(selected or group["paths"][0])
     return groups
 

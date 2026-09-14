@@ -108,7 +108,7 @@ def test_run_engine_attempts_tries_anonymous_first_then_a_leased_cookie(monkeypa
 
     attempts_seen = []
 
-    def fake_run_engine(engine, task_id, cmd, total_items=0, progress=None):
+    def fake_run_engine(engine, task_id, cmd, **options):
         with_cookies = "--cookies" in cmd
         attempts_seen.append(with_cookies)
         if not with_cookies:
@@ -134,7 +134,7 @@ def test_run_engine_attempts_spends_no_cookie_when_anonymous_succeeds(monkeypatc
 
     leased = []
 
-    def fake_run_engine(engine, task_id, cmd, total_items=0, progress=None):
+    def fake_run_engine(engine, task_id, cmd, **options):
         assert "--cookies" not in cmd
         return 0, "/tmp/out.mp4", ["/tmp/out.mp4"]
 
@@ -156,7 +156,7 @@ def test_run_engine_attempts_retries_every_cookie_until_one_works(monkeypatch):
 
     used: list[str] = []
 
-    def fake_run_engine(engine, task_id, cmd, total_items=0, progress=None):
+    def fake_run_engine(engine, task_id, cmd, **options):
         if "--cookies" not in cmd:
             return 1, "", []
         cookies_file = cmd[cmd.index("--cookies") + 1]
@@ -190,7 +190,7 @@ def test_run_engine_attempts_retries_behind_a_fingerprint_after_a_wall(monkeypat
     attempts: list[tuple[str, bool, str]] = []
     tails: list[str] = []
 
-    def fake_run_engine(engine, task_id, cmd, total_items=0, progress=None, env=None):
+    def fake_run_engine(engine, task_id, cmd, *, env=None, **options):
         impersonate = cmd[cmd.index("--impersonate") + 1] if "--impersonate" in cmd else ""
         attempts.append((impersonate, "--cookies" in cmd, (env or {}).get("PYTHONPATH", "")))
         if impersonate and "--cookies" in cmd:
@@ -223,7 +223,7 @@ def test_run_engine_attempts_skips_the_fingerprint_without_a_wall(monkeypatch):
 
     attempts: list[bool] = []
 
-    def fake_run_engine(engine, task_id, cmd, total_items=0, progress=None):
+    def fake_run_engine(engine, task_id, cmd, **options):
         attempts.append("--impersonate" in cmd)
         return (0, "/tmp/out.mp4", ["/tmp/out.mp4"]) if "--cookies" in cmd else (1, "", [])
 
@@ -241,7 +241,7 @@ def test_run_engine_attempts_skips_the_fingerprint_without_a_wall(monkeypatch):
 def test_run_engine_attempts_rests_a_cookie_that_came_back_rate_limited(monkeypatch):
     import backend.app.domains.downloads.workers.execution as worker_module
 
-    def fake_run_engine(engine, task_id, cmd, total_items=0, progress=None):
+    def fake_run_engine(engine, task_id, cmd, **options):
         return 1, "", []
 
     (lease,) = _stub_worker_cookie_rotation(monkeypatch, worker_module)
@@ -277,7 +277,7 @@ def _stream_engine_progress(
     lines,
     *,
     engine_name: str = "ytdlp",
-    keep_gallerydl_audio: bool = False,
+    keep_audio: bool = False,
     task_id: str = "task",
 ):
     """Run the streaming loop over ``lines``, returning the row writes it caused."""
@@ -295,7 +295,7 @@ def _stream_engine_progress(
         engine_by_name(engine_name),
         task_id,
         [engine_name],
-        keep_gallerydl_audio=keep_gallerydl_audio,
+        keep_audio=keep_audio,
     )
     return writes, rc, dest, paths
 
@@ -363,7 +363,7 @@ def test_gallerydl_audio_output_is_recorded_for_audio_tasks(monkeypatch):
         monkeypatch,
         lines,
         engine_name="gallerydl",
-        keep_gallerydl_audio=True,
+        keep_audio=True,
     )
 
     assert rc == 0

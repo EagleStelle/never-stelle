@@ -20,7 +20,11 @@ from backend.app.domains.downloads.constants import (
 )
 from backend.app.domains.downloads.files import is_media_file
 from backend.app.domains.downloads.learning import learn_missing_fields_for_format, save_missing_learned_fields
-from backend.app.domains.downloads.postprocessing import apply_finalized_post_processing, metadata_sidecars_for
+from backend.app.domains.downloads.postprocessing import (
+    apply_finalized_post_processing,
+    extractor_payload_from_sidecars,
+    metadata_sidecars_for,
+)
 from backend.app.domains.downloads.store import (
     active_download_task_count,
     claim_next_enrichment_job,
@@ -235,12 +239,7 @@ def _repair_history_metadata(task_id: str, entry: dict[str, Any], payload: dict[
     token_roles = _nested_string_dict(payload.get("token_roles"))
     output_root = Path(str(payload.get("output_root") or entry.get("resolved_folder") or path.parent))
     post_processing = normalize_post_processing(payload.get("post_processing"))
-    has_post_processing = post_processing_requested(post_processing)
-    metadata_sidecars = (
-        metadata_sidecars_for(path)
-        if has_post_processing
-        else []
-    )
+    metadata_sidecars = metadata_sidecars_for(path) if post_processing_requested(post_processing) else []
     finalized = _finalize_completed_output(
         source_url=source_url,
         source_key=source_key,
@@ -258,7 +257,7 @@ def _repair_history_metadata(task_id: str, entry: dict[str, Any], payload: dict[
     )
     if apply_finalized_post_processing(
         finalized.keep_paths,
-        metadata,
+        extractor_payload_from_sidecars(metadata_sidecars, metadata),
         finalized,
         post_processing=post_processing,
         quality=quality,

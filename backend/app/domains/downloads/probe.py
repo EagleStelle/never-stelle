@@ -268,7 +268,12 @@ def _exact_url_field_roles(
 
 
 def _ytdlp_dump(
-    url: str, *, with_cookies: bool = True, cookie_source_key: str = "", low_priority: bool = False
+    url: str,
+    *,
+    with_cookies: bool = True,
+    cookie_source_key: str = "",
+    low_priority: bool = False,
+    extra_args: tuple[str, ...] = (),
 ) -> tuple[dict[str, Any] | None, str]:
     cmd = [
         "yt-dlp",
@@ -281,6 +286,7 @@ def _ytdlp_dump(
         "node",
         "--remote-components",
         "ejs:github",
+        *extra_args,
     ]
 
     def _exec(access: AccessIdentity) -> tuple[dict[str, Any] | None, str]:
@@ -409,6 +415,26 @@ def probe_metadata(
     if isinstance(metadata, dict) and metadata:
         return _flatten_metadata(metadata)
     return {}
+
+
+def probe_media_info(
+    source_url: str,
+    *,
+    with_cookies: bool = True,
+    cookie_source_key: str = "",
+) -> dict[str, Any]:
+    """yt-dlp's full info dict for one item, subtitles included; ``{}`` on failure."""
+    url = _prepare_url(source_url)
+    if not url:
+        return {}
+    # Extractors only collect subtitles when asked to write them; --no-download still writes nothing.
+    info, _ = _ytdlp_dump(
+        url,
+        with_cookies=with_cookies,
+        cookie_source_key=cookie_source_key,
+        extra_args=("--write-subs", "--write-auto-subs"),
+    )
+    return info if isinstance(info, dict) else {}
 
 
 def _probe_field_metadata(

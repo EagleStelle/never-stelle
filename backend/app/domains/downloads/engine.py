@@ -13,17 +13,15 @@ class Engine:
     """Downloader-backend contract the worker drives every task through."""
 
     name: str = ""
-    id_prefix: str = ""
     needs_ffmpeg: bool = False
     # True when the backend reports its own byte-percentage (else count-based).
     emits_progress: bool = False
+    # True when one post lands as several files (numbered images, a soundtrack) of one source item.
+    bundles_post_files: bool = False
+    # True when output lines and filenames leave template fields a metadata probe must fill.
+    sparse_metadata: bool = False
 
-    def count_items(
-        self,
-        source_url: str,
-        *,
-        excluded_extensions: set[str] | None = None,
-    ) -> int:
+    def count_items(self, source_url: str) -> int:
         return 0
 
     def build_output_template(
@@ -46,7 +44,6 @@ class Engine:
         access: AccessIdentity | None = None,
         creator_sidecar: str = "",
         metadata_sidecar: str = "",
-        excluded_extensions: set[str] | None = None,
         quality: dict[str, str] | None = None,
         post_processing: dict[str, Any] | None = None,
         cleaning: dict[str, Any] | None = None,
@@ -65,7 +62,6 @@ class Engine:
 
 class YtdlpEngine(Engine):
     name = "ytdlp"
-    id_prefix = "ytdlp"
     needs_ffmpeg = True
     emits_progress = True
 
@@ -89,7 +85,6 @@ class YtdlpEngine(Engine):
         access: AccessIdentity | None = None,
         creator_sidecar: str = "",
         metadata_sidecar: str = "",
-        excluded_extensions: set[str] | None = None,
         quality: dict[str, str] | None = None,
         post_processing: dict[str, Any] | None = None,
         cleaning: dict[str, Any] | None = None,
@@ -120,16 +115,10 @@ class YtdlpEngine(Engine):
 
 class GallerydlEngine(Engine):
     name = "gallerydl"
-    id_prefix = "gallerydl"
-    needs_ffmpeg = False
-    emits_progress = False
+    bundles_post_files = True
+    sparse_metadata = True
 
-    def count_items(
-        self,
-        source_url: str,
-        *,
-        excluded_extensions: set[str] | None = None,
-    ) -> int:
+    def count_items(self, source_url: str) -> int:
         # Counting for real means a second extraction pass, which costs a request and
         # sometimes a cookie. A URL naming one media item answers it for free; a
         # profile or tag falls back to the unknown-total curve as paths are emitted.
@@ -157,7 +146,6 @@ class GallerydlEngine(Engine):
         access: AccessIdentity | None = None,
         creator_sidecar: str = "",
         metadata_sidecar: str = "",
-        excluded_extensions: set[str] | None = None,
         quality: dict[str, str] | None = None,
         post_processing: dict[str, Any] | None = None,
         cleaning: dict[str, Any] | None = None,
@@ -168,7 +156,6 @@ class GallerydlEngine(Engine):
             output_template,
             access=access,
             metadata_sidecar=metadata_sidecar,
-            excluded_extensions=excluded_extensions,
             quality=quality,
             post_processing=post_processing,
             cleaning=cleaning,
@@ -185,10 +172,9 @@ class GallerydlEngine(Engine):
         return ""
 
 
-# gallery-dl is the default broker; yt-dlp remains available as a fallback engine.
-_YTDLP = YtdlpEngine()
-_GALLERYDL = GallerydlEngine()
-_ENGINES: tuple[Engine, ...] = (_GALLERYDL, _YTDLP)
+# Run order: gallery-dl brokers every URL (handing yt-dlp what it cannot fetch itself);
+# standalone yt-dlp only runs when gallery-dl ends with no media.
+_ENGINES: tuple[Engine, ...] = (GallerydlEngine(), YtdlpEngine())
 
 
 def all_engines() -> tuple[Engine, ...]:
@@ -196,4 +182,4 @@ def all_engines() -> tuple[Engine, ...]:
 
 
 def default_engine() -> Engine:
-    return _GALLERYDL
+    return _ENGINES[0]

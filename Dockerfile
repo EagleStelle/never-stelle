@@ -186,7 +186,6 @@ RUN --mount=type=bind,from=python-wheels,source=/wheels,target=/wheels \
     /usr/local/bin/pydoc*
 
 COPY --link backend ./backend
-COPY --link yt_dlp_plugins ./yt_dlp_plugins
 COPY --link --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 EXPOSE 8840

@@ -44,7 +44,7 @@ def _run_engine_to_task(
     cmd: list[str],
     *,
     total_items: int = 0,
-    keep_gallerydl_audio: bool = False,
+    keep_audio: bool = False,
     progress: TaskProgress | None = None,
     env: dict[str, str] | None = None,
 ) -> tuple[int, str, list[str]]:
@@ -92,8 +92,8 @@ def _run_engine_to_task(
                 if not downloaded_path:
                     continue
                 path = Path(downloaded_path)
-                if engine.name == "gallerydl" and _is_audio_path(path) and not keep_gallerydl_audio:
-                    # Audio sidecar: keep the log line, skip path bookkeeping.
+                if engine.bundles_post_files and _is_audio_path(path) and not keep_audio:
+                    # A post's soundtrack: keep the log line, skip path bookkeeping.
                     continue
                 path_key = _path_key(path)
                 if path_key not in emitted_keys:

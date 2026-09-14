@@ -24,7 +24,7 @@ from backend.app.domains.downloads.constants import (
     video_format_selector,
 )
 from backend.app.domains.downloads.engine import all_engines
-from backend.app.domains.downloads.workers.execution import _looks_unsupported, _should_try_next_engine
+from backend.app.domains.downloads.workers.execution import _should_try_next_engine
 from backend.app.domains.downloads.workers.progress import (
     DOWNLOAD_END,
     FINALIZE_END,
@@ -252,10 +252,7 @@ def test_audio_metadata_and_thumbnail_request_youtube_music_cover_metadata():
     assert _gallerydl_raw_option(
         delegated, "extractor.ytdl.raw-options.extractor_args"
     ) == expected_args
-    delegated_processors = _gallerydl_raw_option(
-        delegated, "downloader.ytdl.raw-options.postprocessors"
-    )
-    assert all(processor.get("key") != "NeverStelleCapture" for processor in delegated_processors)
+    assert _gallerydl_raw_option(delegated, "downloader.ytdl.raw-options.writeinfojson") is None
     assert _gallerydl_postprocessors(delegated)[-1]["private"] is True
 
     thumbnail_only = ytdlp.build_ytdlp_command(
@@ -280,12 +277,9 @@ def test_subtitle_options_capture_extractor_payload_for_finalization():
     postprocessors = _gallerydl_postprocessors(cmd)
     assert postprocessors[-1]["name"] == "metadata"
     assert postprocessors[-1]["private"] is True
-    expected_capture = {
-        "key": "NeverStelleCapture",
-        "directory": "/scratch/task/extractor",
-    }
-    assert _gallerydl_raw_option(cmd, "downloader.ytdl.raw-options.postprocessors")[-1] == expected_capture
-    assert _gallerydl_raw_option(cmd, "extractor.ytdl.raw-options.postprocessors")[-1] == expected_capture
+    for integration in ("downloader", "extractor"):
+        assert _gallerydl_raw_option(cmd, f"{integration}.ytdl.raw-options.writeinfojson") is True
+        assert _gallerydl_raw_option(cmd, f"{integration}.ytdl.raw-options.clean_infojson") is False
 
     fallback = ytdlp.build_ytdlp_command(
         "https://example.test/post/1",
@@ -309,12 +303,9 @@ def test_chapter_options_capture_extractor_payload_for_finalization():
         metadata_sidecar="/scratch/task/downloads.tsv",
         post_processing=processing,
     )
-    expected_capture = {
-        "key": "NeverStelleCapture",
-        "directory": "/scratch/task/extractor",
-    }
-    assert _gallerydl_raw_option(cmd, "downloader.ytdl.raw-options.postprocessors")[-1] == expected_capture
-    assert _gallerydl_raw_option(cmd, "extractor.ytdl.raw-options.postprocessors")[-1] == expected_capture
+    for integration in ("downloader", "extractor"):
+        assert _gallerydl_raw_option(cmd, f"{integration}.ytdl.raw-options.writeinfojson") is True
+        assert _gallerydl_raw_option(cmd, f"{integration}.ytdl.raw-options.clean_infojson") is False
 
     fallback = ytdlp.build_ytdlp_command(
         "https://example.test/post/1",
@@ -761,28 +752,21 @@ def test_all_engines_includes_both_backends():
     assert {engine.name for engine in all_engines()} == {"ytdlp", "gallerydl"}
 
 
-def test_looks_unsupported_flags_wrong_engine_errors():
-    assert _looks_unsupported({"last_log_lines": ["ERROR: Unsupported URL: https://tiktok.com/@x/photo/1"]}) is True
-    assert _looks_unsupported({"last_log_lines": ["yt_dlp.utils.UnsupportedError: Unsupported URL: ..."]}) is True
-    assert _looks_unsupported({"last_log_lines": ["No suitable extractor found"]}) is True
-    assert _looks_unsupported({"last_log_lines": ["ERROR: [site] id: No video formats found!"]}) is True
-    assert _looks_unsupported({"last_log_lines": ["ERROR: Video unavailable"]}) is False
-    assert _looks_unsupported({}) is False
+def test_engines_run_gallerydl_first_and_only_it_bundles_post_files():
+    assert [engine.name for engine in all_engines()] == ["gallerydl", "ytdlp"]
+    assert [(engine.bundles_post_files, engine.sparse_metadata) for engine in all_engines()] == [
+        (True, True),
+        (False, False),
+    ]
 
 
-def test_should_try_next_engine_after_empty_failure(tmp_path: Path):
+def test_should_try_next_engine_only_after_an_empty_failure(tmp_path: Path):
     media = tmp_path / "a.mp4"
     media.write_bytes(b"video")
 
-    assert _should_try_next_engine(1, {"last_log_lines": ["ERROR: Video unavailable"]}, "", []) is True
-    assert _should_try_next_engine(0, {}, "", []) is False
-    assert _should_try_next_engine(1, {}, str(media), [str(media)]) is False
-    assert _should_try_next_engine(
-        1,
-        {"last_log_lines": ["ERROR: [site] child: No video formats found!"]},
-        str(media),
-        [str(media)],
-    ) is False
+    assert _should_try_next_engine(1, "", []) is True
+    assert _should_try_next_engine(0, "", []) is False
+    assert _should_try_next_engine(1, str(media), [str(media)]) is False
 
 
 def test_ytdlp_engine_progress_and_path_parsing():
@@ -976,21 +960,6 @@ def test_build_gallerydl_command_layout():
     assert cmd[cmd.index("--filename") + 1] == "Clip [id].{extension}"
     assert "--cookies" not in cmd
     assert cmd[-1] == "https://imgur.com/a/x"
-
-
-def test_build_gallerydl_command_can_filter_extensions():
-    sep = gallerydl._TEMPLATE_SEP
-    cmd = gallerydl.build_gallerydl_command(
-        "https://imgur.com/a/x",
-        "/media/imgur",
-        f"artist{sep}Clip [id].{{extension}}",
-        excluded_extensions={".mp4", "webm"},
-    )
-
-    filter_expr = cmd[cmd.index("--filter") + 1]
-    assert "extension not in" in filter_expr
-    assert "mp4" in filter_expr
-    assert "webm" in filter_expr
 
 
 def test_build_gallerydl_command_can_write_metadata_sidecar():

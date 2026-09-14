@@ -6,7 +6,6 @@ from backend.app.domains.downloads.workers.completion import (
 )
 from backend.app.domains.downloads.workers.enrichment import ensure_enrichment_worker
 from backend.app.domains.downloads.workers.execution import (
-    _looks_unsupported,
     _run_engine_attempts,
     _should_try_next_engine,
     run_task,
@@ -23,7 +22,6 @@ from backend.app.domains.downloads.ytdlp import read_creator_sidecar as _read_cr
 __all__ = [
     "_count_progress",
     "_filename_creator",
-    "_looks_unsupported",
     "_read_creator_sidecar",
     "_render_template_folder",
     "_run_engine_attempts",

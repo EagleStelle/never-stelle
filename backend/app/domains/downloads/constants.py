@@ -73,6 +73,8 @@ POST_PROCESSING_FEATURES = (
     "chapters",
     "thumbnail",
 )
+# Images carry tags only; artwork, captions and chapters belong to audio and video.
+MEDIA_ONLY_POST_PROCESSING_FEATURES = ("subtitles", "automatic_subtitles", "chapters", "thumbnail")
 # Requesting every language pulls yt-dlp's hundreds of translated caption tracks.
 SUBTITLE_LANGUAGES_ALL = "all"
 
@@ -102,12 +104,10 @@ def post_processing_requested(raw: Any) -> bool:
     return any(processing[feature] != "off" for feature in POST_PROCESSING_FEATURES)
 
 
-def post_processing_embeds(processing: dict[str, Any], feature: str) -> bool:
-    return processing.get(feature) in {"embed", "both"}
-
-
-def post_processing_sidecars(processing: dict[str, Any], feature: str) -> bool:
-    return processing.get(feature) in {"sidecar", "both"}
+def post_processing_modes(processing: dict[str, Any], feature: str) -> set[str]:
+    """Where one feature's output goes: a subset of embed and sidecar."""
+    mode = processing.get(feature)
+    return {"embed", "sidecar"} if mode == "both" else {mode} & {"embed", "sidecar"}
 
 
 def default_post_processing() -> dict[str, Any]:

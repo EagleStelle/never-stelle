@@ -244,7 +244,7 @@ def test_run_task_cancellation_during_post_processing_removes_task_and_workspace
 
     monkeypatch.setattr(scratch_module, "SCRATCH_DIR", scratch_root)
     monkeypatch.setattr(execution_module, "scratch_temp_dir", make_workspace)
-    monkeypatch.setattr(execution_module, "_engine_run_order", lambda value: [FakeEngine()])
+    monkeypatch.setattr(execution_module, "all_engines", lambda: (FakeEngine(),))
     monkeypatch.setattr(execution_module, "load_token_roles", lambda: {})
     monkeypatch.setattr(execution_module, "get_effective_fields", lambda value: {})
     monkeypatch.setattr(execution_module, "load_slug_tokens", lambda: {})
@@ -263,7 +263,6 @@ def test_run_task_cancellation_during_post_processing_removes_task_and_workspace
     monkeypatch.setattr(execution_module, "_read_metadata_sidecar", lambda value: {})
     monkeypatch.setattr(execution_module, "_probe_single_output_metadata_inline", lambda *args: None)
     monkeypatch.setattr(execution_module, "_single_output_metadata_enrichment_needed", lambda *args: False)
-    monkeypatch.setattr(execution_module, "_dedupe_output_records", lambda records, *args: records)
     monkeypatch.setattr(
         execution_module,
         "_download_groups",

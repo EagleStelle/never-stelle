@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from backend.app.core.paths import path_key as _path_key
-from backend.app.domains.downloads.constants import CREATOR_FIELDS, FIELD_ROLE_CHAINS, TEMPLATE_RE
+from backend.app.domains.downloads.constants import (
+    CREATOR_FIELDS,
+    FIELD_ROLE_CHAINS,
+    IMAGE_EXTENSIONS,
+    MEDIA_ONLY_POST_PROCESSING_FEATURES,
+    TEMPLATE_RE,
+)
+from backend.app.domains.downloads.engine import Engine
 from backend.app.domains.downloads.files import is_media_file
 from backend.app.domains.downloads.naming import filename_template_fields
 from backend.app.domains.downloads.scan import parse_filename_media_id
@@ -111,81 +119,96 @@ def _metadata_satisfies_template(
 
     return all(has_token(token) for token in tokens)
 
-def _probe_output_metadata(source_url: str, source_key: str = "", *, low_priority: bool = False) -> dict[str, str]:
+def _run_probe(
+    probe: Callable[..., dict[str, Any]], source_url: str, source_key: str, **options: Any
+) -> dict[str, Any]:
+    """Probe with the source's cookie access; a failed probe never fails the download."""
+    cookie_source_key = source_key if source_key and has_cookies_for_source(source_key) else ""
+    with_cookies = bool(cookie_source_key) or has_cookies_for_url(source_url)
     try:
-        from .probe import probe_metadata
-
-        with_cookies = has_cookies_for_url(source_url) or (
-            bool(source_key) and has_cookies_for_source(source_key)
-        )
-        cookie_source_key = source_key if source_key and has_cookies_for_source(source_key) else ""
-        metadata = probe_metadata(
-            source_url,
-            with_cookies=with_cookies,
-            cookie_source_key=cookie_source_key,
-            low_priority=low_priority,
-        )
+        return probe(source_url, with_cookies=with_cookies, cookie_source_key=cookie_source_key, **options)
     except Exception:
         return {}
-    if not isinstance(metadata, dict):
-        return {}
-    return {
-        str(key): str(value)
-        for key, value in metadata.items()
-        if str(key or "").strip() and str(value or "").strip()
-    }
 
-def _fill_single_output_metadata_fallback(
-    records: list[dict[str, Any]],
-    metadata_by_path: dict[str, dict[str, str]],
-    source_url: str,
-    source_key: str,
-    template_settings: dict[str, str] | None,
-) -> bool:
-    if len(records) != 1 or not _template_needs_probe_metadata(template_settings):
-        return False
-    record = records[0]
-    if record["engine"].name != "gallerydl":
-        return False
-    path = Path(record["path"])
-    key = _path_key(path)
-    metadata = metadata_by_path.get(key, {})
-    if _metadata_satisfies_template(path, metadata, template_settings):
-        return False
-    return True
+
+# yt-dlp's cross-site shape for what post-processing reads beyond tags.
+_YTDLP_MEDIA_FIELDS = (
+    "thumbnail",
+    "thumbnails",
+    "subtitles",
+    "automatic_captions",
+    "chapters",
+    "duration",
+    "language",
+    "webpage_url",
+    "http_headers",
+)
+
+
+def _with_ytdlp_media_fields(
+    payload: dict[str, Any],
+    finalized: Any,
+    post_processing: dict[str, Any],
+    probed: dict[str, tuple[str, dict[str, Any]]],
+    *,
+    single_item: bool,
+) -> dict[str, Any]:
+    """Fill artwork, captions and chapters a non-yt-dlp payload for audio or video lacks.
+
+    ``probed`` caches one probe per item URL across a task's outputs.
+    """
+    if (
+        "extractor_key" in payload
+        or all(path.suffix.lower() in IMAGE_EXTENSIONS for path in finalized.keep_paths)
+        or all(post_processing[feature] == "off" for feature in MEDIA_ONLY_POST_PROCESSING_FEATURES)
+    ):
+        return payload
+    url = finalized.source_url
+    if url not in probed:
+        from backend.app.domains.downloads.probe import probe_media_info
+
+        info = _run_probe(probe_media_info, url, finalized.source_key)
+        fields = {key: info[key] for key in _YTDLP_MEDIA_FIELDS if info.get(key) not in (None, "", [], {})}
+        probed[url] = (str(info.get("id") or ""), fields)
+    probed_id, fields = probed[url]
+    # A multi-item post answers with its first entry, which only fits the matching item.
+    if not fields or not (single_item or probed_id == finalized.media_id):
+        return payload
+    return {**fields, **payload}
+
+
+def _probe_output_metadata(source_url: str, source_key: str = "", *, low_priority: bool = False) -> dict[str, str]:
+    from backend.app.domains.downloads.probe import probe_metadata
+
+    return _run_probe(probe_metadata, source_url, source_key, low_priority=low_priority)
 
 
 def _single_output_metadata_enrichment_needed(
-    records: list[dict[str, Any]],
+    paths: list[Path],
+    engine: Engine,
     metadata_by_path: dict[str, dict[str, str]],
     template_settings: dict[str, str] | None,
 ) -> bool:
-    return _fill_single_output_metadata_fallback(records, metadata_by_path, "", "", template_settings)
+    """Whether a lone output's sparse metadata leaves template fields only a probe can fill."""
+    if len(paths) != 1 or not engine.sparse_metadata or not _template_needs_probe_metadata(template_settings):
+        return False
+    return not _metadata_satisfies_template(paths[0], metadata_by_path.get(_path_key(paths[0]), {}), template_settings)
 
 
 def _probe_single_output_metadata_inline(
-    records: list[dict[str, Any]],
+    paths: list[Path],
+    engine: Engine,
     metadata_by_path: dict[str, dict[str, str]],
     source_url: str,
     source_key: str,
     template_settings: dict[str, str] | None,
 ) -> None:
-    if not _fill_single_output_metadata_fallback(
-        records,
-        metadata_by_path,
-        source_url,
-        source_key,
-        template_settings,
-    ):
+    if not _single_output_metadata_enrichment_needed(paths, engine, metadata_by_path, template_settings):
         return
-    record = records[0]
-    path = Path(record["path"])
-    key = _path_key(path)
-    metadata = _probe_output_metadata(source_url, source_key)
-    if not metadata:
-        return
-    metadata.setdefault("filepath", str(path))
-    metadata_by_path[key] = metadata
+    if metadata := _probe_output_metadata(source_url, source_key):
+        metadata.setdefault("filepath", str(paths[0]))
+        metadata_by_path[_path_key(paths[0])] = metadata
+
 
 def _json_sidecar_value(value: str) -> str:
     try:

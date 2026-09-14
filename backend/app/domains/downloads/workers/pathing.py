@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
 
 from backend.app.domains.downloads.constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
 from backend.app.domains.downloads.engine import Engine
@@ -33,16 +32,6 @@ def _media_kind(path: Path) -> str:
     return suffix or "media"
 
 
-def _recorded_media_kinds(records: list[dict[str, Any]]) -> set[str]:
-    return {_media_kind(Path(record["path"])) for record in records}
-
-
-def _fallback_excluded_extensions(engine: Engine, records: list[dict[str, Any]]) -> set[str]:
-    if engine.name != "gallerydl":
-        return set()
-    return set(VIDEO_EXTENSIONS) if "video" in _recorded_media_kinds(records) else set()
-
-
 def _numbered_suffix_value(stem: str) -> int:
     match = re.search(r"_(\d+)$", str(stem or ""))
     return int(match.group(1)) if match else 0
@@ -53,9 +42,8 @@ def _is_first_numbered_image(path: Path) -> bool:
 
 
 def _preferred_output_path(engine: Engine, current: str, candidate: Path) -> str:
-    if engine.name != "gallerydl":
-        return str(candidate)
-    if not current:
+    """The file that represents a download: the latest one, or a post's first numbered image."""
+    if not current or not engine.bundles_post_files:
         return str(candidate)
     if _is_first_numbered_image(candidate) and not _is_first_numbered_image(Path(current)):
         return str(candidate)

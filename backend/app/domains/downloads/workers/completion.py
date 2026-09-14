@@ -31,7 +31,6 @@ from backend.app.domains.downloads.workers.completion_metadata import (
     _extractor_metadata_fields,
     _filename_satisfies_template_metadata,
     _filename_template,
-    _fill_single_output_metadata_fallback,
     _json_sidecar_value,
     _metadata_output_paths,
     _metadata_title_has_value,
@@ -41,6 +40,7 @@ from backend.app.domains.downloads.workers.completion_metadata import (
     _single_output_metadata_enrichment_needed,
     _template_needs_probe_metadata,
     _template_token_names,
+    _with_ytdlp_media_fields,
 )
 from backend.app.domains.downloads.workers.completion_outputs import (
     _attempt_output_paths,
@@ -48,13 +48,11 @@ from backend.app.domains.downloads.workers.completion_outputs import (
     _clean_resolved_filename,
     _cleanup_duplicate_library_media,
     _coerce_audio_output_extension,
-    _dedupe_output_records,
     _distinct_metadata_item_url,
     _download_groups,
     _existing_output_paths,
     _has_output_media,
     _item_source_url,
-    _output_identity,
 )
 from backend.app.domains.downloads.workers.completion_values import (
     _best_creator_candidate,
@@ -82,7 +80,6 @@ __all__ = [
     "_cleanup_file",
     "_configured_field_value",
     "_creator_candidate_score",
-    "_dedupe_output_records",
     "_display_creator_candidate",
     "_distinct_metadata_item_url",
     "_download_groups",
@@ -95,7 +92,6 @@ __all__ = [
     "_filename_nickname",
     "_filename_satisfies_template_metadata",
     "_filename_template",
-    "_fill_single_output_metadata_fallback",
     "_has_output_media",
     "_item_source_url",
     "_json_sidecar_value",
@@ -109,7 +105,6 @@ __all__ = [
     "_metadata_title",
     "_metadata_title_has_value",
     "_move_group_to_template_folder",
-    "_output_identity",
     "_probe_output_metadata",
     "_probe_single_output_metadata_inline",
     "_profile_host_candidates",
@@ -124,4 +119,5 @@ __all__ = [
     "_template_folder_text",
     "_template_needs_probe_metadata",
     "_template_token_names",
+    "_with_ytdlp_media_fields",
 ]
