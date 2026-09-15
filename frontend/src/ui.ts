@@ -41,4 +41,14 @@ export const HISTORY_PAGE_SIZE = 50;
 export const PAGE_ROUTES = {
   downloads: "/downloads",
   history: "/history",
+  trackers: "/trackers",
 } as const;
+export const TRACKERS_QUERY_KEY = ["trackers"] as const;
+export const TRACKER_INTERVALS: { key: string; label: string }[] = [
+  { key: String(3600), label: "Every hour" },
+  { key: String(3 * 3600), label: "Every 3 hours" },
+  { key: String(6 * 3600), label: "Every 6 hours" },
+  { key: String(12 * 3600), label: "Every 12 hours" },
+  { key: String(24 * 3600), label: "Every day" },
+  { key: String(7 * 24 * 3600), label: "Every week" },
+];

@@ -1,4 +1,4 @@
-import { computed, type Ref } from "vue";
+import { computed, ref, type Ref } from "vue";
 import { useInfiniteQuery, type InfiniteData } from "@tanstack/vue-query";
 
 import { getHistory } from "@/api";
@@ -10,10 +10,11 @@ interface UseHistoryOptions {
   sourceKey: Ref<string>;
   search: Ref<string>;
   enabled: Ref<boolean>;
+  trackerId?: Ref<string>;
 }
 
 // Paginated history: one page per fetch, appended on scroll, so the browser never holds the whole table.
-export function useHistory({ sourceKey, search, enabled }: UseHistoryOptions) {
+export function useHistory({ sourceKey, search, enabled, trackerId = ref("") }: UseHistoryOptions) {
   const searchQuery = computed(() => search.value.trim());
   const query = useInfiniteQuery<
     HistoryResponse,
@@ -22,9 +23,9 @@ export function useHistory({ sourceKey, search, enabled }: UseHistoryOptions) {
     readonly unknown[],
     string | undefined
   >({
-    queryKey: [...HISTORY_QUERY_KEY, HISTORY_PAGE_SIZE, sourceKey, searchQuery],
+    queryKey: [...HISTORY_QUERY_KEY, HISTORY_PAGE_SIZE, sourceKey, searchQuery, trackerId],
     queryFn: ({ pageParam, signal }) =>
-      getHistory(pageParam, HISTORY_PAGE_SIZE, sourceKey.value, searchQuery.value, signal),
+      getHistory(pageParam, HISTORY_PAGE_SIZE, sourceKey.value, searchQuery.value, trackerId.value, signal),
     initialPageParam: undefined,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled,

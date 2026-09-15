@@ -12,7 +12,7 @@ const PAGE_SIZE = 30;
 const props = defineProps<{
   tasks: TaskItem[];
   viewMode: ViewMode;
-  pageKind: "downloads" | "history";
+  pageKind: "downloads" | "history" | "trackers";
   listKey: string;
   sourceProfiles?: SourceProfile[];
   loading?: boolean;
@@ -38,7 +38,7 @@ const canLoadMore = computed(() =>
   clientMode.value ? visibleCount.value < props.tasks.length : Boolean(props.hasMore),
 );
 const showSentinel = computed(() =>
-  clientMode.value ? canLoadMore.value : props.pageKind === "history" || canLoadMore.value,
+  clientMode.value ? canLoadMore.value : props.pageKind !== "downloads" || canLoadMore.value,
 );
 
 watch(() => props.listKey, () => (visibleCount.value = PAGE_SIZE));

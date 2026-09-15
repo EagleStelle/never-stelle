@@ -15,6 +15,9 @@ import type {
   ScrapeRule,
   ScrapeTestResponse,
   TasksResponse,
+  Tracker,
+  TrackerPayload,
+  TrackersResponse,
   UiConfigResponse,
 } from "@/types";
 
@@ -184,12 +187,14 @@ export function getHistory(
   limit: number,
   sourceKey = "",
   search = "",
+  trackerId = "",
   signal?: AbortSignal,
 ): Promise<HistoryResponse> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
   if (sourceKey) params.set("source_key", sourceKey);
   if (search) params.set("q", search);
+  if (trackerId) params.set("tracker_id", trackerId);
   return jsonRequest<HistoryResponse>(
     `/api/downloads/history?${params.toString()}`,
     { signal },
@@ -290,6 +295,53 @@ export function resolveHistory(payload: { scope?: ResolveScope; task_ids?: strin
     },
     "Could not resolve history.",
   );
+}
+
+export function getTrackers(signal?: AbortSignal): Promise<TrackersResponse> {
+  return jsonRequest<TrackersResponse>("/api/trackers", { signal }, "Could not load trackers.");
+}
+
+export function createTracker(payload: {
+  url: string;
+  quality: SavedSettings["default_quality"];
+  post_processing: SavedSettings["default_post_processing"];
+}): Promise<Tracker> {
+  return jsonRequest<Tracker>(
+    "/api/trackers",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Could not add tracker.",
+  );
+}
+
+export function updateTracker(trackerId: string, payload: TrackerPayload): Promise<Tracker> {
+  return jsonRequest<Tracker>(
+    `/api/trackers/${encodeURIComponent(trackerId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Could not update tracker.",
+  );
+}
+
+export async function checkTracker(trackerId: string): Promise<void> {
+  const response = await fetch(`/api/trackers/${encodeURIComponent(trackerId)}/check`, { method: "POST" });
+  if (response.status === 204) return;
+  throw new Error(await readError(response, "Could not check tracker."));
+}
+
+export async function deleteTracker(trackerId: string, deleteFiles: boolean): Promise<void> {
+  const params = new URLSearchParams({ delete_files: String(deleteFiles) });
+  const response = await fetch(`/api/trackers/${encodeURIComponent(trackerId)}?${params.toString()}`, {
+    method: "DELETE",
+  });
+  if (response.status === 204) return;
+  throw new Error(await readError(response, "Could not delete tracker."));
 }
 
 // Same-origin URL for the completed media bytes. Used directly by <a download>

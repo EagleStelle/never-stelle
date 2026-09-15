@@ -1,6 +1,6 @@
 import type { Component } from "vue";
 
-export const PAGE_KEYS = ["downloads", "history"] as const;
+export const PAGE_KEYS = ["downloads", "history", "trackers"] as const;
 
 export type SourceKey = string;
 export type MenuKey = "all" | SourceKey;
@@ -353,8 +353,50 @@ export interface TaskItem {
   post_processing?: PostProcessingSelection;
   external?: boolean;
   external_backend?: string;
+  // Set on queue rows a tracker queued; history pages filter by tracker server-side.
+  tracker_id?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface TrackerCounts {
+  queued: number;
+  running: number;
+  failed: number;
+  completed: number;
+  seen: number;
+}
+
+export interface Tracker {
+  id: string;
+  source_url: string;
+  source_key: string;
+  name: string;
+  enabled: boolean;
+  interval_seconds: number;
+  backfill: boolean;
+  quality: Partial<QualitySelection>;
+  post_processing: Partial<PostProcessingSelection>;
+  next_check_at: string;
+  last_checked_at: string;
+  last_success_at: string;
+  last_error: string;
+  checking: boolean;
+  created_at: string;
+  counts: TrackerCounts;
+}
+
+// The server counts what it alone knows; queue counts come from the live task feed.
+export interface TrackersResponse {
+  trackers: (Omit<Tracker, "counts"> & { counts: Pick<TrackerCounts, "completed" | "seen"> })[];
+}
+
+export interface TrackerPayload {
+  enabled?: boolean;
+  interval_seconds?: number;
+  backfill?: boolean;
+  quality?: QualitySelection;
+  post_processing?: PostProcessingSelection;
 }
 
 export interface TaskCounts {

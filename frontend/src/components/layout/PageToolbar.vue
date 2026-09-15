@@ -28,7 +28,7 @@ const visible = computed(() =>
         : 'pt-2 pb-4 border-t'
     "
   >
-    <DownloadsToolbar v-if="activePage === 'downloads'" />
+    <DownloadsToolbar v-if="activePage === 'downloads' || activePage === 'trackers'" />
     <HistoryToolbar v-else-if="activePage === 'history'" />
   </div>
 </template>

@@ -31,7 +31,8 @@ import {
 
 const props = defineProps<{
   tasks: TaskItem[];
-  pageKind: "downloads" | "history";
+  // A tracker lists queue and history rows together, so each row keeps its own actions.
+  pageKind: "downloads" | "history" | "trackers";
   sourceProfiles?: SourceProfile[];
 }>();
 
@@ -44,23 +45,23 @@ const emit = defineEmits<{
 }>();
 
 function canDownload(task: TaskItem): boolean {
-  return props.pageKind === "history" && task.can_download;
+  return props.pageKind !== "downloads" && task.can_download;
 }
 
 function canResolve(task: TaskItem): boolean {
-  return props.pageKind === "history" && Boolean(task.can_resolve);
+  return props.pageKind !== "downloads" && Boolean(task.can_resolve);
 }
 
 function canRetry(task: TaskItem): boolean {
-  return props.pageKind === "downloads" && task.can_retry;
+  return props.pageKind !== "history" && task.can_retry;
 }
 
 function canCancel(task: TaskItem): boolean {
-  return props.pageKind === "downloads" && task.can_cancel;
+  return props.pageKind !== "history" && task.can_cancel;
 }
 
 function canRemove(task: TaskItem): boolean {
-  return props.pageKind === "downloads" && task.can_remove;
+  return props.pageKind !== "history" && task.can_remove;
 }
 
 function hasActions(task: TaskItem): boolean {

@@ -5,11 +5,13 @@ import IconTray from "~icons/material-symbols/inbox";
 import IconMedia from "~icons/material-symbols/perm-media";
 import IconVideo from "~icons/material-symbols/movie";
 import IconImage from "~icons/material-symbols/image";
+import IconTrackers from "~icons/material-symbols/radar";
 
 import { useDashboardSettings } from "@/composables/useDashboardSettings";
 import { useAuth } from "@/composables/useAuth";
 import { useTaskQueue } from "@/composables/useTaskQueue";
 import { useHistory } from "@/composables/useHistory";
+import { useTrackers } from "@/composables/useTrackers";
 import { useSonner } from "@/composables/useSonner";
 import { COUNT_ICONS, PAGE_ROUTES } from "@/ui";
 import type {
@@ -107,15 +109,17 @@ export function useDownloadDashboard() {
       createPostProcessingSelection(selection),
     );
   }
+  const getQuality = () =>
+    createQualitySelection(downloadSelection, qualityOptions.value);
+  const getPostProcessing = () =>
+    constrainPostProcessingSelection(
+      downloadPostProcessing,
+      postProcessingCapabilitiesForQuality(downloadSelection, qualityOptions.value),
+    );
   const taskQueue = useTaskQueue({
     getSavedSettings: settingsState.getSavedSettings,
-    getQuality: () =>
-      createQualitySelection(downloadSelection, qualityOptions.value),
-    getPostProcessing: () =>
-      constrainPostProcessingSelection(
-        downloadPostProcessing,
-        postProcessingCapabilitiesForQuality(downloadSelection, qualityOptions.value),
-      ),
+    getQuality,
+    getPostProcessing,
     toast: sonner.toast,
     url,
   });
@@ -195,6 +199,23 @@ export function useDownloadDashboard() {
     search: historySearchQuery,
     enabled: historyEnabled,
   });
+  const trackersPage = computed(
+    () => auth.authenticated.value && activePage.value === "trackers",
+  );
+  const trackerState = useTrackers({
+    enabled: trackersPage,
+    getQuality,
+    getPostProcessing,
+    tasks: taskQueue.taskItems,
+    toast: sonner.toast,
+    url,
+  });
+  const trackerHistory = useHistory({
+    sourceKey: ref(""),
+    search: ref(""),
+    trackerId: trackerState.openTrackerId,
+    enabled: computed(() => trackersPage.value && Boolean(trackerState.openTrackerId.value)),
+  });
 
   const taskSourceProfiles = computed<SourceProfile[]>(() =>
     taskQueue.taskItems.value
@@ -244,6 +265,7 @@ export function useDownloadDashboard() {
   });
   const pageItems = computed(() => [
     { key: "downloads" as PageKey, label: "Downloads", icon: IconTray },
+    { key: "trackers" as PageKey, label: "Trackers", icon: IconTrackers },
     { key: "history" as PageKey, label: "History", icon: IconHistory },
   ]);
   const menuTasks = computed(() => {
@@ -277,6 +299,26 @@ export function useDownloadDashboard() {
           (task) => mediaKindForTask(task) === mediaFilter.value,
         ),
   );
+  const menuTrackers = computed(() =>
+    activeMenu.value === "all"
+      ? trackerState.trackers.value
+      : trackerState.trackers.value.filter((tracker) => tracker.source_key === activeMenu.value),
+  );
+  // Queue rows first, then its history page; the media filter narrows both.
+  const trackerTasks = computed(() => {
+    const queued = mediaTasks.value.filter(
+      (task) =>
+        task.tracker_id === trackerState.openTrackerId.value &&
+        ["pending", "running", "failed"].includes(task.status),
+    );
+    const done =
+      mediaFilter.value === "all"
+        ? trackerHistory.entries.value
+        : trackerHistory.entries.value.filter(
+            (task) => mediaKindForTask(task) === mediaFilter.value,
+          );
+    return [...queued, ...done];
+  });
   const countsForActiveMenu = computed<TaskCounts>(
     () => {
       if (mediaFilter.value === "all") {
@@ -321,10 +363,7 @@ export function useDownloadDashboard() {
 
   // Base page always owns the path; the open settings pane rides as a query param.
   function routeFor(): string {
-    const base =
-      activePage.value === "history"
-        ? PAGE_ROUTES.history
-        : PAGE_ROUTES.downloads;
+    const base = PAGE_ROUTES[activePage.value];
     if (!settingsState.settingsOpen.value) return base;
     const slug = SETTINGS_SLUG_BY_SECTION[settingsState.settingsSection.value];
     return slug ? `${base}?settings=${slug}` : base;
@@ -334,7 +373,8 @@ export function useDownloadDashboard() {
     const path = window.location.pathname || "/";
     const slug = new URLSearchParams(window.location.search).get("settings");
     applyingRoute = true;
-    activePage.value = path.startsWith("/history") ? "history" : "downloads";
+    const [, root = ""] = path.split("/");
+    activePage.value = isPageKey(root) ? root : "downloads";
     if (slug !== null) {
       settingsState.openSettings(undefined, settingsSectionFromSlug(slug));
     } else {
@@ -359,6 +399,7 @@ export function useDownloadDashboard() {
 
   function setActivePage(page: PageKey): void {
     activePage.value = isPageKey(page) ? page : "downloads";
+    trackerState.openTrackerId.value = "";
   }
 
   function setActiveMenu(menu: MenuKey): void {
@@ -434,6 +475,14 @@ export function useDownloadDashboard() {
     navigationItems,
     pageItems,
     setActivePage,
+    menuTrackers,
+    trackerTasks,
+    trackerHistoryLoading: trackerHistory.loading,
+    trackerHistoryError: trackerHistory.historyError,
+    trackerHistoryHasMore: trackerHistory.hasMore,
+    trackerHistoryFetchingMore: trackerHistory.fetchingMore,
+    loadMoreTrackerHistory: trackerHistory.loadMore,
+    ...trackerState,
     setActiveFilter,
     setActiveMenu,
     setMediaFilter,
