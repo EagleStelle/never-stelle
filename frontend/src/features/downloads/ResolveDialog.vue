@@ -34,7 +34,7 @@ const format = (count: number) => count.toLocaleString();
     <div
       class="flex flex-wrap items-center justify-end gap-2 px-5 pb-5 pt-4 sm:px-6"
     >
-      <Button variant="cancel" type="button" :disabled="pending" @click="openModel = false">
+      <Button variant="secondary" type="button" :disabled="pending" @click="openModel = false">
         Cancel
       </Button>
       <Button

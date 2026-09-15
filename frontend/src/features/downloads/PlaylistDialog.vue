@@ -169,7 +169,7 @@ function formatDuration(seconds: number | null): string {
         class="flex shrink-0 items-center justify-end gap-2 border-t border-(--glass-border) px-5 py-4 sm:px-6"
       >
         <Button
-          variant="cancel"
+          variant="ghost"
           type="button"
           @click="openModel = false"
         >
