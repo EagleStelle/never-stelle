@@ -45,6 +45,7 @@ from backend.app.db.repositories import (
     save_history_row,
     save_history_rows,
     save_learned_formats_payload,
+    tracker_ids_for_download_rows,
     upsert_enrichment_job_payload,
     upsert_enrichment_jobs_payload,
 )
@@ -96,8 +97,9 @@ def load_history_entries_page(
     cursor: tuple[str, str] | None = None,
     source_key: str = "",
     search: str = "",
+    tracker_id: str = "",
 ) -> list[tuple[str, dict[str, Any], str]]:
-    return load_history_page(limit, cursor, source_key, search)
+    return load_history_page(limit, cursor, source_key, search, tracker_id)
 
 
 def load_history_entry(task_id: str) -> dict[str, Any]:
@@ -110,6 +112,10 @@ def load_history_entries_for_media_id(media_id: str) -> list[tuple[str, dict[str
 
 def load_history_entry_for_path(resolved_full_path: str) -> tuple[str, dict[str, Any]] | tuple[None, None]:
     return load_history_entry_by_path(resolved_full_path)
+
+
+def tracker_ids_for_downloads(download_ids: list[str]) -> dict[str, str]:
+    return tracker_ids_for_download_rows(download_ids)
 
 
 def history_counts_by_source_and_media() -> dict[str, dict[str, int]]:

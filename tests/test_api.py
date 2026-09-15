@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 import backend.app.domains.downloads.scan as scan_module
 from backend.app.api.routers import sources as sources_router
+from backend.app.api.routers import trackers as trackers_router
 from backend.app.db import repositories
 from backend.app.domains.downloads import cache as cache_module
 from backend.app.domains.downloads import operations as operations_module
@@ -684,3 +685,39 @@ def test_source_icon_is_served_with_validators(tmp_path, monkeypatch):
     missing = client.get("/api/sources/unknown/icon")
     assert missing.status_code == 404
     assert missing.headers["cache-control"] == "no-store"
+
+
+def test_tracker_routes_require_login(tmp_path, monkeypatch):
+    use_temp_auth_db(tmp_path, monkeypatch)
+
+    assert client.get("/api/trackers").status_code == 401
+    assert client.post("/api/trackers", json={"url": "https://example.test/u/alice"}).status_code == 401
+
+
+def test_tracker_routes_create_apply_check_and_delete(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    monkeypatch.setattr(trackers_router, "ensure_tracker_worker", lambda: None)
+
+    created = client.post("/api/trackers", json={"url": "https://example.test/u/alice"})
+    assert created.status_code == 200
+    tracker_id = created.json()["id"]
+    assert created.json()["enabled"] is False
+    assert client.post("/api/trackers", json={"url": "https://example.test/u/alice"}).status_code == 400
+
+    listed = client.get("/api/trackers").json()["trackers"]
+    assert [(tracker["id"], tracker["counts"]["seen"]) for tracker in listed] == [(tracker_id, 0)]
+
+    # Not applied yet, so there is nothing to check.
+    assert client.post(f"/api/trackers/{tracker_id}/check").status_code == 409
+    applied = client.patch(
+        f"/api/trackers/{tracker_id}", json={"enabled": True, "backfill": False, "interval_seconds": 86400}
+    )
+    assert (applied.json()["enabled"], applied.json()["backfill"], applied.json()["interval_seconds"]) == (
+        True,
+        False,
+        86400,
+    )
+    assert client.post(f"/api/trackers/{tracker_id}/check").status_code == 204
+
+    assert client.delete(f"/api/trackers/{tracker_id}").status_code == 204
+    assert client.patch(f"/api/trackers/{tracker_id}", json={"enabled": True}).status_code == 404

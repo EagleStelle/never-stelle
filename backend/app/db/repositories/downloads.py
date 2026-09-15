@@ -6,6 +6,7 @@ from backend.app.core.coercion import safe_int
 from backend.app.core.paths import path_key
 from backend.app.core.time import utc_now
 from backend.app.db.database import transaction
+from backend.app.db.repositories.trackers import TRACKER_HISTORY_IDS_SQL
 from backend.app.db.repositories.utils import (
     _decode,
     _encode,
@@ -315,6 +316,7 @@ def load_history_page(
     cursor: tuple[str, ...] | None = None,
     source_key: str = "",
     search: str = "",
+    tracker_id: str = "",
 ) -> list[tuple[str, dict[str, Any], str]]:
     # Keyset page ordered newest-first. The caller asks for limit + 1 to detect another page.
     limit = max(1, int(limit))
@@ -323,6 +325,9 @@ def load_history_page(
     if source_key:
         clauses.append("source_key = ?")
         params.append(source_key)
+    if tracker_id:
+        clauses.append(f"id IN ({TRACKER_HISTORY_IDS_SQL})")
+        params.extend([tracker_id, tracker_id])
     if cursor:
         created_at, row_id = str(cursor[0] or ""), str(cursor[-1] or "")
         clauses.append("(created_at < ? OR (created_at = ? AND id < ?))")

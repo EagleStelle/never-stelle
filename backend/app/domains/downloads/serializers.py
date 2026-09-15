@@ -28,6 +28,7 @@ from .store import (
     load_active_task_store,
     load_history_entries_page,
     spent_enrichment_job_ids,
+    tracker_ids_for_downloads,
 )
 from .templates import template_settings_from_row
 from .urls import detect_source_key
@@ -158,7 +159,12 @@ def history_to_api(
 
 def fetch_active_tasks() -> list[dict[str, Any]]:
     # Downloads-page payload: queued/running/failed only; completed is served via /history.
-    tasks = [task_to_api(task_id, task) for task_id, task in (load_active_task_store().get("tasks") or {}).items()]
+    active = load_active_task_store().get("tasks") or {}
+    owners = tracker_ids_for_downloads(list(active))
+    tasks = [
+        {**task_to_api(task_id, task), "tracker_id": owners.get(task_id, "")}
+        for task_id, task in active.items()
+    ]
     tasks.extend(swaratelle.fetch_active_tasks())
     tasks.sort(key=lambda task: (STATUS_ORDER.get(task["status"], 99), task["vid"]))
     return tasks
@@ -274,8 +280,12 @@ def _swaratelle_history_candidates(cursor: str, limit: int, search: str) -> list
     return candidates
 
 
-def _fetch_local_history_page(cursor: str, limit: int, source_key: str, search: str) -> dict[str, Any]:
-    rows = load_history_entries_page(limit + 1, _decode_local_history_cursor(cursor), source_key, search)
+def _fetch_local_history_page(
+    cursor: str, limit: int, source_key: str, search: str, tracker_id: str = ""
+) -> dict[str, Any]:
+    rows = load_history_entries_page(
+        limit + 1, _decode_local_history_cursor(cursor), source_key, search, tracker_id
+    )
     page_rows = rows[:limit]
     spent = spent_enrichment_job_ids()
     entries = [history_to_api(task_id, entry, spent) for task_id, entry, _ in page_rows]
@@ -312,8 +322,13 @@ def _fetch_combined_history_page(cursor: str, limit: int, search: str) -> dict[s
     return result
 
 
-def fetch_history_page(cursor: str = "", limit: int = 50, source_key: str = "", search: str = "") -> dict[str, Any]:
+def fetch_history_page(
+    cursor: str = "", limit: int = 50, source_key: str = "", search: str = "", tracker_id: str = ""
+) -> dict[str, Any]:
     limit = max(1, int(limit))
+    if tracker_id:
+        # Trackers never follow Swaratelle links, so their items are local only.
+        return _fetch_local_history_page(cursor, limit, "", search, tracker_id)
     normalized_source = normalize_source_key(source_key) if source_key else ""
     if normalized_source == swaratelle.SOURCE_KEY:
         return swaratelle.fetch_history_page(cursor, limit, search)

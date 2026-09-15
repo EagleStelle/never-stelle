@@ -74,10 +74,12 @@ def probe_download(payload: ProbePayload) -> dict[str, Any]:
 
 
 @router.get("/history")
-def list_history(cursor: str = "", limit: int = 50, source_key: str = "", q: str = "") -> dict[str, Any]:
+def list_history(
+    cursor: str = "", limit: int = 50, source_key: str = "", q: str = "", tracker_id: str = ""
+) -> dict[str, Any]:
     limit = max(1, min(100, limit))
     try:
-        return serializers.fetch_history_page(cursor, limit, source_key, q)
+        return serializers.fetch_history_page(cursor, limit, source_key, q, tracker_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
