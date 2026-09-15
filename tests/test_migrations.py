@@ -75,6 +75,8 @@ def test_fresh_database_lands_on_the_latest_version(tmp_path, monkeypatch):
         "download_history",
         "learned_formats",
         "learned_redirects",
+        "trackers",
+        "tracker_entries",
     } <= tables
 
 
@@ -785,3 +787,42 @@ def test_icon_state_leaves_saved_settings(tmp_path, monkeypatch):
         {"key": "pixiv", "label": "Pixiv"},
     ]
     assert stored["template_settings"] == {"folder_template": "{{creator}}"}
+
+
+def test_tracker_tables_arrive_without_touching_the_download_tables(tmp_path, monkeypatch):
+    database_path = tmp_path / "never-stelle.sqlite3"
+    _seed_pre_migration_db(database_path, None, version=6)
+    connection = sqlite3.connect(str(database_path))
+    try:
+        connection.execute("ALTER TABLE download_tasks ADD COLUMN media_kind TEXT NOT NULL DEFAULT ''")
+        connection.execute("ALTER TABLE download_history ADD COLUMN media_kind TEXT NOT NULL DEFAULT ''")
+        connection.execute("INSERT INTO download_history (id, created_at, updated_at) VALUES ('gallerydl:1', '', '')")
+        connection.execute("PRAGMA user_version = 7")
+        connection.commit()
+        before = {
+            table: [row[1] for row in connection.execute(f"PRAGMA table_info('{table}')")]
+            for table in ("download_tasks", "download_history")
+        }
+    finally:
+        connection.close()
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        after = {
+            table: [row["name"] for row in connection.execute(f"PRAGMA table_info('{table}')")]
+            for table in ("download_tasks", "download_history")
+        }
+        tracker_columns = {row["name"] for row in connection.execute("PRAGMA table_info('trackers')")}
+        entry_columns = {row["name"] for row in connection.execute("PRAGMA table_info('tracker_entries')")}
+        indexes = {
+            row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
+        }
+        history = connection.execute("SELECT id FROM download_history").fetchall()
+
+    assert after == before
+    assert [row["id"] for row in history] == ["gallerydl:1"]
+    assert {"source_url", "interval_seconds", "next_check_at", "checking_at"} <= tracker_columns
+    assert entry_columns == {"tracker_id", "entry_key", "entry_url", "download_id", "seen_at"}
+    assert {"idx_trackers_due", "idx_tracker_entries_download"} <= indexes
