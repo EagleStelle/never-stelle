@@ -75,7 +75,7 @@ const sizerItems = computed<SizerItem[]>(() => {
     type="button"
     v-bind="$attrs"
     :class="[
-      'h-9 items-center gap-2 overflow-hidden rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 border border-(--glass-border) px-3 py-2 text-sm font-medium text-white in-[.light-mode]:text-black shadow-inner transition-all duration-300 ease-glass focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+      'h-9 items-center gap-2 overflow-hidden rounded-lg bg-black/20 in-[.light-mode]:bg-white/40 border border-(--glass-border) px-3 py-2 text-sm font-medium text-white in-[.light-mode]:text-black shadow-inner transition-all duration-300 ease-glass focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-50',
       props.layout === 'fill'
         ? 'grid w-full grid-cols-[minmax(0,1fr)_auto]'
         : 'inline-grid max-w-[calc(100vw-2rem)] grid-cols-[minmax(0,max-content)_auto]',

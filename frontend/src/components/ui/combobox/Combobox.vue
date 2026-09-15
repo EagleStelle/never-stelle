@@ -1,6 +1,6 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="ModelValue extends string | string[]">
 import type { HTMLAttributes } from "vue"
-import { computed, nextTick, onMounted, ref, useAttrs, useId, watch } from "vue"
+import { computed, ref, useAttrs, useId } from "vue"
 import { ComboboxRoot } from "reka-ui"
 import IconCheck from "~icons/material-symbols/check"
 import type { FieldVariants } from "@/components/ui/field"
@@ -24,8 +24,11 @@ defineOptions({
 
 const props = withDefaults(
   defineProps<{
-    modelValue: string
+    /** One key, or every picked key when `multiple`. */
+    modelValue: ModelValue
     items: ComboboxItemOption[]
+    /** Keeps the list open and toggles each picked key in the model. */
+    multiple?: boolean
     placeholder?: string
     emptyText?: string
     class?: HTMLAttributes["class"]
@@ -44,7 +47,7 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  "update:modelValue": [value: string]
+  "update:modelValue": [value: ModelValue]
 }>()
 
 const attrs = useAttrs()
@@ -63,41 +66,30 @@ const open = ref(false)
 // Any option with an icon reserves the icon slot on every row.
 const hasIcons = computed(() => props.items.some((item) => item.icon || item.iconUrl))
 
-const activeItem = computed(
-  () => props.items.find((item) => item.key === props.modelValue) || null,
-)
+const selectedItems = computed(() => {
+  const keys = new Set<string>([props.modelValue].flat())
+  return props.items.filter((item) => keys.has(item.key))
+})
 
-const activeLabel = computed(() => activeItem.value?.label || "")
-
-const searchTerm = ref("")
-
-const syncSearchTerm = () => {
-  searchTerm.value = activeLabel.value
-}
-
-watch(() => props.modelValue, syncSearchTerm, { immediate: true })
-
-onMounted(() => {
-  // Ensure reka-ui doesn't overwrite our search term on mount.
-  nextTick(syncSearchTerm)
+// The trigger face: the selected item, or every selected label joined.
+const activeItem = computed<ComboboxItemOption | null>(() => {
+  const [first, ...rest] = selectedItems.value
+  if (!first || !rest.length) return first ?? null
+  return {
+    ...first,
+    key: selectedItems.value.map((item) => item.key).join(","),
+    label: selectedItems.value.map((item) => item.label).join(", "),
+  }
 })
 
 const isComboboxItemOption = (value: unknown): value is ComboboxItemOption =>
   typeof value === "object" && value !== null && "key" in value && "label" in value
 
-const displayValue = (value: unknown) =>
-  isComboboxItemOption(value) ? value.label : ""
-
 const handleModelValue = (value: unknown) => {
-  if (isComboboxItemOption(value)) {
-    emit("update:modelValue", value.key)
-  }
-}
-
-const handleOpenChange = (isOpen: boolean) => {
-  open.value = isOpen
-  if (!isOpen) {
-    syncSearchTerm()
+  if (props.multiple && Array.isArray(value)) {
+    emit("update:modelValue", value.filter(isComboboxItemOption).map((item) => item.key) as ModelValue)
+  } else if (isComboboxItemOption(value)) {
+    emit("update:modelValue", value.key as ModelValue)
   }
 }
 </script>
@@ -115,11 +107,9 @@ const handleOpenChange = (isOpen: boolean) => {
       <ComboboxRoot
         data-slot="combobox"
         by="label"
-        v-model:search-term="searchTerm"
-        :model-value="activeItem ?? undefined"
-        :display-value="displayValue"
-        :open="open"
-        @update:open="handleOpenChange"
+        v-model:open="open"
+        :multiple="props.multiple"
+        :model-value="props.multiple ? selectedItems : selectedItems[0]"
         @update:model-value="handleModelValue"
         :class="[props.class, layout === 'fill' ? 'w-full' : 'inline-block']"
       >
