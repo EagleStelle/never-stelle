@@ -205,6 +205,8 @@ export interface PostProcessingSelection {
   chapters: PostProcessingMode;
   thumbnail: PostProcessingMode;
   subtitle_languages: string[];
+  split_chapters: boolean;
+  mtime: boolean;
 }
 
 export interface CookieFile {

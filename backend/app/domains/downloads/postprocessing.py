@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -33,7 +34,12 @@ from backend.app.domains.downloads.constants import (
     post_processing_requested,
     video_audio_codec_supported_by_container,
 )
-from backend.app.domains.downloads.naming import detect_ffmpeg_location, strip_placeholder_title
+from backend.app.domains.downloads.files import chapter_folder
+from backend.app.domains.downloads.naming import (
+    detect_ffmpeg_location,
+    sanitize_filename_component,
+    strip_placeholder_title,
+)
 from backend.app.domains.downloads.workers.processes import (
     cancel_on_request,
     raise_if_cancelled,
@@ -51,6 +57,7 @@ from backend.app.runtime.scratch import (
 logger = logging.getLogger(__name__)
 
 _MAX_TAG_CHARS = 8192
+_MAX_CHAPTER_NAME_CHARS = 100
 _MAX_THUMBNAIL_BYTES = 50 * 1024 * 1024
 _SUBTITLE_BUNDLE_BATCH_SIZE = 24
 _SUBTITLE_FORMAT_PREFERENCE = ("vtt", "srt", "ass", "ssa", "ttml")
@@ -1685,13 +1692,74 @@ def _ogm_chapters(chapters: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _write_chapter_sidecar(path: Path, chapters: list[dict[str, Any]]) -> None:
+def _write_chapter_sidecar(path: Path, chapters: list[dict[str, Any]]) -> list[Path]:
     """Emit the two formats chapter tools actually read: ffmpeg/mpv, and mkvmerge."""
-    for suffix, text in (
-        (".chapters.ffmeta", _ffmetadata_chapters(chapters)),
-        (".chapters.txt", _ogm_chapters(chapters)),
-    ):
+    return [
         _publish_bytes(path.with_name(f"{path.stem}{suffix}"), text.encode("utf-8"))
+        for suffix, text in (
+            (".chapters.ffmeta", _ffmetadata_chapters(chapters)),
+            (".chapters.txt", _ogm_chapters(chapters)),
+        )
+    ]
+
+
+def _split_chapter_files(ffmpeg: str, path: Path, chapters: list[dict[str, Any]]) -> list[Path]:
+    """Copy each chapter into its own file in the media's chapter folder, without encoding."""
+    if len(chapters) < 2:
+        return []
+    folder = chapter_folder(path)
+    width = max(2, len(str(len(chapters))))
+    written: list[Path] = []
+    for number, chapter in enumerate(chapters, start=1):
+        raise_if_cancelled()
+        title = str(chapter["title"])
+        name = sanitize_filename_component(title[:_MAX_CHAPTER_NAME_CHARS])
+        target = folder / f"{number:0{width}d} - {name}{path.suffix}"
+        start = float(chapter["start_time"])
+        duration = float(chapter["end_time"]) - start
+        try:
+            with staging_file(path, prefix="nvs-chapter-") as output_path:
+                cmd = [
+                    *(ffmpeg, "-y", "-loglevel", "error", "-ss", f"{start:.3f}", "-t", f"{duration:.3f}"),
+                    *("-i", str(path), "-map", "0", "-dn", "-ignore_unknown", "-map_chapters", "-1", "-c", "copy"),
+                    *("-metadata", f"title={title}", "-metadata", f"track={number}/{len(chapters)}"),
+                    str(output_path),
+                ]
+                produced, detail = _run_ffmpeg(cmd, output_path)
+                if not produced:
+                    logger.warning("Chapter split skipped for %s: %s", target, detail)
+                    continue
+                publish_staged_file(output_path, target, cancel_check=raise_if_cancelled)
+            written.append(target)
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.warning("Chapter split skipped for %s: %s", target, exc)
+    return written
+
+
+def _upload_moment(payload: dict[str, Any]) -> datetime | None:
+    """When the media was published, only at day precision or finer."""
+    if moment := _timestamp_moment(payload):
+        return moment
+    for key in ("release_date", "upload_date", "date"):
+        match = re.fullmatch(
+            r"(\d{4})-?(\d{2})-?(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?.*)?",
+            _tag_text(payload.get(key)),
+        )
+        if not match:
+            continue
+        try:
+            return datetime(*(int(value or 0) for value in match.groups()), tzinfo=UTC)
+        except ValueError:
+            continue
+    return None
+
+
+def _stamp_modified_time(paths: list[Path], moment: datetime) -> None:
+    for path in dict.fromkeys(paths):
+        try:
+            os.utime(path, (path.stat().st_atime, moment.timestamp()))
+        except (OSError, OverflowError, ValueError) as exc:
+            logger.warning("File date skipped for %s: %s", path, exc)
 
 
 def _materialize_chapters(chapters: list[dict[str, Any]]) -> Path:
@@ -1846,7 +1914,11 @@ def apply_finalized_post_processing(
     if not post_processing_requested(processing):
         return False
     if all(path.suffix.lower() in IMAGE_EXTENSIONS for path in paths):
-        processing = {**processing, **dict.fromkeys(MEDIA_ONLY_POST_PROCESSING_FEATURES, "off")}
+        processing = {
+            **processing,
+            **dict.fromkeys(MEDIA_ONLY_POST_PROCESSING_FEATURES, "off"),
+            "split_chapters": False,
+        }
     modes = {feature: post_processing_modes(processing, feature) for feature in POST_PROCESSING_FEATURES}
     wanted = {feature for feature, selected in modes.items() if selected}
     selection = normalize_quality_selection(quality)
@@ -1867,7 +1939,8 @@ def apply_finalized_post_processing(
                     automatic="automatic_subtitles" in wanted,
                     languages=processing["subtitle_languages"],
                 )
-    chapters = _chapters(payload) if "chapters" in wanted else []
+    split_chapters = processing["split_chapters"]
+    chapters = _chapters(payload) if "chapters" in wanted or split_chapters else []
     tags = finalized_metadata_payload(payload, finalized) if "metadata" in wanted else {}
 
     found = {
@@ -1879,6 +1952,9 @@ def apply_finalized_post_processing(
     for feature, label in _EXTRACTION_LABELS.items():
         if feature in wanted and not found[feature]:
             logger.warning("Extraction skipped: the extractor returned no usable %s", label)
+    if split_chapters and len(chapters) < 2:
+        logger.warning("Chapter split skipped: the extractor returned fewer than two chapters")
+        split_chapters = False
 
     def tracks_for(mode: str) -> list[dict[str, Any]]:
         return [track for track in subtitles if mode in modes[_TRACK_SETTINGS[track["automatic"]]]]
@@ -1894,9 +1970,13 @@ def apply_finalized_post_processing(
     quiet = {feature: auto_output or "sidecar" in modes[feature] for feature in POST_PROCESSING_FEATURES}
     silent = {**quiet, "subtitles": quiet["subtitles"] and quiet["automatic_subtitles"]}
     sidecar_tracks = tracks_for("sidecar")
-    ffmpeg = detect_ffmpeg_location() if any(requested.values()) else ""
+    ffmpeg = detect_ffmpeg_location() if any(requested.values()) or split_chapters else ""
+    if split_chapters and not ffmpeg:
+        logger.warning("Chapter split skipped: ffmpeg was not found")
+        split_chapters = False
 
     kept: set[Path] = set()
+    extra_outputs: list[Path] = []
     for path in paths:
         raise_if_cancelled()
         image = path.suffix.lower() in IMAGE_EXTENSIONS
@@ -1907,13 +1987,22 @@ def apply_finalized_post_processing(
             kept.add(_write_sidecar(path, tags))
         if image:
             continue
-        for track in sidecar_tracks:
-            _write_subtitle_sidecar(path, track)
+        extra_outputs.extend(_write_subtitle_sidecar(path, track) for track in sidecar_tracks)
         if chapters and "sidecar" in modes["chapters"]:
-            _write_chapter_sidecar(path, chapters)
+            extra_outputs.extend(_write_chapter_sidecar(path, chapters))
         if thumbnail[0] and "sidecar" in modes["thumbnail"]:
-            _publish_bytes(path.with_suffix(thumbnail[1]), thumbnail[0])
+            extra_outputs.append(_publish_bytes(path.with_suffix(thumbnail[1]), thumbnail[0]))
+        # Chapters copy the embedded file, tags and artwork included.
+        if split_chapters:
+            extra_outputs.extend(_split_chapter_files(ffmpeg, path, chapters))
 
     raise_if_cancelled()
     _remove_source_sidecars(list(sidecars), output_root, keep=kept)
+    if processing["mtime"]:
+        moment = _upload_moment(payload)
+        if moment is None:
+            logger.warning("File date skipped: the extractor returned no upload date")
+        else:
+            # Stamped after every write that would reset it.
+            _stamp_modified_time([*paths, *kept, *extra_outputs], moment)
     return True

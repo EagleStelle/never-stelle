@@ -206,3 +206,103 @@ def test_the_retired_boolean_shape_selects_nothing(embed_harness):
 
     assert embed_harness["commands"] == []
     assert embed_harness["sidecars"] == []
+
+
+_THREE_CHAPTERS = [
+    {"start_time": 0, "end_time": 10, "title": "Intro"},
+    {"start_time": 10, "end_time": 25, "title": "Setup: part/1"},
+    {"start_time": 25, "end_time": 40, "title": "Outro"},
+]
+
+
+def test_split_chapters_copies_each_chapter_into_the_chapter_folder(embed_harness, monkeypatch):
+    monkeypatch.setattr(postprocessing_module, "_chapters", lambda payload: _THREE_CHAPTERS)
+    published: list[Path] = []
+    monkeypatch.setattr(
+        postprocessing_module, "publish_staged_file", lambda source, target, **kwargs: published.append(target)
+    )
+
+    embed_harness["run"]({"split_chapters": True})
+
+    folder = embed_harness["media"].parent / embed_harness["media"].stem
+    assert published == [folder / "01 - Intro.mkv", folder / "02 - Setup_ part_1.mkv", folder / "03 - Outro.mkv"]
+    first, second, _ = embed_harness["commands"]
+    assert first[first.index("-ss") + 1] == "0.000" and first[first.index("-t") + 1] == "10.000"
+    assert second[second.index("-ss") + 1] == "10.000" and second[second.index("-t") + 1] == "15.000"
+    assert second[second.index("-map_chapters") + 1] == "-1"
+    assert "track=2/3" in second and "copy" in second
+    assert embed_harness["sidecars"] == []
+
+
+def test_split_chapters_copies_the_embedded_file(embed_harness, monkeypatch):
+    monkeypatch.setattr(postprocessing_module, "_chapters", lambda payload: _THREE_CHAPTERS)
+
+    embed_harness["run"]({"metadata": "embed", "split_chapters": True})
+
+    embed, *chapters = embed_harness["commands"]
+    assert "-map_metadata:g" in embed
+    assert len(chapters) == 3 and all("-ss" in command for command in chapters)
+
+
+def test_fewer_than_two_chapters_never_split(embed_harness):
+    embed_harness["run"]({"split_chapters": True})
+
+    assert embed_harness["commands"] == []
+
+
+def _run_real(media: Path, payload: dict, post_processing: dict) -> None:
+    postprocessing_module.apply_finalized_post_processing(
+        [media],
+        payload,
+        _finalized(media),
+        post_processing=post_processing,
+        quality={"mode": "video", "video_container": "auto"},
+        output_root=media.parent,
+    )
+
+
+def test_images_never_split(tmp_path, monkeypatch):
+    image = tmp_path / "post [abc].jpg"
+    image.write_bytes(b"image")
+    monkeypatch.setattr(postprocessing_module, "_chapters", lambda payload: _THREE_CHAPTERS)
+    monkeypatch.setattr(postprocessing_module, "_split_chapter_files", pytest.fail)
+
+    _run_real(image, {}, {"split_chapters": True})
+
+
+def test_mtime_stamps_the_media_and_its_sidecars(tmp_path):
+    media = tmp_path / "Creator - Title [abc].mp4"
+    media.write_bytes(b"video")
+
+    _run_real(media, {"timestamp": 1_700_000_000}, {"metadata": "sidecar", "mtime": True})
+
+    sidecar = Path(f"{media}.json")
+    assert sidecar.is_file()
+    assert media.stat().st_mtime == pytest.approx(1_700_000_000)
+    assert sidecar.stat().st_mtime == pytest.approx(1_700_000_000)
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"upload_date": "20240102"}, "2024-01-02T00:00:00+00:00"),
+        ({"date": "2024-01-02 03:04:05"}, "2024-01-02T03:04:05+00:00"),
+        ({"release_date": "2024-01-02T03:04"}, "2024-01-02T03:04:00+00:00"),
+        ({"upload_date": "2024"}, None),
+        ({"upload_date": "2024-01"}, None),
+        ({"upload_date": "20241350"}, None),
+    ],
+)
+def test_upload_moment_needs_at_least_a_full_day(payload, expected):
+    moment = postprocessing_module._upload_moment(payload)
+    assert (moment.isoformat() if moment else None) == expected
+
+
+def test_mtime_without_a_full_date_leaves_the_file_alone(tmp_path):
+    media = tmp_path / "Creator - Title [abc].mp4"
+    media.write_bytes(b"video")
+    before = media.stat().st_mtime
+
+    _run_real(media, {"upload_date": "2024"}, {"mtime": True})
+
+    assert media.stat().st_mtime == before

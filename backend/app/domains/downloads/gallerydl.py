@@ -190,6 +190,7 @@ def _ytdl_downloader_options(
         processing["subtitles"] != "off"
         or processing["automatic_subtitles"] != "off"
         or processing["chapters"] != "off"
+        or processing["split_chapters"]
     ):
         # gallery-dl drops yt-dlp's info dict, so yt-dlp writes it beside the part file.
         options.extend(_ytdl_options("raw-options.writeinfojson", "true"))

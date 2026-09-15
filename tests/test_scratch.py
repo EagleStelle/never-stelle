@@ -229,6 +229,21 @@ def test_library_walkers_skip_staging_folders(tmp_path):
     assert "youtube/Creator" in locations
 
 
+def test_library_scan_skips_chapter_folders(tmp_path):
+    from backend.app.domains.downloads import scan as scan_module
+
+    creator = tmp_path / "media" / "youtube" / "Creator"
+    full = creator / "Mix [abc].mp4"
+    chapter = creator / "Mix [abc]" / "01 - Intro.mp4"
+    unrelated = creator / "Playlist" / "clip.mp4"
+    for path in (full, chapter, unrelated):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"media")
+
+    walked = {path for _, path, _, _ in scan_module._iter_media_files([tmp_path / "media"])}
+    assert walked == {full, unrelated}
+
+
 def test_cleanup_media_staging_clears_only_staging_folders(tmp_path, monkeypatch):
     media_root = tmp_path / "media"
     monkeypatch.setattr(scratch_module, "MEDIA_DIR", media_root)

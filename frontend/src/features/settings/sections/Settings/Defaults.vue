@@ -372,18 +372,11 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
 
       <FieldSeparator />
 
-      <FieldSet>
-        <FieldLegend>
-          Post-Processing
-        </FieldLegend>
-        <FieldGroup>
-          <PostProcessingFields
-            :model-value="settingsDraft.default_post_processing"
-            :capabilities="defaultEmbedCapabilities"
-            @update:model-value="setDefaultPostProcessing"
-          />
-        </FieldGroup>
-      </FieldSet>
+      <PostProcessingFields
+        :model-value="settingsDraft.default_post_processing"
+        :capabilities="defaultEmbedCapabilities"
+        @update:model-value="setDefaultPostProcessing"
+      />
 
       <FieldSeparator />
 

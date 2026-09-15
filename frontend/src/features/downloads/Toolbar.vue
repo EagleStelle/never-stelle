@@ -136,9 +136,9 @@ function setPostProcessing(next: PostProcessingSelection): void {
     <Dialog
       v-model:open="isAdvancedDialogOpen"
       title="Advanced Settings"
-      content-class="fixed left-1/2 top-1/2 z-70 flex w-[min(480px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
+      content-class="fixed left-1/2 top-1/2 z-70 flex max-h-[85dvh] w-[min(740px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
     >
-      <div class="p-5 sm:p-6 flex flex-col gap-6">
+      <div class="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 flex flex-col gap-6">
         <FieldSet v-if="advancedQualityFields.length">
           <FieldLegend>{{ selection.mode === "audio" ? "Audio" : "Video" }}</FieldLegend>
           <FieldGroup>
@@ -158,16 +158,11 @@ function setPostProcessing(next: PostProcessingSelection): void {
 
         <FieldSeparator v-if="advancedQualityFields.length" />
 
-        <FieldSet>
-          <FieldLegend>Post-Processing</FieldLegend>
-          <FieldGroup>
-            <PostProcessingFields
-              :model-value="postProcessing"
-              :capabilities="embedCapabilities"
-              @update:model-value="setPostProcessing"
-            />
-          </FieldGroup>
-        </FieldSet>
+        <PostProcessingFields
+          :model-value="postProcessing"
+          :capabilities="embedCapabilities"
+          @update:model-value="setPostProcessing"
+        />
       </div>
     </Dialog>
   </div>

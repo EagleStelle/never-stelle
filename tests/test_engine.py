@@ -107,6 +107,8 @@ def test_normalize_post_processing_defaults_and_validates():
         "chapters": "off",
         "thumbnail": "off",
         "subtitle_languages": [],
+        "split_chapters": False,
+        "mtime": False,
     }
     assert normalize_post_processing(
         {"metadata": "embed", "chapters": "both", "thumbnail": "nonsense"}
@@ -117,18 +119,30 @@ def test_normalize_post_processing_defaults_and_validates():
         "chapters": "both",
         "thumbnail": "off",
         "subtitle_languages": [],
+        "split_chapters": False,
+        "mtime": False,
     }
-    assert normalize_post_processing({"subtitle_languages": " EN , ja ,en, "}) == {
+    assert normalize_post_processing({"subtitle_languages": [" EN ", "ja", "en", ""]}) == {
         "metadata": "off",
         "subtitles": "off",
         "automatic_subtitles": "off",
         "chapters": "off",
         "thumbnail": "off",
         "subtitle_languages": ["en", "ja"],
+        "split_chapters": False,
+        "mtime": False,
     }
     assert not post_processing_requested({"metadata": "off"})
     assert post_processing_requested({"automatic_subtitles": "sidecar"})
     assert post_processing_requested({"chapters": "both"})
+
+
+def test_post_processing_options_are_strict_booleans():
+    assert normalize_post_processing({"split_chapters": True, "mtime": "yes"})["split_chapters"] is True
+    assert normalize_post_processing({"split_chapters": 1, "mtime": "yes"})["mtime"] is False
+    assert post_processing_requested({"mtime": True})
+    assert post_processing_requested({"split_chapters": True})
+    assert not post_processing_requested({"split_chapters": 1})
 
 
 def test_normalize_post_processing_rejects_the_retired_boolean_shape():
@@ -316,6 +330,18 @@ def test_chapter_options_capture_extractor_payload_for_finalization():
     assert "--write-info-json" in fallback
     assert "--no-clean-info-json" in fallback
     assert "--embed-chapters" not in fallback
+
+
+def test_split_chapters_alone_captures_extractor_payload():
+    cmd = gallerydl.build_gallerydl_command(
+        "https://example.test/post/1",
+        "/media",
+        "\x1f{id}.{extension}",
+        metadata_sidecar="/scratch/task/downloads.tsv",
+        post_processing={"split_chapters": True},
+    )
+    for integration in ("downloader", "extractor"):
+        assert _gallerydl_raw_option(cmd, f"{integration}.ytdl.raw-options.writeinfojson") is True
 
 
 def test_quality_options_expose_all_pickers():

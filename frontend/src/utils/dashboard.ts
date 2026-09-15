@@ -1,4 +1,5 @@
 import type { Component } from "vue";
+import ISO6391 from "iso-639-1";
 import IconHighQuality from "~icons/material-symbols/high-quality";
 import Icon4k from "~icons/material-symbols/4k";
 import Icon2k from "~icons/material-symbols/2k";
@@ -530,15 +531,24 @@ function postProcessingMode(value: unknown): PostProcessingMode {
     : "off";
 }
 
-export function normalizeSubtitleLanguages(value: unknown): string[] {
-  const values = Array.isArray(value) ? value : String(value ?? "").split(",");
-  const languages: string[] = [];
-  for (const entry of values) {
-    const text = String(entry ?? "").trim().toLowerCase();
-    if (text && !languages.includes(text)) languages.push(text);
-  }
-  return languages;
+const SUBTITLE_LANGUAGES_ALL = "all";
+
+// Original is an empty list, All is every track the site offers, Custom lists codes.
+export type SubtitleLanguageMode = "original" | "all" | "custom";
+
+export function subtitleLanguageMode(languages: string[]): SubtitleLanguageMode {
+  if (!languages.length) return "original";
+  return languages.includes(SUBTITLE_LANGUAGES_ALL) ? "all" : "custom";
 }
+
+export function subtitleLanguagesForMode(mode: SubtitleLanguageMode): string[] {
+  return mode === "all" ? [SUBTITLE_LANGUAGES_ALL] : [];
+}
+
+// A base code also picks its regional tracks (pt matches pt-BR).
+export const SUBTITLE_LANGUAGE_OPTIONS = ISO6391.getAllCodes()
+  .map((code) => ({ key: code, label: `${ISO6391.getName(code)} (${code})` }))
+  .sort((left, right) => left.label.localeCompare(right.label));
 
 export function createPostProcessingSelection(
   source: Partial<PostProcessingSelection> = {},
@@ -549,13 +559,15 @@ export function createPostProcessingSelection(
     automatic_subtitles: postProcessingMode(source.automatic_subtitles),
     chapters: postProcessingMode(source.chapters),
     thumbnail: postProcessingMode(source.thumbnail),
-    subtitle_languages: normalizeSubtitleLanguages(source.subtitle_languages),
+    subtitle_languages: [...(source.subtitle_languages ?? [])],
+    split_chapters: source.split_chapters === true,
+    mtime: source.mtime === true,
   };
 }
 
 export type PostProcessingCapability = Exclude<
   keyof PostProcessingSelection,
-  "subtitle_languages"
+  "subtitle_languages" | "split_chapters" | "mtime"
 >;
 export type PostProcessingCapabilities = Record<PostProcessingCapability, boolean>;
 export const POST_PROCESSING_FIELDS: Array<{

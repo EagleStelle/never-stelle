@@ -405,6 +405,8 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
         "chapters": "off",
         "thumbnail": "off",
         "subtitle_languages": [],
+        "split_chapters": False,
+        "mtime": False,
     }
 
     operations_module.queue_task(
@@ -421,6 +423,8 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
         "chapters": "off",
         "thumbnail": "off",
         "subtitle_languages": ["en"],
+        "split_chapters": False,
+        "mtime": False,
     }
 
     operations_module.queue_task("https://example.test/watch?v=2", quality=None)
@@ -2858,6 +2862,8 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
             "chapters": "off",
             "thumbnail": "off",
             "subtitle_languages": [],
+            "split_chapters": False,
+            "mtime": False,
         },
         "needs_metadata_probe": True,
         "needs_field_probe": True,

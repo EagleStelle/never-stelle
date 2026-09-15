@@ -26,7 +26,7 @@ from backend.app.domains.settings import (
 )
 
 from .constants import CREATOR_FIELDS, FIELD_DEFAULTS, MEDIA_EXTENSIONS, TEMPLATE_RE
-from .files import payload_path_string, recover_task_path
+from .files import chapter_folder, payload_path_string, recover_task_path
 from .formats import (
     conflicts_with_source,
     guess_sources,
@@ -249,10 +249,15 @@ def _iter_media_files(roots: Iterable[Path]) -> Iterable[tuple[Path, Path, os.st
                     listing = list(entries)
             except OSError:
                 continue
+            chapter_folders = {
+                chapter_folder(Path(entry.path))
+                for entry in listing
+                if os.path.splitext(entry.name)[1].lower() in MEDIA_EXTENSIONS
+            }
             for entry in listing:
                 try:
                     if entry.is_dir(follow_symlinks=False):
-                        if entry.name != STAGING_DIR_NAME:
+                        if entry.name != STAGING_DIR_NAME and Path(entry.path) not in chapter_folders:
                             pending.append(entry.path)
                         continue
                 except OSError:

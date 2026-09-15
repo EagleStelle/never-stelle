@@ -160,7 +160,10 @@ def _with_ytdlp_media_fields(
     if (
         "extractor_key" in payload
         or all(path.suffix.lower() in IMAGE_EXTENSIONS for path in finalized.keep_paths)
-        or all(post_processing[feature] == "off" for feature in MEDIA_ONLY_POST_PROCESSING_FEATURES)
+        or (
+            all(post_processing[feature] == "off" for feature in MEDIA_ONLY_POST_PROCESSING_FEATURES)
+            and not post_processing["split_chapters"]
+        )
     ):
         return payload
     url = finalized.source_url

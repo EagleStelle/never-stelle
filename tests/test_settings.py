@@ -94,6 +94,8 @@ def test_settings_response_exposes_supported_template_tokens_only(monkeypatch):
         "chapters": "off",
         "thumbnail": "off",
         "subtitle_languages": [],
+        "split_chapters": False,
+        "mtime": False,
     }
 
 

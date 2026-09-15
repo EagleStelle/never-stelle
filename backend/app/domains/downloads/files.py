@@ -53,6 +53,11 @@ def is_media_file(path: Path) -> bool:
         return False
 
 
+def chapter_folder(path: Path) -> Path:
+    """The folder a media file's split chapters live in, named after the file."""
+    return path.parent / path.stem
+
+
 def find_newest_media_file(root: Path, started_at: float) -> Path | None:
     if not root.exists() or not root.is_dir():
         return None
