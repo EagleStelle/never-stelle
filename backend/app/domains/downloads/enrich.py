@@ -227,7 +227,12 @@ def fetch_html(url: str, cookie_source_key: str = "") -> str:
     url = _prepare_url(url)
     if not url.startswith(("http://", "https://")):
         return ""
-    headers = {"User-Agent": _FETCH_UA, "Accept-Language": "en-US,en;q=0.9"}
+    # Some sites serve a page's data only to a request that asks for HTML.
+    headers = {
+        "User-Agent": _FETCH_UA,
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
 
     # httpx has no browser fingerprint, so the rotation is anonymous then each jar.
     rotation = access_rotation(lambda: cookie_source_key or detect_cookie_source(url), fingerprint=False)
