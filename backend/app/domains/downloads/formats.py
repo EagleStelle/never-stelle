@@ -472,7 +472,7 @@ def url_dedup_key(source_url: str) -> str:
     return f"{scope}#{media_id}"
 
 
-def _url_shape(source_url: str, media_id: str, metadata: dict[str, Any] | None = None) -> str:
+def _url_shape(source_url: str, media_id: str, metadata: dict[str, Any] | None = None, creator: str = "") -> str:
     analysis = analyze_url(source_url, media_id)
     url = str(analysis.get("canonical") or "").strip()
     if not url:
@@ -486,6 +486,17 @@ def _url_shape(source_url: str, media_id: str, metadata: dict[str, Any] | None =
     decoded_segments = _path_segments(parsed.path)
     id_part = str(analysis.get("id_part") or "")
     creator_part = str(analysis.get("creator_part") or "")
+    # A known creator marks its own segment, even one that reads like a route word.
+    hinted = next(
+        (
+            index
+            for index, segment in enumerate(decoded_segments)
+            if creator and segment.lstrip("@") == creator.lstrip("@") and f"path:{index}" != id_part
+        ),
+        None,
+    )
+    if hinted is not None:
+        creator_part = f"path:{hinted}"
 
     if id_part.startswith("path:"):
         try:
@@ -501,6 +512,7 @@ def _url_shape(source_url: str, media_id: str, metadata: dict[str, Any] | None =
             index = -1
         if 0 <= index < len(raw_segments) and 0 <= index < len(decoded_segments):
             role_token = _creator_token_for_segment(decoded_segments[index], metadata)
+            role_token = role_token or (_CREATOR_TOKEN if hinted is not None else "")
             if role_token:
                 raw_segments[index] = f"@{role_token}" if decoded_segments[index].startswith("@") else role_token
 
@@ -669,6 +681,7 @@ def learn_download(
     source_url: str,
     media_id: str,
     metadata: dict[str, Any] | None = None,
+    creator: str = "",
 ) -> dict[str, Any]:
     analysis = analyze_url(source_url, media_id)
     canonical = str(analysis.get("canonical") or "")
@@ -676,7 +689,7 @@ def learn_download(
     media_id = str(media_id or "").strip()
     if not canonical or not key:
         return learned
-    shape = _url_shape(canonical, media_id, metadata)
+    shape = _url_shape(canonical, media_id, metadata, creator)
     entry = dict(learned.get(key) or {})
     templates = _entry_templates(entry)
     if shape:

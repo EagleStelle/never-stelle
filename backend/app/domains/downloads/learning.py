@@ -218,9 +218,11 @@ def learn_missing_fields_for_format(
     return save_missing_learned_fields(source_url, key, result.get("field_roles"))
 
 
-def learn_source_format(source_url: str, media_id: str, metadata: dict[str, Any] | None = None) -> bool:
+def learn_source_format(
+    source_url: str, media_id: str, metadata: dict[str, Any] | None = None, creator: str = ""
+) -> bool:
     learned = load_learned_formats()
-    updated = learn_download(learned, source_url, media_id, metadata)
+    updated = learn_download(learned, source_url, media_id, metadata, creator)
     return save_changed_learned_formats(learned, updated)
 
 
