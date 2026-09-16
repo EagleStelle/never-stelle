@@ -47,6 +47,7 @@ import {
   type TaskFilter,
   type TaskItem,
   type TokenRole,
+  type TrackerSettings,
   type ViewMode,
 } from "@/types";
 
@@ -954,6 +955,23 @@ export function createCookiePolicy(source: CookiePolicy = {}): CookiePolicy {
       out[field] = value;
     }
   }
+  return out;
+}
+
+export const TRACKER_SETTINGS_DEFAULTS: TrackerSettings = {
+  page_size: 30,
+  stop_after: 20,
+  interval_seconds: 6 * 3600,
+  backfill: true,
+};
+
+export function createTrackerSettings(source: Partial<TrackerSettings> = {}): TrackerSettings {
+  const out = { ...TRACKER_SETTINGS_DEFAULTS };
+  for (const field of ["page_size", "stop_after", "interval_seconds"] as const) {
+    const value = Math.floor(Number(source?.[field]));
+    if (Number.isFinite(value) && value > 0) out[field] = value;
+  }
+  if (typeof source?.backfill === "boolean") out.backfill = source.backfill;
   return out;
 }
 

@@ -9,12 +9,14 @@ import IconNaming from "~icons/material-symbols/text-format";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconScraper from "~icons/material-symbols/travel-explore";
 import IconSlug from "~icons/material-symbols/link";
+import IconTrackers from "~icons/material-symbols/radar";
 
 import type { SettingsSection } from "@/types";
 import Account from "@/features/settings/sections/Settings/Account.vue";
 import Cookies from "@/features/settings/sections/Settings/Cookies.vue";
 import Locations from "@/features/settings/sections/Settings/Locations.vue";
 import Defaults from "@/features/settings/sections/Settings/Defaults.vue";
+import Trackers from "@/features/settings/sections/Settings/Trackers.vue";
 import Templates from "@/features/settings/sections/Metadata/Templates.vue";
 import Fields from "@/features/settings/sections/Metadata/Fields.vue";
 import Format from "@/features/settings/sections/Metadata/Format.vue";
@@ -72,6 +74,15 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     icon: IconCookie,
     component: Cookies,
     requiresSources: true,
+  },
+  {
+    key: "trackers",
+    label: "Trackers",
+    group: "Settings",
+    icon: IconTrackers,
+    component: Trackers,
+    focusId: () => "trackerPageSizeInput",
+    requiresSources: false,
   },
   {
     key: "format",

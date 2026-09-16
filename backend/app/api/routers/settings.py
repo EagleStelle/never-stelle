@@ -64,6 +64,7 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
         payload.default_fields,
         payload.default_naming,
         payload.default_post_processing,
+        payload.tracker_settings,
     )
     return build_settings_response(cfg, saved)
 

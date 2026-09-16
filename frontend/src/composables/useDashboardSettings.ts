@@ -58,6 +58,7 @@ import {
   createSourceTitleCleaning,
   createSourceTokenRoles,
   createTemplateSettings,
+  createTrackerSettings,
   displayHost,
   errorMessage,
   hostFromUrl,
@@ -392,6 +393,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_cookie_policy: createCookiePolicy(),
     default_fields: createFieldRoles(),
     default_naming: createNamingFlags(),
+    tracker_settings: createTrackerSettings(),
   });
   const settings = reactive<RuntimeSettings>({
     auth: { username: "", password_configured: false },
@@ -410,6 +412,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_cookie_policy: createCookiePolicy(),
     default_fields: createFieldRoles(),
     default_naming: createNamingFlags(),
+    tracker_settings: createTrackerSettings(),
     media_root: "",
     source_location_options: {},
     ytdlp_cookies: createCookiesMap(),
@@ -443,6 +446,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_cookie_policy: createCookiePolicy(),
     default_fields: createFieldRoles(),
     default_naming: createNamingFlags(),
+    tracker_settings: createTrackerSettings(),
   });
   const learnedFormatsDraft = reactive<LearnedFormats>({});
   // A source keeps a list of jars, so uploads stack and deletes name one jar.
@@ -577,6 +581,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       default_cookie_policy: createCookiePolicy(source.default_cookie_policy),
       default_fields: createFieldRoles(source.default_fields),
       default_naming: createNamingFlags(source.default_naming),
+      tracker_settings: createTrackerSettings(source.tracker_settings),
     };
   }
 
@@ -693,6 +698,10 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         ...defaults.default_naming,
         ...settings.default_naming,
       }),
+      tracker_settings: createTrackerSettings({
+        ...defaults.tracker_settings,
+        ...settings.tracker_settings,
+      }),
     };
   }
 
@@ -727,6 +736,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         default_cookie_policy: settingsDraft.default_cookie_policy,
         default_fields: settingsDraft.default_fields,
         default_naming: settingsDraft.default_naming,
+        tracker_settings: settingsDraft.tracker_settings,
       }),
     );
   }
@@ -927,6 +937,10 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     replaceRecord(defaults.default_naming, defaultNaming);
     replaceRecord(settings.default_naming, defaultNaming);
 
+    const trackerSettings = createTrackerSettings(data.tracker_settings || {});
+    Object.assign(defaults.tracker_settings, trackerSettings);
+    Object.assign(settings.tracker_settings, trackerSettings);
+
     settings.field_defaults = createFieldRoles(
       data.field_defaults || {},
     );
@@ -1103,6 +1117,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       settingsDraft.default_naming,
       previous.default_naming,
       server.default_naming,
+    );
+    mergeCleanObjectProps(
+      settingsDraft.tracker_settings,
+      previous.tracker_settings,
+      server.tracker_settings,
     );
   }
 
@@ -1359,6 +1378,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     );
     Object.assign(settingsDraft.default_fields, normalized.default_fields);
     replaceRecord(settingsDraft.default_naming, normalized.default_naming);
+    Object.assign(settingsDraft.tracker_settings, normalized.tracker_settings);
   }
 
   function copySettingsToDraft(): void {
@@ -1385,6 +1405,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       defaults: "",
       locations: "",
       cookies: "",
+      trackers: "trackerPageSizeInput",
       format: "formatLearnInput",
       fields: `${firstSource}FieldsProbeInput`,
       scraper: `${firstSource}ScraperProbeInput`,

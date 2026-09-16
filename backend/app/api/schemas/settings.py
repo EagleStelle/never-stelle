@@ -22,6 +22,7 @@ class SettingsPayload(BaseModel):
     default_cookie_policy: dict[str, Any] = Field(default_factory=dict)
     default_fields: dict[str, Any] = Field(default_factory=dict)
     default_naming: dict[str, Any] = Field(default_factory=dict)
+    tracker_settings: dict[str, Any] | None = None
 
 
 class ScrapeTestPayload(BaseModel):

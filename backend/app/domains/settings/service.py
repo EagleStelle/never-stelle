@@ -40,6 +40,7 @@ from .templates import (
     normalize_template_settings,
 )
 from .tokens import get_effective_token_roles, normalize_source_token_roles
+from .trackers import normalize_tracker_settings
 
 
 def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -91,6 +92,7 @@ def _effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, An
         "default_cookie_policy": normalize_default_cookie_policy(payload.get("default_cookie_policy")),
         "default_fields": default_fields,
         "default_naming": normalize_default_naming(payload.get("default_naming")),
+        "tracker_settings": normalize_tracker_settings(payload.get("tracker_settings")),
     }
 
 
@@ -111,6 +113,7 @@ def persist_settings(
     raw_default_fields: Any = None,
     raw_default_naming: Any = None,
     raw_default_post_processing: Any = None,
+    raw_tracker_settings: Any = None,
 ) -> dict[str, Any]:
     from backend.app.domains.downloads.constants import normalize_post_processing, normalize_quality_selection
 
@@ -195,6 +198,9 @@ def persist_settings(
             "default_cookie_policy": default_cookie_policy,
             "default_fields": default_fields,
             "default_naming": default_naming,
+            "tracker_settings": normalize_tracker_settings(
+                raw_tracker_settings if raw_tracker_settings is not None else existing.get("tracker_settings")
+            ),
         }
     )
     save_saved_settings_file(existing)
@@ -244,6 +250,7 @@ def build_settings_response(
         "default_cookie_policy": saved.get("default_cookie_policy", {}),
         "default_fields": saved.get("default_fields", normalize_default_fields({})),
         "default_naming": saved.get("default_naming", {}),
+        "tracker_settings": saved.get("tracker_settings", normalize_tracker_settings({})),
         # Built-ins: what the defaults above fall back to, and what the UI offers as a reset.
         "cookie_policy_defaults": builtin_cookie_policy_defaults(),
         "field_defaults": field_defaults(),

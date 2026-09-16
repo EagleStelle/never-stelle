@@ -16,6 +16,7 @@ export type SettingsSection =
   | "defaults"
   | "locations"
   | "cookies"
+  | "trackers"
   | "format"
   | "fields"
   | "scraper"
@@ -267,6 +268,17 @@ export interface SavedSettings {
   default_cookie_policy: CookiePolicy;
   default_fields: FieldRoles;
   default_naming: NamingDefaults;
+  tracker_settings: TrackerSettings;
+}
+
+export interface TrackerSettings {
+  // New items one check handles before the next check continues with older ones.
+  page_size: number;
+  // Items already in the app, in a row, before a check stops scrolling.
+  stop_after: number;
+  // What a new tracker starts with.
+  interval_seconds: number;
+  backfill: boolean;
 }
 
 export interface SettingsDraft extends SavedSettings {
@@ -316,6 +328,7 @@ export interface UiConfigResponse {
   default_cookie_policy?: CookiePolicy;
   default_fields?: Partial<FieldRoles>;
   default_naming?: NamingDefaults;
+  tracker_settings?: Partial<TrackerSettings>;
   default_quality?: Partial<QualitySelection>;
   default_post_processing?: Partial<PostProcessingSelection>;
   quality_options?: Partial<QualityOptions>;
