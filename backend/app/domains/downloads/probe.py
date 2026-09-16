@@ -31,24 +31,60 @@ _MAX_ENTRIES = 500
 _GALLERYDL_TIKTOK_NO_AUDIO_OPTION = "extractor.tiktok.audio=false"
 
 
+def low_priority_command(cmd: list[str], kwargs: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+    """The command and its process options, lowered below the downloads' CPU priority."""
+    run_cmd = list(cmd)
+    run_kwargs = dict(kwargs)
+    if os.name == "nt":
+        priority = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
+        if priority:
+            run_kwargs["creationflags"] = int(run_kwargs.get("creationflags", 0)) | priority
+    else:
+        nice = shutil.which("nice")
+        if nice:
+            run_cmd = [nice, "-n", "10", *run_cmd]
+    return run_cmd, run_kwargs
+
+
+def gallerydl_reads(url: str) -> bool | None:
+    """True when a gallery-dl extractor reads the link, False for a dispatcher, None when none matches."""
+    try:
+        from gallery_dl import extractor
+        from gallery_dl.extractor.common import Dispatch
+
+        found = extractor.find(url)
+    except Exception:
+        return None
+    return None if found is None else not isinstance(found, Dispatch)
+
+
+def ytdlp_single_video(url: str, ie_key: str = "") -> bool | None:
+    """Whether yt-dlp's extractor, ``ie_key`` or the one matching the link, reads one video.
+
+    None when it does not know, as broad and generic extractors never do.
+    """
+    try:
+        from yt_dlp.extractor import gen_extractor_classes, get_info_extractor
+
+        suitable = (
+            get_info_extractor(ie_key)
+            if ie_key
+            else next((ie for ie in gen_extractor_classes() if ie.suitable(url)), None)
+        )
+        return suitable.is_single_video(url) if suitable else None
+    except Exception:
+        return None
+
+
 def _run_probe_command(
     cmd: list[str],
     *,
     low_priority: bool = False,
     **kwargs: Any,
 ) -> subprocess.CompletedProcess[str]:
-    run_cmd = list(cmd)
-    run_kwargs = dict(kwargs)
     if low_priority:
-        if os.name == "nt":
-            priority = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
-            if priority:
-                run_kwargs["creationflags"] = priority
-        else:
-            nice = shutil.which("nice")
-            if nice:
-                run_cmd = [nice, "-n", "10", *run_cmd]
-    return run_task_subprocess(run_cmd, **run_kwargs)
+        cmd, kwargs = low_priority_command(cmd, kwargs)
+    return run_task_subprocess(cmd, **kwargs)
 
 
 def _probe_cookie_source_keys(url: str, source_key: str = "") -> list[str]:
@@ -398,22 +434,19 @@ def probe_metadata(
     url = _prepare_url(source_url)
     if not url:
         return {}
-    info, _ = _ytdlp_dump(
-        url,
-        with_cookies=with_cookies,
-        cookie_source_key=cookie_source_key,
-        low_priority=low_priority,
-    )
-    if isinstance(info, dict) and info:
-        return _flatten_metadata(info)
-    metadata = _gallerydl_dump(
-        url,
-        with_cookies=with_cookies,
-        cookie_source_key=cookie_source_key,
-        low_priority=low_priority,
-    )
-    if isinstance(metadata, dict) and metadata:
-        return _flatten_metadata(metadata)
+    options: dict[str, Any] = {
+        "with_cookies": with_cookies,
+        "cookie_source_key": cookie_source_key,
+        "low_priority": low_priority,
+    }
+    dumps = (lambda: _ytdlp_dump(url, **options)[0], lambda: _gallerydl_dump(url, **options))
+    # yt-dlp only reads a link gallery-dl has its own extractor for generically, failing once per jar.
+    if gallerydl_reads(url) and not ytdlp_single_video(url):
+        dumps = dumps[::-1]
+    for dump in dumps:
+        data = dump()
+        if isinstance(data, dict) and data:
+            return _flatten_metadata(data)
     return {}
 
 

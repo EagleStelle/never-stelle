@@ -592,6 +592,27 @@ def test_probe_fields_skips_engine_that_returns_nothing(monkeypatch):
     assert result["field_roles"]["username"] == ["username"]
 
 
+def test_probe_metadata_asks_gallerydl_first_for_a_link_only_it_has_an_extractor_for(monkeypatch):
+    calls: list[str] = []
+
+    def ytdlp(url, **kwargs):
+        calls.append("yt-dlp")
+        return {"uploader": "bob"}, ""
+
+    def gallerydl(url, **kwargs):
+        calls.append("gallery-dl")
+        return {"username": "bob"}
+
+    monkeypatch.setattr(probe_module, "_ytdlp_dump", ytdlp)
+    monkeypatch.setattr(probe_module, "_gallerydl_dump", gallerydl)
+    monkeypatch.setattr(probe_module, "gallerydl_reads", lambda url: "/photo/" in url)
+    monkeypatch.setattr(probe_module, "ytdlp_single_video", lambda url: "/video/" in url)
+
+    assert probe_module.probe_metadata("https://example.test/photo/1") == {"username": "bob"}
+    assert probe_module.probe_metadata("https://example.test/video/1") == {"uploader": "bob"}
+    assert calls == ["gallery-dl", "yt-dlp"]
+
+
 def test_probe_fields_raises_when_both_engines_fail(monkeypatch):
     monkeypatch.setattr(probe_module, "_ytdlp_dump", lambda url, **kwargs: (None, "bad link line"))
     monkeypatch.setattr(probe_module, "_gallerydl_dump", lambda url, **kwargs: None)
