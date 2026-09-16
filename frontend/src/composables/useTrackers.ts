@@ -30,12 +30,28 @@ interface UseTrackersOptions {
   url: Ref<string>;
 }
 
+// Browsers fire a longer timer at once, so a wait past this would poll without pause.
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
 // Checking now, or due and waiting for the server to pick it up.
-function isBusy(tracker: Pick<Tracker, "checking" | "enabled" | "next_check_at">): boolean {
+type Schedule = Pick<Tracker, "checking" | "enabled" | "next_check_at">;
+
+function isBusy(tracker: Schedule): boolean {
   return (
     tracker.checking ||
     (tracker.enabled && Boolean(tracker.next_check_at) && Date.parse(tracker.next_check_at) <= Date.now())
   );
+}
+
+// Fast while a check runs, so its seen count moves live; otherwise wake when the next one falls due.
+function pollDelay(trackers: Schedule[]): number | false {
+  if (trackers.some(isBusy)) return POLL_RUNNING_MS;
+  const due = trackers
+    .filter((tracker) => tracker.enabled && tracker.next_check_at)
+    .map((tracker) => Date.parse(tracker.next_check_at))
+    .filter(Number.isFinite);
+  if (!due.length) return false;
+  return Math.min(Math.max(Math.min(...due) - Date.now(), POLL_RUNNING_MS), MAX_TIMER_MS);
 }
 
 export function useTrackers({ enabled, getQuality, getPostProcessing, tasks, toast, url }: UseTrackersOptions) {
@@ -48,7 +64,7 @@ export function useTrackers({ enabled, getQuality, getPostProcessing, tasks, toa
     queryFn: ({ signal }) => getTrackers(signal),
     enabled,
     staleTime: 1000,
-    refetchInterval: (query) => ((query.state.data?.trackers || []).some(isBusy) ? POLL_RUNNING_MS : false),
+    refetchInterval: (query) => pollDelay(query.state.data?.trackers || []),
   });
 
   // Queue counts are read off the task feed, so they move with the queue exactly as the downloads page does.

@@ -11,6 +11,7 @@ import Login from "@/features/auth/Login.vue";
 import DownloadPanel from "@/features/downloads/Panel.vue";
 import PlaylistDialog from "@/features/downloads/PlaylistDialog.vue";
 import ResolveDialog from "@/features/downloads/ResolveDialog.vue";
+import TrackerPanel from "@/features/trackers/Panel.vue";
 import { Toaster } from "@/components/ui/sonner";
 
 import { provideDashboard } from "@/composables/useDashboard";
@@ -30,6 +31,7 @@ onMounted(() => {
 // Built once here; every surface below injects the slice it needs instead of
 // receiving it as a prop.
 const {
+  activePage,
   confirmPlaylistSelection,
   confirmResolve,
   historyResolving,
@@ -81,7 +83,8 @@ const { height: statusBarHeight } = useElementSize(
           <PageToolbar placement="top" />
 
           <div class="flex-1 flex flex-col p-4 pb-36 lg:pb-4">
-            <DownloadPanel />
+            <TrackerPanel v-if="activePage === 'trackers'" />
+            <DownloadPanel v-else />
           </div>
 
           <div class="sticky bottom-0 z-20 flex flex-col shrink-0">
