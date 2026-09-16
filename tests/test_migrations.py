@@ -816,6 +816,7 @@ def test_tracker_tables_arrive_without_touching_the_download_tables(tmp_path, mo
         }
         tracker_columns = {row["name"] for row in connection.execute("PRAGMA table_info('trackers')")}
         entry_columns = {row["name"] for row in connection.execute("PRAGMA table_info('tracker_entries')")}
+        backlog_columns = {row["name"] for row in connection.execute("PRAGMA table_info('tracker_backlog')")}
         indexes = {
             row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
         }
@@ -823,6 +824,7 @@ def test_tracker_tables_arrive_without_touching_the_download_tables(tmp_path, mo
 
     assert after == before
     assert [row["id"] for row in history] == ["gallerydl:1"]
-    assert {"source_url", "interval_seconds", "next_check_at", "checking_at"} <= tracker_columns
+    assert {"source_url", "interval_seconds", "next_check_at", "checking_at", "feeds"} <= tracker_columns
     assert entry_columns == {"tracker_id", "entry_key", "entry_url", "download_id", "seen_at"}
+    assert backlog_columns == {"tracker_id", "entry_key", "entry_url", "found_at", "position", "attempts"}
     assert {"idx_trackers_due", "idx_tracker_entries_download"} <= indexes

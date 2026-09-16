@@ -94,8 +94,8 @@ SITE_KEYS: tuple[str, ...] = ()
 _MAX_WORKER_POOL_SIZE = 16
 
 
-def max_concurrent_downloads(default: int = 3) -> int:
-    # Worker-pool size: parallel downloads. Env-overridable, clamped 1..16.
+def max_concurrency(default: int = 3) -> int:
+    # Size of each worker pool: parallel downloads, and separately parallel tracker checks. Clamped 1..16.
     raw = str(os.environ.get("NEVER_STELLE_MAX_CONCURRENT") or "").strip()
     try:
         value = int(raw)

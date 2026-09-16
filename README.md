@@ -120,7 +120,7 @@ Never Stelle is configured with environment variables. Set them inline in Docker
 | ------------------------------ | :------------: | ----------------------------------------------------------------------------- |
 | `NEVER_STELLE_USERNAME`        |     `root`     | Username seeded for the first-run account.                                    |
 | `NEVER_STELLE_PASSWORD`        | `never-stelle` | Password seeded for the first-run account. Set a strong value.                |
-| `NEVER_STELLE_MAX_CONCURRENT`  |      `3`       | Maximum concurrent Never Stelle downloads.                                    |
+| `NEVER_STELLE_MAX_CONCURRENT`  |      `3`       | Maximum concurrent downloads, and separately concurrent tracker checks.       |
 | `NEVER_STELLE_COOKIE_SECURE`   |    `false`     | Set `true` to mark the session cookie `Secure` when served over HTTPS.        |
 | `NEVER_STELLE_DROP_CACHE_SYNC` |    `false`     | Set `true` to sync completed files before Linux page-cache drop advice.       |
 | `NEVER_STELLE_API_TOKEN`       |       ``       | Optional read-only token for external apps using `/api/integration/*`.        |

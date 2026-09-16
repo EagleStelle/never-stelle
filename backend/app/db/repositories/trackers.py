@@ -22,11 +22,12 @@ _TRACKER_COLUMNS = (
     "last_success_at",
     "last_error",
     "checking_at",
+    "feeds",
     "created_at",
     "updated_at",
 )
 _TRACKER_SELECT = ", ".join(_TRACKER_COLUMNS)
-_JSON_COLUMNS = {"quality", "post_processing"}
+_JSON_COLUMNS = {"quality", "post_processing", "feeds"}
 _BOOL_COLUMNS = {"enabled", "backfill"}
 _UPDATABLE = set(_TRACKER_COLUMNS) - {"id", "source_url", "source_key", "created_at", "updated_at"}
 # SQLite caps bound parameters per statement; stay well under it.
@@ -117,6 +118,7 @@ def update_tracker_row(tracker_id: str, updates: dict[str, Any]) -> dict[str, An
 
 def delete_tracker_rows(tracker_id: str) -> None:
     with transaction() as connection:
+        connection.execute("DELETE FROM tracker_backlog WHERE tracker_id = ?", (str(tracker_id),))
         connection.execute("DELETE FROM tracker_entries WHERE tracker_id = ?", (str(tracker_id),))
         connection.execute("DELETE FROM trackers WHERE id = ?", (str(tracker_id),))
 
@@ -161,25 +163,120 @@ def reset_checking_trackers() -> int:
     return int(cursor.rowcount or 0)
 
 
-def has_tracker_entry(tracker_id: str, entry_key: str) -> bool:
+def due_tracker_count(now: str) -> int:
     with transaction() as connection:
         row = connection.execute(
-            "SELECT 1 FROM tracker_entries WHERE tracker_id = ? AND entry_key = ?",
-            (str(tracker_id), str(entry_key)),
+            "SELECT COUNT(*) FROM trackers WHERE enabled = 1 AND checking_at = '' AND next_check_at <= ?", (now,)
         ).fetchone()
+    return safe_int(row[0])
+
+
+def has_tracker_entry(tracker_id: str, entry_key: str, seen_by: str = "") -> bool:
+    """Whether the tracker recorded the entry; with ``seen_by``, only at or before that time."""
+    sql = "SELECT 1 FROM tracker_entries WHERE tracker_id = ? AND entry_key = ?"
+    params: tuple[str, ...] = (str(tracker_id), str(entry_key))
+    if seen_by:
+        sql += " AND seen_at <= ?"
+        params = (*params, seen_by)
+    with transaction() as connection:
+        row = connection.execute(sql, params).fetchone()
     return row is not None
 
 
 def record_tracker_entry_rows(tracker_id: str, rows: list[tuple[str, str, str]]) -> None:
-    """Insert ``(entry_key, entry_url, download_id)`` rows; an entry already seen keeps its first record."""
+    """Insert ``(entry_key, entry_url, download_id)`` rows; an entry already seen keeps its first record.
+
+    Rows for a tracker deleted meanwhile are dropped, so a check still running leaves nothing behind.
+    A recorded entry leaves the backlog.
+    """
     if not rows:
         return
     now = utc_now()
     with transaction() as connection:
         connection.executemany(
             "INSERT OR IGNORE INTO tracker_entries (tracker_id, entry_key, entry_url, download_id, seen_at)"
-            " VALUES (?, ?, ?, ?, ?)",
-            [(str(tracker_id), key, url, download_id, now) for key, url, download_id in rows],
+            " SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM trackers WHERE id = ?)",
+            [(str(tracker_id), key, url, download_id, now, str(tracker_id)) for key, url, download_id in rows],
+        )
+        connection.executemany(
+            "DELETE FROM tracker_backlog WHERE tracker_id = ? AND entry_key = ?",
+            [(str(tracker_id), key) for key, _, _ in rows],
+        )
+
+
+def add_tracker_backlog_rows(tracker_id: str, found_at: str, rows: list[tuple[str, str, int]]) -> None:
+    """Insert ``(entry_key, entry_url, position)`` rows a walk found; recorded or backlogged entries are skipped."""
+    if not rows:
+        return
+    with transaction() as connection:
+        connection.executemany(
+            "INSERT OR IGNORE INTO tracker_backlog (tracker_id, entry_key, entry_url, found_at, position)"
+            " SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM trackers WHERE id = ?)"
+            " AND NOT EXISTS (SELECT 1 FROM tracker_entries WHERE tracker_id = ? AND entry_key = ?)",
+            [
+                (str(tracker_id), key, url, found_at, position, str(tracker_id), str(tracker_id), key)
+                for key, url, position in rows
+            ],
+        )
+
+
+def has_tracker_backlog_row(tracker_id: str, entry_key: str, found_by: str = "") -> bool:
+    """Whether the entry waits in the backlog; with ``found_by``, only when found at or before that time."""
+    sql = "SELECT 1 FROM tracker_backlog WHERE tracker_id = ? AND entry_key = ?"
+    params: tuple[str, ...] = (str(tracker_id), str(entry_key))
+    if found_by:
+        sql += " AND found_at <= ?"
+        params = (*params, found_by)
+    with transaction() as connection:
+        row = connection.execute(sql, params).fetchone()
+    return row is not None
+
+
+def tracker_backlog_urls(tracker_id: str) -> list[str]:
+    """Backlogged links, the newest walk's first and each walk's in page order."""
+    with transaction() as connection:
+        rows = connection.execute(
+            "SELECT entry_url FROM tracker_backlog WHERE tracker_id = ? ORDER BY found_at DESC, position",
+            (str(tracker_id),),
+        ).fetchall()
+    return [str(row[0]) for row in rows]
+
+
+def fail_tracker_backlog_row(tracker_id: str, entry_key: str, max_attempts: int) -> None:
+    """Count a check that could not read the entry; it leaves the backlog after ``max_attempts``."""
+    with transaction() as connection:
+        connection.execute(
+            "UPDATE tracker_backlog SET attempts = attempts + 1 WHERE tracker_id = ? AND entry_key = ?",
+            (str(tracker_id), str(entry_key)),
+        )
+        connection.execute(
+            "DELETE FROM tracker_backlog WHERE tracker_id = ? AND entry_key = ? AND attempts >= ?",
+            (str(tracker_id), str(entry_key), int(max_attempts)),
+        )
+
+
+def missing_tracker_download_rows(tracker_id: str) -> list[tuple[str, str, str]]:
+    """``(entry_url, download_id, task_status)`` of queued entries whose download is neither active nor complete."""
+    with transaction() as connection:
+        rows = connection.execute(
+            "SELECT e.entry_url, e.download_id, COALESCE(MAX(t.status), '') FROM tracker_entries e"
+            " LEFT JOIN download_tasks t ON t.id = e.download_id"
+            " WHERE e.tracker_id = ? AND e.download_id != ''"
+            " AND COALESCE(t.status, '') NOT IN ('pending', 'running', 'completed')"
+            " AND NOT EXISTS (SELECT 1 FROM download_history h WHERE h.id = e.download_id)"
+            " AND NOT EXISTS (SELECT 1 FROM download_history h"
+            " WHERE h.id > e.download_id || ':' AND h.id < e.download_id || ';')"
+            " GROUP BY e.download_id",
+            (str(tracker_id),),
+        ).fetchall()
+    return [(str(row[0]), str(row[1]), str(row[2])) for row in rows]
+
+
+def relink_tracker_download_rows(tracker_id: str, old_id: str, new_id: str) -> None:
+    with transaction() as connection:
+        connection.execute(
+            "UPDATE tracker_entries SET download_id = ? WHERE tracker_id = ? AND download_id = ?",
+            (str(new_id), str(tracker_id), str(old_id)),
         )
 
 
@@ -216,14 +313,24 @@ def tracker_ids_for_download_rows(download_ids: list[str]) -> dict[str, str]:
 
 
 def count_tracker_items() -> dict[str, dict[str, int]]:
-    """Per tracker: entries seen and completed history rows. Active rows are counted by the task feed."""
+    """Per tracker: items seen and items downloaded. Active rows are counted by the task feed.
+
+    A post's photos are recorded under its url and download, and a multi-file download keeps a
+    history row per file, so both counts are per item and a fully downloaded tracker shows them equal.
+    """
     counts: dict[str, dict[str, int]] = {}
     with transaction() as connection:
-        seen = connection.execute("SELECT tracker_id, COUNT(*) FROM tracker_entries GROUP BY tracker_id").fetchall()
+        seen = connection.execute(
+            "SELECT tracker_id, COUNT(DISTINCT entry_url) FROM tracker_entries GROUP BY tracker_id"
+        ).fetchall()
         for tracker_id, count in seen:
             completed = connection.execute(
-                f"SELECT COUNT(*) FROM download_history WHERE id IN ({TRACKER_HISTORY_IDS_SQL})",
-                (str(tracker_id), str(tracker_id)),
+                "SELECT COUNT(DISTINCT e.download_id) FROM tracker_entries e"
+                " WHERE e.tracker_id = ? AND e.download_id != ''"
+                " AND (EXISTS (SELECT 1 FROM download_history h WHERE h.id = e.download_id)"
+                " OR EXISTS (SELECT 1 FROM download_history h"
+                " WHERE h.id > e.download_id || ':' AND h.id < e.download_id || ';'))",
+                (str(tracker_id),),
             ).fetchone()
             counts[str(tracker_id)] = {"seen": safe_int(count), "completed": safe_int(completed[0])}
     return counts

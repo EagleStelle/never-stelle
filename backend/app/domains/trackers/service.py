@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import random
 import uuid
 from contextlib import closing
@@ -13,14 +14,20 @@ from backend.app.core.pacing import CpuPacer
 from backend.app.core.sources import host_from_url, source_key_from_url
 from backend.app.core.time import utc_now, utc_now_datetime
 from backend.app.db.repositories import (
+    add_tracker_backlog_rows,
     count_tracker_items,
     delete_tracker_rows,
+    fail_tracker_backlog_row,
     find_tracker_by_url,
+    has_tracker_backlog_row,
     has_tracker_entry,
     insert_tracker_row,
     load_tracker_row,
     load_tracker_rows,
+    missing_tracker_download_rows,
     record_tracker_entry_rows,
+    relink_tracker_download_rows,
+    tracker_backlog_urls,
     tracker_download_ids,
     tracker_history_ids,
     update_tracker_row,
@@ -28,34 +35,33 @@ from backend.app.db.repositories import (
 from backend.app.domains.downloads.constants import normalize_post_processing, normalize_quality_selection
 from backend.app.domains.downloads.files import find_numbered_media_siblings, is_media_file
 from backend.app.domains.downloads.formats import creator_from_url, url_dedup_key
-from backend.app.domains.downloads.operations import queue_task, remove_pending_task
+from backend.app.domains.downloads.operations import queue_task, remove_pending_task, retry_task
 from backend.app.domains.downloads.store import load_history_entry, load_task, remove_history_record
 from backend.app.domains.downloads.urls import canonicalize_source_url
-from backend.app.domains.settings import get_effective_source_profiles
+from backend.app.domains.settings import get_effective_source_profiles, get_tracker_settings
+from backend.app.domains.settings.trackers import MAX_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS
 from backend.app.integrations.swaratelle import client as swaratelle
 
 from .listing import Entry, ListingStats, iter_entries
 
-DEFAULT_INTERVAL_SECONDS = 6 * 3600
-_MIN_INTERVAL_SECONDS = 3600
-_MAX_INTERVAL_SECONDS = 30 * 24 * 3600
 _JITTER = 0.05
-# Consecutive known entries before a check stops; a few tolerate pinned or reordered posts.
-_STOP_AFTER_SEEN = 20
-_RECORD_BATCH = 100
+# Checks that may fail to read a backlogged link before it is dropped.
+_BACKLOG_ATTEMPTS = 3
+# Tabs a creator adds later are found by walking every page of the tracked link again this often.
+_EXPLORE_EVERY = timedelta(days=7)
 _ACTIVE_STATUSES = {"pending", "running", "failed"}
-UNRESOLVED_ERROR = (
-    "Could not build post links for this source yet. Download one post from it first so its link format is learned."
-)
+UNRESOLVED_ERROR = "Could not build post links for this source."
 SINGLE_ITEM_ERROR = "This link points to a single item; add a creator, channel or playlist link."
+# Trackers whose next check was asked for by hand, so it also queues their missing downloads again.
+_requeue_missing: set[str] = set()
 
 
 def _interval(value: Any) -> int:
     try:
         seconds = int(value)
     except (TypeError, ValueError):
-        seconds = DEFAULT_INTERVAL_SECONDS
-    return max(_MIN_INTERVAL_SECONDS, min(_MAX_INTERVAL_SECONDS, seconds))
+        seconds = get_tracker_settings()["interval_seconds"]
+    return max(MIN_INTERVAL_SECONDS, min(MAX_INTERVAL_SECONDS, seconds))
 
 
 def _next_check_at(interval_seconds: int) -> str:
@@ -127,6 +133,7 @@ def create_tracker(
         raise ValueError("Links handled by Swaratelle cannot be tracked.")
     if find_tracker_by_url(url):
         raise ValueError("This link is already tracked.")
+    defaults = get_tracker_settings()
     tracker = insert_tracker_row(
         {
             "id": uuid.uuid4().hex[:12],
@@ -134,8 +141,8 @@ def create_tracker(
             "source_key": source_key_from_url(url, get_effective_source_profiles()),
             "name": _fallback_name(url),
             "enabled": False,
-            "interval_seconds": DEFAULT_INTERVAL_SECONDS,
-            "backfill": True,
+            "interval_seconds": defaults["interval_seconds"],
+            "backfill": defaults["backfill"],
             "quality": normalize_quality_selection(quality) if quality else {},
             "post_processing": normalize_post_processing(post_processing) if post_processing is not None else {},
         }
@@ -166,6 +173,7 @@ def check_tracker_now(tracker_id: str) -> None:
     tracker = get_tracker(tracker_id)
     if not tracker["enabled"]:
         raise PermissionError("Apply or resume the tracker to check it.")
+    _requeue_missing.add(tracker_id)
     update_tracker_row(tracker_id, {"next_check_at": utc_now()})
 
 
@@ -218,61 +226,146 @@ def _queue_entry(tracker: dict[str, Any], entry: Entry) -> str:
     return str(created[0].get("vid") or "") if created else ""
 
 
+def _queue_missing(tracker: dict[str, Any]) -> list[str]:
+    """Queue again the downloads of seen entries that failed or are gone; returns the errors."""
+    failures: list[str] = []
+    for entry_url, download_id, status in missing_tracker_download_rows(tracker["id"]):
+        try:
+            if status == "failed":
+                retry_task(download_id)
+                continue
+            replacement = _queue_entry(tracker, Entry(url=entry_url))
+            if replacement and replacement != download_id:
+                relink_tracker_download_rows(tracker["id"], download_id, replacement)
+        except Exception as exc:
+            failures.append(str(exc))
+    return failures
+
+
+class _TrackerBacklog:
+    """The tracker's backlog, kept between checks."""
+
+    def __init__(self, tracker_id: str, queue_new: bool) -> None:
+        self.tracker_id = tracker_id
+        self.queue_new = queue_new
+        self.found_at = utc_now()
+        self.positions = itertools.count()
+
+    def has(self, key: str) -> bool:
+        return has_tracker_backlog_row(self.tracker_id, key)
+
+    def add(self, links: list[str]) -> None:
+        rows = [(url_dedup_key(link), link) for link in links]
+        if self.queue_new:
+            positioned = [(key, link, next(self.positions)) for key, link in rows]
+            add_tracker_backlog_rows(self.tracker_id, self.found_at, positioned)
+        else:
+            # A pass that queues nothing needs no probe to tell whose item is whose.
+            record_tracker_entry_rows(self.tracker_id, [(key, link, "") for key, link in rows])
+
+    def links(self) -> list[str]:
+        return tracker_backlog_urls(self.tracker_id)
+
+    def failed(self, link: str) -> None:
+        fail_tracker_backlog_row(self.tracker_id, url_dedup_key(link), _BACKLOG_ATTEMPTS)
+
+
 def run_check(tracker: dict[str, Any]) -> None:
-    """List the tracker's link and queue what it has not seen; always releases the claim."""
+    """List one batch of the tracker's link and queue what it has not seen; always releases the claim.
+
+    A batch ends after ``page_size`` new entries and the next one waits for the interval. Listing
+    runs newest first, so each batch takes what was posted since, then the older entries a pass
+    has yet to reach. Pages are scrolled once and what they showed waits in the backlog for the
+    batches after; ``last_success_at`` marks a pass that reached every end, where later ones stop.
+    A check asked for by hand first queues again the downloads its seen entries lost.
+    """
     tracker_id = tracker["id"]
-    first = not tracker["last_success_at"]
+    requeue = tracker_id in _requeue_missing
+    _requeue_missing.discard(tracker_id)
+    settings = get_tracker_settings()
+    pass_start = tracker["last_success_at"]
+    first = not pass_start
     queue_new = tracker["backfill"] or not first
+    feeds = [str(url) for url in tracker["feeds"].get("urls") or [] if url]
+    explored_at = str(tracker["feeds"].get("explored_at") or "")
     stats = ListingStats()
     listed: set[str] = set()
-    pending: list[tuple[str, str, str]] = []
     failures: list[str] = []
-    consecutive_seen = 0
+    lost: list[str] = []
+    recorded = 0
     detected_name = ""
+    succeeded = False
     updates: dict[str, Any] = {}
     try:
+        if requeue:
+            lost = _queue_missing(tracker)
         with CpuPacer() as pacer:
-            entries = iter_entries(tracker["source_url"], tracker["source_key"], stats)
+            entries = iter_entries(
+                tracker["source_url"],
+                tracker["source_key"],
+                stats,
+                known=lambda key: has_tracker_entry(tracker_id, key),
+                settled=lambda key: (
+                    has_tracker_entry(tracker_id, key, seen_by=pass_start)
+                    or has_tracker_backlog_row(tracker_id, key, found_by=pass_start)
+                ),
+                stop_after=None if first else settings["stop_after"],
+                feeds=feeds,
+                explore=not feeds or explored_at < (utc_now_datetime() - _EXPLORE_EVERY).isoformat(),
+                backlog=_TrackerBacklog(tracker_id, queue_new),
+            )
             with closing(entries):
                 for entry in entries:
                     pacer.tick()
                     key = url_dedup_key(entry.url)
                     if key in listed:
                         continue
-                    listed.add(key)
-                    detected_name = detected_name or entry.collection or entry.creator
+                    listed.update((key, *entry.members))
+                    if entry.owned:
+                        detected_name = detected_name or entry.collection or entry.creator
                     if has_tracker_entry(tracker_id, key):
-                        consecutive_seen += 1
-                        if not first and consecutive_seen >= _STOP_AFTER_SEEN:
-                            break
                         continue
-                    consecutive_seen = 0
+                    if recorded + len(failures) >= settings["page_size"]:
+                        break
                     download_id = ""
-                    if queue_new:
+                    if queue_new and entry.owned:
                         try:
                             download_id = _queue_entry(tracker, entry)
                         except Exception as exc:
                             # Left unrecorded, so the next check tries the entry again.
                             failures.append(str(exc))
                             continue
-                    pending.append((key, entry.url, download_id))
-                    if len(pending) >= _RECORD_BATCH:
-                        record_tracker_entry_rows(tracker_id, pending)
-                        pending.clear()
-        if not listed and (first or stats.unresolved):
+                    # Written at once, so the seen count moves while the check runs. A post's photos
+                    # are recorded with it, so no other listing queues them alone.
+                    record_tracker_entry_rows(
+                        tracker_id,
+                        [(member, entry.url, download_id) for member in dict.fromkeys((key, *entry.members))],
+                    )
+                    recorded += 1
+        # A pass that queues nothing records what pages show without listing it.
+        if not listed and not any(stats.pages.values()) and (first or stats.unresolved):
             raise ValueError(UNRESOLVED_ERROR if stats.unresolved else SINGLE_ITEM_ERROR)
-        updates["last_success_at"] = utc_now()
-        updates["last_error"] = f"Could not queue {len(failures)} item(s): {failures[0]}" if failures else ""
+        succeeded = True
+        # The pages that listed items lead the next walk, which then skips pages that never list any.
+        updates["feeds"] = {
+            "urls": stats.feeds(feeds),
+            "explored_at": utc_now() if stats.explored else explored_at,
+        }
+        errors = [*lost, *failures]
+        updates["last_error"] = f"Could not queue {len(errors)} item(s): {errors[0]}" if errors else ""
         # A tracker starts out named after its link; the listing knows the collection's own name.
         if detected_name and tracker["name"] == _fallback_name(tracker["source_url"]):
             updates["name"] = detected_name
     except Exception as exc:
         updates["last_error"] = str(exc) or "Check failed."
     finally:
-        # A tracker deleted mid-check keeps nothing.
+        # A tracker deleted mid-check has no row left to update.
         latest = load_tracker_row(tracker_id)
         if latest:
-            record_tracker_entry_rows(tracker_id, pending)
+            # A listing cut off by the batch or a page that never showed its end leaves the pass open.
+            if succeeded and stats.complete:
+                # Stamped after the last entries are written, so they belong to the finished pass.
+                updates["last_success_at"] = utc_now()
             updates.update(
                 {
                     "last_checked_at": utc_now(),
