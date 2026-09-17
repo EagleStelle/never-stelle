@@ -4,6 +4,7 @@ import json
 import os
 import tarfile
 import tempfile
+import threading
 import time
 import types
 from pathlib import Path
@@ -36,15 +37,38 @@ class _Chunks:
 
 
 class _FakeBrowser:
-    """A CDP peer over a real pipe: answers commands from a script of page states."""
+    """A CDP peer over a real pipe: answers commands from a script of page states.
 
-    def __init__(self, pages: list[list[str]], *, scroll_seconds: float = 0, fail: str = "") -> None:
+    With ``request_seconds`` each scroll sends a data request, and the page shows what the scroll
+    loaded only once that request finishes.
+    """
+
+    def __init__(
+        self,
+        pages: list[list[str]],
+        *,
+        scroll_seconds: float = 0,
+        request_seconds: float = 0,
+        landed: str = "",
+        navigation: list[tuple[str, str, bool]] | None = None,
+        followed: list[list[str]] | None = None,
+        fail: str = "",
+    ) -> None:
         self.pages = pages
         self.scroll_seconds = scroll_seconds
+        self.request_seconds = request_seconds
+        self.landed = landed
+        self.navigation = navigation or []
+        # The address a real click on each script tab leads to, by its text.
+        self.followed = dict(followed or [])
+        self.pointed = ""
+        self.timers: list[threading.Timer] = []
         self.fail = fail
         self.scrolls = 0
+        self.loaded = 0
         self.methods: list[str] = []
         read_fd, self._write_fd = os.pipe()
+        self._emit_lock = threading.Lock()
         self.stdout = os.fdopen(read_fd, "rb", buffering=0)
         self.stdin = self
         self.returncode = 0
@@ -55,7 +79,10 @@ class _FakeBrowser:
                 self._answer(json.loads(raw))
 
     def close(self) -> None:
-        os.close(self._write_fd)
+        for timer in self.timers:
+            timer.cancel()
+        with self._emit_lock:
+            os.close(self._write_fd)
 
     def poll(self) -> int:
         return self.returncode
@@ -63,12 +90,19 @@ class _FakeBrowser:
     def wait(self) -> int:
         return self.returncode
 
+    def _emit(self, message: dict) -> None:
+        with self._emit_lock:
+            os.write(self._write_fd, json.dumps(message).encode() + b"\0")
+
+    def _request(self, request_id: str, method: str = "Network.requestWillBeSent") -> None:
+        self._emit({"method": method, "params": {"requestId": request_id, "type": "XHR"}})
+
     def _answer(self, message: dict) -> None:
         self.methods.append(message["method"])
         reply = (
             {"error": {"message": "failed"}} if message["method"] == self.fail else {"result": self._result(message)}
         )
-        os.write(self._write_fd, json.dumps({"id": message["id"], **reply}).encode() + b"\0")
+        self._emit({"id": message["id"], **reply})
 
     def _result(self, message: dict) -> dict:
         method, params = message["method"], message.get("params") or {}
@@ -76,17 +110,45 @@ class _FakeBrowser:
             return {"targetId": "target-1"}
         if method == "Target.attachToTarget":
             return {"sessionId": "session-1"}
+        if method == "Page.navigate" and self.request_seconds:
+            # A request the page keeps open for good, as a long poll.
+            self._request("long-poll")
+        if method == "Input.dispatchMouseEvent" and params["type"] == "mouseReleased":
+            self.landed = self.followed[self.pointed]
         if method != "Runtime.evaluate":
             return {}
         expression = params["expression"]
-        if expression == "document.readyState":
-            return {"result": {"value": "complete"}}
-        if expression.startswith("window.scrollTo"):
+        if "document.readyState" in expression:
+            links = self.pages[min(self.loaded, len(self.pages) - 1)]
+            return {"result": {"value": json.dumps(["complete", len(links)])}}
+        if expression == browser_module._SCROLL_EXPRESSION:
             time.sleep(self.scroll_seconds)
             self.scrolls += 1
+            if self.request_seconds:
+                self._load(self.scrolls)
+            else:
+                self.loaded = self.scrolls
             return {"result": {"value": ""}}
-        links = self.pages[min(self.scrolls, len(self.pages) - 1)]
+        if expression == "location.href":
+            return {"result": {"value": self.landed}}
+        if "scrollIntoView" in expression:
+            self.pointed = json.loads(expression.rsplit(")(", 1)[1][:-1])
+            return {"result": {"value": json.dumps([10, 20]) if self.pointed in self.followed else ""}}
+        if "querySelectorAll" in expression:
+            return {"result": {"value": json.dumps([self.landed, self.navigation])}}
+        links = self.pages[min(self.loaded, len(self.pages) - 1)]
         return {"result": {"value": json.dumps(links)}}
+
+    def _load(self, scroll: int) -> None:
+        self._request(f"scroll-{scroll}")
+
+        def finish() -> None:
+            self.loaded = scroll
+            self._request(f"scroll-{scroll}", "Network.loadingFinished")
+
+        timer = threading.Timer(self.request_seconds, finish)
+        self.timers.append(timer)
+        timer.start()
 
 
 def _session(monkeypatch, tmp_path: Path, fake: _FakeBrowser) -> browser_module.BrowserSession:
@@ -97,7 +159,9 @@ def _session(monkeypatch, tmp_path: Path, fake: _FakeBrowser) -> browser_module.
     monkeypatch.setattr(browser_module, "remove_scratch_path", lambda path: None)
     monkeypatch.setattr(browser_module.subprocess, "Popen", lambda *args, **kwargs: fake)
     monkeypatch.setattr(browser_module, "_POLL_SECONDS", 0)
-    monkeypatch.setattr(browser_module, "_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(browser_module, "_RENDER_SECONDS", 0)
+    monkeypatch.setattr(browser_module, "_IDLE_SECONDS", 0)
+    monkeypatch.setattr(browser_module, "_QUIET_SECONDS", 0)
     return browser_module.BrowserSession("example")
 
 
@@ -123,6 +187,67 @@ def test_scrolling_stops_after_its_idle_rounds_add_nothing(monkeypatch, tmp_path
 
     assert batches == [[reel]]
     assert fake.scrolls == 1 + browser_module._IDLE_ROUNDS
+
+
+def test_a_round_waits_for_the_requests_its_scroll_sent_but_not_for_older_ones(monkeypatch, tmp_path):
+    reel = "https://example.test/reel/11111111"
+    fake = _FakeBrowser([[], [reel]], request_seconds=0.2)
+    session = _session(monkeypatch, tmp_path, fake)
+    # The page renders what a request brought just after it finishes.
+    monkeypatch.setattr(browser_module, "_QUIET_SECONDS", 0.1)
+    started = time.monotonic()
+
+    with session:
+        batches = list(session.scroll_links(PAGE_URL, _any_item, _nothing_known))
+
+    assert batches == [[reel]]
+    # The page's long poll never finishes, yet no round waited out its limit for it.
+    assert time.monotonic() - started < browser_module._ROUND_SECONDS
+
+
+def test_items_are_handed_over_while_the_page_still_loads(monkeypatch, tmp_path):
+    reel = "https://example.test/reel/11111111"
+    tab = f"{PAGE_URL}/reels"
+    fake = _FakeBrowser([[reel]], request_seconds=30, landed=tab, navigation=[(tab, "Reels", True)])
+    started = time.monotonic()
+
+    with _session(monkeypatch, tmp_path, fake) as session:
+        batches = session.scroll_links(PAGE_URL, _any_item, _nothing_known)
+        assert next(batches) == [reel]
+        # The walk caught up with an earlier pass here, so the rest of the page is never waited for.
+        batches.close()
+        assert (session.landed, session.navigation) == ({PAGE_URL: tab}, {PAGE_URL: [(tab, "Reels", True)]})
+
+    assert time.monotonic() - started < 5
+
+
+def test_reading_a_pages_tabs_follows_the_ones_that_switch_it_in_script(monkeypatch, tmp_path):
+    clips = f"{PAGE_URL}?view=clips"
+    fake = _FakeBrowser(
+        [[]],
+        landed=PAGE_URL,
+        navigation=[("", "All", True), ("", "Clips", False), ("", "Gone", False)],
+        followed=[["Clips", clips]],
+    )
+
+    with _session(monkeypatch, tmp_path, fake) as session:
+        list(session.scroll_links(PAGE_URL, _any_item, _nothing_known, follow_tabs=True))
+
+    # The tab showing is the page itself; a tab that led nowhere keeps no link.
+    assert session.navigation == {PAGE_URL: [(PAGE_URL, "All", True), (clips, "Clips", False), ("", "Gone", False)]}
+
+
+def test_a_feed_pausing_longer_than_its_idle_rounds_is_waited_for(monkeypatch, tmp_path):
+    reels = ["https://example.test/reel/11111111", "https://example.test/reel/22222222"]
+    fake = _FakeBrowser([*[[reels[0]]] * 6, reels])
+    session = _session(monkeypatch, tmp_path, fake)
+    monkeypatch.setattr(browser_module, "_IDLE_SECONDS", 0.5)
+
+    with session:
+        batches = list(session.scroll_links(PAGE_URL, _any_item, _nothing_known))
+
+    # Five rounds added nothing, yet the page had not been quiet long enough to count as ended.
+    assert batches == [[reels[0]], [reels[1]]]
 
 
 def test_a_page_showing_no_item_after_its_first_scroll_ends_there(monkeypatch, tmp_path):

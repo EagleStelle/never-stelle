@@ -27,11 +27,71 @@ _ARCHIVE_PATH = _BUNDLE_DIR / "chrome.tar.xz"
 _VERSION_PATH = _BUNDLE_DIR / "version"
 _LAUNCHER_NAME = "chrome"
 
-# Feeds can pause 20 s and more before their next chunk, so a page that showed items waits this many
-# empty rounds of _POLL_ATTEMPTS polls before it counts as ended.
-_IDLE_ROUNDS = 6
-_POLL_SECONDS = 0.5
-_POLL_ATTEMPTS = 10
+# A page that showed items ends after this many rounds in a row add none, spanning at least _IDLE_SECONDS:
+# feeds can pause several seconds between chunks.
+_IDLE_ROUNDS = 3
+_IDLE_SECONDS = 15
+_POLL_SECONDS = 0.25
+# A round ends once the page has sent no request for this long and none it sent is still loading.
+_QUIET_SECONDS = 1.0
+# A round waits no longer than this for a request that never finishes, as a long poll.
+_ROUND_SECONDS = 15
+# Page requests that can carry the next chunk of a feed.
+_DATA_REQUESTS = frozenset({"XHR", "Fetch"})
+# Where the page landed, and the links it offers as its own sections (as a profile's tabs), each with its
+# text and whether the page marks it as the one showing. A tab switching the page in script has no link.
+_NAVIGATION_EXPRESSION = """[location.href, Array.from(
+  document.querySelectorAll("nav a[href], [role=tablist] a[href], a[role=tab]"),
+  a => [
+    a.href,
+    a.textContent.replace(/\\s+/g, " ").trim(),
+    a.getAttribute("aria-selected") === "true" || !["", "false"].includes(a.getAttribute("aria-current") || ""),
+  ]
+)]"""
+# Scrolls the tab with the given text into view and reports its middle once nothing covers it; "" when that
+# never happens, as while a page switched by an earlier tab renders. Script tabs answer only a real click.
+_TAB_POINT_EXPRESSION = """(async (name) => {
+  for (let waited = 0; waited < 3000; waited += 300) {
+    const tab = Array.from(document.querySelectorAll("a[role=tab]"))
+      .find(a => a.textContent.replace(/\\s+/g, " ").trim() === name);
+    if (tab) {
+      // From the top, so a tab bar stuck under a header scrolls back to where it sits in the page.
+      window.scrollTo(0, 0);
+      tab.scrollIntoView({block: "center"});
+    }
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const box = tab && tab.getBoundingClientRect();
+    if (box && tab.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))) {
+      return JSON.stringify([box.x + box.width / 2, box.y + box.height / 2]);
+    }
+  }
+  return "";
+})(%s)"""
+# How long a clicked tab gets to change the page's address.
+_TAB_SECONDS = 5
+# Back up two screens before the bottom, so loaders watching the page end see it arrive again.
+_SCROLL_EXPRESSION = """(async () => {
+  const page = document.scrollingElement || document.body;
+  window.scrollTo(0, Math.max(0, page.scrollHeight - 2 * window.innerHeight));
+  await new Promise(resolve => setTimeout(resolve, 150));
+  window.scrollTo(0, page.scrollHeight);
+})()"""
+# Only the links a page added since the last poll: a deep page carries thousands, polled several times a second.
+_NEW_LINKS_EXPRESSION = """(() => {
+  const seen = window.__neverStelleLinks || (window.__neverStelleLinks = new Set());
+  const fresh = [];
+  for (const a of document.links) {
+    if (!seen.has(a.href)) {
+      seen.add(a.href);
+      fresh.push(a.href);
+    }
+  }
+  return fresh;
+})()"""
+# Pages built in script keep rendering after they load: a page is judged once loaded with its link count
+# unchanged for _QUIET_SECONDS, waiting at most this long, and this long before a page showing no link counts.
+_SETTLE_SECONDS = 30
+_RENDER_SECONDS = 8
 # A guard against a page that never ends; a walk reaching it says so, as it saw no end.
 _SCROLL_BUDGET_SECONDS = 600
 _NAVIGATE_TIMEOUT_SECONDS = 30
@@ -95,9 +155,18 @@ class BrowserSession:
         self._ids = itertools.count(1)
         self._pending: dict[int, Queue[dict[str, Any]]] = {}
         self._write_lock = threading.Lock()
+        # Data requests sent since the current round scrolled and still loading, and when one last started or ended.
+        self._network_lock = threading.Lock()
+        self._loading: set[str] = set()
+        self._network_at = 0.0
         self._slot_held = False
         # Set once a page stopped on its time budget or failed instead of reaching its end.
         self.cut_short = False
+        # Links, their text and whether each is the one showing, in each scrolled page's navigation bars and tab
+        # lists, by the url it was scrolled at.
+        self.navigation: dict[str, list[tuple[str, str, bool]]] = {}
+        # Where each scrolled page landed after its redirects, by the url it was scrolled at.
+        self.landed: dict[str, str] = {}
 
     def __enter__(self) -> BrowserSession:
         return self
@@ -106,14 +175,16 @@ class BrowserSession:
         self.close()
 
     def scroll_links(
-        self, url: str, is_item: Callable[[str], bool], known: Callable[[str], bool]
+        self, url: str, is_item: Callable[[str], bool], known: Callable[[str], bool], *, follow_tabs: bool = False
     ) -> Iterator[list[str]]:
-        """Batches of the item links a page adds while it is scrolled, each link once.
+        """Batches of the item links a page adds while it is scrolled, each link once and as soon as it shows.
 
         A page showing no item at all after its first scroll is no feed and ends there. Otherwise
         scrolling ends after its idle rounds add no item, or once scrolling has used its time budget.
         Rounds adding only ``known`` items cost no budget, so a walk passes what earlier walks found
-        and reaches further than they did.
+        and reaches further than they did. The page's navigation links land in ``navigation`` and
+        where it landed in ``landed``; the tab showing is the page itself, and with ``follow_tabs``
+        each tab switching the page in script is clicked once for its address.
         """
         if not self._start():
             return
@@ -121,7 +192,10 @@ class BrowserSession:
         try:
             target = self._call("Target.createTarget", {"url": "about:blank"}).get("targetId", "")
             attached = self._call("Target.attachToTarget", {"targetId": target, "flatten": True})
-            yield from self._rounds(url, attached.get("sessionId", ""), is_item, known)
+            session_id = attached.get("sessionId", "")
+            yield from self._rounds(url, session_id, is_item, known)
+            if follow_tabs and any(not link for link, _, _ in self.navigation[url]):
+                self.navigation[url] = self._followed(url, self.navigation[url], session_id)
         except Exception:
             # The page's end was never seen, so a later walk has to scroll it again.
             self.cut_short = True
@@ -238,13 +312,26 @@ class BrowserSession:
         waiter = self._pending.pop(message["id"], None) if "id" in message else None
         if waiter:
             waiter.put(message)
-        elif message.get("method") == "Fetch.requestPaused":
+            return
+        method = message.get("method")
+        params = message.get("params") or {}
+        request_id = str(params.get("requestId") or "")
+        if method == "Network.requestWillBeSent" and params.get("type") in _DATA_REQUESTS:
+            with self._network_lock:
+                self._loading.add(request_id)
+                self._network_at = time.monotonic()
+        elif method in ("Network.loadingFinished", "Network.loadingFailed"):
+            with self._network_lock:
+                # Only requests sent since the round scrolled count; older ones are long polls.
+                if request_id in self._loading:
+                    self._loading.discard(request_id)
+                    self._network_at = time.monotonic()
+        elif method == "Fetch.requestPaused":
             # Only the blocked patterns pause, so every paused request is one to drop.
-            params = message.get("params") or {}
             with suppress(Exception):
                 self._notify(
                     "Fetch.failRequest",
-                    {"requestId": params.get("requestId", ""), "errorReason": "BlockedByClient"},
+                    {"requestId": request_id, "errorReason": "BlockedByClient"},
                     session_id=str(message.get("sessionId") or ""),
                 )
 
@@ -295,54 +382,148 @@ class BrowserSession:
 
     # --- Scrolling ---
     def _evaluate(self, expression: str, session_id: str) -> str:
-        params = {"expression": expression, "returnByValue": True}
+        params = {"expression": expression, "returnByValue": True, "awaitPromise": True}
         result = self._call("Runtime.evaluate", params, session_id=session_id)
         return str((result.get("result") or {}).get("value") or "")
 
-    def _links(self, session_id: str) -> list[str]:
+    def _values(self, expression: str, session_id: str) -> list[Any]:
         try:
-            links = json.loads(self._evaluate("JSON.stringify(Array.from(document.links, a => a.href))", session_id))
+            values = json.loads(self._evaluate(f"JSON.stringify({expression})", session_id))
         except ValueError:
             return []
-        return [link for link in links if isinstance(link, str)] if isinstance(links, list) else []
+        return values if isinstance(values, list) else []
+
+    def _links(self, session_id: str) -> list[str]:
+        links = self._values(_NEW_LINKS_EXPRESSION, session_id)
+        return [link for link in links if isinstance(link, str)]
+
+    def _navigation(self, session_id: str) -> tuple[str, list[tuple[str, str, bool]]]:
+        landed, anchors = (self._values(_NAVIGATION_EXPRESSION, session_id) + ["", []])[:2]
+        landed = str(landed or "")
+        if not isinstance(anchors, list):
+            anchors = []
+        # A tab without a link that shows is the page itself.
+        return landed, [
+            (anchor[0] or (landed if anchor[2] else ""), anchor[1], bool(anchor[2]))
+            for anchor in anchors
+            if isinstance(anchor, list) and len(anchor) == 3 and all(isinstance(part, str) for part in anchor[:2])
+        ]
+
+    def _settle(self, session_id: str) -> None:
+        # Waits for the page to render: loaded, and its links no longer changing.
+        started = time.monotonic()
+        count, steady_since = -1, started
+        while (now := time.monotonic()) - started < _SETTLE_SECONDS:
+            ready, links = (self._values("[document.readyState, document.links.length]", session_id) + ["", 0])[:2]
+            if links != count:
+                count, steady_since = links, now
+            elif (
+                ready == "complete"
+                and now - steady_since >= _QUIET_SECONDS
+                and (links or now - started >= _RENDER_SECONDS)
+            ):
+                return
+            time.sleep(_POLL_SECONDS)
+
+    def _followed(
+        self, url: str, navigation: list[tuple[str, str, bool]], session_id: str
+    ) -> list[tuple[str, str, bool]]:
+        # Tabs without a link take the address a click on each led to; one that led nowhere stays without. A click
+        # can miss while the page an earlier click switched to still renders, so a miss is tried again on the page
+        # loaded afresh.
+        addresses: dict[str, str] = {}
+        for link, text, showing in navigation:
+            if link or showing or not text or text in addresses:
+                continue
+            for attempt in range(2):
+                try:
+                    if attempt:
+                        self._call(
+                            "Page.navigate", {"url": url}, session_id=session_id, timeout=_NAVIGATE_TIMEOUT_SECONDS
+                        )
+                        self._settle(session_id)
+                    if address := self._clicked(text, session_id):
+                        addresses[text] = address
+                        self._settle(session_id)
+                        break
+                except (ValueError, RuntimeError, TimeoutError):
+                    continue
+        return [(link or addresses.get(text, ""), text, showing) for link, text, showing in navigation]
+
+    def _clicked(self, text: str, session_id: str) -> str:
+        # The address a real click on the tab with this text led to; "" when nothing could be clicked or it led nowhere.
+        point = json.loads(self._evaluate(_TAB_POINT_EXPRESSION % json.dumps(text), session_id) or "null")
+        if not (isinstance(point, list) and len(point) == 2):
+            return ""
+        before = self._evaluate("location.href", session_id)
+        for kind in ("mouseMoved", "mousePressed", "mouseReleased"):
+            params = {"type": kind, "x": point[0], "y": point[1], "button": "left", "clickCount": 1}
+            self._call("Input.dispatchMouseEvent", params, session_id=session_id)
+        deadline = time.monotonic() + _TAB_SECONDS
+        while time.monotonic() < deadline:
+            time.sleep(_POLL_SECONDS)
+            if (address := self._evaluate("location.href", session_id)) != before:
+                return address
+        return ""
 
     def _rounds(
         self, url: str, session_id: str, is_item: Callable[[str], bool], known: Callable[[str], bool]
     ) -> Iterator[list[str]]:
         self._call("Fetch.enable", {"patterns": _BLOCKED_PATTERNS}, session_id=session_id)
+        self._call("Network.enable", session_id=session_id)
         if self._cookies:
             self._call("Network.setCookies", {"cookies": self._cookies}, session_id=session_id)
         self._call("Page.navigate", {"url": url}, session_id=session_id, timeout=_NAVIGATE_TIMEOUT_SECONDS)
-        for _ in range(_POLL_ATTEMPTS):
-            if self._evaluate("document.readyState", session_id) == "complete":
-                break
-            time.sleep(_POLL_SECONDS)
+        self._settle(session_id)
 
         seen: set[str] = set()
         feed = False
-        idle = 0
+        # Rounds in a row that added no item, and when the last item showed.
+        idle, shown_at = 0, time.monotonic()
         # Only scrolling to new items counts against the budget: neither the walk pausing here to
         # handle a batch nor passing items it already knows.
         spent = 0.0
+        self.navigation[url] = []
+        self.landed[url] = ""
+        first = True
         # Feeds often render nothing until scrolled, so a page is judged after its first scroll.
-        while idle < (_IDLE_ROUNDS if feed else 1) and spent < _SCROLL_BUDGET_SECONDS:
+        while spent < _SCROLL_BUDGET_SECONDS and (
+            idle < _IDLE_ROUNDS or time.monotonic() - shown_at < _IDLE_SECONDS if feed else idle < 1
+        ):
             started = time.monotonic()
-            self._evaluate("window.scrollTo(0, document.body.scrollHeight)", session_id)
-            batch: list[str] = []
-            for _ in range(_POLL_ATTEMPTS):
+            # Time the walk spends on a batch mid-round, which is no scrolling.
+            paused = 0.0
+            shown = new = False
+            with self._network_lock:
+                self._loading.clear()
+            self._evaluate(_SCROLL_EXPRESSION, session_id)
+            while True:
                 time.sleep(_POLL_SECONDS)
-                # Each link is judged once: a page carries thousands, and polls repeat every half second.
+                if first:
+                    # Navigation renders with the page, so the first round sees all of it.
+                    landed, navigation = self._navigation(session_id)
+                    self.landed[url] = landed or self.landed[url]
+                    self.navigation[url] = navigation or self.navigation[url]
+                # Each link is judged once: a page carries thousands, and polls repeat several times a second.
                 fresh = [link for link in self._links(session_id) if link not in seen]
                 seen.update(fresh)
-                batch.extend(link for link in fresh if is_item(link))
+                batch = [link for link in fresh if is_item(link)]
                 if batch:
+                    shown = True
+                    # Every batch holds links new to this walk, so passing known items cannot go on forever.
+                    new = new or not all(map(known, batch))
+                    handed = time.monotonic()
+                    yield batch
+                    paused += time.monotonic() - handed
+                now = time.monotonic()
+                with self._network_lock:
+                    loading, last = bool(self._loading), max(self._network_at, started)
+                if (not loading and now - last >= _QUIET_SECONDS) or now - started - paused >= _ROUND_SECONDS:
                     break
-            feed = feed or bool(batch)
-            # Every batch holds links new to this walk, so passing known items cannot go on forever.
-            if not batch or not all(map(known, batch)):
-                spent += time.monotonic() - started
-            idle = 0 if batch else idle + 1
-            if batch:
-                yield batch
+            first = False
+            feed = feed or shown
+            if new or not shown:
+                spent += time.monotonic() - started - paused
+            idle, shown_at = (0, time.monotonic()) if shown else (idle + 1, shown_at)
         if spent >= _SCROLL_BUDGET_SECONDS:
             self.cut_short = True
