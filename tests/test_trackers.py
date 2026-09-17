@@ -18,7 +18,7 @@ from backend.app.core.time import utc_now_datetime
 from backend.app.db import repositories
 from backend.app.domains.downloads import serializers
 from backend.app.domains.downloads.access import AccessIdentity
-from backend.app.domains.settings import normalize_tracker_settings, save_saved_settings_file
+from backend.app.domains.settings import merge_tracker_tabs, normalize_tracker_settings, save_saved_settings_file
 from backend.app.domains.trackers.listing import Entry, ListingStats
 from tests.support import use_temp_db
 
@@ -194,6 +194,17 @@ def test_collection_tabs_and_the_tracked_link_are_never_items(temp_db):
     assert resolver.is_item("https://example.test/alice_99/status/1234567890123")
     assert not handle.is_item("https://example.test/profile/alice.example.social/media")
     assert handle.is_item("https://example.test/profile/alice.example.social/post/3kabcdefghi2x")
+    assert not resolver.is_item(f"{TRACKER_URL}/photos_by")
+    assert resolver.is_tab(f"{TRACKER_URL}/reels_tab")
+
+
+def test_a_link_naming_its_page_by_query_has_tabs_one_query_field_apart(temp_db):
+    resolver = listing_module._Resolver("https://example.test/profile.php?id=11111111", "example")
+
+    assert resolver.is_tab("https://example.test/profile.php?id=11111111&sk=reels_tab")
+    assert not resolver.is_tab("https://example.test/profile.php?id=22222222&sk=reels_tab")
+    assert not resolver.is_tab("https://example.test/profile.php?id=11111111&sk=reels_tab&ref=nav")
+    assert not _resolver().is_tab(f"{TRACKER_URL}?sk=reels_tab")
 
 
 def test_gallerydl_dispatcher_queue_is_a_sub_collection(temp_db, monkeypatch):
@@ -571,7 +582,7 @@ def test_a_listing_stops_after_a_run_of_known_entries(temp_db, monkeypatch):
     )
     known = {service_module.url_dedup_key(_entry(n).url) for n in range(1, 31)}
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example", known=known.__contains__, stop_after=5))
+    entries = list(listing_module.iter_entries(TRACKER_URL, "example", known=known.__contains__, caught_up_after=5))
 
     assert [entry.url for entry in entries] == [_entry(n).url for n in numbers[:7]]
 
@@ -592,7 +603,7 @@ def test_entries_recorded_earlier_in_the_pass_do_not_stop_a_listing(temp_db, mon
             "example",
             known=(this_pass | earlier).__contains__,
             settled=earlier.__contains__,
-            stop_after=5,
+            caught_up_after=5,
         )
     )
 
@@ -649,7 +660,10 @@ def test_page_links_add_the_creators_items_and_mark_foreign_ones(temp_db, monkey
 
 
 class _Browser:
-    """Stands in for BrowserSession: hands back canned link batches and records what ran."""
+    """Stands in for BrowserSession: hands back canned link batches and records what ran.
+
+    A page in ``rendered`` lands where it says, shows its own navigation and batches instead.
+    """
 
     def __init__(self, batches: list[list[str]] | None = None) -> None:
         self.batches = batches or []
@@ -658,6 +672,9 @@ class _Browser:
         self.pulled = 0
         self.closed = 0
         self.cut_short = False
+        self.navigation: dict[str, list[tuple[str, str, bool]]] = {}
+        self.landed: dict[str, str] = {}
+        self.rendered: dict[str, tuple[str, list[tuple[str, str, bool]], list[list[str]]]] = {}
 
     def open(self, source_key: str) -> _Browser:
         self.opens += 1
@@ -669,9 +686,12 @@ class _Browser:
     def __exit__(self, *_exception) -> None:
         self.closed += 1
 
-    def scroll_links(self, url, is_item, known):
+    def scroll_links(self, url, is_item, known, follow_tabs=False):
         self.walks.append(url)
-        for batch in self.batches:
+        batches = self.batches
+        if url in self.rendered:
+            self.landed[url], self.navigation[url], batches = self.rendered[url]
+        for batch in batches:
             self.pulled += 1
             fresh = [link for link in batch if is_item(link)]
             if fresh:
@@ -713,10 +733,23 @@ def test_scrolling_adds_the_items_a_page_only_loads_as_it_grows(temp_db, monkeyp
     assert (browser.walks, browser.opens, browser.closed) == ([TRACKER_URL], 1, 1)
 
 
-def test_a_page_is_scrolled_to_its_end_before_its_first_item_is_listed(temp_db, monkeypatch):
+def _slow_scroll(browser: _Browser, seconds: float) -> None:
+    # Each batch takes a while to show, as a real page loading its next chunk does.
+    shown = browser.scroll_links
+
+    def scroll_links(url, is_item, known, follow_tabs=False):
+        for batch in shown(url, is_item, known, follow_tabs):
+            time.sleep(seconds)
+            yield batch
+
+    browser.scroll_links = scroll_links
+
+
+def test_items_are_listed_while_the_page_still_scrolls(temp_db, monkeypatch):
     reels = [f"https://example.test/reel/{n}1111111" for n in range(1, 10)]
     _reel_page(monkeypatch, f'"{reels[0]}"')
     browser = _browser(monkeypatch, *([reel] for reel in reels[1:]))
+    _slow_scroll(browser, 0.05)
     backlog = listing_module._WalkBacklog()
 
     entries = listing_module.iter_entries(TRACKER_URL, "example", backlog=backlog)
@@ -724,9 +757,30 @@ def test_a_page_is_scrolled_to_its_end_before_its_first_item_is_listed(temp_db, 
         collected = [next(entries), next(entries)]
 
     assert [entry.url for entry in collected] == reels[:2]
-    # The browser closed before the first probe, and the items no one listed wait in the backlog.
-    assert (browser.pulled, browser.closed) == (len(reels) - 1, 1)
-    assert backlog.links() == reels
+    # The first items came long before the page's end, and stopping there stopped the scroll.
+    assert browser.pulled < len(reels) - 2
+    assert browser.closed == 1
+    assert backlog.links() == reels[: browser.pulled + 1]
+
+
+def test_a_link_the_app_already_downloaded_is_not_probed(temp_db, monkeypatch):
+    reels = [f"https://example.test/reel/{n}1111111" for n in range(1, 4)]
+    _reel_page(monkeypatch, " ".join(f'"{reel}"' for reel in reels))
+    probed: list[str] = []
+
+    def probe(url, **options):
+        probed.append(url)
+        return {"uploader": "Alice", "ext": "mp4"}
+
+    monkeypatch.setattr(listing_module, "probe_metadata", probe)
+    monkeypatch.setattr(
+        listing_module, "find_history_by_source", lambda url: ("h1", {}) if url == reels[1] else (None, None)
+    )
+
+    entries = list(listing_module.iter_entries(TRACKER_URL, "example"))
+
+    assert [entry.url for entry in entries] == reels
+    assert probed == [reels[0], reels[2]]
 
 
 def test_items_probed_ahead_keep_their_page_order(temp_db, monkeypatch):
@@ -780,10 +834,49 @@ def test_a_walk_that_caught_up_with_an_earlier_pass_scrolls_no_page(temp_db, mon
     browser = _browser(monkeypatch, ["https://example.test/reel/91111111"])
     earlier = {service_module.url_dedup_key(reel) for reel in reels}
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example", known=earlier.__contains__, stop_after=2))
+    entries = list(listing_module.iter_entries(TRACKER_URL, "example", known=earlier.__contains__, caught_up_after=2))
 
     assert [entry.url for entry in entries] == reels[:2]
     assert browser.walks == []
+
+
+def test_remembered_feeds_are_scrolled_after_an_engine_caught_up_and_other_pages_are_not(temp_db, monkeypatch):
+    reels = [f"https://example.test/reel/{n}1111111" for n in range(1, 4)]
+    _reel_page(monkeypatch, "", engine_messages=[[6, reel, {}] for reel in reels])
+    browser = _browser(monkeypatch, ["https://example.test/reel/91111111"])
+    earlier = {service_module.url_dedup_key(reel) for reel in reels}
+    feed = f"{TRACKER_URL}/reels"
+
+    entries = list(
+        listing_module.iter_entries(TRACKER_URL, "example", known=earlier.__contains__, caught_up_after=2, feeds=[feed])
+    )
+
+    # The engine lists photos, say, while the feed holds what only scrolling shows.
+    assert [entry.url for entry in entries] == [*reels[:2], "https://example.test/reel/91111111"]
+    assert browser.walks == [feed]
+
+
+def test_items_an_earlier_page_showed_still_end_a_caught_up_scroll(temp_db, monkeypatch):
+    reels = [f"https://example.test/reel/{n}1111111" for n in range(1, 4)]
+    _reel_page(monkeypatch, "")
+    browser = _browser(monkeypatch, *([reel] for reel in reels), ["https://example.test/reel/91111111"])
+    earlier = {service_module.url_dedup_key(reel) for reel in reels}
+    feeds = [f"{TRACKER_URL}/reels", TRACKER_URL]
+
+    list(
+        listing_module.iter_entries(
+            TRACKER_URL,
+            "example",
+            known=earlier.__contains__,
+            caught_up_after=2,
+            feeds=feeds,
+            explore=False,
+            ended=[listing_module._visit_key(feed) for feed in feeds],
+        )
+    )
+
+    # Each feed stops after its second earlier item, though the second feed shows only what the first did.
+    assert (browser.walks, browser.pulled) == (feeds, 4)
 
 
 def test_one_browser_serves_the_tracked_link_and_its_tabs(temp_db, monkeypatch):
@@ -811,6 +904,20 @@ def test_one_browser_serves_the_tracked_link_and_its_tabs(temp_db, monkeypatch):
     assert (browser.walks, browser.opens, browser.closed) == ([TRACKER_URL, f"{TRACKER_URL}/reels"], 1, 1)
 
 
+def test_tabs_that_differ_by_query_alone_are_each_walked(temp_db, monkeypatch):
+    tracked = "https://example.test/profile.php?id=11111111"
+    tab = f"{tracked}&sk=reels_tab"
+    pages = {tracked: f'<a href="{tab}">Reels</a>', tab: '"https://example.test/reel/22222222"'}
+    _reel_page(monkeypatch, "")
+    monkeypatch.setattr(listing_module, "fetch_html", lambda url, cookie_source_key="": pages.get(url, ""))
+    browser = _browser(monkeypatch)
+
+    entries = list(listing_module.iter_entries(tracked, "example"))
+
+    assert [entry.url for entry in entries] == ["https://example.test/reel/22222222"]
+    assert browser.walks == [tracked, tab]
+
+
 def _tabbed_pages(monkeypatch) -> list[str]:
     pages = {
         TRACKER_URL: '<a href="/u/alice/about">About</a> <a href="/u/alice/reels">Reels</a>',
@@ -826,6 +933,23 @@ def _tabbed_pages(monkeypatch) -> list[str]:
     _reel_page(monkeypatch, "")
     monkeypatch.setattr(listing_module, "fetch_html", fetch)
     return fetched
+
+
+def test_a_rendered_pages_navigation_picks_the_tabs_to_walk(temp_db, monkeypatch):
+    fetched = _tabbed_pages(monkeypatch)
+    browser = _browser(monkeypatch)
+    # The site's own menu sits in the navigation too, and is no tab of the tracked link.
+    browser.navigation[TRACKER_URL] = [
+        ("https://example.test/home", "Home", False),
+        (f"{TRACKER_URL}/reels", "Reels", False),
+    ]
+
+    # A tab's own menu lists its sub-sections, which are no tabs to walk.
+    browser.navigation[f"{TRACKER_URL}/reels"] = [(f"{TRACKER_URL}/about", "About", False)]
+
+    list(listing_module.iter_entries(TRACKER_URL, "example"))
+
+    assert fetched == [TRACKER_URL, f"{TRACKER_URL}/reels"]
 
 
 def test_remembered_feeds_are_walked_without_the_other_pages(temp_db, monkeypatch):
@@ -853,6 +977,260 @@ def test_feeds_that_list_nothing_send_the_walk_to_every_page(temp_db, monkeypatc
     assert stats.explored
     # The page that listed nothing is forgotten; the one that listed the items leads next time.
     assert stats.feeds([gone]) == [f"{TRACKER_URL}/reels"]
+
+
+def _row(tab: str, *, enabled: bool = True, label: str = "", variants: list[tuple[str, str]] | None = None) -> dict:
+    return {
+        "tab": tab,
+        "label": label,
+        "variants": [{"name": name, "field": field} for name, field in variants or [(tab, "")]],
+        "engine": False,
+        "enabled": enabled,
+    }
+
+
+def _engines_by_page(monkeypatch, pages: dict[str, list]) -> list[str]:
+    # gallery-dl answers the pages given and supports no other; yt-dlp supports none.
+    listed: list[str] = []
+
+    def fake_stream(cmd, access, run):
+        messages = pages.get(cmd[-1]) if cmd[0] == "gallery-dl" else None
+        if cmd[0] == "gallery-dl":
+            listed.append(cmd[-1])
+        for message in messages or []:
+            run.messages += 1
+            yield message
+        run.returncode, run.log = (0, []) if messages is not None else (1, ["ERROR: Unsupported URL"])
+
+    monkeypatch.setattr(listing_module, "_stream", fake_stream)
+    monkeypatch.setattr(listing_module, "_probe_rotation", lambda url, key: _generate([AccessIdentity()]))
+    return listed
+
+
+def test_ticked_pages_are_scrolled_and_unticked_ones_left_to_the_engines_that_list_them(temp_db, monkeypatch):
+    clips, notes = f"{TRACKER_URL}/clips", f"{TRACKER_URL}/notes"
+    listed = _engines_by_page(
+        monkeypatch,
+        {
+            TRACKER_URL: [[6, clips, {}]],
+            clips: [[6, "https://example.test/post/11111111", {}]],
+            notes: [[6, "https://example.test/post/22222222", {}]],
+        },
+    )
+    # An engine reads the notes page itself; none reads the about page.
+    monkeypatch.setattr(listing_module, "_engine_reads", lambda url: url == notes)
+    browser = _browser(monkeypatch)
+    browser.navigation[TRACKER_URL] = [(clips, "Clips", False)]
+    tabs = [_row(""), _row("clips"), _row("notes", enabled=False), _row("about", enabled=False)]
+
+    entries = list(listing_module.iter_entries(TRACKER_URL, "example", tabs=tabs))
+
+    assert [entry.url for entry in entries] == [
+        "https://example.test/post/11111111",
+        "https://example.test/post/22222222",
+    ]
+    assert listed == [TRACKER_URL, clips, notes]
+    # The engines list the clips page, and it is scrolled too since it is ticked.
+    assert browser.walks == [TRACKER_URL, clips]
+
+
+def test_a_row_is_found_on_a_link_of_another_shape_by_a_name_learned_elsewhere(temp_db, monkeypatch):
+    tracked = "https://example.test/profile.php?id=11111111"
+    guessed, real = f"{tracked}&view=clips", f"{tracked}&view=clips_list"
+    _reel_page(monkeypatch, "")
+    browser = _browser(monkeypatch)
+    browser.rendered = {
+        tracked: (tracked, [], []),
+        # A name the site does not know shows the link itself, whose own tab is marked.
+        guessed: (tracked, [(tracked, "Posts", True)], [["https://example.test/reel/99999999"]]),
+        real: (real, [(tracked, "Posts", False), (real, "Clips", True)], [["https://example.test/reel/33333333"]]),
+    }
+    stats = ListingStats()
+
+    entries = list(
+        listing_module.iter_entries(
+            tracked, "example", stats, tabs=[_row("clips")], learned={"clips": [("clips_list", "view")]}
+        )
+    )
+
+    # The page the wrong guess showed adds nothing.
+    assert [entry.url for entry in entries] == ["https://example.test/reel/33333333"]
+    assert browser.walks == [tracked, guessed, real]
+    assert (stats.tab_pages, stats.missing_tabs) == ({"clips": real}, [])
+
+
+def test_a_page_that_is_no_longer_the_rows_gives_way_to_a_tab_the_link_offers(temp_db, monkeypatch):
+    old, offered = f"{TRACKER_URL}/clips_old", f"{TRACKER_URL}/clips_tab"
+    _reel_page(monkeypatch, "")
+    browser = _browser(monkeypatch)
+    browser.navigation[TRACKER_URL] = [(offered, "Clips", False)]
+    browser.rendered = {
+        # The old page now sends the browser to the link itself, which marks no tab.
+        old: (f"{TRACKER_URL}/", [], [["https://example.test/reel/99999999"]]),
+        offered: (offered, [(offered, "Clips", True)], [["https://example.test/reel/11111111"]]),
+    }
+    stats = ListingStats()
+
+    entries = list(
+        listing_module.iter_entries(TRACKER_URL, "example", stats, tabs=[_row("clips")], pages={"clips": old})
+    )
+
+    assert [entry.url for entry in entries] == ["https://example.test/reel/11111111"]
+    # The tab the link offers comes before the names built on it.
+    assert browser.walks == [old, offered]
+    assert stats.tab_pages == {"clips": offered}
+
+
+def test_a_row_no_page_turns_out_to_be_is_reported(temp_db, monkeypatch):
+    clips = f"{TRACKER_URL}/clips"
+    _reel_page(monkeypatch, "", engine_messages=[[6, "https://example.test/post/12345678", {}]])
+    browser = _browser(monkeypatch)
+    browser.rendered = {clips: (clips, [], [])}
+    stats = ListingStats()
+
+    list(listing_module.iter_entries(TRACKER_URL, "example", stats, tabs=[_row("clips", label="Clips")]))
+
+    # The link's own navigation is read once to look for the page.
+    assert browser.walks == [TRACKER_URL, clips]
+    assert (stats.tab_pages, stats.missing_tabs) == ({}, ["Clips"])
+
+
+def test_no_row_leaves_the_listing_to_the_engines(temp_db, monkeypatch):
+    fetched = _tabbed_pages(monkeypatch)
+
+    with pytest.raises(ValueError, match="Unsupported URL"):
+        list(listing_module.iter_entries(TRACKER_URL, "example", tabs=[]))
+
+    assert fetched == []
+
+
+def test_tabs_the_engines_hand_out_are_left_to_them_even_when_their_listing_fails(temp_db, monkeypatch):
+    fetched = _tabbed_pages(monkeypatch)
+    reels = f"{TRACKER_URL}/reels"
+    _engines_by_page(monkeypatch, {TRACKER_URL: [[6, reels, {}], [6, "https://example.test/post/12345678", {}]]})
+    stats = ListingStats()
+
+    list(listing_module.iter_entries(TRACKER_URL, "example", stats))
+
+    assert stats.engine_tabs == {"reels"}
+    assert fetched == [TRACKER_URL, f"{TRACKER_URL}/about"]
+
+
+def test_only_an_engine_reading_a_page_itself_lists_it(monkeypatch):
+    monkeypatch.setattr(listing_module, "ytdlp_single_video", lambda url: None)
+    # A dispatcher matching the page only hands out other pages.
+    for reads, expected in [(True, True), (False, False), (None, False)]:
+        monkeypatch.setattr(listing_module, "gallerydl_reads", lambda url, reads=reads: reads)
+        assert listing_module._engine_reads(TRACKER_URL) is expected
+    monkeypatch.setattr(listing_module, "ytdlp_single_video", lambda url: False)
+    assert listing_module._engine_reads(TRACKER_URL)
+
+
+def test_a_page_name_builds_the_page_in_the_shape_of_each_link():
+    tracked = "https://example.test/profile.php?id=11111111"
+
+    assert listing_module.page_variant(tracked, f"{tracked}&view=clips_list") == ("clips_list", "view")
+    assert listing_module.page_variant(TRACKER_URL, f"{TRACKER_URL}/clips_list/") == ("clips_list", "")
+    assert listing_module.page_variant(TRACKER_URL, f"{TRACKER_URL}/") == ("", "")
+    assert listing_module._page_url(tracked, "clips_list", "view") == f"{tracked}&view=clips_list"
+    assert listing_module._page_url(TRACKER_URL, "clips_list", "view") == f"{TRACKER_URL}/clips_list"
+    assert listing_module._page_url(tracked, "", "") == tracked
+    # A link naming its page by query needs the field the name goes in.
+    assert listing_module._page_url(tracked, "clips_list", "") == ""
+
+
+def test_probing_tabs_lists_the_link_then_the_tabs_its_navigation_offers(temp_db, monkeypatch):
+    clips = f"{TRACKER_URL}/clips"
+    _engines_by_page(monkeypatch, {TRACKER_URL: [[6, clips, {}]]})
+    browser = _browser(monkeypatch)
+    browser.navigation[TRACKER_URL] = [
+        (TRACKER_URL, "All", True),
+        ("https://example.test/home", "Home", False),
+        (f"{TRACKER_URL}/reels", "Reels", False),
+        (f"{TRACKER_URL}/about/", "About", False),
+        (clips, "Clips", False),
+    ]
+
+    tabs = listing_module.probe_tabs(TRACKER_URL, "example")
+
+    assert [(tab["tab"], tab["label"], tab["variants"], tab["engine"]) for tab in tabs] == [
+        ("", "All", [{"name": "", "field": ""}], False),
+        ("reels", "Reels", [{"name": "reels", "field": ""}], False),
+        ("about", "About", [{"name": "about", "field": ""}], False),
+        # The engines hand the clips page out.
+        ("clips", "Clips", [{"name": "clips", "field": ""}], True),
+    ]
+    assert browser.walks == [TRACKER_URL]
+
+
+def test_probing_a_link_whose_menu_names_it_another_way_lists_the_tabs_of_that_name(temp_db, monkeypatch):
+    landed = "https://example.test/people/alice/11111111"
+    own = "https://example.test/profile.php?id=11111111"
+    _engines_by_page(monkeypatch, {})
+    browser = _browser(monkeypatch)
+    # The menu links the page as it landed, and its tabs extend another name for it.
+    browser.navigation[landed] = [
+        ("https://example.test/home", "Home", False),
+        (landed, "Posts", True),
+        (f"{own}&view=clips_list", "Clips", False),
+    ]
+
+    tabs = listing_module.probe_tabs(landed, "example")
+
+    assert [(tab["tab"], tab["label"], tab["variants"]) for tab in tabs] == [
+        ("", "Posts", [{"name": "", "field": ""}]),
+        ("clips_list", "Clips", [{"name": "clips_list", "field": "view"}]),
+    ]
+
+
+def test_a_row_is_found_through_the_menu_of_a_link_that_names_itself_another_way(temp_db, monkeypatch):
+    tracked = "https://example.test/people/alice/11111111"
+    own = "https://example.test/profile.php?id=11111111"
+    clips = f"{own}&view=clips_list"
+    _reel_page(monkeypatch, "", engine_messages=[[6, "https://example.test/post/12345678", {}]])
+    browser = _browser(monkeypatch)
+    browser.rendered = {
+        tracked: (tracked, [(own, "Posts", True), (clips, "Clips", False)], []),
+        clips: (clips, [(own, "Posts", False), (clips, "Clips", True)], [["https://example.test/reel/33333333"]]),
+    }
+    stats = ListingStats()
+
+    list(listing_module.iter_entries(tracked, "example", stats, tabs=[_row("clips")]))
+
+    assert browser.walks == [tracked, clips]
+    assert stats.tab_pages == {"clips": clips}
+
+
+def test_probing_tabs_without_a_browser_reads_the_tabs_the_markup_links(temp_db, monkeypatch):
+    _tabbed_pages(monkeypatch)
+
+    assert [tab["tab"] for tab in listing_module.probe_tabs(TRACKER_URL, "example")] == ["", "about", "reels"]
+
+
+def test_a_probe_joins_the_rows_its_pages_already_have_and_adds_the_rest(temp_db):
+    rows = [
+        {"tab": "", "label": "All", "enabled": False},
+        {"tab": "clips", "variants": [{"name": "clips"}], "enabled": False},
+        # A row saved before pages went by name is no page.
+        {"tab": "/old", "enabled": True},
+    ]
+    found = [
+        {"tab": "", "label": "Posts", "variants": [{"name": "", "field": ""}]},
+        {"tab": "clips_list", "label": "Clips", "variants": [{"name": "clips_list", "field": "view"}]},
+        {"tab": "photos", "label": "Photos", "variants": [{"name": "photos", "field": "view"}], "engine": True},
+        {"tab": "about", "label": "About", "variants": [{"name": "about", "field": "view"}]},
+    ]
+
+    merged = merge_tracker_tabs(rows, found)
+
+    # A new page joins ticked unless the engines list it; a known one keeps its choice.
+    assert [(row["tab"], row["label"], row["enabled"], row["engine"]) for row in merged] == [
+        ("", "All", False, False),
+        ("clips", "Clips", False, False),
+        ("photos", "Photos", False, True),
+        ("about", "About", True, False),
+    ]
+    assert merged[1]["variants"] == [{"name": "clips", "field": ""}, {"name": "clips_list", "field": "view"}]
 
 
 def test_next_feeds_rank_this_walks_pages_and_keep_the_ones_it_did_not_reach():
@@ -953,7 +1331,7 @@ def test_later_check_queues_only_new_entries_and_lets_listings_stop_at_known_one
     tracker = _check(monkeypatch, [_entry(100), _entry(101), *old], queue)
 
     assert [url for url, _ in queue.calls] == [_entry(100).url, _entry(101).url]
-    assert (first["options"]["stop_after"], tracker["options"]["stop_after"]) == (None, 20)
+    assert (first["options"]["caught_up_after"], tracker["options"]["caught_up_after"]) == (None, 5)
     assert tracker["options"]["known"](service_module.url_dedup_key(old[0].url))
     assert tracker["options"]["settled"](service_module.url_dedup_key(old[0].url))
     assert not tracker["options"]["settled"](service_module.url_dedup_key(_entry(100).url))
@@ -981,7 +1359,7 @@ def test_a_full_batch_waits_for_the_interval_then_takes_new_entries_before_older
     second = _check(monkeypatch, [*fresh, *entries], queue)
 
     assert [url for url, _ in queue.calls[3:]] == [fresh[0].url, fresh[1].url, entries[3].url]
-    assert (second["last_success_at"], second["options"]["stop_after"]) == ("", None)
+    assert (second["last_success_at"], second["options"]["caught_up_after"]) == ("", None)
 
     last = _check(monkeypatch, [*fresh, *entries], queue)
 
@@ -1031,11 +1409,45 @@ def test_a_check_remembers_the_pages_that_listed_items_for_the_next_one(temp_db,
     monkeypatch.setattr(service_module, "queue_task", _Queue())
     service_module.run_check(repositories.load_tracker_row("t1"))
     service_module.run_check(repositories.load_tracker_row("t1"))
+    # A check asked for by hand looks at every page again.
+    service_module.check_tracker_now("t1")
+    service_module.run_check(repositories.load_tracker_row("t1"))
 
-    assert [(call["feeds"], call["explore"]) for call in calls] == [([], True), ([reels], False)]
+    assert [(call["feeds"], call["explore"]) for call in calls] == [([], True), ([reels], False), ([reels], True)]
     tracker = repositories.load_tracker_row("t1")
     assert tracker["feeds"]["urls"] == [reels]
     assert tracker["feeds"]["explored_at"]
+
+
+def test_a_check_finds_its_sources_pages_with_what_its_other_trackers_learned(temp_db, monkeypatch):
+    _insert_tracker()
+    other = "https://example.test/profile.php?id=22222222"
+    _insert_tracker(id="t2", source_url=other, feeds={"pages": {"clips": f"{other}&view=clips_list"}})
+    found = f"{TRACKER_URL}/clips_list"
+    calls: list[dict] = []
+
+    def fake_iter_entries(url, source_key, stats=None, **kwargs):
+        calls.append(kwargs)
+        stats.tab_pages = {**kwargs["pages"], "clips": found}
+        stats.missing_tabs = ["About"] if kwargs["tabs"] else []
+        yield _entry(len(calls))
+
+    monkeypatch.setattr(service_module, "iter_entries", fake_iter_entries)
+    monkeypatch.setattr(service_module, "queue_task", _Queue())
+    service_module.run_check(repositories.load_tracker_row("t1"))
+    rows = [_row("", enabled=False, label="All"), _row("clips", label="Clips")]
+    save_saved_settings_file({"source_tracker_tabs": {"example": rows}})
+    service_module.run_check(repositories.load_tracker_row("t1"))
+
+    # A source with no saved rows walks every page.
+    assert (calls[0]["tabs"], calls[0]["learned"]) == (None, {})
+    assert [row["tab"] for row in calls[1]["tabs"]] == ["", "clips"]
+    assert calls[1]["learned"] == {"clips": [("clips_list", "view")]}
+    # The page a check found is where the next one looks first.
+    assert calls[1]["pages"] == {"clips": found}
+    tracker = repositories.load_tracker_row("t1")
+    assert tracker["feeds"]["pages"] == {"clips": found}
+    assert tracker["last_error"] == "Could not find these pages on the link: About."
 
 
 def test_a_walk_that_saw_no_page_end_leaves_the_pass_open(temp_db, monkeypatch):
@@ -1052,37 +1464,65 @@ def test_a_walk_that_saw_no_page_end_leaves_the_pass_open(temp_db, monkeypatch):
     assert repositories.load_tracker_row("t1")["last_success_at"] == ""
 
 
-def test_a_later_batch_lists_what_the_first_scroll_found_without_scrolling_past_it(temp_db, monkeypatch):
+def test_new_posts_come_first_and_the_scroll_goes_on_where_the_last_walk_stopped(temp_db, monkeypatch):
+    reels = [f"https://example.test/reel/{n}1111111" for n in range(1, 7)]
+    fresh = "https://example.test/reel/91111111"
+    _reel_page(monkeypatch, "")
+    # Posted since the last walk, which queued the first three before stopping at its batch.
+    browser = _browser(monkeypatch, [fresh], *([reel] for reel in reels))
+    earlier = {service_module.url_dedup_key(reel) for reel in reels[:3]}
+    stats = ListingStats()
+
+    entries = list(
+        listing_module.iter_entries(
+            TRACKER_URL,
+            "example",
+            stats,
+            known=earlier.__contains__,
+            caught_up_after=2,
+            feeds=[TRACKER_URL],
+            explore=False,
+            batch=3,
+        )
+    )
+
+    # The known run does not stop a page never scrolled to its end, and takes no place in the batch.
+    assert [entry.url for entry in entries] == [fresh, *reels[3:5]]
+    assert browser.pulled == 6
+    assert (stats.ended, stats.more) == (set(), True)
+
+
+def test_each_check_scrolls_one_batch_deeper_past_what_earlier_checks_found(temp_db, monkeypatch):
     _ticking_clock(monkeypatch)
+    # The weekly look at every page stays away.
+    monkeypatch.setattr(service_module, "utc_now_datetime", lambda: datetime(2026, 1, 1, tzinfo=UTC))
     _insert_tracker()
-    save_saved_settings_file({"tracker_settings": {"page_size": 3, "stop_after": 2}})
+    save_saved_settings_file({"tracker_settings": {"page_size": 3, "caught_up_after": 2}})
     reels = [f"https://example.test/reel/{n}1111111" for n in range(1, 8)]
     _reel_page(monkeypatch, "")
     browser = _browser(monkeypatch, *([reel] for reel in reels))
     queue = _Queue()
     monkeypatch.setattr(service_module, "queue_task", queue)
 
-    service_module.run_check(repositories.load_tracker_row("t1"))
+    def check() -> list[str]:
+        done = len(queue.calls)
+        service_module.run_check(repositories.load_tracker_row("t1"))
+        return [url for url, _ in queue.calls[done:]]
 
-    # The page was scrolled to its end once; the first batch is queued and the rest wait.
-    assert (browser.pulled, [url for url, _ in queue.calls]) == (len(reels), reels[:3])
-    assert repositories.tracker_backlog_urls("t1") == reels[3:]
-    assert repositories.load_tracker_row("t1")["last_success_at"]
+    # A check stops scrolling once it found a batch of new items; the next goes on past them.
+    assert (check(), browser.pulled) == (reels[:3], 3)
+    assert not repositories.load_tracker_row("t1")["last_success_at"]
+    assert (check(), browser.pulled) == (reels[3:6], 3 + 6)
+    # Reaching the page's end finishes the pass.
+    assert (check(), browser.pulled) == (reels[6:], 3 + 6 + 7)
+    tracker = repositories.load_tracker_row("t1")
+    assert tracker["last_success_at"]
+    assert tracker["feeds"]["ended"] == [listing_module._visit_key(TRACKER_URL)]
 
+    # A page scrolled to its end only catches up: the new item leads, and two known ones stop the scroll.
     fresh = "https://example.test/reel/91111111"
     browser.batches = [[fresh], *browser.batches]
-    service_module.run_check(repositories.load_tracker_row("t1"))
-
-    # Scrolling stopped at the items the first walk had queued; the new one leads the batch.
-    assert browser.pulled == len(reels) + 3
-    assert [url for url, _ in queue.calls[3:]] == [fresh, *reels[3:5]]
-    assert repositories.tracker_backlog_urls("t1") == reels[5:]
-
-    service_module.run_check(repositories.load_tracker_row("t1"))
-    service_module.run_check(repositories.load_tracker_row("t1"))
-
-    # The backlog ran out, and a page showing nothing new is no failure.
-    assert [url for url, _ in queue.calls[6:]] == reels[5:]
+    assert (check(), browser.pulled) == ([fresh], 3 + 6 + 7 + 3)
     assert repositories.tracker_backlog_urls("t1") == []
     assert repositories.load_tracker_row("t1")["last_error"] == ""
 
@@ -1154,9 +1594,9 @@ def test_a_tracker_deleted_mid_check_keeps_no_entries(temp_db, monkeypatch):
 
 
 def test_tracker_settings_are_clamped_and_seed_new_trackers(temp_db):
-    assert normalize_tracker_settings({"page_size": 0, "stop_after": "x", "interval_seconds": 10**9}) == {
+    assert normalize_tracker_settings({"page_size": 0, "caught_up_after": "x", "interval_seconds": 10**9}) == {
         "page_size": 1,
-        "stop_after": 20,
+        "caught_up_after": 5,
         "interval_seconds": 30 * 24 * 3600,
         "backfill": True,
     }
@@ -1184,6 +1624,18 @@ def test_a_post_records_its_photos_and_foreign_items_are_never_queued(temp_db, m
     assert repositories.has_tracker_entry("t1", "example#33333333")
     # The post and its photos are one item; the foreign link is the other.
     assert repositories.count_tracker_items()["t1"]["seen"] == 2
+
+
+def test_someone_elses_items_take_no_place_in_a_batch(temp_db, monkeypatch):
+    _insert_tracker()
+    _page_size(2)
+    foreign = Entry(url=_entry(9).url, owned=False)
+    queue = _Queue()
+
+    _check(monkeypatch, [foreign, _entry(1), _entry(2), _entry(3)], queue)
+
+    assert [url for url, _ in queue.calls] == [_entry(1).url, _entry(2).url]
+    assert repositories.has_tracker_entry("t1", service_module.url_dedup_key(foreign.url))
 
 
 def test_seen_entry_is_not_queued_again_after_its_download_is_gone(temp_db, monkeypatch):

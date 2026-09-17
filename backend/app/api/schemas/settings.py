@@ -23,6 +23,7 @@ class SettingsPayload(BaseModel):
     default_fields: dict[str, Any] = Field(default_factory=dict)
     default_naming: dict[str, Any] = Field(default_factory=dict)
     tracker_settings: dict[str, Any] | None = None
+    source_tracker_tabs: dict[str, Any] = Field(default_factory=dict)
 
 
 class ScrapeTestPayload(BaseModel):
@@ -31,9 +32,14 @@ class ScrapeTestPayload(BaseModel):
     rules: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class ProbeFieldsPayload(BaseModel):
+class ProbeLinkPayload(BaseModel):
     url: str = ""
     source_key: str = ""
+
+
+class ProbeTabsPayload(ProbeLinkPayload):
+    # The unsaved page rows, which the pages found join.
+    source_tracker_tabs: dict[str, Any] = Field(default_factory=dict)
 
 
 class LearnFormatPayload(BaseModel):

@@ -394,6 +394,46 @@ def test_probe_fields_saves_field_roles_without_url_priority_hint(tmp_path, monk
     assert response.json()["field_roles"] == {"username": ["uploader", "uploader_id"]}
 
 
+def test_probe_tabs_joins_a_links_pages_to_its_sources_rows(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    import backend.app.domains.trackers.listing as listing_module
+
+    captured: list[tuple[str, str]] = []
+
+    def probe_tabs(url, source_key):
+        captured.append((url, source_key))
+        return [
+            {"tab": "", "label": "Home", "variants": [{"name": "", "field": ""}], "engine": False},
+            {"tab": "shorts_tab", "label": "Shorts", "variants": [{"name": "shorts_tab", "field": ""}], "engine": True},
+        ]
+
+    monkeypatch.setattr(listing_module, "probe_tabs", probe_tabs)
+    saved = {"youtube": [{"tab": "shorts", "label": "", "enabled": True}], "other": [{"tab": "clips", "enabled": True}]}
+
+    response = client.post(
+        "/api/settings/probe-tabs",
+        json={"url": "https://www.youtube.com/@someone", "source_key": "other", "source_tracker_tabs": saved},
+    )
+
+    assert response.status_code == 200
+    # The link's own source is probed, and its pages join that source's rows.
+    assert response.json() == {
+        "source_key": "youtube",
+        "tabs": [
+            {
+                "tab": "shorts",
+                "label": "Shorts",
+                "variants": [{"name": "shorts", "field": ""}, {"name": "shorts_tab", "field": ""}],
+                "engine": True,
+                "enabled": True,
+            },
+            {"tab": "", "label": "Home", "variants": [{"name": "", "field": ""}], "engine": False, "enabled": True},
+        ],
+    }
+    assert captured == [("https://www.youtube.com/@someone", "youtube")]
+    assert client.post("/api/settings/probe-tabs", json={"url": " "}).status_code == 400
+
+
 def test_auth_login_session_and_logout(tmp_path, monkeypatch):
     use_temp_auth_db(tmp_path, monkeypatch)
 
@@ -640,6 +680,15 @@ def test_settings_put_round_trips_global_defaults(tmp_path, monkeypatch):
             "source_title_cleaning": {
                 "youtube": {"case": "lowercase", "separator": "dash", "stem_max_chars": 0}
             },
+            "source_tracker_tabs": {
+                "YouTube": [
+                    {"tab": " shorts ", "label": "Shorts", "variants": [{"name": "shorts_tab"}], "enabled": True},
+                    {"tab": "shorts", "label": "Again", "enabled": False},
+                    {"tab": "/shorts", "enabled": True},
+                    "junk",
+                ],
+                "empty": [],
+            },
         },
     )
 
@@ -654,6 +703,18 @@ def test_settings_put_round_trips_global_defaults(tmp_path, monkeypatch):
     assert body["source_fields"] == {"youtube": {"nickname": ["channel"]}}
     # The source matches the new default casing, so it inherits instead of pinning it.
     assert body["source_title_cleaning"] == {"youtube": {"separator": "dash", "stem_max_chars": 0}}
+    # One row per page name, links are no names; a source without rows keeps walking every page.
+    assert body["source_tracker_tabs"] == {
+        "youtube": [
+            {
+                "tab": "shorts",
+                "label": "Shorts",
+                "variants": [{"name": "shorts", "field": ""}, {"name": "shorts_tab", "field": ""}],
+                "engine": False,
+                "enabled": True,
+            }
+        ]
+    }
     # The built-ins stay reported as-is; they are what the defaults fall back to.
     assert body["cookie_policy_defaults"]["limit"] == 20
 

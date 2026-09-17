@@ -9,11 +9,13 @@ from backend.app.api.schemas.settings import (
     CookieOrderPayload,
     FormatTemplatesPayload,
     LearnFormatPayload,
-    ProbeFieldsPayload,
+    ProbeLinkPayload,
+    ProbeTabsPayload,
     ScrapeTestPayload,
     SettingsPayload,
 )
 from backend.app.core.config import load_app_config
+from backend.app.core.sources import normalize_source_key, source_key_from_url
 from backend.app.domains.settings import (
     add_source_and_learn_format,
     build_settings_response,
@@ -21,6 +23,9 @@ from backend.app.domains.settings import (
     clear_ytdlp_cookies_upload,
     detect_cookie_source,
     get_effective_saved_settings,
+    get_effective_source_profiles,
+    merge_tracker_tabs,
+    normalize_source_tracker_tabs,
     persist_settings,
     reorder_ytdlp_cookies,
     save_ytdlp_cookies_upload,
@@ -65,6 +70,7 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
         payload.default_naming,
         payload.default_post_processing,
         payload.tracker_settings,
+        payload.source_tracker_tabs,
     )
     return build_settings_response(cfg, saved)
 
@@ -105,7 +111,7 @@ def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
 
 
 @router.post("/probe-fields")
-def probe_fields(payload: ProbeFieldsPayload) -> dict[str, Any]:
+def probe_fields(payload: ProbeLinkPayload) -> dict[str, Any]:
     from backend.app.domains.downloads.learning import promote_learned_format_from_probe, save_learned_fields
     from backend.app.domains.downloads.probe import probe_fields as probe_field_roles
     from backend.app.domains.downloads.urls import resolve_redirect_url
@@ -129,6 +135,19 @@ def probe_fields(payload: ProbeFieldsPayload) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/probe-tabs")
+def probe_tabs(payload: ProbeTabsPayload) -> dict[str, Any]:
+    from backend.app.domains.downloads.urls import resolve_redirect_url
+    from backend.app.domains.trackers.listing import probe_tabs as probe_link_tabs
+
+    url = resolve_redirect_url(payload.url.strip())
+    if not url:
+        raise HTTPException(status_code=400, detail="Paste a link first.")
+    source_key = source_key_from_url(url, get_effective_source_profiles()) or payload.source_key
+    rows = normalize_source_tracker_tabs(payload.source_tracker_tabs).get(normalize_source_key(source_key), [])
+    return {"source_key": source_key, "tabs": merge_tracker_tabs(rows, probe_link_tabs(url, source_key))}
 
 
 @router.post("/learn-format")

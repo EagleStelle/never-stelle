@@ -38,11 +38,11 @@ from backend.app.domains.downloads.formats import creator_from_url, url_dedup_ke
 from backend.app.domains.downloads.operations import queue_task, remove_pending_task, retry_task
 from backend.app.domains.downloads.store import load_history_entry, load_task, remove_history_record
 from backend.app.domains.downloads.urls import canonicalize_source_url
-from backend.app.domains.settings import get_effective_source_profiles, get_tracker_settings
+from backend.app.domains.settings import get_effective_source_profiles, get_tracker_settings, get_tracker_tabs
 from backend.app.domains.settings.trackers import MAX_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS
 from backend.app.integrations.swaratelle import client as swaratelle
 
-from .listing import Entry, ListingStats, iter_entries
+from .listing import Entry, ListingStats, iter_entries, page_variant
 
 _JITTER = 0.05
 # Checks that may fail to read a backlogged link before it is dropped.
@@ -52,8 +52,8 @@ _EXPLORE_EVERY = timedelta(days=7)
 _ACTIVE_STATUSES = {"pending", "running", "failed"}
 UNRESOLVED_ERROR = "Could not build post links for this source."
 SINGLE_ITEM_ERROR = "This link points to a single item; add a creator, channel or playlist link."
-# Trackers whose next check was asked for by hand, so it also queues their missing downloads again.
-_requeue_missing: set[str] = set()
+# Trackers whose next check was asked for by hand: it queues their missing downloads again and walks every page.
+_asked: set[str] = set()
 
 
 def _interval(value: Any) -> int:
@@ -173,7 +173,7 @@ def check_tracker_now(tracker_id: str) -> None:
     tracker = get_tracker(tracker_id)
     if not tracker["enabled"]:
         raise PermissionError("Apply or resume the tracker to check it.")
-    _requeue_missing.add(tracker_id)
+    _asked.add(tracker_id)
     update_tracker_row(tracker_id, {"next_check_at": utc_now()})
 
 
@@ -270,6 +270,19 @@ class _TrackerBacklog:
         fail_tracker_backlog_row(self.tracker_id, url_dedup_key(link), _BACKLOG_ATTEMPTS)
 
 
+def _learned_pages(tracker: dict[str, Any]) -> dict[str, list[tuple[str, str]]]:
+    """Per row, the names and query fields its page went by on the source's other trackers."""
+    learned: dict[str, list[tuple[str, str]]] = {}
+    for other in load_tracker_rows():
+        if other["id"] == tracker["id"] or other["source_key"] != tracker["source_key"]:
+            continue
+        for tab, page in (other["feeds"].get("pages") or {}).items():
+            variant = page_variant(other["source_url"], page)
+            if variant not in learned.setdefault(tab, []):
+                learned[tab].append(variant)
+    return learned
+
+
 def run_check(tracker: dict[str, Any]) -> None:
     """List one batch of the tracker's link and queue what it has not seen; always releases the claim.
 
@@ -277,27 +290,28 @@ def run_check(tracker: dict[str, Any]) -> None:
     runs newest first, so each batch takes what was posted since, then the older entries a pass
     has yet to reach. Pages are scrolled once and what they showed waits in the backlog for the
     batches after; ``last_success_at`` marks a pass that reached every end, where later ones stop.
-    A check asked for by hand first queues again the downloads its seen entries lost.
+    A check asked for by hand first queues again the downloads its seen entries lost, and walks every page.
     """
     tracker_id = tracker["id"]
-    requeue = tracker_id in _requeue_missing
-    _requeue_missing.discard(tracker_id)
+    asked = tracker_id in _asked
+    _asked.discard(tracker_id)
     settings = get_tracker_settings()
     pass_start = tracker["last_success_at"]
     first = not pass_start
     queue_new = tracker["backfill"] or not first
     feeds = [str(url) for url in tracker["feeds"].get("urls") or [] if url]
     explored_at = str(tracker["feeds"].get("explored_at") or "")
+    tabs = get_tracker_tabs(tracker["source_key"])
     stats = ListingStats()
     listed: set[str] = set()
     failures: list[str] = []
     lost: list[str] = []
-    recorded = 0
+    counted = 0
     detected_name = ""
     succeeded = False
     updates: dict[str, Any] = {}
     try:
-        if requeue:
+        if asked:
             lost = _queue_missing(tracker)
         with CpuPacer() as pacer:
             entries = iter_entries(
@@ -309,9 +323,14 @@ def run_check(tracker: dict[str, Any]) -> None:
                     has_tracker_entry(tracker_id, key, seen_by=pass_start)
                     or has_tracker_backlog_row(tracker_id, key, found_by=pass_start)
                 ),
-                stop_after=None if first else settings["stop_after"],
+                caught_up_after=None if first else settings["caught_up_after"],
                 feeds=feeds,
-                explore=not feeds or explored_at < (utc_now_datetime() - _EXPLORE_EVERY).isoformat(),
+                explore=asked or not feeds or explored_at < (utc_now_datetime() - _EXPLORE_EVERY).isoformat(),
+                tabs=tabs,
+                pages=tracker["feeds"].get("pages") or {},
+                learned=_learned_pages(tracker) if tabs else {},
+                batch=settings["page_size"],
+                ended=tracker["feeds"].get("ended") or [],
                 backlog=_TrackerBacklog(tracker_id, queue_new),
             )
             with closing(entries):
@@ -325,7 +344,7 @@ def run_check(tracker: dict[str, Any]) -> None:
                         detected_name = detected_name or entry.collection or entry.creator
                     if has_tracker_entry(tracker_id, key):
                         continue
-                    if recorded + len(failures) >= settings["page_size"]:
+                    if counted + len(failures) >= settings["page_size"]:
                         break
                     download_id = ""
                     if queue_new and entry.owned:
@@ -341,7 +360,9 @@ def run_check(tracker: dict[str, Any]) -> None:
                         tracker_id,
                         [(member, entry.url, download_id) for member in dict.fromkeys((key, *entry.members))],
                     )
-                    recorded += 1
+                    # Someone else's item is recorded without taking a place in a batch that queues.
+                    if entry.owned or not queue_new:
+                        counted += 1
         # A pass that queues nothing records what pages show without listing it.
         if not listed and not any(stats.pages.values()) and (first or stats.unresolved):
             raise ValueError(UNRESOLVED_ERROR if stats.unresolved else SINGLE_ITEM_ERROR)
@@ -350,9 +371,17 @@ def run_check(tracker: dict[str, Any]) -> None:
         updates["feeds"] = {
             "urls": stats.feeds(feeds),
             "explored_at": utc_now() if stats.explored else explored_at,
+            "pages": stats.tab_pages,
+            "ended": sorted(stats.ended),
         }
         errors = [*lost, *failures]
-        updates["last_error"] = f"Could not queue {len(errors)} item(s): {errors[0]}" if errors else ""
+        updates["last_error"] = (
+            f"Could not queue {len(errors)} item(s): {errors[0]}"
+            if errors
+            else f"Could not find these pages on the link: {', '.join(stats.missing_tabs)}."
+            if stats.missing_tabs
+            else ""
+        )
         # A tracker starts out named after its link; the listing knows the collection's own name.
         if detected_name and tracker["name"] == _fallback_name(tracker["source_url"]):
             updates["name"] = detected_name

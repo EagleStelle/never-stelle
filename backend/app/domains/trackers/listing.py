@@ -8,13 +8,13 @@ import subprocess
 import threading
 import time
 from collections import Counter, deque
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import closing
+from contextlib import closing, suppress
 from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 from typing import Any, Protocol
-from urllib.parse import parse_qsl, quote, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlparse
 
 from backend.app.core.sources import apex_host, host_from_url, normalize_source_key, source_key_from_url
 from backend.app.domains.downloads.access import AccessIdentity, access_env
@@ -33,6 +33,7 @@ from backend.app.domains.downloads.formats import (
     url_dedup_key,
 )
 from backend.app.domains.downloads.gallerydl import gallerydl_access_args
+from backend.app.domains.downloads.history import find_history_by_source
 from backend.app.domains.downloads.learning import learn_source_format, save_missing_learned_fields
 from backend.app.domains.downloads.probe import (
     _flatten_metadata,
@@ -48,6 +49,7 @@ from backend.app.domains.downloads.urls import _is_strong_media_id
 from backend.app.domains.downloads.workers.processes import _kill_process_tree
 from backend.app.domains.downloads.ytdlp import ytdlp_access_args
 from backend.app.domains.settings.fields import get_effective_source_fields_map
+from backend.app.domains.settings.trackers import page_words, row_matches
 
 # A listing that prints nothing for this long is stuck, not slow.
 _IDLE_TIMEOUT_SECONDS = 300
@@ -66,11 +68,17 @@ _MAX_PARENT_PROBES = 2
 # A post listing longer than this is a collection, not a post.
 _MAX_POST_FILES = 100
 _MAX_PAGE_TABS = 12
+# Pages tried per row before a check gives up finding it on a link.
+_MAX_PAGE_CANDIDATES = 6
 # Item probes one page runs at once; each is a short engine process waiting on the network.
 _PROBES_AHEAD = 3
+# Probes running at once while a browser still renders pages.
+_PROBES_WHILE_SCROLLING = 1
 _MIN_NAME_LENGTH = 3
 _UNSUPPORTED_RE = re.compile(r"unsupported url", re.IGNORECASE)
 _WORD_RE = re.compile(r"[a-z]+")
+# Words joined by separators, as reels_tab or photos_by, name a page, not an item.
+_ROUTE_WORDS_RE = re.compile(r"[a-z]+(?:[_-][a-z]+)+")
 _PAGE_LINK_RE = re.compile(r"""https?://[^\s"'<>\\]+|href="(/[^"]*)\"""")
 # Links inside a page's JSON data are escaped.
 _PAGE_ESCAPES = ((r"\/", "/"), (r"\u0025", "%"), (r"\u0026", "&"), ("&amp;", "&"))
@@ -100,6 +108,16 @@ class ListingStats:
     explored: bool = False
     # Set once every listing and page reached its end or an earlier pass; unset when one was cut off.
     complete: bool = False
+    # Names of the pages the tracked link's engine listing hands out, as ``page_variant`` names them.
+    engine_tabs: set[str] = field(default_factory=set)
+    # The page each row went by on the tracked link, by row.
+    tab_pages: dict[str, str] = field(default_factory=dict)
+    # Rows no page of the tracked link turned out to be.
+    missing_tabs: list[str] = field(default_factory=list)
+    # Pages a walk scrolled to their end, by visit key; a page stopped at a batch leaves it.
+    ended: set[str] = field(default_factory=set)
+    # Set when a page stopped at a batch, so the pass goes on with its next one.
+    more: bool = False
 
     def feeds(self, previous: list[str]) -> list[str]:
         """Pages for the next walk to start with: this walk's productive ones, richest first, then earlier
@@ -370,9 +388,11 @@ def _engine_supports(url: str) -> bool:
 
 
 def _visit_key(url: str) -> str:
-    # One page under any host prefix (www, m) and with or without a trailing slash.
+    # One page under any host prefix (www, m) and with or without a trailing slash; every query field
+    # counts, since tabs can differ by query alone.
     parsed = urlparse(canonicalize_url(url))
-    return parsed._replace(scheme="https", netloc=apex_host(parsed.netloc)).geturl()
+    query = urlencode(sorted(parse_qsl(urlparse(_prepare_url(url)).query)))
+    return parsed._replace(scheme="https", netloc=apex_host(parsed.netloc), query=query).geturl()
 
 
 def _normalized(value: str) -> str:
@@ -422,8 +442,17 @@ class _Resolver:
         self.listed: set[str] = set()
         # Item links the walk's pages showed.
         self.found: set[str] = set()
-        # Set once a listing reaches entries an earlier pass recorded; scrolling further finds only those.
+        # Set once an engine listing reaches entries an earlier pass recorded; only feeds are walked after.
         self.caught_up = False
+        # New links one page adds before its scroll stops for a later walk to go on from.
+        self.batch: int | None = None
+        self._markup: list[str] | None = None
+
+    def markup_links(self) -> list[str]:
+        """Links the tracked link's own markup carries, fetched once."""
+        if self._markup is None:
+            self._markup = _page_links(fetch_html(self.tracker_url, self.source_key), self.tracker_url)
+        return self._markup
 
     def creators(self) -> set[str]:
         """The creator's cells in the tracked link, as its engine reads them."""
@@ -437,18 +466,17 @@ class _Resolver:
         return {cells[-1].lstrip("@")} if cells else set()
 
     def is_tab(self, url: str) -> bool:
-        # A page one path segment below the tracked link, as its reels or photos.
-        root = [part for part in urlparse(self.tracker_url).path.split("/") if part]
-        parsed = urlparse(url)
+        # A page one path segment below the tracked link, as its reels or photos. A link naming its
+        # page by query, as profile.php?id=1, names its tabs by one more query field.
+        tracked, parsed = urlparse(self.tracker_url), urlparse(url)
+        root = [part for part in tracked.path.split("/") if part]
         segments = [part for part in parsed.path.split("/") if part]
-        return (
-            bool(root)
-            and not parsed.query
-            and apex_host(host_from_url(url)) == self.apex
-            and len(segments) == len(root) + 1
-            and segments[: len(root)] == root
-            and not self.is_item(url)
+        tracked_fields, fields = set(parse_qsl(tracked.query)), set(parse_qsl(parsed.query))
+        below = not fields and len(segments) == len(root) + 1 and segments[: len(root)] == root
+        beside = (
+            bool(tracked_fields) and segments == root and tracked_fields < fields and len(fields - tracked_fields) == 1
         )
+        return bool(root) and (below or beside) and apex_host(host_from_url(url)) == self.apex and not self.is_item(url)
 
     def is_item(self, url: str) -> bool:
         # Leans toward collection when unsure, since a tab queued as a post is junk.
@@ -460,7 +488,7 @@ class _Resolver:
         key = source_key_from_url(url)
         if match_template(self.learned, key, url, media_id):
             return True
-        if _is_route_segment(media_id):
+        if _is_route_segment(media_id) or _ROUTE_WORDS_RE.fullmatch(media_id):
             entry = self.learned.get(key) or {}
             return bool(entry.get("id_classes")) and _id_matches(entry, media_id)
         return _is_strong_media_id(media_id)
@@ -795,7 +823,7 @@ def _engine_entries(
     return entries(), outcome
 
 
-def _limited(entries: Iterator[Entry], resolver: _Resolver, stop_after: int | None) -> Iterator[Entry]:
+def _limited(entries: Iterator[Entry], resolver: _Resolver, caught_up_after: int | None) -> Iterator[Entry]:
     # One listing stops after a run of entries an earlier pass already recorded.
     run = 0
     with closing(entries):
@@ -804,30 +832,69 @@ def _limited(entries: Iterator[Entry], resolver: _Resolver, stop_after: int | No
             resolver.listed.update((key, *entry.members))
             run = run + 1 if resolver.settled(key) else 0
             yield entry
-            if stop_after and run >= stop_after:
+            if caught_up_after and run >= caught_up_after:
                 resolver.caught_up = True
                 return
 
 
-def _resolved(links: list[str], resolver: _Resolver) -> Iterator[tuple[str, Entry | None]]:
-    """Each link with its entry in order, the next few probed ahead in parallel."""
-    pool = ThreadPoolExecutor(_PROBES_AHEAD, thread_name_prefix="never-stelle-probe")
-    window: deque[tuple[str, Future[dict[str, str]] | None]] = deque()
+def _downloaded(link: str) -> bool:
+    return find_history_by_source(canonicalize_url(link))[0] is not None
 
-    def resolve_first() -> tuple[str, Entry | None]:
-        link, probed = window.popleft()
-        return link, resolver.page_entry(link, probed)
 
-    try:
+class _Probes:
+    """Item links a walk reads while it goes on, a few at once, handed back in the order they were added."""
+
+    def __init__(self, resolver: _Resolver, backlog: Backlog) -> None:
+        self.resolver = resolver
+        self.backlog = backlog
+        self.pool = ThreadPoolExecutor(_PROBES_AHEAD, thread_name_prefix="never-stelle-probe")
+        # While a browser renders pages, probes take turns so a host with few cores keeps up with both.
+        self.gate = threading.Semaphore(_PROBES_WHILE_SCROLLING)
+        # Each link with its metadata being fetched, and whether the app already downloaded it.
+        self.waiting: deque[tuple[str, Future[dict[str, str]] | None, bool]] = deque()
+        self.added: set[str] = set()
+
+    def _probe(self, link: str) -> dict[str, str]:
+        with self.gate:
+            return self.resolver.probe(link)
+
+    def widen(self) -> None:
+        """Let probes run as many at once as the pool allows, once no browser renders."""
+        for _ in range(_PROBES_AHEAD - _PROBES_WHILE_SCROLLING):
+            self.gate.release()
+
+    def add(self, links: list[str]) -> None:
         for link in links:
-            window.append((link, pool.submit(resolver.probe, link) if resolver.needs_probe(link) else None))
-            if len(window) > _PROBES_AHEAD:
-                yield resolve_first()
-        while window:
-            yield resolve_first()
-    finally:
-        # A walk closed early leaves its last few probes to finish unread.
-        pool.shutdown(wait=False, cancel_futures=True)
+            key = url_dedup_key(link)
+            if key in self.added:
+                continue
+            self.added.add(key)
+            probe = self.resolver.needs_probe(link)
+            # A link the app already downloaded needs no probe: queueing it only links the download there is.
+            downloaded = probe and _downloaded(link)
+            future = self.pool.submit(self._probe, link) if probe and not downloaded else None
+            self.waiting.append((link, future, downloaded))
+
+    def entries(self, *, wait: bool = False) -> Iterator[Entry]:
+        """Entries of the links read so far, in order; with ``wait``, of every link added."""
+        while self.waiting:
+            link, probed, downloaded = self.waiting[0]
+            if probed and not (wait or probed.done()):
+                return
+            self.waiting.popleft()
+            key = url_dedup_key(link)
+            entry = Entry(url=link) if downloaded and key not in self.resolver.listed else None
+            entry = entry or self.resolver.page_entry(link, probed)
+            if entry:
+                self.resolver.listed.update((url_dedup_key(entry.url), *entry.members))
+                yield entry
+            # A link listed with another entry was handled; one no engine read waits for a later check.
+            elif key not in self.resolver.listed:
+                self.backlog.failed(link)
+
+    def close(self) -> None:
+        # A walk closed early leaves the probes still running unread; their links stay in the backlog.
+        self.pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _collection_entries(
@@ -835,7 +902,7 @@ def _collection_entries(
     stats: ListingStats,
     resolver: _Resolver,
     visited: set[str],
-    stop_after: int | None,
+    caught_up_after: int | None,
     depth: int,
 ) -> Iterator[Entry]:
     detail = ""
@@ -846,9 +913,12 @@ def _collection_entries(
         sub_collections: list[str] = []
         produced = False
         entries, outcome = _engine_entries(url, resolver.source_key, command, parse, sub_collections)
-        for entry in _limited(entries, resolver, stop_after):
+        for entry in _limited(entries, resolver, caught_up_after):
             produced = True
             yield entry
+        if _visit_key(url) == _visit_key(resolver.tracker_url):
+            # Handed out, the pages are the engines' whether or not they list anything this time.
+            stats.engine_tabs.update(page_variant(url, sub_url)[0] for sub_url in sub_collections)
         sub_errors: list[ValueError] = []
         for sub_url in sub_collections:
             key = _visit_key(sub_url)
@@ -856,7 +926,7 @@ def _collection_entries(
                 continue
             visited.add(key)
             try:
-                for entry in _collection_entries(sub_url, stats, resolver, visited, stop_after, depth + 1):
+                for entry in _collection_entries(sub_url, stats, resolver, visited, caught_up_after, depth + 1):
                     produced = True
                     yield entry
             except ValueError as exc:
@@ -888,81 +958,327 @@ def _had(link: str, resolver: _Resolver, backlog: Backlog) -> bool:
     return key in resolver.found or resolver.known(key) or backlog.has(key)
 
 
+def _parents(link: str) -> list[str]:
+    # The links one query field or one path segment shorter, which a tab of that shape extends.
+    parsed = urlparse(link)
+    if fields := parse_qsl(parsed.query):
+        return [parsed._replace(query=urlencode(fields[:i] + fields[i + 1 :])).geturl() for i in range(len(fields))]
+    segments = [part for part in parsed.path.split("/") if part]
+    return [parsed._replace(path="/" + "/".join(segments[:-1])).geturl()] if len(segments) > 1 else []
+
+
+def _tab_owner(resolver: _Resolver, links: list[str]) -> _Resolver:
+    """The link the given links are tabs of: the tracked link, else one of them naming the same creator that the
+    most others extend, as when the tracked link redirects to a page whose menu names it another way."""
+    if any(map(resolver.is_tab, links)):
+        return resolver
+    candidates = dict.fromkeys([*links, *(parent for link in links for parent in _parents(link))])
+    owners = [
+        _Resolver(link, resolver.source_key)
+        for link in candidates
+        if _on_site(link, resolver) and _url_exact_values(link) & resolver.tracker_tokens
+    ]
+    counts = [sum(map(owner.is_tab, links)) for owner in owners]
+    return owners[counts.index(max(counts))] if counts and max(counts) else resolver
+
+
+def _tabs(
+    url: str, resolver: _Resolver, browser: BrowserSession, links: list[str]
+) -> tuple[_Resolver, list[tuple[str, str]]]:
+    # The tabs a rendered page offers in its navigation with their text, else every tab its markup links, with
+    # the link they are tabs of.
+    for offered in (
+        [(link, text) for link, text, _ in browser.navigation.get(url, [])],
+        [(link, "") for link in links],
+    ):
+        owner = _tab_owner(resolver, [link for link, _ in offered])
+        if tabs := [(link, text) for link, text in offered if owner.is_tab(link)]:
+            return owner, tabs
+    return resolver, []
+
+
+def page_variant(tracker_url: str, link: str) -> tuple[str, str]:
+    """The name a page goes by on the tracked link, with the query field holding it: ("", "") for the link
+    itself, the value of the one query field it adds, else its last path segment."""
+    if _visit_key(link) == _visit_key(tracker_url):
+        return "", ""
+    tracked = {key for key, _ in parse_qsl(urlparse(tracker_url).query)}
+    extra = [(key, value) for key, value in parse_qsl(urlparse(link).query) if key not in tracked]
+    if len(extra) == 1:
+        return extra[0][1], extra[0][0]
+    segments = [part for part in urlparse(link).path.split("/") if part]
+    return (unquote(segments[-1]), "") if segments else ("", "")
+
+
+def _page_url(tracker_url: str, name: str, query_field: str) -> str:
+    # A link naming its page by path takes the name as one more segment, one naming it by query as one more
+    # field; "" when that field is unknown.
+    parsed = urlparse(tracker_url)
+    if not name:
+        return tracker_url
+    if not parsed.query:
+        return parsed._replace(path=f"{parsed.path.rstrip('/')}/{quote(name)}").geturl()
+    if not query_field:
+        return ""
+    return parsed._replace(query=urlencode([*parse_qsl(parsed.query), (query_field, name)])).geturl()
+
+
+def _engine_reads(url: str) -> bool:
+    # An engine lists the page itself; a dispatcher matching it only hands out other pages.
+    return gallerydl_reads(url) is True or ytdlp_single_video(url) is False
+
+
+def _read_navigation(browser: BrowserSession, url: str) -> None:
+    # A page showing no item ends after its first scroll, which reads its navigation.
+    list(browser.scroll_links(url, lambda link: False, lambda link: True, follow_tabs=True))
+
+
+def probe_tabs(source_url: str, source_key: str) -> list[dict[str, Any]]:
+    """The pages a tracker of the link can walk, as page rows: the link itself, then the tabs it offers, each
+    marked ``engine`` when the engines list it."""
+    url = canonicalize_url(source_url)
+    resolver = _Resolver(url, source_key)
+    stats = ListingStats()
+    # The engines hand out their pages before their first item.
+    with closing(_collection_entries(url, stats, resolver, set(), None, _MAX_DEPTH)) as entries, suppress(ValueError):
+        next(entries, None)
+    with BrowserSession(resolver.source_key) as browser:
+        _read_navigation(browser, url)
+    owner, tabs = _tabs(url, resolver, browser, resolver.markup_links())
+    own = {_visit_key(page) for page in (url, owner.tracker_url, browser.landed.get(url) or url)}
+    label = next((text for link, text, _ in browser.navigation.get(url, []) if _visit_key(link) in own), "")
+    rows = {"": {"tab": "", "label": label, "variants": [{"name": "", "field": ""}], "engine": _engine_reads(url)}}
+    for link, text in tabs:
+        name, query_field = page_variant(owner.tracker_url, link)
+        row = rows.setdefault(
+            name,
+            {
+                "tab": name,
+                "label": text,
+                "variants": [{"name": name, "field": query_field}],
+                "engine": name in stats.engine_tabs or _engine_reads(link),
+            },
+        )
+        row["label"] = row["label"] or text
+    return list(rows.values())
+
+
+def _offered_pages(url: str, row: dict[str, Any], resolver: _Resolver, browser: BrowserSession) -> list[str]:
+    """Tabs of the tracked link that may be the row's, from any rendered page's navigation and the link's markup,
+    closest names first."""
+    offered = [(link, text) for navigation in list(browser.navigation.values()) for link, text, _ in navigation]
+    offered += [(link, "") for link in resolver.markup_links()]
+    owner = _tab_owner(resolver, [link for link, _ in offered])
+    matching: dict[str, tuple[int, str]] = {}
+    for link, text in offered:
+        name = page_variant(owner.tracker_url, link)[0]
+        if owner.is_tab(link) and row_matches(row, name, text):
+            distance = min(len(page_words(name) ^ page_words(variant["name"])) for variant in row["variants"])
+            matching.setdefault(_visit_key(link), (distance, link))
+    return [link for _, link in sorted(matching.values())]
+
+
+def _row_pages(
+    url: str,
+    row: dict[str, Any],
+    resolver: _Resolver,
+    browser: BrowserSession | None,
+    stats: ListingStats,
+    learned: dict[str, list[tuple[str, str]]],
+) -> Iterator[str]:
+    """Pages of the tracked link that may be the row's, likeliest first: the one it was last, the tabs the
+    link offers that resemble it, then every name it went by built on the link. Without a ``browser`` only
+    the pages known without rendering any."""
+    if not row["tab"]:
+        yield url
+        return
+    if remembered := stats.tab_pages.get(row["tab"]):
+        yield remembered
+    if browser:
+        yield from _offered_pages(url, row, resolver, browser)
+        # Until a menu links a tab besides the one showing, the link's own is read, its script tabs followed.
+        navigations = list(browser.navigation.values())
+        if not any(link and not showing for navigation in navigations for link, _, showing in navigation):
+            _read_navigation(browser, url)
+            yield from _offered_pages(url, row, resolver, browser)
+    variants = [*((variant["name"], variant["field"]) for variant in row["variants"]), *learned.get(row["tab"], [])]
+    query_fields = [query_field for _, query_field in variants if query_field]
+    for name, query_field in variants:
+        for candidate_field in dict.fromkeys([query_field, *query_fields]):
+            if page := _page_url(url, name, candidate_field):
+                yield page
+
+
+def _shown_page(url: str, row: dict[str, Any], resolver: _Resolver, browser: BrowserSession, *, shown: bool) -> str:
+    """The row's page a candidate turned out to be: the tab its navigation marks as showing, else where it landed
+    when it showed items; "" when it was another page. A page no browser rendered is taken as asked."""
+    if url not in browser.landed:
+        return url
+    navigation = browser.navigation.get(url, [])
+    owner = _tab_owner(resolver, [link for link, _, _ in navigation]).tracker_url
+    marked = [(link, text) for link, text, showing in navigation if showing]
+    if marked:
+        return next((link for link, text in marked if row_matches(row, page_variant(owner, link)[0], text)), "")
+    landed = browser.landed[url] or url
+    return url if shown and row_matches(row, page_variant(resolver.tracker_url, landed)[0]) else ""
+
+
 def _find_items(
     url: str,
     resolver: _Resolver,
-    backlog: Backlog,
+    probes: _Probes,
     visited: set[str],
-    stop_after: int | None,
+    caught_up_after: int | None,
     depth: int,
     browser: BrowserSession,
     stats: ListingStats,
     *,
     feed: bool = False,
     scroll: bool = True,
-) -> None:
+    row: dict[str, Any] | None = None,
+) -> Generator[Entry, None, str]:
     """Backlog the items a page links and what scrolling it adds, then the same for the tracked link's tabs.
+    Each link is read as soon as the page shows it, and its entry handed on once read.
 
-    A ``feed`` is a page an earlier walk found items on: it is scrolled whatever its markup holds,
-    and its tabs are left to exploring walks. ``scroll`` is off for a page already scrolled as a feed.
-    A page stops after ``stop_after`` ``settled`` items in a row.
+    A ``feed`` is a page an earlier walk found items on the engines did not list: it is scrolled
+    whatever its markup holds or the engines reached, and its tabs are left to exploring walks.
+    Other pages are skipped once an engine listing caught up with an earlier pass. ``scroll`` is off
+    for a page already scrolled as a feed.
+
+    Every page starts at its top, so what was posted since an earlier walk comes first. A page an earlier
+    walk scrolled to its end is caught up after ``caught_up_after`` ``settled`` items in a row and stops.
+    Any other page goes on past what earlier walks found to where they stopped, and stops once it took
+    a batch of links; reaching its end marks it ended in ``stats``. Known items never count toward a
+    batch; links an earlier check left in the backlog do, as they are read now.
+
+    A page tried as a ``row``'s keeps nothing until the browser shows it is that row's page. Returns the
+    page it turned out to be, "" when it was skipped or another page.
     """
+    if resolver.caught_up and not feed:
+        return ""
+    page_key = _visit_key(url)
+    deep = page_key not in stats.ended
     links = list(dict.fromkeys(_page_links(fetch_html(url, resolver.source_key), url)))
     same_site = [link for link in links if _on_site(link, resolver)]
     items = [link for link in same_site if resolver.is_item(link)]
-    tabs = [link for link in same_site if resolver.is_tab(link)]
-    stats.pages.setdefault(url, 0)
 
     def batches() -> Iterator[list[str]]:
         yield [link for link in items if resolver.readable(link)]
         # The markup rarely holds what the page renders, so the browser judges the page itself. The
         # tracked link may render every item in script; a tab linking none is no feed.
-        if not scroll or resolver.caught_up or not (items or feed or depth == 0):
+        if not scroll or not (items or feed or depth == 0):
             return
         yield from browser.scroll_links(
-            url, lambda link: _is_item_link(link, resolver), lambda link: _had(link, resolver, backlog)
+            url, lambda link: _is_item_link(link, resolver), lambda link: _had(link, resolver, probes.backlog)
         )
 
-    run = 0
-    # Closing the batches stops the scroll, so a page caught up with an earlier pass scrolls no further.
-    with closing(batches()) as shown:
-        for batch in shown:
-            new: list[str] = []
-            for link in map(canonicalize_url, batch):
-                key = url_dedup_key(link)
-                if key in resolver.found:
-                    continue
+    run = taken = 0
+
+    def take(batch: list[str]) -> bool:
+        # Backlogs a batch and starts reading it; True once the page caught up with an earlier pass or took a
+        # batch of links.
+        nonlocal run, taken
+        stats.pages.setdefault(url, 0)
+        fresh: list[str] = []
+        caught_up = False
+        for link in map(canonicalize_url, batch):
+            key = url_dedup_key(link)
+            if key not in resolver.found:
                 resolver.found.add(key)
-                stats.pages[url] += 1
-                if not (resolver.known(key) or backlog.has(key)):
-                    new.append(link)
-                if not stop_after:
-                    continue
-                run = run + 1 if resolver.settled(key) else 0
-                if run >= stop_after:
-                    resolver.caught_up = True
-                    break
-            backlog.add(new)
-            if resolver.caught_up:
+                # Only what the engines missed makes a page worth scrolling next time.
+                if key not in resolver.listed:
+                    stats.pages[url] += 1
+                if not resolver.known(key):
+                    fresh.append(link)
+            # An item an earlier page of this walk showed still counts toward the run.
+            if deep or not caught_up_after:
+                continue
+            run = run + 1 if resolver.settled(key) else 0
+            if run >= caught_up_after:
+                caught_up = True
                 break
-    if feed or depth >= _MAX_DEPTH:
-        return
-    for tab in tabs[:_MAX_PAGE_TABS]:
+        probes.backlog.add(fresh)
+        probes.add(fresh)
+        taken += len(fresh)
+        return caught_up or bool(resolver.batch and taken >= resolver.batch)
+
+    page = "" if row else url
+    held: list[str] = []
+    was_cut = browser.cut_short
+    stopped = False
+    # Closing the batches stops the scroll, so a page caught up or at its batch scrolls no further.
+    with closing(batches()) as shown:
+        for index, batch in enumerate(shown):
+            if row and not page:
+                held.extend(batch)
+                # The markup comes first; the page is judged once the browser rendered some of it.
+                if not index:
+                    continue
+                if not (page := _shown_page(url, row, resolver, browser, shown=True)):
+                    return ""
+                batch, held = held, []
+            stopped = take(batch)
+            yield from probes.entries()
+            if stopped:
+                break
+        else:
+            if row and not page:
+                if not (page := _shown_page(url, row, resolver, browser, shown=False)):
+                    return ""
+                take(held)
+                yield from probes.entries()
+    if resolver.batch and taken >= resolver.batch:
+        stats.ended.discard(page_key)
+        stats.more = True
+    elif not stopped and not (browser.cut_short and not was_cut):
+        stats.ended.add(page_key)
+    # Only the tracked link's tabs are walked; a tab's own menu lists its sub-sections.
+    if feed or depth:
+        return page
+    owner, tabs = _tabs(url, resolver, browser, same_site)
+    for tab, _ in tabs[:_MAX_PAGE_TABS]:
         key = _visit_key(tab)
-        if key in visited:
+        # A page the engines list is theirs.
+        if key in visited or _left_to_engines(owner.tracker_url, tab, stats):
             continue
         visited.add(key)
-        _find_items(tab, resolver, backlog, visited, stop_after, depth + 1, browser, stats)
+        yield from _find_items(tab, resolver, probes, visited, caught_up_after, depth + 1, browser, stats)
+    return page
 
 
-def _backlog_entries(backlog: Backlog, resolver: _Resolver) -> Iterator[Entry]:
-    for link, entry in _resolved(backlog.links(), resolver):
-        if entry:
-            resolver.listed.update((url_dedup_key(entry.url), *entry.members))
-            yield entry
-        # A link listed with another entry was handled; one no engine read waits for a later check.
-        elif url_dedup_key(link) not in resolver.listed:
-            backlog.failed(link)
+def _left_to_engines(tracker_url: str, page: str, stats: ListingStats) -> bool:
+    return page_variant(tracker_url, page)[0] in stats.engine_tabs or _engine_reads(page)
+
+
+def _walk_row(
+    url: str,
+    row: dict[str, Any],
+    resolver: _Resolver,
+    probes: _Probes,
+    visited: set[str],
+    caught_up_after: int | None,
+    browser: BrowserSession,
+    stats: ListingStats,
+    learned: dict[str, list[tuple[str, str]]],
+) -> Iterator[Entry]:
+    # Scrolls the first page that turns out to be the row's, and remembers it for the next check.
+    tried: set[str] = set()
+    for candidate in _row_pages(url, row, resolver, browser, stats, learned):
+        key = _visit_key(candidate)
+        if key in tried:
+            continue
+        if len(tried) >= _MAX_PAGE_CANDIDATES:
+            break
+        tried.add(key)
+        page = yield from _find_items(
+            candidate, resolver, probes, visited, caught_up_after, 0, browser, stats, feed=True, row=row
+        )
+        if page:
+            stats.tab_pages[row["tab"]] = page
+            return
+        # A page that is no longer the row's is forgotten.
+        stats.tab_pages.pop(row["tab"], None)
+    stats.missing_tabs.append(row["label"] or row["tab"] or "the link itself")
 
 
 def iter_entries(
@@ -972,9 +1288,14 @@ def iter_entries(
     *,
     known: Callable[[str], bool] | None = None,
     settled: Callable[[str], bool] | None = None,
-    stop_after: int | None = None,
+    caught_up_after: int | None = None,
     feeds: list[str] | None = None,
     explore: bool = True,
+    tabs: list[dict[str, Any]] | None = None,
+    pages: dict[str, str] | None = None,
+    learned: dict[str, list[tuple[str, str]]] | None = None,
+    batch: int | None = None,
+    ended: list[str] | None = None,
     backlog: Backlog | None = None,
 ) -> Iterator[Entry]:
     """Every entry of a collection link, newest first where the site lists that way.
@@ -983,52 +1304,97 @@ def iter_entries(
     support, and the sub-collections either hands back are listed in turn. The link's page and
     its tabs then add the items no engine lists, including the ones that only load as the page is
     scrolled. ``known`` tells entries the tracker already has: they skip every probe. One listing
-    stops after ``stop_after`` ``settled`` entries in a row (``known`` when not given). Raises
+    is caught up after ``caught_up_after`` ``settled`` entries in a row (``known`` when not given). Raises
     ``ValueError`` when neither engine could list the link and its page added nothing.
 
-    Every page is scrolled to its end before any item it shows is listed: the items go to the
-    ``backlog`` first and are listed from there. A caller that stops early leaves the rest there
-    for a later walk, which lists them without scrolling past them again.
+    What pages show goes to the ``backlog`` and is read at once, a few links at a time, so entries
+    come while pages still scroll; a link the app already downloaded is not probed. A page scrolls
+    until it took a ``batch`` of links or reached its end; one stopped at a batch is scrolled past
+    what it showed by the next walk, which goes on from there. Pages ``ended`` by an earlier walk
+    only catch up with it. A caller that stops early leaves the rest in the backlog for a later walk.
 
     ``feeds`` are pages an earlier walk found items on, walked before any other page; the rest are
     visited only when ``explore`` is set or the feeds list nothing. ``stats`` reports what each page
     listed, for ``ListingStats.feeds``.
+
+    ``tabs``, page rows as ``probe_tabs`` finds them, replace that walk: a ticked row's page is
+    scrolled, an unticked one is left to the engines when they list it and skipped otherwise. Each
+    row is found on the link as the page it was last (``pages``), a tab the link offers that
+    resembles it, or a name it went by, including the ones ``learned`` on other links; ``stats``
+    reports the pages the rows turned out to be.
     """
     url = _prepare_url(source_url)
     stats = stats if stats is not None else ListingStats()
+    stats.tab_pages = dict(pages or {})
+    stats.ended = set(ended or [])
+    learned = learned or {}
     backlog = backlog if backlog is not None else _WalkBacklog()
     # One resolver for the whole walk, so items are judged against the tracked link and probes are shared.
     resolver = _Resolver(url, source_key, known, settled)
+    resolver.batch = batch
     visited = {_visit_key(url)}
-    produced = False
-    error: ValueError | None = None
+    probes = _Probes(resolver, backlog)
     try:
-        for entry in _collection_entries(url, stats, resolver, visited, stop_after, 0):
+        produced = False
+        error: ValueError | None = None
+        try:
+            for entry in _collection_entries(url, stats, resolver, visited, caught_up_after, 0):
+                produced = True
+                yield entry
+        except ValueError as exc:
+            error = exc
+        # An unticked page the engines read and did not reach is listed by them too.
+        for row in tabs or []:
+            if row["enabled"] or not row["tab"] or row["tab"] in stats.engine_tabs:
+                continue
+            page = next(
+                (page for page in _row_pages(url, row, resolver, None, stats, learned) if _engine_reads(page)), ""
+            )
+            if not page or _visit_key(page) in visited:
+                continue
+            visited.add(_visit_key(page))
+            with suppress(ValueError):
+                for entry in _collection_entries(page, stats, resolver, visited, caught_up_after, 1):
+                    produced = True
+                    yield entry
+                stats.tab_pages[row["tab"]] = page
+        # One browser for every page; it starts only if a page needs scrolling, and closes before the walk
+        # waits on its last probes so other walks can scroll meanwhile.
+        with BrowserSession(resolver.source_key) as browser:
+            if tabs is not None:
+                for row in tabs:
+                    if row["enabled"]:
+                        yield from _walk_row(
+                            url, row, resolver, probes, visited, caught_up_after, browser, stats, learned
+                        )
+            else:
+                fed: set[str] = set()
+                for feed in feeds or []:
+                    key = _visit_key(feed)
+                    if key in fed:
+                        continue
+                    fed.add(key)
+                    yield from _find_items(
+                        feed, resolver, probes, visited, caught_up_after, 0, browser, stats, feed=True
+                    )
+                # Feeds that list nothing may have moved, so the walk looks at every page again.
+                if explore or not any(stats.pages.values()):
+                    visited.update(fed)
+                    scroll = _visit_key(url) not in fed
+                    yield from _find_items(
+                        url, resolver, probes, visited, caught_up_after, 0, browser, stats, scroll=scroll
+                    )
+                    stats.explored = True
+        stats.complete = not (browser.cut_short or stats.more)
+        # Items a page showed count even when all were known, so a feed with nothing new is no failure.
+        produced = produced or any(stats.pages.values())
+        # Links earlier checks left in the backlog that no page showed this time.
+        probes.widen()
+        probes.add(backlog.links())
+        for entry in probes.entries(wait=True):
             produced = True
             yield entry
-    except ValueError as exc:
-        error = exc
-    # One browser for every page; it starts only if a page needs scrolling, and closes before the
-    # backlog is probed so other walks can scroll meanwhile.
-    with BrowserSession(resolver.source_key) as browser:
-        fed: set[str] = set()
-        for feed in feeds or ():
-            key = _visit_key(feed)
-            if key in fed:
-                continue
-            fed.add(key)
-            _find_items(feed, resolver, backlog, visited, stop_after, 0, browser, stats, feed=True)
-        # Feeds that list nothing may have moved, so the walk looks at every page again.
-        if explore or not any(stats.pages.values()):
-            visited.update(fed)
-            scroll = _visit_key(url) not in fed
-            _find_items(url, resolver, backlog, visited, stop_after, 0, browser, stats, scroll=scroll)
-            stats.explored = True
-    stats.complete = not browser.cut_short
-    # Items a page showed count even when all were known, so a feed with nothing new is no failure.
-    produced = produced or any(stats.pages.values())
-    for entry in _backlog_entries(backlog, resolver):
-        produced = True
-        yield entry
-    if error and not produced:
-        raise error
+        if error and not produced:
+            raise error
+    finally:
+        probes.close()

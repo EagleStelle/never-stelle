@@ -89,7 +89,13 @@ from backend.app.domains.settings.tokens import (
     normalize_source_token_roles,
     normalize_token_name,
 )
-from backend.app.domains.settings.trackers import get_tracker_settings, normalize_tracker_settings
+from backend.app.domains.settings.trackers import (
+    get_tracker_settings,
+    get_tracker_tabs,
+    merge_tracker_tabs,
+    normalize_source_tracker_tabs,
+    normalize_tracker_settings,
+)
 
 __all__ = [
     "BUILTIN_FILENAME_TEMPLATE",
@@ -126,6 +132,7 @@ __all__ = [
     "get_source_profile_by_key",
     "get_source_profile_for_url",
     "get_tracker_settings",
+    "get_tracker_tabs",
     "get_ytdlp_cookies_status",
     "has_cookies_for_source",
     "has_cookies_for_url",
@@ -141,6 +148,7 @@ __all__ = [
     "load_token_roles",
     "looks_antibot_walled",
     "looks_rate_limited",
+    "merge_tracker_tabs",
     "normalize_default_cookie_policy",
     "normalize_default_fields",
     "normalize_default_naming",
@@ -153,6 +161,7 @@ __all__ = [
     "normalize_source_template_selection",
     "normalize_source_title_cleaning",
     "normalize_source_token_roles",
+    "normalize_source_tracker_tabs",
     "normalize_subpath",
     "normalize_template_settings",
     "normalize_token_name",
