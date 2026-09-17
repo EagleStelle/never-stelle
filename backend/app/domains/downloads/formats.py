@@ -144,6 +144,9 @@ def _identifier_score(value: str, key: str = "", *, path_context: bool = False) 
         score -= 2
     if path_context and token.startswith("@"):
         score -= 2
+    if not path_context and "." in token:
+        # A dotted query value is a scoped reference (a set, a file, a version), not a bare id.
+        score -= 2
     return max(0, score)
 
 

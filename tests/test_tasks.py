@@ -4379,6 +4379,14 @@ def test_url_dedup_key_separates_different_posts():
     assert a != b
 
 
+def test_url_dedup_key_reads_the_item_not_the_set_it_was_opened_in():
+    album = "set=pb.61111111111111.-2222222222"
+    first = url_dedup_key(f"https://example.test/photo/?{album}&fbid=111111111111111111")
+    second = url_dedup_key(f"https://example.test/photo/?fbid=222222222222222222&{album}")
+    assert first != second
+    assert first == url_dedup_key("https://example.test/photo?fbid=111111111111111111")
+
+
 def test_media_id_from_url_reads_id_without_prior_knowledge():
     assert media_id_from_url("https://www.tiktok.com/@a/video/7615077542189337873") == "7615077542189337873"
     assert media_id_from_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ") == "dQw4w9WgXcQ"
