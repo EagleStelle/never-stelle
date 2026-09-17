@@ -112,6 +112,10 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
     drag.from !== index
   );
 }
+
+function filledRoles(key: string) {
+  return FIELD_ROLE_DEFS.filter((role) => fieldListItems(key, role.key).length);
+}
 </script>
 
 <template>
@@ -162,9 +166,18 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
             </FieldContent>
           </Field>
 
-          <Card v-if="probes[site.key].message" class="px-6">
+          <Card
+            v-if="
+              probes[site.key].message ||
+              (!probes[site.key].fields.length && !filledRoles(site.key).length)
+            "
+            class="px-6"
+          >
             <p class="text-[0.8125rem] text-muted-foreground">
-              {{ probes[site.key].message }}
+              {{
+                probes[site.key].message ||
+                "Test a link from this source to list the fields it carries."
+              }}
             </p>
           </Card>
 
@@ -210,9 +223,12 @@ function isDropTarget(key: string, role: FieldRole, index: number): boolean {
             </TableBody>
           </Table>
 
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3 mt-3">
+          <div
+            v-if="filledRoles(site.key).length"
+            class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3 mt-3"
+          >
             <div
-              v-for="role in FIELD_ROLE_DEFS"
+              v-for="role in filledRoles(site.key)"
               :key="role.key"
               class="flex flex-col gap-2"
             >

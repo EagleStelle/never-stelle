@@ -17,6 +17,7 @@ export type SettingsSection =
   | "locations"
   | "cookies"
   | "trackers"
+  | "scrolling"
   | "format"
   | "fields"
   | "scraper"
@@ -144,6 +145,12 @@ export interface ProbeFieldsResponse {
   saved?: boolean;
 }
 
+// The source's page rows with the pages the probed link offers joined in.
+export interface ProbeTabsResponse {
+  source_key: string;
+  tabs: TrackerTab[];
+}
+
 // Outcome of adding a platform from a link: which source it resolved to, whether the
 // platform was newly created, and whether a URL format could be learned from the link.
 export interface LearnFormatResult {
@@ -269,17 +276,35 @@ export interface SavedSettings {
   default_fields: FieldRoles;
   default_naming: NamingDefaults;
   tracker_settings: TrackerSettings;
+  source_tracker_tabs: SourceTrackerTabs;
 }
 
 export interface TrackerSettings {
   // New items one check handles before the next check continues with older ones.
   page_size: number;
   // Items already in the app, in a row, before a check stops scrolling.
-  stop_after: number;
+  caught_up_after: number;
   // What a new tracker starts with.
   interval_seconds: number;
   backfill: boolean;
 }
+
+// A name a page went by: a path segment, or a query value with its field.
+export interface TrackerTabVariant {
+  name: string;
+  field: string;
+}
+// A page of a source's links, "" being the link itself. Ticked pages are scrolled; unticked ones are left
+// to the engines when they list them (`engine`), else skipped. Each tracker finds the page by its variants.
+export interface TrackerTab {
+  tab: string;
+  label: string;
+  variants: TrackerTabVariant[];
+  engine: boolean;
+  enabled: boolean;
+}
+// Per source, the pages its trackers know; a source without rows walks every page.
+export type SourceTrackerTabs = Record<string, TrackerTab[]>;
 
 export interface SettingsDraft extends SavedSettings {
   account: AccountSettingsDraft;
@@ -329,6 +354,7 @@ export interface UiConfigResponse {
   default_fields?: Partial<FieldRoles>;
   default_naming?: NamingDefaults;
   tracker_settings?: Partial<TrackerSettings>;
+  source_tracker_tabs?: SourceTrackerTabs;
   default_quality?: Partial<QualitySelection>;
   default_post_processing?: Partial<PostProcessingSelection>;
   quality_options?: Partial<QualityOptions>;

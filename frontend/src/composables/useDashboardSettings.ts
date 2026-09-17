@@ -20,6 +20,7 @@ import type {
   CookiesMap,
   CookiesStatus,
   SourceCookiePolicies,
+  SourceTrackerTabs,
   FieldRoles,
   LearnedFormats,
   NamingDefaults,
@@ -45,6 +46,7 @@ import {
   createNamingFlags,
   createPostProcessingSelection,
   createSourceCookiePolicies,
+  createSourceTrackerTabs,
   createQualityOptions,
   createFieldRoles,
   createQualitySelection,
@@ -394,6 +396,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_fields: createFieldRoles(),
     default_naming: createNamingFlags(),
     tracker_settings: createTrackerSettings(),
+    source_tracker_tabs: createSourceTrackerTabs(),
   });
   const settings = reactive<RuntimeSettings>({
     auth: { username: "", password_configured: false },
@@ -413,6 +416,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_fields: createFieldRoles(),
     default_naming: createNamingFlags(),
     tracker_settings: createTrackerSettings(),
+    source_tracker_tabs: createSourceTrackerTabs(),
     media_root: "",
     source_location_options: {},
     ytdlp_cookies: createCookiesMap(),
@@ -447,6 +451,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_fields: createFieldRoles(),
     default_naming: createNamingFlags(),
     tracker_settings: createTrackerSettings(),
+    source_tracker_tabs: createSourceTrackerTabs(),
   });
   const learnedFormatsDraft = reactive<LearnedFormats>({});
   // A source keeps a list of jars, so uploads stack and deletes name one jar.
@@ -582,6 +587,9 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       default_fields: createFieldRoles(source.default_fields),
       default_naming: createNamingFlags(source.default_naming),
       tracker_settings: createTrackerSettings(source.tracker_settings),
+      source_tracker_tabs: createSourceTrackerTabs(
+        recordForProfiles(source.source_tracker_tabs as SourceTrackerTabs, profiles),
+      ),
     };
   }
 
@@ -702,6 +710,12 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         ...defaults.tracker_settings,
         ...settings.tracker_settings,
       }),
+      source_tracker_tabs: createSourceTrackerTabs(
+        recordForProfiles(
+          { ...defaults.source_tracker_tabs, ...settings.source_tracker_tabs },
+          profiles,
+        ),
+      ),
     };
   }
 
@@ -737,6 +751,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         default_fields: settingsDraft.default_fields,
         default_naming: settingsDraft.default_naming,
         tracker_settings: settingsDraft.tracker_settings,
+        source_tracker_tabs: settingsDraft.source_tracker_tabs,
       }),
     );
   }
@@ -941,6 +956,12 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     Object.assign(defaults.tracker_settings, trackerSettings);
     Object.assign(settings.tracker_settings, trackerSettings);
 
+    const trackerTabs = createSourceTrackerTabs(
+      recordForProfiles(data.source_tracker_tabs || {}, managedProfiles),
+    );
+    replaceRecord(defaults.source_tracker_tabs, trackerTabs);
+    replaceRecord(settings.source_tracker_tabs, trackerTabs);
+
     settings.field_defaults = createFieldRoles(
       data.field_defaults || {},
     );
@@ -1123,6 +1144,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       previous.tracker_settings,
       server.tracker_settings,
     );
+    mergeCleanRecordEntries(
+      settingsDraft.source_tracker_tabs,
+      previous.source_tracker_tabs,
+      server.source_tracker_tabs,
+    );
   }
 
   function mergeCleanFormatsFromServer(
@@ -1203,6 +1229,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     delete settingsDraft.source_fields[key];
     delete settingsDraft.source_title_cleaning[key];
     delete settingsDraft.source_cookie_policies[key];
+    delete settingsDraft.source_tracker_tabs[key];
   }
 
   function replaceDesiredTemplate(
@@ -1379,6 +1406,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     Object.assign(settingsDraft.default_fields, normalized.default_fields);
     replaceRecord(settingsDraft.default_naming, normalized.default_naming);
     Object.assign(settingsDraft.tracker_settings, normalized.tracker_settings);
+    replaceRecord(settingsDraft.source_tracker_tabs, normalized.source_tracker_tabs);
   }
 
   function copySettingsToDraft(): void {
@@ -1406,6 +1434,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       locations: "",
       cookies: "",
       trackers: "trackerPageSizeInput",
+      scrolling: `${firstSource}ScrollingProbeInput`,
       format: "formatLearnInput",
       fields: `${firstSource}FieldsProbeInput`,
       scraper: `${firstSource}ScraperProbeInput`,

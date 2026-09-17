@@ -6,6 +6,7 @@ import type {
   HistoryResponse,
   LoginPayload,
   ProbeFieldsResponse,
+  ProbeTabsResponse,
   ProbeResponse,
   ResolveResponse,
   ResolveScope,
@@ -14,6 +15,7 @@ import type {
   ScanMediaResponse,
   ScrapeRule,
   ScrapeTestResponse,
+  SourceTrackerTabs,
   TasksResponse,
   Tracker,
   TrackerPayload,
@@ -115,6 +117,22 @@ export function probeFields(url: string, sourceKey = ""): Promise<ProbeFieldsRes
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url, source_key: sourceKey }),
+    },
+    "Could not read that link.",
+  );
+}
+
+export function probeTabs(
+  url: string,
+  sourceKey: string,
+  sourceTrackerTabs: SourceTrackerTabs,
+): Promise<ProbeTabsResponse> {
+  return jsonRequest<ProbeTabsResponse>(
+    "/api/settings/probe-tabs",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, source_key: sourceKey, source_tracker_tabs: sourceTrackerTabs }),
     },
     "Could not read that link.",
   );

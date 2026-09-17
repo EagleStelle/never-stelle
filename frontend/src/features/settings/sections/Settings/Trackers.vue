@@ -24,7 +24,7 @@ import { TRACKER_SETTINGS_DEFAULTS } from "@/utils/dashboard";
 const { settingsDraft } = useSettingsContext();
 
 const COUNT_FIELDS: {
-  key: "page_size" | "stop_after";
+  key: "page_size" | "caught_up_after";
   id: string;
   label: string;
   help: string;
@@ -34,19 +34,19 @@ const COUNT_FIELDS: {
     id: "trackerPageSizeInput",
     label: "Batch size",
     help:
-      "New items one check handles. The next check starts with anything posted since, then continues with older ones.",
+      "New items one check queues. The next check starts with anything posted since, then continues with older ones.",
   },
   {
-    key: "stop_after",
-    id: "trackerStopAfterInput",
-    label: "Stop after seen items",
+    key: "caught_up_after",
+    id: "trackerMatchStreakInput",
+    label: "Match streak",
     help:
-      "A check stops scrolling once it passes this many items in a row that are already in the app. Raise it if a page pins old posts above new ones.",
+      "After this many saved items in a row, a check knows nothing is new. It then goes back to where it last stopped, or ends if there is nothing left. Raise it if old posts are pinned at the top.",
   },
 ];
 
 // A blank or partial entry leaves the saved value alone; the server clamps the range.
-function setCount(key: "page_size" | "stop_after", raw: string | number): void {
+function setCount(key: "page_size" | "caught_up_after", raw: string | number): void {
   const value = Math.floor(Number(raw));
   if (String(raw).trim() && Number.isFinite(value) && value > 0) settingsDraft.tracker_settings[key] = value;
 }

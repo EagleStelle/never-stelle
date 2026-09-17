@@ -9,6 +9,7 @@ import IconNaming from "~icons/material-symbols/text-format";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconScraper from "~icons/material-symbols/travel-explore";
 import IconSlug from "~icons/material-symbols/link";
+import IconScrolling from "~icons/material-symbols/swipe-vertical";
 import IconTrackers from "~icons/material-symbols/radar";
 
 import type { SettingsSection } from "@/types";
@@ -17,6 +18,7 @@ import Cookies from "@/features/settings/sections/Settings/Cookies.vue";
 import Locations from "@/features/settings/sections/Settings/Locations.vue";
 import Defaults from "@/features/settings/sections/Settings/Defaults.vue";
 import Trackers from "@/features/settings/sections/Settings/Trackers.vue";
+import Scrolling from "@/features/settings/sections/Settings/Scrolling.vue";
 import Templates from "@/features/settings/sections/Metadata/Templates.vue";
 import Fields from "@/features/settings/sections/Metadata/Fields.vue";
 import Format from "@/features/settings/sections/Metadata/Format.vue";
@@ -83,6 +85,15 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     component: Trackers,
     focusId: () => "trackerPageSizeInput",
     requiresSources: false,
+  },
+  {
+    key: "scrolling",
+    label: "Scrolling",
+    group: "Settings",
+    icon: IconScrolling,
+    component: Scrolling,
+    focusId: (source) => `${source}ScrollingProbeInput`,
+    requiresSources: true,
   },
   {
     key: "format",

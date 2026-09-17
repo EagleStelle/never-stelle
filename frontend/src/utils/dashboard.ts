@@ -48,6 +48,7 @@ import {
   type TaskItem,
   type TokenRole,
   type TrackerSettings,
+  type SourceTrackerTabs,
   type ViewMode,
 } from "@/types";
 
@@ -960,18 +961,37 @@ export function createCookiePolicy(source: CookiePolicy = {}): CookiePolicy {
 
 export const TRACKER_SETTINGS_DEFAULTS: TrackerSettings = {
   page_size: 30,
-  stop_after: 20,
+  caught_up_after: 5,
   interval_seconds: 6 * 3600,
   backfill: true,
 };
 
 export function createTrackerSettings(source: Partial<TrackerSettings> = {}): TrackerSettings {
   const out = { ...TRACKER_SETTINGS_DEFAULTS };
-  for (const field of ["page_size", "stop_after", "interval_seconds"] as const) {
+  for (const field of ["page_size", "caught_up_after", "interval_seconds"] as const) {
     const value = Math.floor(Number(source?.[field]));
     if (Number.isFinite(value) && value > 0) out[field] = value;
   }
   if (typeof source?.backfill === "boolean") out.backfill = source.backfill;
+  return out;
+}
+
+export function createSourceTrackerTabs(source: SourceTrackerTabs = {}): SourceTrackerTabs {
+  const out: SourceTrackerTabs = {};
+  for (const [key, rows] of Object.entries(source || {})) {
+    const normalizedKey = normalizeSourceKey(key);
+    if (!normalizedKey || !Array.isArray(rows) || !rows.length) continue;
+    out[normalizedKey] = rows.map((row) => ({
+      tab: String(row.tab || ""),
+      label: String(row.label || ""),
+      variants: (Array.isArray(row.variants) ? row.variants : []).map((variant) => ({
+        name: String(variant?.name || ""),
+        field: String(variant?.field || ""),
+      })),
+      engine: Boolean(row.engine),
+      enabled: Boolean(row.enabled),
+    }));
+  }
   return out;
 }
 

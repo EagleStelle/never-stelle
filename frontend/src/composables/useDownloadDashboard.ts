@@ -51,6 +51,7 @@ const SETTINGS_SLUG_BY_SECTION: Record<SettingsSection, string> = {
   locations: "locations",
   cookies: "cookies",
   trackers: "trackers",
+  scrolling: "scrolling",
   format: "format",
   fields: "fields",
   scraper: "scraper",
