@@ -17,7 +17,7 @@ from backend.app.domains.downloads.files import (
 )
 from backend.app.domains.downloads.formats import media_id_from_url, reconstruct_url
 from backend.app.domains.downloads.learning import update_learned_formats_with_download
-from backend.app.domains.downloads.naming import clean_template_filename, strip_numbered_suffix
+from backend.app.domains.downloads.naming import clean_template_filename, numbered_suffix_of, strip_numbered_suffix
 from backend.app.domains.downloads.scan import parse_filename_media_id
 from backend.app.domains.downloads.store import (
     load_history_entries_for_media_id,
@@ -424,7 +424,16 @@ def _clean_resolved_filename(
                 )
                 return renamed, display_filename or f"{strip_numbered_suffix(renamed.stem)}{renamed.suffix}"
             if strip_numbered_suffix(path.stem) != path.stem:
-                rename_paths = group_paths or find_numbered_media_siblings(path) or [path]
+                siblings = find_numbered_media_siblings(path)
+                alone = [_path_key(item) for item in siblings] == [_path_key(path)]
+                # A post's only file carries no number.
+                if alone and numbered_suffix_of(path.stem) == "_1":
+                    unnumbered = Path(disk_filename)
+                    renamed = _rename_path(
+                        path, display_filename or f"{strip_numbered_suffix(unnumbered.stem)}{unnumbered.suffix}"
+                    )
+                    return renamed, renamed.name
+                rename_paths = group_paths or siblings or [path]
                 renamed = _rename_gallerydl_paths(
                     rename_paths,
                     path,

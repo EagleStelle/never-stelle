@@ -184,14 +184,19 @@ def _infer_path_id_index(segments: list[str], media_id: str = "") -> int | None:
 
 def _infer_query_id_key(query: str, media_id: str = "") -> str:
     media_id = str(media_id or "").strip()
+    pairs = parse_qsl(str(query or ""), keep_blank_values=False)
+    if known := next((key for key, value in pairs if media_id and value == media_id), ""):
+        return known
     best: tuple[int, str] = (0, "")
-    for key, value in parse_qsl(str(query or ""), keep_blank_values=False):
+    named = ""
+    for key, value in pairs:
         score = _identifier_score(value, key)
-        if media_id and value == media_id:
-            score += 5
+        # The first id a key names is the item; later ones narrow it, as its owner or a comment on it.
+        if score >= 3 and not named and (_is_identifier_key(key) or key.lower().endswith("id")):
+            named = key
         if score > best[0]:
             best = (score, key)
-    return best[1] if best[0] >= 3 else ""
+    return named or (best[1] if best[0] >= 3 else "")
 
 
 def _canonical_query(query: str, media_id: str = "") -> str:

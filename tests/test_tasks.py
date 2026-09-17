@@ -2588,11 +2588,32 @@ def test_clean_resolved_filename_rebuilds_sparse_gallerydl_name_from_title_hint(
         title_hint="Nice clip",
     )
 
-    expected = tmp_path / "alice - Nice clip [abc123]_1.jpg"
+    # The post's only file carries no number.
+    expected = tmp_path / "alice - Nice clip [abc123].jpg"
     assert final_path == expected
     assert display_filename == "alice - Nice clip [abc123].jpg"
     assert expected.is_file()
     assert not media_file.exists()
+
+
+def test_clean_resolved_filename_keeps_the_number_of_a_file_beside_its_post_siblings(tmp_path: Path):
+    media_file = tmp_path / "[abc123]_1.jpg"
+    media_file.write_bytes(b"image")
+    (tmp_path / "[abc123]_2.jpg").write_bytes(b"image")
+
+    final_path, display_filename = completion_module._clean_resolved_filename(
+        "https://example.com/alice/post/abc123",
+        media_file,
+        {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
+        "example",
+        group_paths=[media_file],
+        creator_hint="alice",
+        media_id_hint="abc123",
+        title_hint="Nice clip",
+    )
+
+    assert final_path == tmp_path / "alice - Nice clip [abc123]_1.jpg"
+    assert display_filename == "alice - Nice clip [abc123].jpg"
 
 
 def test_clean_resolved_filename_title_only_template_falls_back_to_media_id(tmp_path: Path):
@@ -3384,7 +3405,7 @@ def test_worker_does_not_run_fallback_after_media_and_unsupported_tail(
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
 
-    clean_image = tmp_path / "Creator - Image [abc123]_1.jpg"
+    clean_image = tmp_path / "Creator - Image [abc123].jpg"
     completed = store["tasks"][task_id]
     assert commands == ["gallery-dl"]
     assert completed["status"] == "completed"
@@ -4385,6 +4406,18 @@ def test_url_dedup_key_reads_the_item_not_the_set_it_was_opened_in():
     second = url_dedup_key(f"https://example.test/photo/?fbid=222222222222222222&{album}")
     assert first != second
     assert first == url_dedup_key("https://example.test/photo?fbid=111111111111111111")
+
+
+def test_url_dedup_key_reads_the_first_named_id_not_its_owner_or_a_comment():
+    owner = "id=61111111111111"
+    first = url_dedup_key(f"https://example.test/permalink.php?story_fbid=pfbid0abc123XYZ&{owner}")
+    second = url_dedup_key(f"https://example.test/permalink.php?story_fbid=pfbid0def456UVW&{owner}")
+    assert (first, second) == ("example#pfbid0abc123XYZ", "example#pfbid0def456UVW")
+    commented = url_dedup_key("https://example.test/photo/?fbid=111111111111111&set=a.2222&comment_id=3333333333333333")
+    assert commented == "example#111111111111111"
+    assert url_dedup_key("https://example.test/watch?list=PL0123456789abcdefghijklmnop&v=dQw4w9WgXcQ") == (
+        "example#dQw4w9WgXcQ"
+    )
 
 
 def test_media_id_from_url_reads_id_without_prior_knowledge():

@@ -384,8 +384,15 @@ def test_learned_routes_are_confirmed_once_per_kind_of_file(temp_db, monkeypatch
     assert probed == ["https://example.test/reel/22222222", photo]
 
 
-def test_an_image_resolves_to_the_post_its_page_links(temp_db, monkeypatch):
-    post = "https://example.test/alice/posts/pfbid0abc123XYZ"
+@pytest.mark.parametrize(
+    ("post", "creator"),
+    [
+        ("https://example.test/alice/posts/pfbid0abc123XYZ", "alice"),
+        # The creator's id sits in a query field beside the post's own.
+        ("https://example.test/permalink.php?story_fbid=pfbid0abc123XYZ&id=61111111111111", "61111111111111"),
+    ],
+)
+def test_an_image_resolves_to_the_post_its_page_links(temp_db, monkeypatch, post, creator):
     photo = "https://example.test/photo?fbid=22222222"
     fetched: list[str] = []
 
@@ -407,6 +414,7 @@ def test_an_image_resolves_to_the_post_its_page_links(temp_db, monkeypatch):
             ]
         },
     )
+    monkeypatch.setattr(listing_module, "_link_placeholders", lambda url: {"USER": creator})
     messages = [
         [3, "https://cdn.other.test/a.jpg", {"id": "22222222", "extension": "jpg", "link": photo}],
         [
@@ -419,6 +427,7 @@ def test_an_image_resolves_to_the_post_its_page_links(temp_db, monkeypatch):
     entries = list(listing_module._gallerydl_entries(iter(messages), _resolver(), ListingStats(), []))
 
     assert [entry.url for entry in entries] == [post, post]
+    assert listing_module.url_dedup_key(post) == "example#pfbid0abc123XYZ"
     assert entries[0].members == ("example#22222222", "example#33333333")
     # The second photo is already known to sit in the post.
     assert fetched == [photo]
