@@ -206,8 +206,6 @@ export function useDownloadDashboard() {
   );
   const trackerState = useTrackers({
     enabled: trackersPage,
-    getQuality,
-    getPostProcessing,
     tasks: taskQueue.taskItems,
     toast: sonner.toast,
     url,
@@ -363,20 +361,32 @@ export function useDownloadDashboard() {
 
   let applyingRoute = false;
 
-  // Base page always owns the path; the open settings pane rides as a query param.
+  // Base page owns the path and an open tracker its id; a new link and the settings pane ride as query params.
   function routeFor(): string {
-    const base = PAGE_ROUTES[activePage.value];
-    if (!settingsState.settingsOpen.value) return base;
-    const slug = SETTINGS_SLUG_BY_SECTION[settingsState.settingsSection.value];
-    return slug ? `${base}?settings=${slug}` : base;
+    let path: string = PAGE_ROUTES[activePage.value];
+    const query = new URLSearchParams();
+    if (trackerState.newTrackerUrl.value) {
+      path += "/new";
+      query.set("url", trackerState.newTrackerUrl.value);
+    } else if (trackerState.openTrackerId.value) {
+      path += `/${trackerState.openTrackerId.value}`;
+    }
+    const slug = settingsState.settingsOpen.value && SETTINGS_SLUG_BY_SECTION[settingsState.settingsSection.value];
+    if (slug) query.set("settings", slug);
+    const search = query.toString();
+    return search ? `${path}?${search}` : path;
   }
 
   function applyCurrentRoute(): void {
     const path = window.location.pathname || "/";
-    const slug = new URLSearchParams(window.location.search).get("settings");
+    const query = new URLSearchParams(window.location.search);
+    const slug = query.get("settings");
     applyingRoute = true;
-    const [, root = ""] = path.split("/");
+    const [, root = "", tracker = ""] = path.split("/");
     activePage.value = isPageKey(root) ? root : "downloads";
+    const trackerRoute = activePage.value === "trackers" ? tracker : "";
+    trackerState.newTrackerUrl.value = trackerRoute === "new" ? query.get("url") || "" : "";
+    trackerState.openTrackerId.value = trackerRoute === "new" ? "" : trackerRoute;
     if (slug !== null) {
       settingsState.openSettings(undefined, settingsSectionFromSlug(slug));
     } else {
@@ -402,6 +412,7 @@ export function useDownloadDashboard() {
   function setActivePage(page: PageKey): void {
     activePage.value = isPageKey(page) ? page : "downloads";
     trackerState.openTrackerId.value = "";
+    trackerState.newTrackerUrl.value = "";
   }
 
   function setActiveMenu(menu: MenuKey): void {
@@ -444,7 +455,13 @@ export function useDownloadDashboard() {
   applyCurrentRoute();
 
   watch(
-    [activePage, settingsState.settingsOpen, settingsState.settingsSection],
+    [
+      activePage,
+      trackerState.openTrackerId,
+      trackerState.newTrackerUrl,
+      settingsState.settingsOpen,
+      settingsState.settingsSection,
+    ],
     () => syncRoute(),
     { flush: "post" },
   );

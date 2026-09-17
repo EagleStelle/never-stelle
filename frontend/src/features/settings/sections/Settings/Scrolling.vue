@@ -101,7 +101,7 @@ function resetPages(key: string): void {
           <div class="flex flex-col gap-[0.85rem]">
             <Field>
               <FieldLabel :for="`${site.key}ScrollingProbeInput`">
-                Creator link
+                Probe creator
               </FieldLabel>
               <FieldContent class="flex-row items-center gap-2">
                 <Input
@@ -141,8 +141,7 @@ function resetPages(key: string): void {
             >
               <p class="text-[0.8125rem] text-muted-foreground">
                 Test a creator link from this source to choose which pages its
-                trackers scroll. Until then, trackers walk the pages the engines
-                don't list.
+                trackers scroll.
               </p>
             </Card>
 

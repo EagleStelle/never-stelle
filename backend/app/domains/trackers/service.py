@@ -124,8 +124,10 @@ def create_tracker(
     *,
     quality: dict[str, Any] | None = None,
     post_processing: dict[str, Any] | None = None,
+    interval_seconds: int | None = None,
+    backfill: bool | None = None,
 ) -> dict[str, Any]:
-    """Save the link at once, idle: nothing is listed until the tracker is applied."""
+    """Save the link and make it due at once."""
     url = canonicalize_source_url(source_url)
     if not url:
         raise ValueError("Paste a URL first.")
@@ -140,11 +142,12 @@ def create_tracker(
             "source_url": url,
             "source_key": source_key_from_url(url, get_effective_source_profiles()),
             "name": _fallback_name(url),
-            "enabled": False,
-            "interval_seconds": defaults["interval_seconds"],
-            "backfill": defaults["backfill"],
+            "enabled": True,
+            "interval_seconds": _interval(interval_seconds),
+            "backfill": defaults["backfill"] if backfill is None else backfill,
             "quality": normalize_quality_selection(quality) if quality else {},
             "post_processing": normalize_post_processing(post_processing) if post_processing is not None else {},
+            "next_check_at": utc_now(),
         }
     )
     return tracker_to_api(tracker)
@@ -172,7 +175,7 @@ def update_tracker(tracker_id: str, changes: dict[str, Any]) -> dict[str, Any]:
 def check_tracker_now(tracker_id: str) -> None:
     tracker = get_tracker(tracker_id)
     if not tracker["enabled"]:
-        raise PermissionError("Apply or resume the tracker to check it.")
+        raise PermissionError("Resume the tracker to check it.")
     _asked.add(tracker_id)
     update_tracker_row(tracker_id, {"next_check_at": utc_now()})
 

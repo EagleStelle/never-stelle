@@ -319,11 +319,7 @@ export function getTrackers(signal?: AbortSignal): Promise<TrackersResponse> {
   return jsonRequest<TrackersResponse>("/api/trackers", { signal }, "Could not load trackers.");
 }
 
-export function createTracker(payload: {
-  url: string;
-  quality: SavedSettings["default_quality"];
-  post_processing: SavedSettings["default_post_processing"];
-}): Promise<Tracker> {
+export function createTracker(payload: Required<Omit<TrackerPayload, "enabled">> & { url: string }): Promise<Tracker> {
   return jsonRequest<Tracker>(
     "/api/trackers",
     {

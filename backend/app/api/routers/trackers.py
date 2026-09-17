@@ -25,9 +25,11 @@ def list_trackers() -> dict[str, Any]:
 @router.post("")
 def create_tracker(payload: CreateTrackerPayload) -> dict[str, Any]:
     try:
-        return service.create_tracker(payload.url, quality=payload.quality, post_processing=payload.post_processing)
+        tracker = service.create_tracker(payload.url, **payload.model_dump(exclude={"url"}))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    ensure_tracker_worker()
+    return tracker
 
 
 @router.patch("/{tracker_id}")

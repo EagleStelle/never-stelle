@@ -9,6 +9,8 @@ class CreateTrackerPayload(BaseModel):
     url: str = ""
     quality: dict[str, Any] | None = None
     post_processing: dict[str, Any] | None = None
+    interval_seconds: int | None = None
+    backfill: bool | None = None
 
 
 class UpdateTrackerPayload(BaseModel):

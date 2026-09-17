@@ -30,7 +30,7 @@ const props = withDefaults(
   },
 );
 
-const emit = defineEmits<{ "update:open": [open: boolean] }>();
+const emit = defineEmits<{ "update:open": [open: boolean]; openAutoFocus: [event: Event] }>();
 
 const openModel = computed({
   get: () => props.open,
@@ -42,7 +42,7 @@ const openModel = computed({
   <DialogRoot v-model:open="openModel">
     <DialogPortal>
       <DialogOverlay :class="overlayClass" />
-      <DialogContent :class="contentClass">
+      <DialogContent :class="contentClass" @open-auto-focus="(event) => emit('openAutoFocus', event)">
         <DialogTitle
           :class="
             hideTitle

@@ -10,8 +10,6 @@ import {
 } from "@/api";
 import { HISTORY_QUERY_KEY, POLL_RUNNING_MS, TASKS_QUERY_KEY, TRACKERS_QUERY_KEY } from "@/ui";
 import type {
-  PostProcessingSelection,
-  QualitySelection,
   TaskItem,
   ToastType,
   Tracker,
@@ -22,8 +20,6 @@ import { errorMessage, extractUrl } from "@/utils/dashboard";
 
 interface UseTrackersOptions {
   enabled: Ref<boolean>;
-  getQuality: () => QualitySelection;
-  getPostProcessing: () => PostProcessingSelection;
   // The task feed the downloads page polls; its rows carry their tracker.
   tasks: Ref<TaskItem[]>;
   toast: (message: string, type?: ToastType) => void;
@@ -54,10 +50,12 @@ function pollDelay(trackers: Schedule[]): number | false {
   return Math.min(Math.max(Math.min(...due) - Date.now(), POLL_RUNNING_MS), MAX_TIMER_MS);
 }
 
-export function useTrackers({ enabled, getQuality, getPostProcessing, tasks, toast, url }: UseTrackersOptions) {
+export function useTrackers({ enabled, tasks, toast, url }: UseTrackersOptions) {
   const queryClient = useQueryClient();
   // The tracker whose dialog is open; "" when none is.
   const openTrackerId = ref("");
+  // A link whose dialog is open before it is saved; "" when none is.
+  const newTrackerUrl = ref("");
 
   const trackersQuery = useQuery<TrackersResponse>({
     queryKey: TRACKERS_QUERY_KEY,
@@ -91,6 +89,11 @@ export function useTrackers({ enabled, getQuality, getPostProcessing, tasks, toa
     trackersQuery.error.value ? errorMessage(trackersQuery.error.value, "Could not load trackers.") : "",
   );
   const openTracker = computed(() => trackers.value.find((tracker) => tracker.id === openTrackerId.value));
+
+  // A routed tracker that no longer exists closes its dialog.
+  watch([trackersQuery.data, openTrackerId], ([data]) => {
+    if (data && openTrackerId.value && !openTracker.value) openTrackerId.value = "";
+  });
 
   // A tracker row leaving the queue finished or was removed: only then can downloaded change.
   watch(
@@ -137,24 +140,27 @@ export function useTrackers({ enabled, getQuality, getPostProcessing, tasks, toa
     await trackersQuery.refetch();
   }
 
-  // The tracker is saved idle and listed at once; its dialog decides how it starts.
-  async function addTracker(): Promise<void> {
+  // Nothing is saved until the dialog is applied.
+  function addTracker(): void {
     const sourceUrl = extractUrl(url.value);
     if (!sourceUrl) {
       toast("Enter a valid URL.", "error");
       return;
     }
     url.value = "";
+    openTrackerId.value = "";
+    newTrackerUrl.value = sourceUrl;
+  }
+
+  async function saveTracker(payload: Parameters<typeof createTracker>[0]): Promise<boolean> {
     try {
-      const tracker = await createTracker({
-        url: sourceUrl,
-        quality: getQuality(),
-        post_processing: getPostProcessing(),
-      });
+      await createTracker(payload);
+      toast("Tracking started.");
       await refreshTrackers();
-      openTrackerId.value = tracker.id;
+      return true;
     } catch (error) {
       toast(errorMessage(error, "Could not add tracker."), "error");
+      return false;
     }
   }
 
@@ -197,8 +203,10 @@ export function useTrackers({ enabled, getQuality, getPostProcessing, tasks, toa
     addTracker,
     checkTracker,
     deleteTracker,
+    newTrackerUrl,
     openTracker,
     openTrackerId,
+    saveTracker,
     trackers,
     trackersError,
     trackersLoading,

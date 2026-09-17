@@ -1259,23 +1259,20 @@ def test_swaratelle_links_cannot_be_tracked(temp_db):
         service_module.create_tracker("https://www.iwara.tv/profile/someone")
 
 
-def test_created_tracker_waits_idle_until_applied(temp_db, monkeypatch):
+def test_created_tracker_is_due_at_once_without_listing_its_link(temp_db, monkeypatch):
     def never(*args, **kwargs):
         raise AssertionError("creating a tracker must not list its link")
 
     monkeypatch.setattr(service_module, "iter_entries", never)
 
-    created = service_module.create_tracker(TRACKER_URL, quality={"mode": "audio"})
+    created = service_module.create_tracker(
+        TRACKER_URL, quality={"mode": "audio"}, backfill=False, interval_seconds=10
+    )
 
-    assert (created["enabled"], created["next_check_at"]) == (False, "")
+    assert (created["enabled"], created["backfill"], created["interval_seconds"]) == (True, False, 3600)
     assert created["name"] == service_module._fallback_name(TRACKER_URL)
-    assert repositories.claim_due_tracker_row(utc_now_datetime().isoformat()) == {}
     with pytest.raises(ValueError, match="already tracked"):
         service_module.create_tracker(TRACKER_URL)
-
-    applied = service_module.update_tracker(created["id"], {"enabled": True, "backfill": False, "interval_seconds": 10})
-
-    assert (applied["enabled"], applied["backfill"], applied["interval_seconds"]) == (True, False, 3600)
     assert repositories.claim_due_tracker_row(utc_now_datetime().isoformat())["id"] == created["id"]
 
 

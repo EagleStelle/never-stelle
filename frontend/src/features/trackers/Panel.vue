@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, reactive, ref, useTemplateRef, watch } from "vue";
 import IconDelete from "~icons/material-symbols/delete";
 import { Link as IconLink } from "@lucide/vue";
 import IconMovie from "~icons/material-symbols/movie";
@@ -45,16 +45,21 @@ const {
   cancelTask,
   checkTracker,
   deleteTracker,
+  downloadPostProcessing,
+  downloadSelection,
   loadMoreTrackerHistory,
   mediaFilter,
   menuTrackers,
+  newTrackerUrl,
   openTracker,
   openTrackerId,
   qualityOptions,
   removeTask,
   resolveTask,
   retryTask,
+  saveTracker,
   setTaskSource,
+  settings,
   sourceProfiles,
   trackerHistoryError,
   trackerHistoryFetchingMore,
@@ -71,14 +76,8 @@ const {
 // Paging restarts from the top whenever the query behind the list changes.
 const listKey = computed(() => `${openTrackerId.value}|${activeMenu.value}|${mediaFilter.value}`);
 
-// A tracker saved from the URL field waits idle until its dialog is applied.
-function started(tracker: Tracker): boolean {
-  return tracker.enabled || Boolean(tracker.last_checked_at);
-}
-
 function trackerStatus(tracker: Tracker): string {
   if (tracker.checking) return "Checking";
-  if (!started(tracker)) return "Not started";
   return tracker.enabled ? "" : "Paused";
 }
 
@@ -105,14 +104,20 @@ const draftBackfill = ref(true);
 const draftQualityFields = computed(() => qualityFieldsFor(draftSelection, qualityOptions.value));
 const draftCapabilities = computed(() => postProcessingCapabilitiesForQuality(draftSelection, qualityOptions.value));
 
-watch(openTrackerId, () => {
-  const tracker = openTracker.value;
-  if (!tracker) return;
-  Object.assign(draftSelection, createQualitySelection(tracker.quality, qualityOptions.value));
-  Object.assign(draftPostProcessing, createPostProcessingSelection(tracker.post_processing));
-  draftInterval.value = String(tracker.interval_seconds);
-  draftBackfill.value = tracker.backfill;
-});
+// A new link starts from the toolbar and tracker settings.
+watch(
+  () => openTracker.value?.id || newTrackerUrl.value,
+  (key) => {
+    if (!key) return;
+    const tracker = openTracker.value;
+    const defaults = settings.tracker_settings;
+    Object.assign(draftSelection, createQualitySelection(tracker ? tracker.quality : downloadSelection, qualityOptions.value));
+    Object.assign(draftPostProcessing, createPostProcessingSelection(tracker ? tracker.post_processing : downloadPostProcessing));
+    draftInterval.value = String(tracker ? tracker.interval_seconds : defaults.interval_seconds);
+    draftBackfill.value = tracker ? tracker.backfill : defaults.backfill;
+  },
+  { immediate: true },
+);
 
 function showTracker(trackerId: string): void {
   openTrackerId.value = trackerId;
@@ -120,6 +125,7 @@ function showTracker(trackerId: string): void {
 
 function closeTracker(): void {
   openTrackerId.value = "";
+  newTrackerUrl.value = "";
 }
 
 function setDraftField(key: QualityField["key"], value: string | string[]): void {
@@ -146,22 +152,34 @@ function setDraftBackfill(value: boolean): void {
   draftBackfill.value = value;
 }
 
+const saving = ref(false);
+const applyButton = useTemplateRef<InstanceType<typeof Button>>("applyButton");
+
+function focusApply(event: Event): void {
+  event.preventDefault();
+  (applyButton.value?.$el as HTMLElement | undefined)?.focus();
+}
+
+// A new link stays open until it saves, so a failed save keeps the draft.
 async function applyTracker(): Promise<void> {
+  const choices = {
+    quality: createQualitySelection(draftSelection, qualityOptions.value),
+    post_processing: constrainPostProcessingSelection(draftPostProcessing, draftCapabilities.value),
+    interval_seconds: Number(draftInterval.value),
+    backfill: draftBackfill.value,
+  };
   const tracker = openTracker.value;
-  if (!tracker) return;
-  const starting = !started(tracker);
-  closeTracker();
-  await updateTracker(
-    tracker.id,
-    {
-      quality: createQualitySelection(draftSelection, qualityOptions.value),
-      post_processing: constrainPostProcessingSelection(draftPostProcessing, draftCapabilities.value),
-      interval_seconds: Number(draftInterval.value),
-      backfill: draftBackfill.value,
-      ...(starting ? { enabled: true } : {}),
-    },
-    starting ? "Tracking started." : "Tracker updated.",
-  );
+  if (tracker) {
+    closeTracker();
+    await updateTracker(tracker.id, choices, "Tracker updated.");
+    return;
+  }
+  const url = newTrackerUrl.value;
+  if (!url) return;
+  saving.value = true;
+  const saved = await saveTracker({ url, ...choices });
+  saving.value = false;
+  if (saved && newTrackerUrl.value === url) closeTracker();
 }
 
 const deleting = ref<Tracker | null>(null);
@@ -247,7 +265,6 @@ async function confirmDelete(): Promise<void> {
           <TableCell class="w-px" @click.stop>
             <div class="flex items-center justify-end gap-1.5">
               <Button
-                v-if="started(tracker)"
                 type="button"
                 title="Check now"
                 aria-label="Check now"
@@ -259,7 +276,6 @@ async function confirmDelete(): Promise<void> {
                 </template>
               </Button>
               <Button
-                v-if="started(tracker)"
                 type="button"
                 :title="tracker.enabled ? 'Pause' : 'Resume'"
                 :aria-label="tracker.enabled ? 'Pause' : 'Resume'"
@@ -337,7 +353,6 @@ async function confirmDelete(): Promise<void> {
           </CardDescription>
           <CardAction @click.stop>
             <Button
-              v-if="started(tracker)"
               type="button"
               title="Check now"
               aria-label="Check now"
@@ -349,7 +364,6 @@ async function confirmDelete(): Promise<void> {
               </template>
             </Button>
             <Button
-              v-if="started(tracker)"
               type="button"
               :title="tracker.enabled ? 'Pause' : 'Resume'"
               :aria-label="tracker.enabled ? 'Pause' : 'Resume'"
@@ -380,36 +394,37 @@ async function confirmDelete(): Promise<void> {
     </div>
 
     <Dialog
-      :open="Boolean(openTracker)"
-      :title="openTracker?.name || 'Tracker'"
+      :open="Boolean(openTracker || newTrackerUrl)"
+      :title="openTracker?.name || newTrackerUrl || 'Tracker'"
       hide-title
       content-class="fixed left-1/2 top-1/2 z-70 flex max-h-[90dvh] w-[min(900px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
       @update:open="(open) => !open && closeTracker()"
+      @open-auto-focus="focusApply"
     >
-      <template v-if="openTracker">
+      <template v-if="openTracker || newTrackerUrl">
         <header class="glass-chrome flex shrink-0 flex-col gap-1.5 rounded-none border-0 border-b border-(--glass-border) shadow-none py-4 pl-5 pr-14 sm:pl-6">
           <div class="flex min-w-0 items-center gap-2 text-lg font-semibold">
-            <IconImage :src="sourceIconUrl(openTracker.source_key)" class="h-5 w-5 shrink-0" />
-            <span class="truncate">{{ openTracker.name }}</span>
+            <IconImage v-if="openTracker" :src="sourceIconUrl(openTracker.source_key)" class="h-5 w-5 shrink-0" />
+            <span class="truncate">{{ openTracker?.name || newTrackerUrl }}</span>
             <Button
               as="a"
               variant="ghost"
               size="sm"
-              :href="openTracker.source_url"
+              :href="openTracker?.source_url || newTrackerUrl"
               target="_blank"
               rel="noopener noreferrer"
-              :title="openTracker.source_url"
+              :title="openTracker?.source_url || newTrackerUrl"
               aria-label="Open creator page"
             >
               <template #icon>
                 <IconLink aria-hidden="true" />
               </template>
             </Button>
-            <span v-if="trackerStatus(openTracker)" class="shrink-0 text-xs font-normal text-white/60 in-[.light-mode]:text-black/60">
+            <span v-if="openTracker && trackerStatus(openTracker)" class="shrink-0 text-xs font-normal text-white/60 in-[.light-mode]:text-black/60">
               {{ trackerStatus(openTracker) }}
             </span>
           </div>
-          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+          <div v-if="openTracker" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
             <span
               v-for="stat in trackerStats(openTracker)"
               :key="stat.label"
@@ -421,7 +436,7 @@ async function confirmDelete(): Promise<void> {
               <strong>{{ stat.value }}</strong>
             </span>
           </div>
-          <div v-if="openTracker.last_error" class="wrap-break-word whitespace-pre-line text-sm text-destructive">
+          <div v-if="openTracker?.last_error" class="wrap-break-word whitespace-pre-line text-sm text-destructive">
             {{ openTracker.last_error }}
           </div>
         </header>
@@ -468,9 +483,9 @@ async function confirmDelete(): Promise<void> {
             @update:model-value="setDraftPostProcessing"
           />
 
-          <FieldSeparator />
+          <FieldSeparator v-if="openTracker" />
 
-          <FieldSet>
+          <FieldSet v-if="openTracker">
             <FieldLegend>Items</FieldLegend>
             <TaskCollection
               :tasks="trackerTasks"
@@ -506,11 +521,11 @@ async function confirmDelete(): Promise<void> {
             />
             <FieldLabel
               class="cursor-pointer items-center gap-2 whitespace-nowrap"
-              :title="openTracker.last_success_at ? 'Only applies until the first full check finishes.' : undefined"
+              :title="openTracker?.last_success_at ? 'Only applies until the first full check finishes.' : undefined"
             >
               <Checkbox
                 :checked="draftBackfill"
-                :disabled="Boolean(openTracker.last_success_at)"
+                :disabled="Boolean(openTracker?.last_success_at)"
                 @update:checked="setDraftBackfill"
               />
               <span>Download existing media</span>
@@ -518,7 +533,7 @@ async function confirmDelete(): Promise<void> {
           </div>
           <div class="flex items-center gap-2">
             <Button variant="ghost" type="button" @click="closeTracker">Cancel</Button>
-            <Button variant="primary" type="button" @click="applyTracker">Apply</Button>
+            <Button ref="applyButton" variant="primary" type="button" :disabled="saving" @click="applyTracker">Apply</Button>
           </div>
         </footer>
       </template>

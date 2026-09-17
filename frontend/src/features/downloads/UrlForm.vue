@@ -15,7 +15,7 @@ const { activePage, addDownloadTask, addTracker, url } = useDashboard();
 const tracking = computed(() => activePage.value === "trackers");
 
 function submit(): void {
-  if (tracking.value) void addTracker();
+  if (tracking.value) addTracker();
   else addDownloadTask();
 }
 </script>
