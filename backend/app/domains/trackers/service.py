@@ -38,7 +38,12 @@ from backend.app.domains.downloads.formats import creator_from_url, url_dedup_ke
 from backend.app.domains.downloads.operations import queue_task, remove_pending_task, retry_task
 from backend.app.domains.downloads.store import load_history_entry, load_task, remove_history_record
 from backend.app.domains.downloads.urls import canonicalize_source_url
-from backend.app.domains.settings import get_effective_source_profiles, get_tracker_settings, get_tracker_tabs
+from backend.app.domains.settings import (
+    get_effective_source_profiles,
+    get_tracker_settings,
+    get_tracker_tabs,
+    save_tracker_tabs,
+)
 from backend.app.domains.settings.trackers import MAX_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS
 from backend.app.integrations.swaratelle import client as swaratelle
 
@@ -47,12 +52,10 @@ from .listing import Entry, ListingStats, iter_entries, page_variant
 _JITTER = 0.05
 # Checks that may fail to read a backlogged link before it is dropped.
 _BACKLOG_ATTEMPTS = 3
-# Tabs a creator adds later are found by walking every page of the tracked link again this often.
-_EXPLORE_EVERY = timedelta(days=7)
 _ACTIVE_STATUSES = {"pending", "running", "failed"}
 UNRESOLVED_ERROR = "Could not build post links for this source."
 SINGLE_ITEM_ERROR = "This link points to a single item; add a creator, channel or playlist link."
-# Trackers whose next check was asked for by hand: it queues their missing downloads again and walks every page.
+# Trackers whose next check was asked for by hand: it queues their missing downloads again.
 _asked: set[str] = set()
 
 
@@ -293,7 +296,8 @@ def run_check(tracker: dict[str, Any]) -> None:
     runs newest first, so each batch takes what was posted since, then the older entries a pass
     has yet to reach. Pages are scrolled once and what they showed waits in the backlog for the
     batches after; ``last_success_at`` marks a pass that reached every end, where later ones stop.
-    A check asked for by hand first queues again the downloads its seen entries lost, and walks every page.
+    Pages the link offers that the source's rows lack are added to them for every tracker of the source.
+    A check asked for by hand first queues again the downloads its seen entries lost.
     """
     tracker_id = tracker["id"]
     asked = tracker_id in _asked
@@ -302,9 +306,6 @@ def run_check(tracker: dict[str, Any]) -> None:
     pass_start = tracker["last_success_at"]
     first = not pass_start
     queue_new = tracker["backfill"] or not first
-    feeds = [str(url) for url in tracker["feeds"].get("urls") or [] if url]
-    explored_at = str(tracker["feeds"].get("explored_at") or "")
-    tabs = get_tracker_tabs(tracker["source_key"])
     stats = ListingStats()
     listed: set[str] = set()
     failures: list[str] = []
@@ -327,11 +328,9 @@ def run_check(tracker: dict[str, Any]) -> None:
                     or has_tracker_backlog_row(tracker_id, key, found_by=pass_start)
                 ),
                 caught_up_after=None if first else settings["caught_up_after"],
-                feeds=feeds,
-                explore=asked or not feeds or explored_at < (utc_now_datetime() - _EXPLORE_EVERY).isoformat(),
-                tabs=tabs,
+                tabs=get_tracker_tabs(tracker["source_key"]),
                 pages=tracker["feeds"].get("pages") or {},
-                learned=_learned_pages(tracker) if tabs else {},
+                learned=_learned_pages(tracker),
                 batch=settings["page_size"],
                 ended=tracker["feeds"].get("ended") or [],
                 backlog=_TrackerBacklog(tracker_id, queue_new),
@@ -367,16 +366,12 @@ def run_check(tracker: dict[str, Any]) -> None:
                     if entry.owned or not queue_new:
                         counted += 1
         # A pass that queues nothing records what pages show without listing it.
-        if not listed and not any(stats.pages.values()) and (first or stats.unresolved):
+        if not listed and not stats.shown and (first or stats.unresolved):
             raise ValueError(UNRESOLVED_ERROR if stats.unresolved else SINGLE_ITEM_ERROR)
         succeeded = True
-        # The pages that listed items lead the next walk, which then skips pages that never list any.
-        updates["feeds"] = {
-            "urls": stats.feeds(feeds),
-            "explored_at": utc_now() if stats.explored else explored_at,
-            "pages": stats.tab_pages,
-            "ended": sorted(stats.ended),
-        }
+        if stats.found_tabs:
+            save_tracker_tabs(tracker["source_key"], stats.found_tabs)
+        updates["feeds"] = {"pages": stats.tab_pages, "ended": sorted(stats.ended)}
         errors = [*lost, *failures]
         updates["last_error"] = (
             f"Could not queue {len(errors)} item(s): {errors[0]}"

@@ -1,9 +1,8 @@
-"""Trackers remember which of their link's pages list items.
+"""Trackers remember where their pages are on their link.
 
-A check used to load the tracked link and every tab it links, scrolling each, although most
-tabs (people, about pages) never list an item and each one cost a page load. ``feeds`` holds
-``{"urls": [...], "explored_at": "..."}``: the pages that listed items, most productive first,
-and when every page was last visited to find them. Later checks start with those pages.
+A source's page rows are saved by name, and each tracked link names those pages its own way.
+``feeds`` holds ``{"pages": {...}, "ended": [...]}``: the page each row turned out to be on this
+link, so later checks go straight to it, and the pages scrolled to their end.
 """
 
 from __future__ import annotations

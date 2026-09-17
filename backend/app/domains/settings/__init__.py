@@ -95,6 +95,7 @@ from backend.app.domains.settings.trackers import (
     merge_tracker_tabs,
     normalize_source_tracker_tabs,
     normalize_tracker_settings,
+    save_tracker_tabs,
 )
 
 __all__ = [
@@ -174,6 +175,7 @@ __all__ = [
     "reset_cookie_pool",
     "resolve_source_location",
     "save_saved_settings_file",
+    "save_tracker_tabs",
     "save_ytdlp_cookies_upload",
     "scraper_field",
     "scraper_token_from_field",

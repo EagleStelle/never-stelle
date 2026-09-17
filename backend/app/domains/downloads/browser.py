@@ -175,7 +175,12 @@ class BrowserSession:
         self.close()
 
     def scroll_links(
-        self, url: str, is_item: Callable[[str], bool], known: Callable[[str], bool], *, follow_tabs: bool = False
+        self,
+        url: str,
+        is_item: Callable[[str], bool],
+        known: Callable[[str], bool],
+        *,
+        follow: Callable[[str], bool] | None = None,
     ) -> Iterator[list[str]]:
         """Batches of the item links a page adds while it is scrolled, each link once and as soon as it shows.
 
@@ -183,8 +188,9 @@ class BrowserSession:
         scrolling ends after its idle rounds add no item, or once scrolling has used its time budget.
         Rounds adding only ``known`` items cost no budget, so a walk passes what earlier walks found
         and reaches further than they did. The page's navigation links land in ``navigation`` and
-        where it landed in ``landed``; the tab showing is the page itself, and with ``follow_tabs``
-        each tab switching the page in script is clicked once for its address.
+        where it landed in ``landed``; the tab showing is the page itself, and each tab switching the
+        page in script whose text ``follow`` accepts is clicked once for its address, also when the
+        caller stops the scroll early.
         """
         if not self._start():
             return
@@ -193,9 +199,12 @@ class BrowserSession:
             target = self._call("Target.createTarget", {"url": "about:blank"}).get("targetId", "")
             attached = self._call("Target.attachToTarget", {"targetId": target, "flatten": True})
             session_id = attached.get("sessionId", "")
-            yield from self._rounds(url, session_id, is_item, known)
-            if follow_tabs and any(not link for link, _, _ in self.navigation[url]):
-                self.navigation[url] = self._followed(url, self.navigation[url], session_id)
+            try:
+                yield from self._rounds(url, session_id, is_item, known)
+            except GeneratorExit:
+                self._follow(url, session_id, follow)
+                raise
+            self._follow(url, session_id, follow)
         except Exception:
             # The page's end was never seen, so a later walk has to scroll it again.
             self.cut_short = True
@@ -425,15 +434,19 @@ class BrowserSession:
                 return
             time.sleep(_POLL_SECONDS)
 
+    def _follow(self, url: str, session_id: str, follow: Callable[[str], bool] | None) -> None:
+        if follow and any(not link and follow(text) for link, text, _ in self.navigation.get(url, [])):
+            self.navigation[url] = self._followed(url, self.navigation[url], session_id, follow)
+
     def _followed(
-        self, url: str, navigation: list[tuple[str, str, bool]], session_id: str
+        self, url: str, navigation: list[tuple[str, str, bool]], session_id: str, follow: Callable[[str], bool]
     ) -> list[tuple[str, str, bool]]:
-        # Tabs without a link take the address a click on each led to; one that led nowhere stays without. A click
-        # can miss while the page an earlier click switched to still renders, so a miss is tried again on the page
-        # loaded afresh.
+        # Followed tabs without a link take the address a click on each led to; one that led nowhere stays without.
+        # A click can miss while the page an earlier click switched to still renders, so a miss is tried again on
+        # the page loaded afresh.
         addresses: dict[str, str] = {}
         for link, text, showing in navigation:
-            if link or showing or not text or text in addresses:
+            if link or showing or not text or text in addresses or not follow(text):
                 continue
             for attempt in range(2):
                 try:

@@ -221,20 +221,38 @@ def test_items_are_handed_over_while_the_page_still_loads(monkeypatch, tmp_path)
     assert time.monotonic() - started < 5
 
 
-def test_reading_a_pages_tabs_follows_the_ones_that_switch_it_in_script(monkeypatch, tmp_path):
-    clips = f"{PAGE_URL}?view=clips"
+def test_a_scroll_stopped_early_still_follows_its_tabs(monkeypatch, tmp_path):
+    reel, clips = "https://example.test/reel/11111111", f"{PAGE_URL}?view=clips"
     fake = _FakeBrowser(
-        [[]],
-        landed=PAGE_URL,
-        navigation=[("", "All", True), ("", "Clips", False), ("", "Gone", False)],
-        followed=[["Clips", clips]],
+        [[reel]], landed=PAGE_URL, navigation=[("", "All", True), ("", "Clips", False)], followed=[["Clips", clips]]
     )
 
     with _session(monkeypatch, tmp_path, fake) as session:
-        list(session.scroll_links(PAGE_URL, _any_item, _nothing_known, follow_tabs=True))
+        batches = session.scroll_links(PAGE_URL, _any_item, _nothing_known, follow=lambda text: True)
+        assert next(batches) == [reel]
+        batches.close()
 
-    # The tab showing is the page itself; a tab that led nowhere keeps no link.
-    assert session.navigation == {PAGE_URL: [(PAGE_URL, "All", True), (clips, "Clips", False), ("", "Gone", False)]}
+    assert session.navigation == {PAGE_URL: [(PAGE_URL, "All", True), (clips, "Clips", False)]}
+    assert not session.cut_short
+
+
+def test_reading_a_pages_tabs_follows_the_ones_that_switch_it_in_script(monkeypatch, tmp_path):
+    clips, reels = f"{PAGE_URL}?view=clips", f"{PAGE_URL}?view=reels"
+    fake = _FakeBrowser(
+        [[]],
+        landed=PAGE_URL,
+        navigation=[("", "All", True), ("", "Clips", False), ("", "Gone", False), ("", "Reels", False)],
+        followed=[["Clips", clips], ["Reels", reels]],
+    )
+
+    with _session(monkeypatch, tmp_path, fake) as session:
+        list(session.scroll_links(PAGE_URL, _any_item, _nothing_known, follow=lambda text: text != "Reels"))
+
+    # The tab showing is the page itself; a tab that led nowhere or was not followed keeps no link.
+    assert session.navigation == {
+        PAGE_URL: [(PAGE_URL, "All", True), (clips, "Clips", False), ("", "Gone", False), ("", "Reels", False)]
+    }
+    assert fake.methods.count("Input.dispatchMouseEvent") == 3
 
 
 def test_a_feed_pausing_longer_than_its_idle_rounds_is_waited_for(monkeypatch, tmp_path):

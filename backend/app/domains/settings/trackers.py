@@ -6,7 +6,7 @@ from typing import Any
 from backend.app.core.coercion import safe_int
 from backend.app.core.sources import normalize_source_key
 
-from .storage import load_saved_settings_file
+from .storage import load_saved_settings_file, save_saved_settings_file
 
 MIN_INTERVAL_SECONDS = 3600
 MAX_INTERVAL_SECONDS = 30 * 24 * 3600
@@ -52,14 +52,14 @@ def resembles_page(name: str, other: str) -> bool:
     return name == other or (bool(words and other_words) and (words <= other_words or other_words <= words))
 
 
-def _same_label(label: str, other: str) -> bool:
+def same_label(label: str, other: str) -> bool:
     label, other = (" ".join(value.casefold().split()) for value in (label, other))
     return bool(label) and label == other
 
 
 def row_matches(row: dict[str, Any], name: str, label: str = "") -> bool:
     """Whether a page named ``name`` with text ``label`` is the row's page."""
-    return any(resembles_page(variant["name"], name) for variant in row["variants"]) or _same_label(row["label"], label)
+    return any(resembles_page(variant["name"], name) for variant in row["variants"]) or same_label(row["label"], label)
 
 
 def _page_name(value: Any) -> str | None:
@@ -110,7 +110,7 @@ def _matching_row(rows: list[dict[str, Any]], page: dict[str, Any], claimed: set
     names = {variant["name"] for variant in page["variants"]}
     for matches in (
         lambda row: names & {variant["name"] for variant in row["variants"]},
-        lambda row: _same_label(row["label"], page["label"]),
+        lambda row: same_label(row["label"], page["label"]),
     ):
         found = next((index for index in free if matches(rows[index])), None)
         if found is not None:
@@ -140,8 +140,22 @@ def merge_tracker_tabs(rows: list[dict[str, Any]], found: list[dict[str, Any]]) 
     return merged
 
 
-def get_tracker_tabs(source_key: str) -> list[dict[str, Any]] | None:
-    """The page rows of a source; ``None`` when it has none, so trackers walk every page."""
+def get_tracker_tabs(source_key: str) -> list[dict[str, Any]]:
+    """The page rows of a source; empty until a probe or a check finds its pages."""
     return normalize_source_tracker_tabs(load_saved_settings_file().get("source_tracker_tabs")).get(
-        normalize_source_key(source_key)
+        normalize_source_key(source_key), []
     )
+
+
+def save_tracker_tabs(source_key: str, found: list[dict[str, Any]]) -> None:
+    """Join the pages a check found to the source's saved rows; nothing is written when they add nothing."""
+    payload = load_saved_settings_file()
+    mapping = normalize_source_tracker_tabs(payload.get("source_tracker_tabs"))
+    key = normalize_source_key(source_key)
+    rows = mapping.get(key, [])
+    merged = merge_tracker_tabs(rows, found)
+    if not key or merged == rows:
+        return
+    mapping[key] = merged
+    payload["source_tracker_tabs"] = mapping
+    save_saved_settings_file(payload)
