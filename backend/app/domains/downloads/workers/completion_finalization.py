@@ -3,17 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from backend.app.core.paths import path_key as _path_key
 from backend.app.core.sources import normalize_source_key
 from backend.app.domains.downloads.cache import drop_file_cache
 from backend.app.domains.downloads.files import find_numbered_media_siblings, is_media_file
 from backend.app.domains.downloads.formats import media_id_from_url
-from backend.app.domains.downloads.naming import (
-    clean_filename_title,
-    filename_template_fields,
-    filename_template_title,
-)
+from backend.app.domains.downloads.naming import filename_template_title, named_title
 from backend.app.domains.downloads.scan import parse_filename_media_id
 from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
 from backend.app.domains.downloads.workers.completion_creators import (
@@ -49,6 +46,7 @@ class FinalizedCompletionOutput:
     display_filename: str
     title: str
     keep_paths: list[Path]
+    naming: dict[str, Any] | None = None
 
 
 def _unique_known_keep_paths(final_path: Path, group_paths: list[Path]) -> list[Path]:
@@ -156,8 +154,8 @@ def _finalize_completed_output(
         creator_authoritative=bool(configured_username),
         quality=quality,
     )
-    resolved_title = clean_filename_title(
-        filename_template_fields(display_filename, filename_template).get("title", "") or title_hint,
+    resolved_title = named_title(
+        title_hint,
         display_creator_hint,
         media_id,
         item_source_key,
@@ -200,4 +198,5 @@ def _finalize_completed_output(
         display_filename=display_filename,
         title=resolved_title,
         keep_paths=keep_paths,
+        naming=item_cleaning,
     )

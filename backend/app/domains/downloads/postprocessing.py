@@ -37,8 +37,8 @@ from backend.app.domains.downloads.constants import (
 from backend.app.domains.downloads.files import chapter_folder
 from backend.app.domains.downloads.naming import (
     detect_ffmpeg_location,
+    named_title,
     sanitize_filename_component,
-    strip_placeholder_title,
 )
 from backend.app.domains.downloads.workers.processes import (
     cancel_on_request,
@@ -267,16 +267,16 @@ def _is_positional_or_synthetic_title(payload: dict[str, Any], value: str) -> bo
 
 
 def _metadata_media_title(payload: dict[str, Any], finalized: Any) -> str:
-    track = strip_placeholder_title(_first_tag(payload, "track"))
-    if track:
-        return track
-    finalized_title = strip_placeholder_title(_tag_text(finalized.title))
-    if finalized_title:
-        return finalized_title
-    extractor_title = strip_placeholder_title(
-        _first_tag(payload, "title", "fulltitle"), finalized.media_id, finalized.source_key
-    )
-    return "" if _is_positional_or_synthetic_title(payload, extractor_title) else extractor_title
+    def named(title: str) -> str:
+        return named_title(
+            title, _tag_text(finalized.creator), finalized.media_id, finalized.source_key, cleaning=finalized.naming
+        )
+
+    extractor_title = _first_tag(payload, "title", "fulltitle")
+    if _is_positional_or_synthetic_title(payload, extractor_title):
+        extractor_title = ""
+    # The finalized title already went through Naming.
+    return named(_first_tag(payload, "track")) or _tag_text(finalized.title) or named(extractor_title)
 
 
 def _metadata_date(payload: dict[str, Any]) -> str:

@@ -463,6 +463,23 @@ def clean_filename_title(
     return f"{prefix} {separator} {cleaned_body}".strip() if cleaned_body else prefix
 
 
+def named_title(
+    title: str,
+    creator: str = "",
+    media_id: str = "",
+    source_key: str = "",
+    creator_aliases: tuple[str, ...] | None = None,
+    cleaning: dict[str, Any] | None = None,
+) -> str:
+    """A title through every Naming step except the filesystem ones.
+
+    Special and illegal characters stay, since metadata carries any text.
+    """
+    flags = normalize_title_cleaning(cleaning)
+    cleaned = clean_filename_title(title, creator, media_id, source_key, creator_aliases, flags)
+    return apply_token_style(_apply_shorten(cleaned, flags), {**flags, "charset": "keep"})
+
+
 # --- Template matching (filename → fields) ---
 
 

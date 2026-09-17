@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import zipfile
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -1506,6 +1507,27 @@ def test_image_metadata_embed_falls_back_to_sidecar_when_lossless_writer_is_unav
     assert json.loads(sidecar.read_text(encoding="utf-8"))["title"] == "Photo"
 
 
+def test_metadata_title_follows_naming_but_keeps_special_and_illegal_characters(tmp_path: Path):
+    media = tmp_path / "Creator - Photo [abc].webp"
+    media.write_bytes(b"RIFFnot-a-real-webp")
+    finalized = replace(
+        _finalized_for(media, ""),
+        naming={"charset": "remove", "invalid_chars": "dash", "case": "lowercase", "strip_hashtags": True},
+    )
+
+    track = postprocessing_module.finalized_metadata_payload({"track": "Café: Song #live"}, finalized)
+    postprocessing_module.apply_finalized_post_processing(
+        [media],
+        {"title": "Café: A/B Photo? #tag"},
+        finalized,
+        post_processing={"metadata": "sidecar"},
+        quality=None,
+    )
+
+    assert track["title"] == "café: song"
+    assert json.loads(Path(f"{media}.json").read_text(encoding="utf-8"))["title"] == "café: a/b photo?"
+
+
 def test_webp_metadata_embed_adds_standard_xmp_without_reencoding_pixels():
     # A minimal lossless WebP bitstream with a 2x3 canvas. The writer must add
     # VP8X/XMP chunks while preserving the original compressed VP8L payload.
@@ -2442,6 +2464,32 @@ def test_finalization_runs_scraper_fields_templates_and_naming_in_order(
     assert finalized.title == "Scraped title"
     assert expected.is_file()
     assert not raw.exists()
+
+
+def test_finalized_title_keeps_the_characters_only_the_filename_replaces(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    raw = tmp_path / "Extractor title [abc123].mp4"
+    raw.write_bytes(b"video")
+    monkeypatch.setattr(
+        completion_finalization_module,
+        "get_effective_title_cleaning",
+        lambda source_url: {"charset": "remove", "case": "capitalized"},
+    )
+
+    finalized = completion_module._finalize_completed_output(
+        source_url="https://example.test/watch/abc123",
+        source_key="example",
+        output_root=tmp_path,
+        raw_path=raw,
+        metadata={"id": "abc123", "title": "café: what?"},
+        template_settings={"folder_template": "", "filename_template": "{{title}} [{{id}}]"},
+        cache_dropper=None,
+    )
+
+    assert finalized.display_filename == "Cafe_ What_ [abc123].mp4"
+    assert finalized.title == "Café: What?"
 
 
 def test_configured_title_fields_are_authoritative():
