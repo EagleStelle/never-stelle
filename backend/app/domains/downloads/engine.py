@@ -7,6 +7,7 @@ from .access import AccessIdentity
 from .constants import PROGRESS_RE
 from .files import extract_downloaded_path
 from .formats import media_id_from_url
+from .probe import gallerydl_reads, ytdlp_single_video
 
 
 class Engine:
@@ -20,6 +21,10 @@ class Engine:
     bundles_post_files: bool = False
     # True when output lines and filenames leave template fields a metadata probe must fill.
     sparse_metadata: bool = False
+
+    def reads(self, url: str) -> bool:
+        """Whether an extractor of the backend takes the link, beyond reading any page generically."""
+        return True
 
     def count_items(self, source_url: str) -> int:
         return 0
@@ -65,6 +70,9 @@ class YtdlpEngine(Engine):
     name = "ytdlp"
     needs_ffmpeg = True
     emits_progress = True
+
+    def reads(self, url: str) -> bool:
+        return ytdlp_single_video(url) is not None
 
     def build_output_template(
         self,
@@ -120,6 +128,9 @@ class GallerydlEngine(Engine):
     name = "gallerydl"
     bundles_post_files = True
     sparse_metadata = True
+
+    def reads(self, url: str) -> bool:
+        return gallerydl_reads(url) is not None
 
     def count_items(self, source_url: str) -> int:
         # Counting for real means a second extraction pass, which costs a request and

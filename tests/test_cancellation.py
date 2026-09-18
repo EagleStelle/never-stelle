@@ -221,6 +221,9 @@ def test_run_task_cancellation_during_post_processing_removes_task_and_workspace
         needs_ffmpeg = False
         emits_progress = True
 
+        def reads(self, url):
+            return True
+
         def build_output_template(self, *args, **kwargs):
             return str(output)
 

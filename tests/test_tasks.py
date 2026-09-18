@@ -42,6 +42,7 @@ from backend.app.domains.downloads import (
 )
 from backend.app.domains.downloads import store as store_module
 from backend.app.domains.downloads.constants import normalize_post_processing
+from backend.app.domains.downloads.engine import Engine
 from backend.app.domains.downloads.formats import (
     conflicts_with_source,
     creator_from_url,
@@ -3992,6 +3993,27 @@ def test_task_to_api_keeps_stored_creator_over_url_creator(tmp_path: Path):
     )
 
     assert api_task["creator"] == "Some Display Name"
+
+
+def test_worker_hands_an_engine_the_item_in_a_learned_format_it_takes(monkeypatch: pytest.MonkeyPatch):
+    learned = {
+        "example": {
+            "templates": ["https://example.test/@{creator}/photo/{id}", "https://example.test/@{creator}/video/{id}"]
+        }
+    }
+    monkeypatch.setattr(worker_module, "load_learned_formats", lambda: learned)
+    photo = "https://example.test/@alice/photo/12345678"
+    video = "https://example.test/@alice/video/12345678"
+
+    class VideoEngine(Engine):
+        def reads(self, url: str) -> bool:
+            return "/video/" in url
+
+    assert worker_module._engine_link(VideoEngine(), photo) == video
+    assert worker_module._engine_link(VideoEngine(), video) == video
+    # A link naming no item keeps the link it was given.
+    assert worker_module._engine_link(VideoEngine(), "https://example.test/@alice") == "https://example.test/@alice"
+    assert worker_module._engine_link(Engine(), photo) == photo
 
 
 def test_worker_resolved_task_creator_uses_engine_sidecar_not_url_creator(tmp_path: Path):

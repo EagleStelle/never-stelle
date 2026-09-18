@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.resolution import resolution_scope
-from backend.app.core.sources import normalize_source_key
+from backend.app.core.sources import normalize_source_key, source_key_from_url
 from backend.app.domains.downloads.access import (
     AccessIdentity,
     access_env,
@@ -22,6 +22,7 @@ from backend.app.domains.downloads.constants import (
     quality_needs_ffmpeg,
 )
 from backend.app.domains.downloads.engine import Engine, all_engines
+from backend.app.domains.downloads.formats import creator_from_url, media_id_from_url, reconstruct_url_candidates
 from backend.app.domains.downloads.history import save_history_entry
 from backend.app.domains.downloads.naming import detect_ffmpeg_location
 from backend.app.domains.downloads.postprocessing import (
@@ -103,6 +104,20 @@ def _combined_failure_detail(failures: list[str]) -> str:
     if len(failures) == 1:
         return failures[0]
     return "All download engines failed.\n\n" + "\n\n".join(failures)
+
+
+def _engine_link(engine: Engine, source_url: str) -> str:
+    """The item's link as the engine takes it: the link itself, else the same item in another learned format."""
+    if engine.reads(source_url):
+        return source_url
+    media_id = media_id_from_url(source_url)
+    candidates = reconstruct_url_candidates(
+        load_learned_formats(),
+        source_key_from_url(source_url),
+        media_id,
+        creator=creator_from_url(source_url, media_id),
+    )
+    return next((url for url in candidates if url != source_url and engine.reads(url)), source_url)
 
 
 def _task_log_tail(task_id: str) -> str:
@@ -305,10 +320,13 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
             started_at = time.time()
             used_engine = engine
             record_task_progress(task_id, progress.prepare(1.0))
+            engine_url = _engine_link(engine, source_url)
+            if engine_url != source_url:
+                append_task_log(task_id, f"[never-stelle] {engine.name} takes this item as {engine_url}")
             rc, last_dest, emitted_paths = _run_engine_attempts(
                 engine,
                 task_id,
-                source_url,
+                engine_url,
                 output_dir,
                 ffmpeg_location,
                 output_template,
