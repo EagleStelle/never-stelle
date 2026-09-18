@@ -11,6 +11,10 @@ from backend.app.domains.settings import CookieLease
 
 _CLOUDFLARE = "ERROR: [generic] Got HTTP Error 403 caused by Cloudflare anti-bot challenge; try again"
 _DDOS_GUARD = "[example][error] ChallengeError: DDoS-Guard challenge (403 Forbidden) for 'https://example.test/'"
+_SCRIPT_CHALLENGE = (
+    "[example][info] Solving JavaScript challenge\n"
+    "[example][error] https://example.test/post/1: Failed to extract post (HttpError: '403 Forbidden')"
+)
 
 
 def _stub(monkeypatch, *, jars=(), target="chrome", has_cookies=True):
@@ -41,6 +45,7 @@ def _walk(outputs, cookie_source_key="example"):
 def test_antibot_walls_are_told_apart_from_rate_limits():
     assert pool.looks_antibot_walled(_CLOUDFLARE)
     assert pool.looks_antibot_walled(_DDOS_GUARD)
+    assert pool.looks_antibot_walled(_SCRIPT_CHALLENGE)
     assert not pool.looks_antibot_walled("ERROR: HTTP Error 429: Too Many Requests")
     assert not pool.looks_antibot_walled("ERROR: HTTP Error 403: Forbidden")
 

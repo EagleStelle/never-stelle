@@ -32,12 +32,13 @@ RATE_LIMIT_MARKERS = (
     "please wait a few minutes",
 )
 
-# Anti-bot walls (Cloudflare, DDoS-Guard) block every jar alike, so they never rest one.
+# Anti-bot walls (Cloudflare, DDoS-Guard, script challenges) block every jar alike, so they never rest one.
 ANTIBOT_MARKERS = (
     "cloudflare challenge",
     "cloudflare captcha",
     "cloudflare anti-bot",
     "ddos-guard challenge",
+    "javascript challenge",
 )
 
 # Never spin: a wake-up is only useful once some jar's timer has actually elapsed.
