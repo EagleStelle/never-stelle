@@ -482,7 +482,9 @@ def _fake_engines(monkeypatch, outputs: dict[str, tuple[list, int, list[str]]]) 
         for message in messages:
             run.messages += 1
             yield message
-        run.returncode, run.log = returncode, log
+        for line in log:
+            run.note(line)
+        run.returncode = returncode
 
     monkeypatch.setattr(listing_module, "_stream", fake_stream)
     monkeypatch.setattr(listing_module, "_probe_rotation", lambda url, key: _generate([AccessIdentity()]))
@@ -502,6 +504,32 @@ def test_unsupported_link_falls_through_to_ytdlp(temp_db, monkeypatch):
 
     assert ran == ["gallery-dl", "yt-dlp"]
     assert [entry.url for entry in entries] == ["https://example.test/post/12345678"]
+
+
+_UNREADABLE = "[example][error] https://example.test/post/22222222: Failed to extract post (HttpError: '403 Forbidden')"
+
+
+@pytest.mark.parametrize(
+    ("ytdlp", "urls", "unread"),
+    [
+        (
+            ([{"url": _entry(1).url}, {"url": _entry(2).url}], 0, []),
+            [_entry(1).url, _entry(1).url, _entry(2).url],
+            "",
+        ),
+        (([], 1, ["ERROR: Unsupported URL"]), [_entry(1).url], _UNREADABLE.removeprefix("[example][error] ")),
+    ],
+)
+def test_items_an_engine_could_not_read_are_left_to_the_next(temp_db, monkeypatch, ytdlp, urls, unread):
+    # gallery-dl exits 0 with the items it listed while it reports the ones it could not read.
+    ran = _fake_engines(monkeypatch, {"gallery-dl": ([[6, _entry(1).url, {}]], 0, [_UNREADABLE]), "yt-dlp": ytdlp})
+    stats = ListingStats()
+
+    entries = list(listing_module.iter_entries(TRACKER_URL, "example", stats))
+
+    assert ran == ["gallery-dl", "yt-dlp"]
+    assert [entry.url for entry in entries] == urls
+    assert stats.unread == unread
 
 
 def test_sub_collections_are_listed_in_turn(temp_db, monkeypatch):
@@ -566,9 +594,7 @@ def _tabs_engine(monkeypatch, posts_tab: list) -> None:
             run.messages += 1
             yield message
         run.returncode = 0 if cmd[0] == "gallery-dl" else 1
-        run.log = [
-            "[example][error] HttpError: '403 Forbidden'" if cmd[0] == "gallery-dl" else "ERROR: Unsupported URL"
-        ]
+        run.note("[example][error] HttpError: '403 Forbidden'" if cmd[0] == "gallery-dl" else "ERROR: Unsupported URL")
 
     monkeypatch.setattr(listing_module, "_stream", fake_stream)
     monkeypatch.setattr(listing_module, "_probe_rotation", lambda url, key: _generate([AccessIdentity()]))
@@ -1467,6 +1493,21 @@ def test_a_check_finds_its_sources_pages_with_what_its_other_trackers_learned(te
     tracker = repositories.load_tracker_row("t1")
     assert tracker["feeds"]["pages"] == {"clips": found}
     assert tracker["last_error"] == "Could not find these pages on the link: About."
+
+
+def test_a_check_reports_items_no_engine_could_read(temp_db, monkeypatch):
+    _insert_tracker()
+
+    def fake_iter_entries(url, source_key, stats=None, **kwargs):
+        yield _entry(1)
+        stats.unread = "HttpError: '403 Forbidden'"
+        stats.complete = True
+
+    monkeypatch.setattr(service_module, "iter_entries", fake_iter_entries)
+    monkeypatch.setattr(service_module, "queue_task", _Queue())
+    service_module.run_check(repositories.load_tracker_row("t1"))
+
+    assert repositories.load_tracker_row("t1")["last_error"] == "Could not list every item: HttpError: '403 Forbidden'"
 
 
 def test_a_check_adds_the_pages_it_finds_to_its_sources_rows_once(temp_db, monkeypatch):

@@ -378,6 +378,8 @@ def run_check(tracker: dict[str, Any]) -> None:
             if errors
             else f"Could not find these pages on the link: {', '.join(stats.missing_tabs)}."
             if stats.missing_tabs
+            else f"Could not list every item: {stats.unread}"
+            if stats.unread
             else ""
         )
         # A tracker starts out named after its link; the listing knows the collection's own name.

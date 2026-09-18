@@ -75,6 +75,8 @@ _PROBES_AHEAD = 3
 _PROBES_WHILE_SCROLLING = 1
 _MIN_NAME_LENGTH = 3
 _UNSUPPORTED_RE = re.compile(r"unsupported url", re.IGNORECASE)
+# An engine's report of something it could not read, as gallery-dl's "[site][error]" or yt-dlp's "ERROR:".
+_ERROR_LINE_RE = re.compile(r"^(?:\[[^\]]+\]\[error\]|ERROR:)\s*")
 _WORD_RE = re.compile(r"[a-z]+")
 # Words joined by separators, as reels_tab or photos_by, name a page, not an item.
 _ROUTE_WORDS_RE = re.compile(r"[a-z]+(?:[_-][a-z]+)+")
@@ -117,6 +119,8 @@ class ListingStats:
     ended: set[str] = field(default_factory=set)
     # Set when a page stopped at a batch, so the pass goes on with its next one.
     more: bool = False
+    # Why items went unread, when no engine listed the link cleanly.
+    unread: str = ""
 
 
 class Backlog(Protocol):
@@ -157,6 +161,10 @@ class _Run:
     returncode: int = -1
     messages: int = 0
     log: list[str] = field(default_factory=list)
+    # The last error the engine reported; its JSON job exits 0 even when items failed.
+    error: str = ""
+    # Set when the listing stopped at a run of settled entries, before its end.
+    caught_up: bool = False
 
     @property
     def answered(self) -> bool:
@@ -164,8 +172,19 @@ class _Run:
         return self.returncode == 0 and self.messages > 0
 
     @property
+    def clean(self) -> bool:
+        """Whether the listing reached its end, or caught up, without an item it could not read."""
+        return self.caught_up or (self.answered and not self.error)
+
+    @property
     def detail(self) -> str:
-        return self.log[-1].strip() if self.log else ""
+        return self.error or (self.log[-1].strip() if self.log else "")
+
+    def note(self, line: str) -> None:
+        """Keep a line the engine printed besides its JSON."""
+        self.log = [*self.log[-_LOG_TAIL:], line]
+        if _ERROR_LINE_RE.match(line):
+            self.error = _ERROR_LINE_RE.sub("", line, count=1)
 
 
 def _stream(cmd: list[str], access: AccessIdentity, run: _Run) -> Iterator[Any]:
@@ -216,7 +235,7 @@ def _stream(cmd: list[str], access: AccessIdentity, run: _Run) -> Iterator[Any]:
                         handling.clear()
                     continue
             if text:
-                run.log = [*run.log[-_LOG_TAIL:], text]
+                run.note(text)
         run.returncode = process.wait()
     finally:
         done.set()
@@ -801,16 +820,23 @@ def _engine_entries(
             for access in rotation:
                 run = _Run()
                 yield from parse(_stream([*command(access), url], access, run), sub_collections)
-                outcome.returncode, outcome.messages, outcome.log = run.returncode, run.messages, run.log
+                outcome.returncode, outcome.messages, outcome.log, outcome.error = (
+                    run.returncode,
+                    run.messages,
+                    run.log,
+                    run.error,
+                )
                 # Another identity cannot make an engine support a link.
-                if run.answered or _UNSUPPORTED_RE.search(" ".join(run.log)):
+                if run.clean or _UNSUPPORTED_RE.search(" ".join(run.log)):
                     return
                 access.report("\n".join(run.log))
 
     return entries(), outcome
 
 
-def _limited(entries: Iterator[Entry], resolver: _Resolver, caught_up_after: int | None) -> Iterator[Entry]:
+def _limited(
+    entries: Iterator[Entry], resolver: _Resolver, caught_up_after: int | None, outcome: _Run
+) -> Iterator[Entry]:
     # One listing stops after a run of entries an earlier pass already recorded.
     run = 0
     with closing(entries):
@@ -820,6 +846,7 @@ def _limited(entries: Iterator[Entry], resolver: _Resolver, caught_up_after: int
             run = run + 1 if resolver.settled(key) else 0
             yield entry
             if caught_up_after and run >= caught_up_after:
+                outcome.caught_up = True
                 return
 
 
@@ -890,44 +917,49 @@ def _collection_entries(
     visited: set[str],
     caught_up_after: int | None,
     depth: int,
-) -> Iterator[Entry]:
+) -> Generator[Entry, None, str]:
+    """Entries of a link and its sub-collections; returns "" once an engine listed them cleanly, else why none did.
+
+    An engine that failed or reported items it could not read leaves the next engine to list the link too.
+    Raises ``ValueError`` when no engine listed anything.
+    """
+    listed = len(resolver.listed)
     detail = ""
     for command, parse in (
         (_gallerydl_command, lambda messages, subs: _gallerydl_entries(messages, resolver, stats, subs)),
         (_ytdlp_command, lambda lines, subs: _ytdlp_entries(lines, resolver, subs)),
     ):
         sub_collections: list[str] = []
-        produced = False
         entries, outcome = _engine_entries(url, resolver.source_key, command, parse, sub_collections)
-        for entry in _limited(entries, resolver, caught_up_after):
-            produced = True
-            yield entry
+        yield from _limited(entries, resolver, caught_up_after, outcome)
         if _visit_key(url) == _visit_key(resolver.tracker_url):
             # Handed out, the pages are the engines' whether or not they list anything this time.
             stats.engine_tabs.update(page_variant(url, sub_url)[0] for sub_url in sub_collections)
-        sub_errors: list[ValueError] = []
+        clean = outcome.clean
+        failure = "" if clean else outcome.detail
         for sub_url in sub_collections:
             key = _visit_key(sub_url)
             if depth >= _MAX_DEPTH or key in visited:
                 continue
             visited.add(key)
             try:
-                for entry in _collection_entries(sub_url, stats, resolver, visited, caught_up_after, depth + 1):
-                    produced = True
-                    yield entry
+                sub_failure = yield from _collection_entries(
+                    sub_url, stats, resolver, visited, caught_up_after, depth + 1
+                )
             except ValueError as exc:
                 # One blocked or unsupported tab leaves its siblings listable.
-                sub_errors.append(exc)
-        if produced:
-            return
-        if sub_errors:
-            raise sub_errors[0]
-        if outcome.answered:
-            return
+                sub_failure = str(exc)
+            clean = clean and not sub_failure
+            failure = failure or sub_failure
+        if clean:
+            return ""
         # Keep a real failure over an unsupported-link notice.
-        if outcome.detail and (not detail or _UNSUPPORTED_RE.search(detail)):
-            detail = outcome.detail
-    raise ValueError(detail or "Could not list that link.")
+        if failure and (not detail or _UNSUPPORTED_RE.search(detail)):
+            detail = failure
+    detail = detail or "Could not list that link."
+    if len(resolver.listed) > listed:
+        return detail
+    raise ValueError(detail)
 
 
 def _on_site(link: str, resolver: _Resolver) -> bool:
@@ -1313,7 +1345,8 @@ def iter_entries(
     """Every entry of a collection link, newest first where the site lists that way.
 
     gallery-dl answers first, as it brokers downloads; yt-dlp lists what gallery-dl does not
-    support, and the sub-collections either hands back are listed in turn. The link's pages then
+    support or could not read, and the sub-collections either hands back are listed in turn;
+    ``stats.unread`` tells why items went unread when neither listed cleanly. The link's pages then
     add the items no engine lists, including the ones that only load as the page is scrolled.
     ``known`` tells entries the tracker already has: they skip every probe. One listing
     is caught up after ``caught_up_after`` ``settled`` entries in a row (``known`` when not given). Raises
@@ -1347,12 +1380,9 @@ def iter_entries(
     visited = {_visit_key(url)}
     probes = _Probes(resolver, backlog)
     try:
-        produced = False
         error: ValueError | None = None
         try:
-            for entry in _collection_entries(url, stats, resolver, visited, caught_up_after, 0):
-                produced = True
-                yield entry
+            stats.unread = yield from _collection_entries(url, stats, resolver, visited, caught_up_after, 0)
         except ValueError as exc:
             error = exc
         # An unticked page the engines read and did not reach is listed by them too.
@@ -1366,9 +1396,8 @@ def iter_entries(
                 continue
             visited.add(_visit_key(page))
             with suppress(ValueError):
-                for entry in _collection_entries(page, stats, resolver, visited, caught_up_after, 1):
-                    produced = True
-                    yield entry
+                unread = yield from _collection_entries(page, stats, resolver, visited, caught_up_after, 1)
+                stats.unread = stats.unread or unread
                 stats.tab_pages[row["tab"]] = page
         # One browser for every page, closed before the walk waits on its last probes so other walks can scroll
         # meanwhile.
@@ -1404,15 +1433,12 @@ def iter_entries(
                 _learn_pages(url, rows, resolver, browser, stats, markup)
                 raise
         stats.complete = not (browser.cut_short or stats.more)
-        # Items a page showed count even when all were known, so a page with nothing new is no failure.
-        produced = produced or bool(stats.shown)
         # Links earlier checks left in the backlog that no page showed this time.
         probes.widen()
         probes.add(backlog.links())
-        for entry in probes.entries(wait=True):
-            produced = True
-            yield entry
-        if error and not produced:
+        yield from probes.entries(wait=True)
+        # Items a page showed count even when all were known, so a page with nothing new is no failure.
+        if error and not (resolver.listed or stats.shown):
             raise error
     finally:
         probes.close()
