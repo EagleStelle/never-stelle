@@ -24,6 +24,8 @@ def _format_scope_key(template: Any) -> str:
 
 
 def _learned_format_templates(learned_formats: Any = None) -> dict[str, list[str]]:
+    from backend.app.domains.downloads.formats import learned_templates_for
+
     if learned_formats is None:
         from backend.app.domains.downloads.store import load_learned_formats
 
@@ -31,15 +33,9 @@ def _learned_format_templates(learned_formats: Any = None) -> dict[str, list[str
 
     source = learned_formats if isinstance(learned_formats, dict) else {}
     out: dict[str, list[str]] = {}
-    for raw_key, raw_entry in source.items():
+    for raw_key in source:
         key = normalize_source_key(raw_key)
-        entry = raw_entry if isinstance(raw_entry, dict) else {}
-        templates: list[str] = []
-        for raw_template in entry.get("templates") or []:
-            template = str(raw_template or "").strip()
-            if template and template not in templates:
-                templates.append(template)
-        if key and templates:
+        if key and (templates := learned_templates_for(source, raw_key)):
             out[key] = templates
     return out
 

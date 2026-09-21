@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import lru_cache
 from typing import Any
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
@@ -22,7 +23,6 @@ _CREATOR_TOKEN = "{creator}"
 _USERNAME_TOKEN = "{username}"
 _NICKNAME_TOKEN = "{nickname}"
 _VAR_TOKEN = "{var}"
-_SPLIT_RE = re.compile(r"([/?&=#])")
 _ROUTE_SEGMENT_RE = re.compile(r"^[a-z][a-z-]{0,24}s?$")
 _IDENTIFIER_KEY_RE = re.compile(r"(^|[_-])(id|key|video|media|post|clip|item|view|watch|v)([_-]|$)")
 _STATIC_ROUTE_SEGMENTS = {
@@ -557,51 +557,122 @@ def _is_slugish(cell: str) -> bool:
     return _is_var_cell(cell) or _looks_like_slug(cell)
 
 
-def _merge_shape(template: str, shape: str) -> str | None:
-    """Merge two same-source URL shapes into one template, or None if they are
-    genuinely different routes. Positions differing only in a configurable URL
-    cell collapse to {var}; a differing route word (video vs photo) marks a
-    distinct route and blocks the merge so both templates survive for reconstruction."""
-    if template == shape:
-        return template
-    left = _SPLIT_RE.split(template)
-    right = _SPLIT_RE.split(shape)
-    if len(left) != len(right):
+@dataclass(frozen=True)
+class _Shape:
+    """A template read as its parts: path cells by position, query values by key."""
+
+    scheme: str
+    netloc: str
+    slash: bool
+    path: tuple[str, ...]
+    query: tuple[tuple[str, str], ...]
+
+    @property
+    def ids(self) -> int:
+        return [*self.path, *(value for _, value in self.query)].count(_ID_TOKEN)
+
+    def render(self) -> str:
+        path = ("/" if self.slash else "") + "/".join(self.path)
+        query = "&".join(f"{key}={value}" for key, value in self.query)
+        return urlunparse((self.scheme, self.netloc, path, "", query, ""))
+
+
+@lru_cache(maxsize=1024)
+def _parse_shape(template: str) -> _Shape | None:
+    try:
+        parsed = urlparse(template)
+    except Exception:
         return None
-    out: list[str] = []
-    for a, b in zip(left, right, strict=False):
-        if a == b:
-            out.append(a)
-        elif _ID_TOKEN in (a, b):
-            out.append(_ID_TOKEN)
-        elif _is_role_cell(a) or _is_role_cell(b):
-            out.append(_merged_prefixed_token(a, b, _CREATOR_TOKEN))
-        elif a.startswith("@") and b.startswith("@") and a != b:
-            out.append(_merged_prefixed_token(a, b, _VAR_TOKEN))
-        elif not _is_static_route_segment(a) and not _is_static_route_segment(b):
-            out.append(_merged_prefixed_token(a, b, _VAR_TOKEN))
-        elif _is_slugish(a) and _is_slugish(b):
-            out.append(_merged_prefixed_token(a, b, _VAR_TOKEN))
-        else:
-            return None
-    return "".join(out)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return _Shape(
+        parsed.scheme,
+        parsed.netloc,
+        str(parsed.path or "").startswith("/"),
+        tuple(part for part in str(parsed.path or "").split("/") if part.strip()),
+        tuple(parse_qsl(parsed.query, keep_blank_values=False)),
+    )
 
 
-def _absorb_shape(templates: list[str], shape: str) -> list[str]:
-    # Merge the new shape into the first template it generalizes with (same route,
-    # differing only in a slug → {var}); otherwise it is a new route, appended last.
-    for index, template in enumerate(templates):
-        merged = _merge_shape(template, shape)
-        if merged is not None:
-            templates[index] = merged
-            break
-    else:
-        templates.append(shape)
-    deduped: list[str] = []
+def _join_cell(a: str, b: str) -> str | None:
+    """One cell both samples fit, or None when they are different routes (video vs photo)."""
+    if a == b:
+        return a
+    if _ID_TOKEN in (a, b):
+        return _ID_TOKEN
+    if _is_role_cell(a) or _is_role_cell(b):
+        return _merged_prefixed_token(a, b, _CREATOR_TOKEN)
+    if a.startswith("@") and b.startswith("@"):
+        return _merged_prefixed_token(a, b, _VAR_TOKEN)
+    if not _is_static_route_segment(a) and not _is_static_route_segment(b):
+        return _merged_prefixed_token(a, b, _VAR_TOKEN)
+    if _is_slugish(a) and _is_slugish(b):
+        return _merged_prefixed_token(a, b, _VAR_TOKEN)
+    return None
+
+
+def _merge_shape(template: _Shape, shape: _Shape) -> _Shape | None:
+    """Join two shapes of one route, or None when they are different routes.
+
+    Path cells join by position. Query values join by key, and a parameter only one
+    side has is optional to the item, so it is left out rather than generalized.
+    """
+    if (template.scheme, template.netloc, template.slash) != (shape.scheme, shape.netloc, shape.slash):
+        return None
+    if len(template.path) != len(shape.path):
+        return None
+    path = tuple(_join_cell(a, b) for a, b in zip(template.path, shape.path, strict=True))
+    values = dict(shape.query)
+    query = tuple((key, _join_cell(value, values[key])) for key, value in template.query if key in values)
+    if None in path or any(value is None for _, value in query):
+        return None
+    merged = replace(template, path=path, query=query)
+    return merged if merged.ids == 1 else None
+
+
+def _typed_cell(cell: str, key: str = "") -> str:
+    # An identifier beside the item's own id names its owner or parent, so it varies too.
+    if cell == _ID_TOKEN or _is_token_cell(cell) or _is_static_route_segment(cell):
+        return cell
+    if _identifier_score(_without_at(cell), key, path_context=not key) >= 3:
+        return f"@{_VAR_TOKEN}" if cell.startswith("@") else _VAR_TOKEN
+    return cell
+
+
+def _valid_shape(template: str) -> _Shape | None:
+    """A template as a format: literal query keys, identifier cells as {var}, one {id}."""
+    shape = _parse_shape(template)
+    if shape is None:
+        return None
+    shape = replace(
+        shape,
+        path=tuple(_typed_cell(cell) for cell in shape.path),
+        query=tuple(
+            (key, _typed_cell(value, key)) for key, value in shape.query if not _is_token_cell(key) and key != _ID_TOKEN
+        ),
+    )
+    return shape if shape.ids == 1 else None
+
+
+@lru_cache(maxsize=256)
+def _fold_templates(templates: tuple[str, ...]) -> tuple[str, ...]:
+    """Every template as a valid format, each joined into the first earlier one of its route.
+
+    Both what is stored and what is learned pass through here, so a format that breaks
+    these rules, however it was saved, is repaired the next time it is read.
+    """
+    out: list[_Shape] = []
     for template in templates:
-        if template not in deduped:
-            deduped.append(template)
-    return deduped
+        shape = _valid_shape(template)
+        if shape is None:
+            continue
+        for index, kept in enumerate(out):
+            if (merged := _merge_shape(kept, shape)) is not None:
+                out[index] = merged
+                break
+        else:
+            out.append(shape)
+    return tuple(dict.fromkeys(shape.render() for shape in out))
 
 
 def _record_id_signature(entry: dict[str, Any], media_id: str) -> None:
@@ -616,12 +687,7 @@ def _record_id_signature(entry: dict[str, Any], media_id: str) -> None:
 def _entry_templates(entry: dict[str, Any]) -> list[str]:
     raw_templates = entry.get("templates")
     values = raw_templates if isinstance(raw_templates, list) else []
-    templates: list[str] = []
-    for value in values:
-        template = str(value or "").strip()
-        if template and template not in templates:
-            templates.append(template)
-    return templates
+    return list(_fold_templates(tuple(template for value in values if (template := str(value or "").strip()))))
 
 
 def _segment_kind_for_role_token(segment: str) -> str:
@@ -719,7 +785,7 @@ def learn_download(
     entry = dict(learned.get(key) or {})
     templates = _entry_templates(entry)
     if shape:
-        templates = _absorb_shape(templates, shape)
+        templates = list(_fold_templates((*templates, shape)))
     if templates:
         entry["templates"] = templates
     entry["host"] = str(entry.get("host") or analysis.get("host") or "")
@@ -865,31 +931,32 @@ def _canonical_shape(template: str) -> str:
     return _ROLE_CREATOR_RE.sub(_CREATOR_TOKEN, str(template or ""))
 
 
+def _shape_fits(template: str, other: str, fits: Callable[[str, str], bool]) -> bool:
+    """Whether ``other`` fits ``template``: path cells by position, and every query key the
+    template has present in ``other``, which may carry more (a playlist, a timestamp)."""
+    left, right = _parse_shape(template), _parse_shape(other)
+    if left is None or right is None:
+        return False
+    if (left.scheme, left.netloc, left.slash) != (right.scheme, right.netloc, right.slash):
+        return False
+    if len(left.path) != len(right.path):
+        return False
+    values = dict(right.query)
+    return all(fits(a, b) for a, b in zip(left.path, right.path, strict=True)) and all(
+        key in values and fits(value, values[key]) for key, value in left.query
+    )
+
+
+def _cell_matches(a: str, b: str) -> bool:
+    # A route word must never absorb {id}/{creator}: that tells /video/{id}/{var} from /{creator}/posts/{id}.
+    # A token, or an un-generalized URL-part literal, accepts any slug-like value.
+    return a == b or (_is_token_cell(a) and bool(b)) or (_is_token_cell(b) and bool(a)) or (
+        _is_slugish(a) and _is_slugish(b)
+    )
+
+
 def _shape_matches_template(template: str, shape: str) -> bool:
-    # Strict, position-wise: a URL shape belongs to a template only when every route word
-    # matches exactly and each token position agrees. Unlike _merge_shape (which fuses
-    # same-source routes during learning), a route word must never absorb {id}/{creator}
-    # — that is what tells /video/{id}/{var} apart from /{creator}/posts/{id}.
-    left = _SPLIT_RE.split(template)
-    right = _SPLIT_RE.split(shape)
-    if len(left) != len(right):
-        return False
-    for a, b in zip(left, right, strict=False):
-        if a == b:
-            continue
-        if _is_role_cell(a) and b:
-            continue
-        if _is_role_cell(b) and a:
-            continue
-        if _is_var_cell(a) and b:
-            continue
-        if _is_var_cell(b) and a:
-            continue
-        # A {var} position (or an un-generalized URL-part literal) accepts any slug-like value.
-        if _is_slugish(a) and _is_slugish(b):
-            continue
-        return False
-    return True
+    return _shape_fits(template, shape, _cell_matches)
 
 
 def learned_templates_for(learned: dict[str, Any], source_key: str) -> list[str]:
@@ -901,17 +968,20 @@ def _is_token_cell(cell: str) -> bool:
     return _is_role_cell(cell) or _is_var_cell(cell)
 
 
-def format_covers(template: str, saved: str) -> bool:
-    """Whether a saved format key names ``template``, as it is or from before learning turned
-    some of its literal cells into tokens. A route word is never absorbed."""
-    left, right = _canonical_shape(template), _canonical_shape(saved)
-    if left == right:
+def _cell_covers(a: str, b: str) -> bool:
+    # A token takes over a literal, or a {var} that became the id; never a route word or the id itself.
+    if a == b:
         return True
-    left_cells, right_cells = _SPLIT_RE.split(left), _SPLIT_RE.split(right)
-    return len(left_cells) == len(right_cells) and all(
-        a == b or (_is_token_cell(a) and bool(b) and not _is_token_cell(b) and not _is_static_route_segment(b))
-        for a, b in zip(left_cells, right_cells, strict=True)
-    )
+    if not b or b == _ID_TOKEN or not (a == _ID_TOKEN or _is_token_cell(a)):
+        return False
+    return _is_var_cell(b) or not (_is_token_cell(b) or _is_static_route_segment(b))
+
+
+def format_covers(template: str, saved: str) -> bool:
+    """Whether a saved format key names ``template``, as it is or from before learning
+    generalized it: literal cells turned into tokens, optional parameters left out."""
+    left, right = _canonical_shape(template), _canonical_shape(saved)
+    return left == right or _shape_fits(left, right, _cell_covers)
 
 
 def select_for_format(mapping: Any, format_template: str) -> Any:

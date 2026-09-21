@@ -65,6 +65,7 @@ def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
 
 def set_learned_format_templates(source_key: str, templates: Any) -> dict[str, Any]:
     """Reorder or delete a source's learned URL templates."""
+    from backend.app.domains.downloads.formats import learned_templates_for
     from backend.app.domains.downloads.store import (
         forget_learned_format,
         load_learned_formats,
@@ -78,7 +79,7 @@ def set_learned_format_templates(source_key: str, templates: Any) -> dict[str, A
     entry = learned.get(key)
     if not isinstance(entry, dict):
         raise ValueError("That source has no learned format.")
-    existing = [str(item or "").strip() for item in (entry.get("templates") or []) if str(item or "").strip()]
+    existing = learned_templates_for(learned, key)
     ordered: list[str] = []
     for item in templates if isinstance(templates, list) else []:
         value = str(item or "").strip()

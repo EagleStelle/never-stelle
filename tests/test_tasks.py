@@ -52,6 +52,8 @@ from backend.app.domains.downloads.formats import (
     guess_sources,
     learn_download,
     learn_media_id,
+    learned_templates_for,
+    match_template,
     media_id_from_url,
     reconstruct_url,
     reconstruct_url_candidates,
@@ -4482,11 +4484,11 @@ def test_learn_download_marks_an_album_from_one_post_variable():
 
 def test_learn_download_keeps_route_words_and_link_echoes_literal():
     templates = _learn_posts(
-        ["https://example.test/gallery/22222222/clip-2024"],
-        {"subcategory": "gallery", "webpage_url_basename": "clip-2024"},
+        ["https://example.test/gallery/22222222/clip_of_the_day"],
+        {"subcategory": "gallery", "webpage_url_basename": "clip_of_the_day"},
     )
 
-    assert templates == ["https://example.test/gallery/{id}/clip-2024"]
+    assert templates == ["https://example.test/gallery/{id}/clip_of_the_day"]
 
 
 def test_learn_download_heals_a_literal_handle_once_metadata_proves_it():
@@ -4511,11 +4513,66 @@ def test_learn_download_binds_the_fields_the_caller_names():
     assert learned["example"]["templates"] == ["https://example.test/{username}/post/{id}"]
 
 
+def test_learn_download_joins_query_values_by_key_and_drops_optional_ones():
+    # A playlist or share parameter only some links carry is not part of the item's format.
+    templates = _learn_posts(
+        [
+            "https://example.test/watch?v=AAAAAAAAAAA&list=PLxxxxxxxxxxxxxxxxxxxx",
+            "https://example.test/watch?v=BBBBBBBBBBB&feed=FDyyyyyyyyyyyyyyyyyyyy",
+        ],
+        None,
+    )
+
+    assert templates == ["https://example.test/watch?v={id}"]
+
+
+def test_learn_download_marks_an_identifier_beside_the_id_variable():
+    # A second identifier names the owner or parent, so one creator's posts do not freeze it.
+    templates = _learn_posts(["https://example.test/permalink.php?story_fbid=22222222&id=11111111111111"], None)
+
+    assert templates == ["https://example.test/permalink.php?story_fbid={id}&id={var}"]
+
+
+def test_stored_formats_are_repaired_when_read():
+    learned = {
+        "example": {
+            "templates": [
+                "https://example.test/photo?fbid={id}",
+                "https://example.test/{var}/posts/{id}",
+                "https://example.test/permalink.php?story_fbid=pfbid0AAAAAAAAAAAAAAAAAAAAAAAA1"
+                "&id=11111111111111&comment_id={id}",
+                "https://example.test/photo?fbid={var}&set={id}",
+                "https://example.test/permalink.php?story_fbid={id}&id=22222222222222",
+                "https://example.test/watch?v={id}",
+                "https://example.test/watch?v={id}&{var}={var}",
+                "https://example.test/video/{id}/{id}",
+            ]
+        }
+    }
+
+    assert learned_templates_for(learned, "example") == [
+        "https://example.test/photo?fbid={id}",
+        "https://example.test/{var}/posts/{id}",
+        "https://example.test/permalink.php?story_fbid={id}&id={var}",
+        "https://example.test/watch?v={id}",
+    ]
+
+
+def test_a_link_with_extra_parameters_matches_its_format():
+    learned = {"example": {"templates": ["https://example.test/watch?v={id}"]}}
+    url = "https://example.test/watch?v=AAAAAAAAAAA&list=PLxxxxxxxxxxxxxxxxxxxx"
+
+    assert match_template(learned, "example", url) == "https://example.test/watch?v={id}"
+
+
 def test_a_setting_saved_on_a_format_follows_it_once_generalized():
     saved = {"https://example.test/alice/post/{id}": "alice-folder"}
 
     assert select_for_format(saved, "https://example.test/{creator}/post/{id}") == "alice-folder"
     assert select_for_format(saved, "https://example.test/{creator}/photo/{id}") is None
+    # A key saved on a broken format follows the one it was repaired into.
+    broken = {"https://example.test/photo?fbid={var}&set={id}": "photos"}
+    assert select_for_format(broken, "https://example.test/photo?fbid={id}") == "photos"
     # A route word is never absorbed by a token.
     assert not format_covers("https://example.test/{creator}/{id}", "https://example.test/video/{id}")
 
