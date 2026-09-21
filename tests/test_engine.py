@@ -471,6 +471,13 @@ def test_auto_selectors_prefer_available_low_processing_outputs():
     )
 
 
+def test_ytdlp_command_prints_progress_once_a_second():
+    cmd = ytdlp.build_ytdlp_command("https://www.youtube.com/watch?v=x", "/usr/bin/ffmpeg", "/media/out.%(ext)s")
+
+    assert "--newline" in cmd
+    assert cmd[cmd.index("--progress-delta") + 1] == "1"
+
+
 def test_ytdlp_command_filters_format_to_container_codecs():
     cmd = ytdlp.build_ytdlp_command(
         "https://www.youtube.com/watch?v=x",

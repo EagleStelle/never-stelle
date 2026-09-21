@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
-from collections.abc import Iterator
-from contextlib import closing
+from collections.abc import Callable, Iterator
+from contextlib import closing, suppress
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
 
@@ -29,6 +30,7 @@ _RADIO_PREFIX = "RD"
 _PROBE_TIMEOUT_SECONDS = 90
 _MAX_ENTRIES = 500
 _GALLERYDL_TIKTOK_NO_AUDIO_OPTION = "extractor.tiktok.audio=false"
+_BLANK_RE = re.compile(r"\s*")
 
 
 def low_priority_command(cmd: list[str], kwargs: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
@@ -303,17 +305,72 @@ def _exact_url_field_roles(
     return promoted
 
 
-def _ytdlp_dump(
-    url: str,
+def _run_probe_batch(
+    cmd: list[str], urls: list[str], access: AccessIdentity, low_priority: bool
+) -> subprocess.CompletedProcess[str] | None:
+    """One engine process reading every link; None when it could not run or ran out of time."""
+    try:
+        return _run_probe_command(
+            cmd + urls,
+            low_priority=low_priority,
+            env=access_env(access),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=_PROBE_TIMEOUT_SECONDS * len(urls),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _probe_output(result: subprocess.CompletedProcess[str]) -> str:
+    return result.stderr or result.stdout or ""
+
+
+def _walk_probe_rotation(
+    urls: list[str],
+    read: Callable[[AccessIdentity, list[str]], tuple[dict[str, dict[str, Any]], str]],
+    cookie_source_key: str,
+    with_cookies: bool,
+) -> tuple[dict[str, dict[str, Any]], str]:
+    """What ``read`` found for each link, each identity trying only the links still unread; the last failure."""
+    found: dict[str, dict[str, Any]] = {}
+    error = ""
+    if not urls:
+        return found, error
+    with closing(_probe_rotation(urls[0], cookie_source_key, with_cookies=with_cookies)) as rotation:
+        for access in rotation:
+            attempt, attempt_error = read(access, [url for url in urls if url not in found])
+            found.update(attempt)
+            if len(found) == len(urls):
+                return found, ""
+            access.report(attempt_error)
+            error = attempt_error or error
+    return found, error
+
+
+def _ytdlp_video(result: Any) -> dict[str, Any] | None:
+    """The first video of a result, as a playlist's first entry; None when it holds none."""
+    while isinstance(result, dict) and result.get("_type") in ("playlist", "multi_video"):
+        result = next(iter(result.get("entries") or []), None)
+    return result if isinstance(result, dict) and result else None
+
+
+def _ytdlp_dumps(
+    urls: list[str],
     *,
     with_cookies: bool = True,
     cookie_source_key: str = "",
     low_priority: bool = False,
     extra_args: tuple[str, ...] = (),
-) -> tuple[dict[str, Any] | None, str]:
+) -> tuple[dict[str, dict[str, Any]], str]:
+    """yt-dlp's info for each link it read, one process per attempt; the last failed attempt's output."""
     cmd = [
         "yt-dlp",
-        "--dump-json",
+        # One line per link, in order: its info, or null for a link it could not read.
+        "--dump-single-json",
+        "--ignore-errors",
         "--no-warnings",
         "--no-download",
         "--playlist-items",
@@ -325,45 +382,41 @@ def _ytdlp_dump(
         *extra_args,
     ]
 
-    def _exec(access: AccessIdentity) -> tuple[dict[str, Any] | None, str]:
-        try:
-            result = _run_probe_command(
-                cmd + ytdlp_access_args(access) + [url],
-                low_priority=low_priority,
-                env=access_env(access),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=_PROBE_TIMEOUT_SECONDS,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return None, ""
-        if result.returncode != 0:
-            return None, (result.stderr or result.stdout or "")
-        line = next((row for row in (result.stdout or "").splitlines() if row.strip().startswith("{")), "")
-        if not line:
-            return None, ""
-        try:
-            return json.loads(line), ""
-        except json.JSONDecodeError:
-            return None, ""
+    def _read(access: AccessIdentity, pending: list[str]) -> tuple[dict[str, dict[str, Any]], str]:
+        result = _run_probe_batch(cmd + ytdlp_access_args(access), pending, access, low_priority)
+        if result is None:
+            return {}, ""
+        found: dict[str, dict[str, Any]] = {}
+        # A run cut short leaves only the links after its last line unread.
+        for url, line in zip(pending, filter(str.strip, (result.stdout or "").splitlines()), strict=False):
+            with suppress(json.JSONDecodeError):
+                if info := _ytdlp_video(json.loads(line)):
+                    found[url] = info
+        return found, "" if len(found) == len(pending) else _probe_output(result)
 
-    error = ""
-    with closing(_probe_rotation(url, cookie_source_key, with_cookies=with_cookies)) as rotation:
-        for access in rotation:
-            info, attempt_error = _exec(access)
-            if info is not None:
-                return info, ""
-            access.report(attempt_error)
-            error = attempt_error or error
-    return None, error
+    return _walk_probe_rotation(urls, _read, cookie_source_key, with_cookies)
 
 
-def _gallerydl_richest_metadata(node: Any) -> dict[str, Any]:
+def _gallerydl_messages(document: Any) -> list[Any]:
+    return document if isinstance(document, list) else [document]
+
+
+def _is_gallerydl_error(message: Any) -> bool:
+    # gallery-dl -j reports what stopped a link as a message of kind -1.
+    return isinstance(message, list) and message[:1] == [-1]
+
+
+def _gallerydl_errors(document: Any) -> str:
+    """What gallery-dl reported stopping a link, "" when nothing did."""
+    return " ".join(
+        json.dumps(message[1:]) for message in _gallerydl_messages(document) if _is_gallerydl_error(message)
+    )
+
+
+def _gallerydl_richest_metadata(document: Any) -> dict[str, Any]:
     # gallery-dl -j nests the file metadata dict inside its message list; return the largest dict.
     best: dict[str, Any] = {}
-    stack: list[Any] = [node]
+    stack: list[Any] = [message for message in _gallerydl_messages(document) if not _is_gallerydl_error(message)]
     while stack:
         current = stack.pop()
         if isinstance(current, dict):
@@ -374,80 +427,101 @@ def _gallerydl_richest_metadata(node: Any) -> dict[str, Any]:
     return best
 
 
-def _gallerydl_dump(
-    url: str,
+def _json_documents(text: str) -> list[Any] | None:
+    """Every JSON document in ``text``, in order; None when it holds anything else."""
+    decoder = json.JSONDecoder()
+    documents: list[Any] = []
+    index = _BLANK_RE.match(text).end()
+    while index < len(text):
+        try:
+            document, index = decoder.raw_decode(text, index)
+        except json.JSONDecodeError:
+            return None
+        documents.append(document)
+        index = _BLANK_RE.match(text, index).end()
+    return documents
+
+
+def _gallerydl_dumps(
+    urls: list[str],
     *,
     with_cookies: bool = True,
     cookie_source_key: str = "",
     low_priority: bool = False,
-) -> dict[str, Any] | None:
+) -> dict[str, dict[str, Any]]:
+    """gallery-dl's richest metadata for each link it read, one process per attempt.
+
+    gallery-dl prints one document per link it has an extractor for, so only those links are passed and
+    the documents follow them in order. A run printing another count is read again one link at a time.
+    """
     cmd = ["gallery-dl", "-j", "-o", _GALLERYDL_TIKTOK_NO_AUDIO_OPTION]
-    errors: list[str] = []
 
-    def _exec(access: AccessIdentity) -> dict[str, Any] | None:
-        try:
-            result = _run_probe_command(
-                cmd + gallerydl_access_args(access) + [url],
-                low_priority=low_priority,
-                env=access_env(access),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=_PROBE_TIMEOUT_SECONDS,
+    def _read(access: AccessIdentity, pending: list[str]) -> tuple[dict[str, dict[str, Any]], str]:
+        result = _run_probe_batch(cmd + gallerydl_access_args(access), pending, access, low_priority)
+        if result is None:
+            return {}, ""
+        documents = _json_documents(result.stdout or "")
+        if documents is None or len(documents) != len(pending):
+            if len(pending) == 1:
+                return {}, _probe_output(result)
+            attempts = [_read(access, [url]) for url in pending]
+            return (
+                {url: metadata for attempt, _ in attempts for url, metadata in attempt.items()},
+                " ".join(error for _, error in attempts if error),
             )
-        except (OSError, subprocess.SubprocessError):
-            return None
-        if result.returncode != 0:
-            errors.append(result.stderr or result.stdout or "")
-            return None
-        try:
-            data = json.loads(result.stdout or "[]")
-        except json.JSONDecodeError:
-            return None
-        metadata = _gallerydl_richest_metadata(data)
-        return metadata or None
+        found = {
+            url: metadata
+            for url, document in zip(pending, documents, strict=True)
+            if (metadata := _gallerydl_richest_metadata(document))
+        }
+        if len(found) == len(pending):
+            return found, ""
+        # Its exit code stays 0 even then, so only the document tells a link failed.
+        reported = [
+            _gallerydl_errors(document) for url, document in zip(pending, documents, strict=True) if url not in found
+        ]
+        return found, " ".join(filter(None, [*reported, _probe_output(result)]))
 
-    with closing(_probe_rotation(url, cookie_source_key, with_cookies=with_cookies)) as rotation:
-        for access in rotation:
-            errors.clear()
-            metadata = _exec(access)
-            if metadata is not None:
-                return metadata
-            access.report(" ".join(errors))
-    return None
+    readable = [url for url in urls if gallerydl_reads(url) is not None]
+    return _walk_probe_rotation(readable, _read, cookie_source_key, with_cookies)[0]
 
 
 def probe_metadata(
-    source_url: str,
+    source_urls: list[str],
     *,
     with_cookies: bool = True,
     cookie_source_key: str = "",
     low_priority: bool = False,
-) -> dict[str, str]:
-    """Flat metadata for a URL from whichever engine answers first; ``{}`` on failure.
+) -> dict[str, dict[str, str]]:
+    """Flat metadata for each URL from whichever engine answers first; a URL no engine read is left out.
 
     The library scan uses this to resolve a manually-placed file's creator without a
-    download. Unlike ``probe_fields`` it returns every scalar field (flattened
-    to ``key[sub]``) so the caller can walk its own configured field-priority order.
+    download, and a tracker to read the items its pages show. Unlike ``probe_fields`` it
+    returns every scalar field (flattened to ``key[sub]``) so the caller can walk its own
+    configured field-priority order. Links sharing their engine order and cookie source
+    are read together, one process per engine.
     """
-    url = _prepare_url(source_url)
-    if not url:
-        return {}
+    prepared = {source_url: _prepare_url(source_url) for source_url in source_urls}
     options: dict[str, Any] = {
         "with_cookies": with_cookies,
         "cookie_source_key": cookie_source_key,
         "low_priority": low_priority,
     }
-    dumps = (lambda: _ytdlp_dump(url, **options)[0], lambda: _gallerydl_dump(url, **options))
-    # yt-dlp only reads a link gallery-dl has its own extractor for generically, failing once per jar.
-    if gallerydl_reads(url) and not ytdlp_single_video(url):
-        dumps = dumps[::-1]
-    for dump in dumps:
-        data = dump()
-        if isinstance(data, dict) and data:
-            return _flatten_metadata(data)
-    return {}
+    groups: dict[tuple[Any, ...], list[str]] = {}
+    for url in dict.fromkeys(filter(None, prepared.values())):
+        # yt-dlp only reads a link gallery-dl has its own extractor for generically, failing once per jar.
+        gallerydl_first = bool(gallerydl_reads(url)) and not ytdlp_single_video(url)
+        groups.setdefault((gallerydl_first, *_probe_cookie_source_keys(url, cookie_source_key)), []).append(url)
+    dumps: tuple[Callable[[list[str]], dict[str, dict[str, Any]]], ...] = (
+        lambda urls: _ytdlp_dumps(urls, **options)[0],
+        lambda urls: _gallerydl_dumps(urls, **options),
+    )
+    found: dict[str, dict[str, Any]] = {}
+    for (gallerydl_first, *_), group in groups.items():
+        for dump in dumps[::-1] if gallerydl_first else dumps:
+            if pending := [url for url in group if url not in found]:
+                found.update(dump(pending))
+    return {source_url: _flatten_metadata(found[url]) for source_url, url in prepared.items() if url in found}
 
 
 def probe_media_info(
@@ -461,13 +535,13 @@ def probe_media_info(
     if not url:
         return {}
     # Extractors only collect subtitles when asked to write them; --no-download still writes nothing.
-    info, _ = _ytdlp_dump(
-        url,
+    found, _ = _ytdlp_dumps(
+        [url],
         with_cookies=with_cookies,
         cookie_source_key=cookie_source_key,
         extra_args=("--write-subs", "--write-auto-subs"),
     )
-    return info if isinstance(info, dict) else {}
+    return found.get(url, {})
 
 
 def _probe_field_metadata(
@@ -480,13 +554,13 @@ def _probe_field_metadata(
 ) -> tuple[list[tuple[str, dict[str, str]]], list[str]]:
     probed: list[tuple[str, dict[str, str]]] = []
     errors: list[str] = []
-    info, error = _ytdlp_dump(
-        url,
+    found, error = _ytdlp_dumps(
+        [url],
         with_cookies=with_cookies,
         cookie_source_key=source_key,
         low_priority=low_priority,
     )
-    if isinstance(info, dict) and info:
+    if info := found.get(url):
         flat = _flatten_metadata(info)
         probed.append(("ytdlp", flat))
         if stop_after_first_with_roles and _candidate_probe_fields(flat, "ytdlp"):
@@ -494,13 +568,13 @@ def _probe_field_metadata(
     elif error:
         errors.append(error)
 
-    metadata = _gallerydl_dump(
-        url,
+    metadata = _gallerydl_dumps(
+        [url],
         with_cookies=with_cookies,
         cookie_source_key=source_key,
         low_priority=low_priority,
-    )
-    if isinstance(metadata, dict) and metadata:
+    ).get(url)
+    if metadata:
         probed.append(("gallerydl", _flatten_metadata(metadata)))
     return probed, errors
 

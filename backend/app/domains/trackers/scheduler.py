@@ -4,7 +4,7 @@ import threading
 import time
 from datetime import datetime
 
-from backend.app.core.config import max_concurrency
+from backend.app.core.config import tracker_concurrency
 from backend.app.core.time import utc_now, utc_now_datetime
 from backend.app.db.repositories import (
     claim_due_tracker_row,
@@ -40,7 +40,7 @@ def ensure_tracker_worker() -> None:
 def _spawn_locked() -> None:
     global _workers
     # One worker waits on the schedule while any tracker is enabled; due trackers get their own, up to the cap.
-    target = min(_workers + due_tracker_count(utc_now()), max_concurrency())
+    target = min(_workers + due_tracker_count(utc_now()), tracker_concurrency())
     if not _workers and next_due_tracker_at() is not None:
         target = max(target, 1)
     while _workers < target:

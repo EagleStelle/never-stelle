@@ -94,14 +94,23 @@ SITE_KEYS: tuple[str, ...] = ()
 _MAX_WORKER_POOL_SIZE = 16
 
 
-def max_concurrency(default: int = 3) -> int:
-    # Size of each worker pool: parallel downloads, and separately parallel tracker checks. Clamped 1..16.
-    raw = str(os.environ.get("NEVER_STELLE_MAX_CONCURRENT") or "").strip()
+def _pool_size(name: str, default: int) -> int:
+    raw = str(os.environ.get(name) or "").strip()
     try:
         value = int(raw)
     except ValueError:
         return default
     return max(1, min(value, _MAX_WORKER_POOL_SIZE))
+
+
+def download_concurrency() -> int:
+    # Downloads that run at once.
+    return _pool_size("NEVER_STELLE_DOWNLOAD_CONCURRENCY", 3)
+
+
+def tracker_concurrency() -> int:
+    # Tracker checks that run at once.
+    return _pool_size("NEVER_STELLE_TRACKER_CONCURRENCY", 1)
 
 
 def source_root(source_key: str) -> Path:

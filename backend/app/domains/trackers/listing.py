@@ -48,7 +48,7 @@ from backend.app.domains.downloads.probe import (
 )
 from backend.app.domains.downloads.store import load_learned_formats
 from backend.app.domains.downloads.urls import _is_strong_media_id
-from backend.app.domains.downloads.workers.processes import _kill_process_tree
+from backend.app.domains.downloads.workers.processes import _kill_process_tree, request_cancel, task_execution
 from backend.app.domains.downloads.ytdlp import ytdlp_access_args
 from backend.app.domains.settings.fields import get_effective_source_fields_map
 from backend.app.domains.settings.trackers import merge_tracker_tabs, page_words, row_matches, same_label
@@ -71,10 +71,13 @@ _MAX_PARENT_PROBES = 2
 _MAX_POST_FILES = 100
 # Pages tried per row before a check gives up finding it on a link.
 _MAX_PAGE_CANDIDATES = 6
-# Item probes one page runs at once; each is a short engine process waiting on the network.
+# Probe runs one walk has at once; each is a short engine process waiting on the network.
 _PROBES_AHEAD = 3
-# Probes running at once while a browser still renders pages.
+# Probe runs at once while a browser still renders pages.
 _PROBES_WHILE_SCROLLING = 1
+# Item links one probe run reads, all in one process per engine.
+_LINKS_PER_PROBE = 10
+_PROBE_RUNS = itertools.count(1)
 _MIN_NAME_LENGTH = 3
 _UNSUPPORTED_RE = re.compile(r"unsupported url", re.IGNORECASE)
 # An engine's report of something it could not read, as gallery-dl's "[site][error]" or yt-dlp's "ERROR:".
@@ -649,20 +652,16 @@ class _Resolver:
         key = url_dedup_key(link)
         return key not in self.listed and not self.known(key)
 
-    def probe(self, link: str) -> dict[str, str]:
-        return probe_metadata(link, cookie_source_key=self.source_key, low_priority=True)
+    def probe(self, links: list[str]) -> dict[str, dict[str, str]]:
+        return probe_metadata(links, cookie_source_key=self.source_key, low_priority=True)
 
-    def page_entry(self, link: str, probed: Future[dict[str, str]] | None = None) -> Entry | None:
-        """An item a page links, once an engine reads it; None leaves it for a later check.
-
-        ``probed`` is the link's metadata already being fetched ahead of its turn.
-        """
+    def page_entry(self, link: str, flat: dict[str, str]) -> Entry | None:
+        """An item a page links, once an engine read ``flat`` for it; None leaves it for a later check."""
         key = url_dedup_key(link)
         if key in self.listed:
             return None
         if self.known(key):
             return Entry(url=link)
-        flat = probed.result() if probed else self.probe(link)
         # Metadata without any name cannot tell whose item it is.
         if not self._person_names(flat):
             return None
@@ -859,7 +858,10 @@ def _downloaded(link: str) -> bool:
 
 
 class _Probes:
-    """Item links a walk reads while it goes on, a few at once, handed back in the order they were added."""
+    """Item links a walk reads while it goes on, a few runs at once, handed back in the order they were added.
+
+    A run reads every link queued when it starts, up to ``_LINKS_PER_PROBE``, in one process per engine.
+    """
 
     def __init__(self, resolver: _Resolver, backlog: Backlog) -> None:
         self.resolver = resolver
@@ -870,10 +872,34 @@ class _Probes:
         # Each link with its metadata being fetched, and whether the app already downloaded it.
         self.waiting: deque[tuple[str, Future[dict[str, str]] | None, bool]] = deque()
         self.added: set[str] = set()
+        self.lock = threading.Lock()
+        # Links no run took yet, each with the future its metadata lands in.
+        self.unread: deque[tuple[str, Future[dict[str, str]]]] = deque()
+        # Runs reading now, so closing the walk stops their engines.
+        self.running: set[str] = set()
+        self.closed = False
 
-    def _probe(self, link: str) -> dict[str, str]:
-        with self.gate:
-            return self.resolver.probe(link)
+    def _run(self) -> None:
+        run_id = f"never-stelle-probe-{next(_PROBE_RUNS)}"
+        with self.gate, task_execution(run_id):
+            with self.lock:
+                count = 0 if self.closed else min(_LINKS_PER_PROBE, len(self.unread))
+                batch = [self.unread.popleft() for _ in range(count)]
+                if batch:
+                    self.running.add(run_id)
+            if not batch:
+                return
+            try:
+                metadata = self.resolver.probe([link for link, _ in batch])
+            except BaseException as exc:
+                for _, future in batch:
+                    future.set_exception(exc)
+                return
+            finally:
+                with self.lock:
+                    self.running.discard(run_id)
+            for link, future in batch:
+                future.set_result(metadata.get(link, {}))
 
     def widen(self) -> None:
         """Let probes run as many at once as the pool allows, once no browser renders."""
@@ -889,7 +915,12 @@ class _Probes:
             probe = self.resolver.needs_probe(link)
             # A link the app already downloaded needs no probe: queueing it only links the download there is.
             downloaded = probe and _downloaded(link)
-            future = self.pool.submit(self._probe, link) if probe and not downloaded else None
+            future: Future[dict[str, str]] | None = None
+            if probe and not downloaded:
+                future = Future()
+                with self.lock:
+                    self.unread.append((link, future))
+                self.pool.submit(self._run)
             self.waiting.append((link, future, downloaded))
 
     def entries(self, *, wait: bool = False) -> Iterator[Entry]:
@@ -901,7 +932,7 @@ class _Probes:
             self.waiting.popleft()
             key = url_dedup_key(link)
             entry = Entry(url=link) if downloaded and key not in self.resolver.listed else None
-            entry = entry or self.resolver.page_entry(link, probed)
+            entry = entry or self.resolver.page_entry(link, probed.result() if probed else {})
             if entry:
                 self.resolver.listed.update((url_dedup_key(entry.url), *entry.members))
                 yield entry
@@ -910,8 +941,13 @@ class _Probes:
                 self.backlog.failed(link)
 
     def close(self) -> None:
-        # A walk closed early leaves the probes still running unread; their links stay in the backlog.
+        # A walk closed early stops the runs still reading; their links stay in the backlog.
+        with self.lock:
+            self.closed = True
+            running = list(self.running)
         self.pool.shutdown(wait=False, cancel_futures=True)
+        for run_id in running:
+            request_cancel(run_id)
 
 
 def _collection_entries(

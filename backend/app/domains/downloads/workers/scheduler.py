@@ -5,7 +5,7 @@ import time
 from collections.abc import Collection
 from typing import Any
 
-from backend.app.core.config import max_concurrency
+from backend.app.core.config import download_concurrency
 from backend.app.domains.downloads.store import (
     defer_task,
     fail_running_task_records,
@@ -59,7 +59,7 @@ def ensure_worker() -> None:
         if not _worker_started:
             recover_orphaned_tasks()
             _worker_started = True
-        target = min(_active_worker_count + _pending_count(), max_concurrency())
+        target = min(_active_worker_count + _pending_count(), download_concurrency())
         while _active_worker_count < target:
             _active_worker_count += 1
             threading.Thread(

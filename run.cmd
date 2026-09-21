@@ -23,7 +23,8 @@ param(
     [switch]$Prod,
     [string]$Username = "",
     [string]$Password = "",
-    [int]$MaxConcurrent = 0,
+    [int]$DownloadConcurrency = 0,
+    [int]$TrackerConcurrency = 0,
     [switch]$CookieSecure
 )
 
@@ -70,14 +71,23 @@ $SeedPassword = if ($Password) {
 $env:NEVER_STELLE_USERNAME = $SeedUsername
 $env:NEVER_STELLE_PASSWORD = $SeedPassword
 
-$SeedMaxConcurrent = if ($MaxConcurrent -gt 0) {
-    $MaxConcurrent
-} elseif ($env:NEVER_STELLE_MAX_CONCURRENT) {
-    $env:NEVER_STELLE_MAX_CONCURRENT
-} else {
-    3
+# The flag, else the variable already set, else the default; exported for the backend.
+function Set-ConcurrencySeed {
+    param([int]$Flag, [string]$Name, [int]$Default)
+
+    $Value = if ($Flag -gt 0) {
+        $Flag
+    } elseif ([Environment]::GetEnvironmentVariable($Name)) {
+        [Environment]::GetEnvironmentVariable($Name)
+    } else {
+        $Default
+    }
+    [Environment]::SetEnvironmentVariable($Name, "$Value")
+    return $Value
 }
-$env:NEVER_STELLE_MAX_CONCURRENT = "$SeedMaxConcurrent"
+
+$SeedDownloadConcurrency = Set-ConcurrencySeed $DownloadConcurrency "NEVER_STELLE_DOWNLOAD_CONCURRENCY" 3
+$SeedTrackerConcurrency = Set-ConcurrencySeed $TrackerConcurrency "NEVER_STELLE_TRACKER_CONCURRENCY" 1
 
 # Off by default: run.cmd serves plain HTTP, where a Secure cookie blocks login.
 # Pass -CookieSecure only when fronting the app with HTTPS.
@@ -256,7 +266,7 @@ if ($Dev) {
 }
 
 $env:PYTHONPATH = $RepoRoot
-$env:PYTHONDONTWRITEBYTECODE = "1"
+$env:PYTHONPYCACHEPREFIX = Join-Path $BuildDir "pycache"
 $env:PYTHONUNBUFFERED = "1"
 # Path roots are auto-derived by backend config (.local locally, / in container).
 $env:TEMP = $TempDir
@@ -278,7 +288,7 @@ Write-Host "  Scratch:  $ScratchDir"
 Write-Host "  Database: $DatabasePath"
 Write-Host "  Frontend: $FrontendDistDir"
 Write-Host "  Auth:     $SeedUsername (seed user; first run only)"
-Write-Host "  Workers:  $SeedMaxConcurrent (parallel downloads)"
+Write-Host "  Workers:  $SeedDownloadConcurrency downloads, $SeedTrackerConcurrency tracker checks at once"
 Write-Host ""
 Write-Host "Press Ctrl+C to stop."
 Write-Host ""

@@ -204,11 +204,12 @@ LABEL org.opencontainers.image.title="Never Stelle" \
 
 WORKDIR /app
 
+# Bytecode is cached at runtime outside the image, so each engine process compiles its code once.
 ENV LD_LIBRARY_PATH=/opt/ffmpeg/lib \
     PATH="/opt/ffmpeg/bin:${PATH}" \
     PYTHONPATH=/app \
     NEVER_STELLE_IMPERSONATE_PATH=/opt/impersonate \
-    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPYCACHEPREFIX=/tmp/pycache \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
@@ -241,6 +242,7 @@ RUN --mount=type=bind,from=python-wheels,source=/wheels,target=/wheels \
     && apk del .strip-deps \
     && find /usr/local -type d -name '__pycache__' -prune -exec rm -rf '{}' + \
     && rm -rf \
+    "$PYTHONPYCACHEPREFIX" \
     /usr/local/lib/python*/ensurepip \
     /usr/local/lib/python*/idlelib \
     /usr/local/lib/python*/lib2to3 \

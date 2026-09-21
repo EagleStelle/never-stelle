@@ -46,7 +46,7 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(listing_module, "load_learned_formats", lambda: {})
     monkeypatch.setattr(listing_module, "get_effective_source_fields_map", lambda: {})
     monkeypatch.setattr(listing_module, "fetch_html", lambda url, cookie_source_key="": "")
-    monkeypatch.setattr(listing_module, "probe_metadata", lambda url, **options: {})
+    monkeypatch.setattr(listing_module, "probe_metadata", lambda urls, **options: {})
     monkeypatch.setattr(listing_module, "BrowserSession", _Browser().open)
     yield tmp_path
     database_module.close_database()
@@ -703,7 +703,11 @@ def test_page_links_add_the_creators_items_and_mark_foreign_ones(temp_db, monkey
         "https://example.test/reel/33333333": {"ext": "mp4"},
     }
     monkeypatch.setattr(listing_module, "fetch_html", lambda url, cookie_source_key="": pages.get(url, ""))
-    monkeypatch.setattr(listing_module, "probe_metadata", lambda url, **options: metadata.get(url, {}))
+    monkeypatch.setattr(
+        listing_module,
+        "probe_metadata",
+        lambda urls, **options: {url: metadata[url] for url in urls if url in metadata},
+    )
     monkeypatch.setattr(listing_module, "_engine_supports", lambda url: "/reel/" in url)
     _fake_engines(
         monkeypatch,
@@ -717,6 +721,11 @@ def test_page_links_add_the_creators_items_and_mark_foreign_ones(temp_db, monkey
         ("https://example.test/reel/11111111", True),
         ("https://example.test/reel/22222222", False),
     ]
+
+
+def _probe_answering(flat: dict[str, str]):
+    """A probe reading every link it is given as ``flat``."""
+    return lambda urls, **options: {url: flat for url in urls}
 
 
 class _Browser:
@@ -787,7 +796,7 @@ def _reel_page(monkeypatch, html: str, engine_messages: list | None = None) -> N
     pages = {TRACKER_URL: html}
     listed = bool(engine_messages)
     monkeypatch.setattr(listing_module, "fetch_html", lambda url, cookie_source_key="": pages.get(url, ""))
-    monkeypatch.setattr(listing_module, "probe_metadata", lambda url, **options: {"uploader": "Alice", "ext": "mp4"})
+    monkeypatch.setattr(listing_module, "probe_metadata", _probe_answering({"uploader": "Alice", "ext": "mp4"}))
     monkeypatch.setattr(listing_module, "_engine_supports", lambda url: "/reel/" in url)
     _fake_engines(
         monkeypatch,
@@ -850,9 +859,9 @@ def test_a_link_the_app_already_downloaded_is_not_probed(temp_db, monkeypatch):
     _reel_page(monkeypatch, " ".join(f'"{reel}"' for reel in reels))
     probed: list[str] = []
 
-    def probe(url, **options):
-        probed.append(url)
-        return {"uploader": "Alice", "ext": "mp4"}
+    def probe(urls, **options):
+        probed.extend(urls)
+        return {url: {"uploader": "Alice", "ext": "mp4"} for url in urls}
 
     monkeypatch.setattr(listing_module, "probe_metadata", probe)
     monkeypatch.setattr(
@@ -865,16 +874,70 @@ def test_a_link_the_app_already_downloaded_is_not_probed(temp_db, monkeypatch):
     assert probed == [reels[0], reels[2]]
 
 
+class _HeldResolver:
+    """A resolver whose probe runs wait for ``release``; records the links of each run."""
+
+    def __init__(self) -> None:
+        self.runs: list[list[str]] = []
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def needs_probe(self, link: str) -> bool:
+        return True
+
+    def probe(self, links: list[str]) -> dict[str, dict[str, str]]:
+        self.runs.append(list(links))
+        self.started.set()
+        self.release.wait(timeout=5)
+        return {link: {"uploader": "Alice"} for link in links}
+
+
+def test_links_shown_while_a_probe_run_is_busy_are_read_together(monkeypatch):
+    reels = [f"https://example.test/reel/{n}1111111" for n in range(1, 5)]
+    monkeypatch.setattr(listing_module, "_downloaded", lambda link: False)
+    resolver = _HeldResolver()
+    probes = listing_module._Probes(resolver, listing_module._WalkBacklog())
+    try:
+        probes.add(reels[:1])
+        assert resolver.started.wait(timeout=5)
+        probes.add(reels[1:3])
+        probes.add(reels[3:])
+        resolver.release.set()
+        results = [probed.result(timeout=5) for _, probed, _ in probes.waiting]
+    finally:
+        probes.close()
+
+    assert resolver.runs == [reels[:1], reels[1:]]
+    assert results == [{"uploader": "Alice"}] * 4
+
+
+def test_closing_a_walk_stops_its_running_probe_run(monkeypatch):
+    monkeypatch.setattr(listing_module, "_downloaded", lambda link: False)
+    cancelled: list[str] = []
+    monkeypatch.setattr(listing_module, "request_cancel", cancelled.append)
+    resolver = _HeldResolver()
+    probes = listing_module._Probes(resolver, listing_module._WalkBacklog())
+    try:
+        probes.add(["https://example.test/reel/11111111"])
+        assert resolver.started.wait(timeout=5)
+        probes.close()
+    finally:
+        resolver.release.set()
+
+    assert len(cancelled) == 1 and cancelled[0].startswith("never-stelle-probe-")
+
+
 def test_items_probed_ahead_keep_their_page_order(temp_db, monkeypatch):
     reels = [f"https://example.test/reel/{n}1111111" for n in range(1, 7)]
 
-    def probe(url, **options):
-        # Earlier items answer slowest, so the probes finish in reverse order.
-        time.sleep(0.05 * (len(reels) - reels.index(url)))
-        return {"uploader": "Alice", "ext": "mp4"}
+    def probe(urls, **options):
+        # Earlier items answer slowest, so the runs finish in reverse order.
+        time.sleep(0.05 * (len(reels) - reels.index(urls[0])))
+        return {url: {"uploader": "Alice", "ext": "mp4"} for url in urls}
 
     _reel_page(monkeypatch, " ".join(f'"{reel}"' for reel in reels))
     monkeypatch.setattr(listing_module, "probe_metadata", probe)
+    monkeypatch.setattr(listing_module, "_LINKS_PER_PROBE", 1)
 
     entries = list(listing_module.iter_entries(TRACKER_URL, "example"))
 
@@ -921,7 +984,7 @@ def test_a_walk_scrolls_the_tabs_it_finds_on_the_link_in_one_browser(temp_db, mo
         f"{TRACKER_URL}/reels": '"https://example.test/reel/11111111"',
     }
     monkeypatch.setattr(listing_module, "fetch_html", lambda url, cookie_source_key="": pages.get(url, ""))
-    monkeypatch.setattr(listing_module, "probe_metadata", lambda url, **options: {"uploader": "Alice", "ext": "mp4"})
+    monkeypatch.setattr(listing_module, "probe_metadata", _probe_answering({"uploader": "Alice", "ext": "mp4"}))
     monkeypatch.setattr(listing_module, "_engine_supports", lambda url: "/reel/" in url)
     _fake_engines(
         monkeypatch,
@@ -1687,7 +1750,7 @@ def test_a_first_pass_without_backfill_records_what_pages_show_without_a_backlog
     queue = _Queue()
     monkeypatch.setattr(service_module, "queue_task", queue)
     probed: list[str] = []
-    monkeypatch.setattr(listing_module, "probe_metadata", lambda url, **options: probed.append(url) or {})
+    monkeypatch.setattr(listing_module, "probe_metadata", lambda urls, **options: probed.extend(urls) or {})
 
     service_module.run_check(repositories.load_tracker_row("t1"))
     tracker = repositories.load_tracker_row("t1")
@@ -1912,7 +1975,7 @@ def test_checks_run_in_parallel_up_to_the_concurrency_limit(temp_db, monkeypatch
         )
 
     monkeypatch.setattr(scheduler_module, "run_check", fake_check)
-    monkeypatch.setattr(scheduler_module, "max_concurrency", lambda: 2)
+    monkeypatch.setattr(scheduler_module, "tracker_concurrency", lambda: 2)
     monkeypatch.setattr(scheduler_module, "_workers", 0)
     monkeypatch.setattr(scheduler_module, "_recovered", True)
 

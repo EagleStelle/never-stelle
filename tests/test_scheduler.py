@@ -53,7 +53,7 @@ def test_ensure_worker_spawns_additional_workers_when_workers_already_active(mon
     monkeypatch.setattr(scheduler_module, "pending_task_count", pending_task_count)
     monkeypatch.setattr(scheduler_module, "fail_running_task_records", lambda msg: None)
     monkeypatch.setattr(scheduler_module, "run_task", fake_run_task)
-    monkeypatch.setattr(scheduler_module, "max_concurrency", lambda: 3)
+    monkeypatch.setattr(scheduler_module, "download_concurrency", lambda: 3)
 
     try:
         # Step 1: Start with 1 task pending initially
@@ -135,7 +135,7 @@ def _run_benched_queue(monkeypatch, queue: list[tuple[str, str]], jar_free: thre
     monkeypatch.setattr(scheduler_module, "defer_task", defer_task)
     monkeypatch.setattr(scheduler_module, "fail_running_task_records", lambda msg: None)
     monkeypatch.setattr(scheduler_module, "run_task", fake_run_task)
-    monkeypatch.setattr(scheduler_module, "max_concurrency", lambda: 1)
+    monkeypatch.setattr(scheduler_module, "download_concurrency", lambda: 1)
     monkeypatch.setattr(scheduler_module, "cookie_ready_in", lambda key: 0.0 if jar_free.is_set() else 0.05)
 
     scheduler_module.ensure_worker()

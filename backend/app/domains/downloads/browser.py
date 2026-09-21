@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import json
 import os
+import re
 import subprocess
 import tarfile
 import threading
@@ -31,13 +32,18 @@ _LAUNCHER_NAME = "chrome"
 # feeds can pause several seconds between chunks.
 _IDLE_ROUNDS = 3
 _IDLE_SECONDS = 15
-_POLL_SECONDS = 0.25
+_POLL_SECONDS = 0.5
 # A round ends once the page has sent no request for this long and none it sent is still loading.
 _QUIET_SECONDS = 1.0
 # A round waits no longer than this for a request that never finishes, as a long poll.
 _ROUND_SECONDS = 15
 # Page requests that can carry the next chunk of a feed.
 _DATA_REQUESTS = frozenset({"XHR", "Fetch"})
+# The browser names an event first in its message; events outside this set are dropped undecoded.
+_EVENT_RE = re.compile(rb'\{\s*"method"\s*:\s*"([^"]+)"')
+_HANDLED_EVENTS = frozenset(
+    {b"Network.requestWillBeSent", b"Network.loadingFinished", b"Network.loadingFailed", b"Fetch.requestPaused"}
+)
 # Where the page landed, and the links it offers as its own sections (as a profile's tabs), each with its
 # text and whether the page marks it as the one showing. A tab switching the page in script has no link.
 _NAVIGATION_EXPRESSION = """[location.href, Array.from(
@@ -302,9 +308,8 @@ class BrowserSession:
                 break
             if not chunk:
                 break
-            buffer += chunk
-            while b"\0" in buffer:
-                raw, _, buffer = buffer.partition(b"\0")
+            *messages, buffer = (buffer + chunk).split(b"\0")
+            for raw in messages:
                 self._dispatch(raw)
         if stream:
             with suppress(OSError):
@@ -312,6 +317,8 @@ class BrowserSession:
         self._fail_pending()
 
     def _dispatch(self, raw: bytes) -> None:
+        if (event := _EVENT_RE.match(raw)) and event[1] not in _HANDLED_EVENTS:
+            return
         try:
             message = json.loads(raw)
         except ValueError:

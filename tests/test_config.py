@@ -1,6 +1,37 @@
 from __future__ import annotations
 
-from backend.app.core.config import MEDIA_DIR, _frontend_dir, is_allowed_location, source_root
+from backend.app.core.config import (
+    MEDIA_DIR,
+    _frontend_dir,
+    download_concurrency,
+    is_allowed_location,
+    source_root,
+    tracker_concurrency,
+)
+
+
+def test_download_and_tracker_concurrency_default_apart(monkeypatch):
+    monkeypatch.delenv("NEVER_STELLE_DOWNLOAD_CONCURRENCY", raising=False)
+    monkeypatch.delenv("NEVER_STELLE_TRACKER_CONCURRENCY", raising=False)
+
+    assert (download_concurrency(), tracker_concurrency()) == (3, 1)
+
+
+def test_each_concurrency_reads_its_own_variable(monkeypatch):
+    monkeypatch.setenv("NEVER_STELLE_DOWNLOAD_CONCURRENCY", "5")
+    monkeypatch.setenv("NEVER_STELLE_TRACKER_CONCURRENCY", "2")
+
+    assert (download_concurrency(), tracker_concurrency()) == (5, 2)
+
+
+def test_concurrency_is_clamped_and_ignores_a_bad_value(monkeypatch):
+    monkeypatch.setenv("NEVER_STELLE_DOWNLOAD_CONCURRENCY", "99")
+    monkeypatch.setenv("NEVER_STELLE_TRACKER_CONCURRENCY", "0")
+    assert (download_concurrency(), tracker_concurrency()) == (16, 1)
+
+    monkeypatch.setenv("NEVER_STELLE_DOWNLOAD_CONCURRENCY", "many")
+    monkeypatch.setenv("NEVER_STELLE_TRACKER_CONCURRENCY", "")
+    assert (download_concurrency(), tracker_concurrency()) == (3, 1)
 
 
 def test_source_root_is_the_media_dir_plus_the_key():

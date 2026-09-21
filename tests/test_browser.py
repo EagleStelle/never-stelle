@@ -178,6 +178,31 @@ def test_pipe_replies_are_framed_on_nul_across_chunk_boundaries():
     assert (first.get_nowait()["result"], second.get_nowait()["result"]) == ({"a": 1}, {"b": 2})
 
 
+def test_events_the_walk_ignores_are_never_decoded(monkeypatch):
+    session = browser_module.BrowserSession("example")
+    session._process = types.SimpleNamespace(
+        stdout=_Chunks(
+            [
+                b'{"method":"Network.dataReceived","params":{"requestId":"r1"}}\x00'
+                b'{"method": "Network.requestWillBeSent", "params": {"requestId": "r1", "type": "XHR"}}\x00'
+                b'{"method":"Network.responseReceived","params":{"requestId":"r1"}}\x00'
+                b'{"id":1,"result":{"a":1}}\x00'
+            ]
+        )
+    )
+    reply = Queue(1)
+    session._pending[1] = reply
+    decoded: list[bytes] = []
+    loads = json.loads
+    monkeypatch.setattr(browser_module.json, "loads", lambda raw: decoded.append(raw) or loads(raw))
+
+    session._read()
+
+    assert reply.get_nowait()["result"] == {"a": 1}
+    assert session._loading == {"r1"}
+    assert len(decoded) == 2
+
+
 def test_scrolling_stops_after_its_idle_rounds_add_nothing(monkeypatch, tmp_path):
     reel = "https://example.test/reel/11111111"
     fake = _FakeBrowser([[reel]])
