@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Any
 
 from backend.app.core.coercion import safe_int
@@ -402,13 +403,22 @@ def load_task_payload(task_id: str) -> dict[str, Any]:
     return _task_payload_from_row(row)
 
 
-def next_pending_task_payload() -> tuple[str, dict[str, Any]] | None:
-    """Atomically find the oldest queued task and flip it to running in one transaction."""
+def _pending_filter(skip_sources: Collection[str]) -> tuple[str, list[str]]:
+    """WHERE clause for queued tasks outside ``skip_sources``, with its parameters."""
+    skip = sorted(skip_sources)
+    if not skip:
+        return "status = 'pending'", []
+    return f"status = 'pending' AND source_key NOT IN ({', '.join('?' for _ in skip)})", skip
+
+
+def next_pending_task_payload(skip_sources: Collection[str] = ()) -> tuple[str, dict[str, Any]] | None:
+    """Atomically find the oldest queued task outside ``skip_sources`` and flip it to running."""
     now = utc_now()
+    where, params = _pending_filter(skip_sources)
     with transaction() as connection:
         row = connection.execute(
-            f"SELECT {_TASK_SELECT} FROM download_tasks "
-            "WHERE status = 'pending' ORDER BY created_at, id LIMIT 1"
+            f"SELECT {_TASK_SELECT} FROM download_tasks WHERE {where} ORDER BY created_at, id LIMIT 1",
+            params,
         ).fetchone()
         if not row:
             return None
@@ -420,9 +430,10 @@ def next_pending_task_payload() -> tuple[str, dict[str, Any]] | None:
         return task_id, payload
 
 
-def count_pending_tasks() -> int:
+def count_pending_tasks(skip_sources: Collection[str] = ()) -> int:
+    where, params = _pending_filter(skip_sources)
     with transaction() as connection:
-        row = connection.execute("SELECT COUNT(*) FROM download_tasks WHERE status = 'pending'").fetchone()
+        row = connection.execute(f"SELECT COUNT(*) FROM download_tasks WHERE {where}", params).fetchone()
     return int(row[0] or 0)
 
 
@@ -793,6 +804,16 @@ def fail_running_tasks(error: str) -> int:
             (str(error), now),
         )
     return int(cursor.rowcount or 0)
+
+
+def requeue_running_task(task_id: str) -> bool:
+    """Flip one ``running`` row back to queued; a row removed meanwhile stays removed."""
+    with transaction() as connection:
+        cursor = connection.execute(
+            "UPDATE download_tasks SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'running'",
+            (utc_now(), str(task_id)),
+        )
+    return bool(cursor.rowcount)
 
 
 def delete_history_row(task_id: str) -> None:

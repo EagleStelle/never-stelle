@@ -104,11 +104,14 @@ def invalidate_cookie_pool(source_key: str = "") -> None:
         _CONDITION.notify_all()
 
 
-def _sync_states(source_key: str, entries: dict[str, dict[str, Any]]) -> None:
+def _listed_entries(source_key: str) -> dict[str, dict[str, Any]]:
+    """This source's jars by id, each with runtime state. Call with ``_CONDITION`` held."""
+    listed = {entry["id"]: entry for entry in list_cookies_for_source(source_key) if entry["id"]}
     now = time.monotonic()
-    for cookie_id in entries:
+    for cookie_id in listed:
         if cookie_id not in _STATES:
             _STATES[cookie_id] = _CookieState(cookie_id=cookie_id, source_key=source_key, window_start=now)
+    return listed
 
 
 def _pick_state(
@@ -159,6 +162,20 @@ def _next_wake_seconds(
     return max(min(waits), _WAKE_EPSILON_SECONDS)
 
 
+def cookie_ready_in(source_key: str) -> float:
+    """Seconds until one of this source's jars can be leased; 0 when one is free or none exist."""
+    source_key = normalize_cookie_source(source_key)
+    if not source_key:
+        return 0.0
+    policy = cookie_policy_for_source(source_key)
+    with _CONDITION:
+        entries = _listed_entries(source_key)
+        now = time.monotonic()
+        if not entries or _pick_state(entries, now, policy) is not None:
+            return 0.0
+        return _next_wake_seconds(entries, now, policy)
+
+
 def wake_cookie_pool() -> None:
     with _CONDITION:
         _CONDITION.notify_all()
@@ -189,8 +206,7 @@ def lease_cookie(
             from backend.app.domains.downloads.workers.processes import raise_if_cancelled
 
             raise_if_cancelled()
-            listed = {entry["id"]: entry for entry in list_cookies_for_source(source_key) if entry["id"]}
-            _sync_states(source_key, listed)
+            listed = _listed_entries(source_key)
             entries = {cookie_id: entry for cookie_id, entry in listed.items() if cookie_id not in skip}
             if not entries:
                 return None
@@ -241,17 +257,18 @@ def release_cookie(lease: CookieLease | None, *, banned: bool | None = None) -> 
         drop_materialized_cookie(lease.path)
 
 
-def cookie_rotation(source_key: str, *, wait_seconds: float | None = None) -> Iterator[CookieLease]:
+def cookie_rotation(source_key: str, *, first_wait: float | None = None) -> Iterator[CookieLease]:
     """Yield this source's jars one at a time until the caller finds one that works.
 
     Each jar is leased for the body of the loop and released on the way out, so a
     failed attempt moves to the next jar and other tasks keep rotating in parallel.
+    ``first_wait`` caps the wait for the first jar; later ones wait out the policy.
     Set ``lease.banned`` before continuing when the site answered with a block.
     Callers should close the iterator (``contextlib.closing``) when they break early.
     """
     tried: set[str] = set()
     while True:
-        lease = lease_cookie(source_key, wait_seconds=wait_seconds, exclude=tried)
+        lease = lease_cookie(source_key, wait_seconds=None if tried else first_wait, exclude=tried)
         if lease is None:
             return
         tried.add(lease.cookie_id)

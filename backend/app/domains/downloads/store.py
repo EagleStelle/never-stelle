@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Any
 
 from backend.app.core.resolution import invalidate, resolved
@@ -40,6 +41,7 @@ from backend.app.db.repositories import (
     open_rename_journal_entries,
     record_redirect_observation,
     requeue_running_enrichment_jobs_payload,
+    requeue_running_task,
     resolution_settings_revision,
     retry_enrichment_job_payload,
     save_history_row,
@@ -159,15 +161,21 @@ def load_task(task_id: str) -> dict[str, Any]:
     return volatile.merge(task_id, load_task_payload(task_id))
 
 
-def next_pending_task() -> tuple[str, dict[str, Any]] | None:
-    claimed = next_pending_task_payload()
+def next_pending_task(skip_sources: Collection[str] = ()) -> tuple[str, dict[str, Any]] | None:
+    claimed = next_pending_task_payload(skip_sources)
     if claimed:
         volatile.forget(claimed[0])
     return claimed
 
 
-def pending_task_count() -> int:
-    return count_pending_tasks()
+def defer_task(task_id: str) -> None:
+    """Hand a claimed task back to the queue, keeping its place in line."""
+    volatile.forget(task_id)
+    requeue_running_task(task_id)
+
+
+def pending_task_count(skip_sources: Collection[str] = ()) -> int:
+    return count_pending_tasks(skip_sources)
 
 
 def active_download_task_count() -> int:

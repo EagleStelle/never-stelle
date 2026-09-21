@@ -96,6 +96,24 @@ def test_removing_a_task_drops_its_live_state(tmp_path: Path, monkeypatch: pytes
     assert volatile.merge("task", {}) == {}
 
 
+def test_deferring_a_task_requeues_it_in_place_without_live_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    store.update_task("task", status="running", created_at="2026-01-01T00:00:00", source_url="https://x.test/a")
+    store.record_task_progress("task", 8.0)
+
+    store.defer_task("task")
+
+    task = store.load_task("task")
+    assert task["status"] == "pending"
+    assert task["created_at"] == "2026-01-01T00:00:00"
+    assert volatile.merge("task", {}) == {}
+
+    # A task cancelled just before it was deferred is not brought back.
+    store.remove_task_record("task")
+    store.defer_task("task")
+    assert store.load_task("task") == {}
+
+
 def test_the_log_tail_is_capped():
     for index in range(volatile.LOG_TAIL * 3):
         volatile.append_log("task", f"line {index}")

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from backend.app.domains.downloads import volatile
 from backend.app.domains.downloads.ytdlp import YTDLP_NICKNAME_FIELD, build_ytdlp_command
 from backend.app.domains.downloads.ytdlp import read_creator_sidecar as _read_creator_sidecar
@@ -80,7 +82,6 @@ def _stub_access(monkeypatch, rotation, *, target=""):
     import backend.app.domains.downloads.workers.execution as worker_module
 
     monkeypatch.setattr(access_module, "has_cookies_for_source", lambda source_key: True)
-    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: True)
     monkeypatch.setattr(access_module, "cookie_rotation", rotation)
     monkeypatch.setattr(access_module, "impersonation_target", lambda: target)
     monkeypatch.setattr(worker_module, "impersonation_target", lambda: target)
@@ -256,6 +257,44 @@ def test_run_engine_attempts_rests_a_cookie_that_came_back_rate_limited(monkeypa
 
     assert rc == 1
     assert lease.banned is True
+
+
+def _stub_busy_jars(monkeypatch, worker_module, ready_in):
+    first_waits = []
+
+    def busy_rotation(source_key, **kwargs):
+        first_waits.append(kwargs.get("first_wait"))
+        yield from ()
+
+    _stub_access(monkeypatch, busy_rotation)
+    monkeypatch.setattr(worker_module, "_run_engine_to_task", lambda *args, **kwargs: (1, "", []))
+    monkeypatch.setattr(worker_module, "_task_log_tail", lambda task_id: "ERROR: Unsupported URL")
+    monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: ready_in)
+    return first_waits
+
+
+def test_run_engine_attempts_defers_the_task_when_every_jar_is_busy(monkeypatch):
+    import backend.app.domains.downloads.workers.execution as worker_module
+    from backend.app.domains.downloads.workers.processes import TaskDeferred
+
+    first_waits = _stub_busy_jars(monkeypatch, worker_module, ready_in=4.0)
+
+    with pytest.raises(TaskDeferred) as deferred:
+        _run_attempts(worker_module)
+
+    assert deferred.value.source_key == "youtube"
+    # The first jar is never waited for, so the worker is free at once.
+    assert first_waits == [0]
+
+
+def test_run_engine_attempts_fails_instead_of_deferring_when_a_jar_is_free(monkeypatch):
+    import backend.app.domains.downloads.workers.execution as worker_module
+
+    _stub_busy_jars(monkeypatch, worker_module, ready_in=0.0)
+
+    rc, _, _ = _run_attempts(worker_module)
+
+    assert rc == 1
 
 
 class _FakeProcess:

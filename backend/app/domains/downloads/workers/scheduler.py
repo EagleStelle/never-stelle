@@ -2,20 +2,28 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Collection
 from typing import Any
 
 from backend.app.core.config import max_concurrency
 from backend.app.domains.downloads.store import (
+    defer_task,
     fail_running_task_records,
     next_pending_task,
     pending_task_count,
 )
 from backend.app.domains.downloads.workers.execution import run_task
-from backend.app.domains.downloads.workers.processes import TaskCancelled, task_execution
+from backend.app.domains.downloads.workers.processes import TaskCancelled, TaskDeferred, task_execution
+from backend.app.domains.settings import cookie_ready_in
 
 _worker_lock = threading.Lock()
 _worker_started = False
 _active_worker_count = 0
+# Sources whose every cookie jar was busy; their tasks wait in the queue until one frees.
+_bench_lock = threading.Lock()
+_benched: set[str] = set()
+# Longest nap of the worker left for benched tasks, so a jar added meanwhile is noticed.
+_BENCH_POLL_SECONDS = 5.0
 
 
 def recover_orphaned_tasks() -> None:
@@ -23,14 +31,24 @@ def recover_orphaned_tasks() -> None:
     fail_running_task_records("Download interrupted by shutdown.")
 
 
-def _next_pending_task() -> tuple[str | None, dict[str, Any] | None]:
+def _benched_waits() -> dict[str, float]:
+    """Seconds until each benched source has a free jar; a freed source leaves the bench."""
+    with _bench_lock:
+        benched = set(_benched)
+    waits = {key: cookie_ready_in(key) for key in benched}
+    with _bench_lock:
+        _benched.difference_update(key for key, wait in waits.items() if not wait)
+    return {key: wait for key, wait in waits.items() if wait}
+
+
+def _next_pending_task(benched: Collection[str]) -> tuple[str | None, dict[str, Any] | None]:
     # Picked and claimed atomically by SQL: no two workers can claim or race on the same task.
-    claimed = next_pending_task()
+    claimed = next_pending_task(benched)
     return claimed if claimed else (None, None)
 
 
 def _pending_count() -> int:
-    return pending_task_count()
+    return pending_task_count(_benched_waits())
 
 
 def ensure_worker() -> None:
@@ -55,16 +73,21 @@ def _worker_loop() -> None:
     try:
         while True:
             try:
-                task_id, task = _next_pending_task()
+                benched = _benched_waits()
+                task_id, task = _next_pending_task(benched)
                 if not (task_id and task):
                     with _worker_lock:
                         # Re-check under the lock, then decrement before releasing it, so
                         # a task enqueued this instant can't be stranded by our exit.
-                        task_id, task = _next_pending_task()
-                        if not (task_id and task):
+                        task_id, task = _next_pending_task(benched)
+                        # The last worker stays while benched tasks wait, to take them once a jar frees.
+                        if not (task_id and task) and (_active_worker_count > 1 or not pending_task_count()):
                             _active_worker_count -= 1
                             retired = True
                             return
+                if not (task_id and task):
+                    time.sleep(min([*benched.values(), _BENCH_POLL_SECONDS]))
+                    continue
                 # Any remaining pending tasks get their own worker, up to the cap.
                 ensure_worker()
                 with task_execution(task_id):
@@ -72,6 +95,11 @@ def _worker_loop() -> None:
             except TaskCancelled:
                 # BaseException, so `except Exception` would let it kill the worker.
                 continue
+            except TaskDeferred as deferred:
+                # Benched before requeued, so no worker claims it straight back.
+                with _bench_lock:
+                    _benched.add(deferred.source_key)
+                defer_task(task_id)
             except Exception:
                 time.sleep(1)
     finally:

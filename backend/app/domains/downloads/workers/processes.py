@@ -21,6 +21,14 @@ class TaskCancelled(BaseException):
     """Cooperative task cancellation that is not swallowed by processor fallbacks."""
 
 
+class TaskDeferred(BaseException):
+    """Every cookie jar of ``source_key`` is busy, so the task goes back to the queue."""
+
+    def __init__(self, source_key: str) -> None:
+        super().__init__(source_key)
+        self.source_key = source_key
+
+
 def _kill_process_tree(process: subprocess.Popen[Any]) -> None:
     # Kill descendants too; a surviving ffmpeg child holds the stdout pipe open.
     if process.poll() is not None:

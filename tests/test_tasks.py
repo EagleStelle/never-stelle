@@ -2793,7 +2793,7 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
 
     monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
-    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -3137,7 +3137,7 @@ def test_gallerydl_same_source_assets_share_one_row_and_source_id(
     monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
-    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -3383,7 +3383,7 @@ def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(
     monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
-    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -3448,7 +3448,7 @@ def test_worker_does_not_run_fallback_after_media_and_unsupported_tail(
 
     monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
-    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -3516,7 +3516,7 @@ def test_worker_runs_ytdlp_fallback_after_empty_gallerydl_failure(
     monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
-    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -3578,7 +3578,7 @@ def test_worker_runs_gallerydl_without_preflight(
 
     monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
-    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -3657,7 +3657,7 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
     monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
-    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
 
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
@@ -3761,7 +3761,7 @@ def test_worker_renames_display_creator_to_handle_and_template_folder(
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
     monkeypatch.setattr(worker_module, "all_engines", lambda: (engine_by_name("ytdlp"),))
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
-    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
@@ -3833,7 +3833,7 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
     monkeypatch.setattr(worker_module, "all_engines", lambda: (engine_by_name("ytdlp"),))
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
-    monkeypatch.setattr(worker_module, "has_cookies_for_source", lambda source_key: False)
+    monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
     monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "drop_file_cache", lambda paths: dropped_cache_paths.extend(paths))
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))

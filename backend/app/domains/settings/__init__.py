@@ -11,6 +11,7 @@ from backend.app.domains.settings.cookie_policy import (
 )
 from backend.app.domains.settings.cookie_pool import (
     CookieLease,
+    cookie_ready_in,
     cookie_rotation,
     invalidate_cookie_pool,
     lease_cookie,
@@ -113,6 +114,7 @@ __all__ = [
     "clear_ytdlp_cookies_upload",
     "cookie_policy_defaults",
     "cookie_policy_for_source",
+    "cookie_ready_in",
     "cookie_rotation",
     "detect_cookie_source",
     "ensure_source_profile_for_url",

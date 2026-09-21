@@ -63,6 +63,7 @@ from backend.app.domains.downloads.workers.completion import (
 from backend.app.domains.downloads.workers.enrichment import enqueue_completion_enrichment
 from backend.app.domains.downloads.workers.processes import (
     TaskCancelled,
+    TaskDeferred,
     _cancel_pending,
     current_task_id,
     raise_if_cancelled,
@@ -71,9 +72,9 @@ from backend.app.domains.downloads.workers.processes import (
 from backend.app.domains.downloads.workers.progress import TaskProgress
 from backend.app.domains.downloads.workers.runner import _run_engine_to_task
 from backend.app.domains.settings import (
+    cookie_ready_in,
     detect_cookie_source,
     get_effective_fields,
-    has_cookies_for_source,
     load_scrape_rules,
     load_slug_tokens,
     load_token_roles,
@@ -167,7 +168,7 @@ def _run_engine_attempts(
     rc, last_dest, emitted_paths = 1, "", []
     tried = 0
     walled = False
-    with closing(access_rotation(cookie_source_key)) as rotation:
+    with closing(access_rotation(cookie_source_key, first_cookie_wait=0)) as rotation:
         for access in rotation:
             if access.lease is not None:
                 tried += 1
@@ -193,11 +194,9 @@ def _run_engine_attempts(
                     task_id,
                     f"[never-stelle] {access.lease.filename} did not work; trying the next cookies file...",
                 )
-    if not tried and has_cookies_for_source(cookie_source_key):
-        append_task_log(
-            task_id,
-            "[never-stelle] Every cookies file for this source is resting; skipped the signed-in attempt.",
-        )
+    # Every jar busy: the worker takes another source's task while this one waits in the queue.
+    if not tried and cookie_ready_in(cookie_source_key):
+        raise TaskDeferred(cookie_source_key)
     return rc, last_dest, emitted_paths
 
 

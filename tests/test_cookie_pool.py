@@ -169,6 +169,69 @@ def test_rotation_stops_at_the_jar_that_works_and_frees_the_rest(monkeypatch):
     assert pool.lease_cookie("instagram", wait_seconds=0) is not None
 
 
+def _patient_policy():
+    return {"instagram": pool.CookiePolicy(limit=100, window=3600.0, delay=0.0, wait=5.0)}
+
+
+def test_rotation_gives_up_on_the_first_jar_at_once_with_no_first_wait(monkeypatch):
+    _stub_pool(monkeypatch, ["a"], policies=_patient_policy())
+    held = pool.lease_cookie("instagram")
+    started = time.monotonic()
+
+    with closing(pool.cookie_rotation("instagram", first_wait=0)) as rotation:
+        assert list(rotation) == []
+
+    assert time.monotonic() - started < 1.0
+    pool.release_cookie(held)
+
+
+def test_rotation_waits_out_the_policy_for_later_jars(monkeypatch):
+    _stub_pool(monkeypatch, ["a", "b"], policies=_patient_policy())
+
+    walked = []
+    with closing(pool.cookie_rotation("instagram", first_wait=0)) as rotation:
+        for lease in rotation:
+            walked.append(lease.cookie_id)
+            if lease.cookie_id == "a":
+                # Another task holds the second jar briefly; the rotation waits for it.
+                held = pool.lease_cookie("instagram", wait_seconds=0)
+                threading.Timer(0.1, pool.release_cookie, args=(held,)).start()
+
+    assert walked == ["a", "b"]
+
+
+def test_cookie_ready_in_is_zero_while_a_jar_is_free_or_none_exist(monkeypatch):
+    _stub_pool(monkeypatch, ["a"])
+    assert pool.cookie_ready_in("instagram") == 0.0
+
+    _stub_pool(monkeypatch, [])
+    assert pool.cookie_ready_in("instagram") == 0.0
+
+
+def test_cookie_ready_in_is_positive_while_every_jar_is_leased(monkeypatch):
+    _stub_pool(monkeypatch, ["a"])
+    lease = pool.lease_cookie("instagram")
+
+    assert pool.cookie_ready_in("instagram") > 0
+
+    pool.release_cookie(lease)
+    assert pool.cookie_ready_in("instagram") == 0.0
+
+
+def test_cookie_ready_in_counts_down_a_resting_jar(monkeypatch):
+    _stub_pool(monkeypatch, ["a"], delay=60.0)
+    pool.release_cookie(pool.lease_cookie("instagram"))
+
+    assert 59.0 < pool.cookie_ready_in("instagram") <= 60.0
+
+
+def test_cookie_ready_in_waits_out_a_spent_window(monkeypatch):
+    _stub_pool(monkeypatch, ["a"], limit=1, window=120.0)
+    pool.release_cookie(pool.lease_cookie("instagram"))
+
+    assert 119.0 < pool.cookie_ready_in("instagram") <= 120.0
+
+
 def test_parallel_rotations_never_share_a_jar(monkeypatch):
     _stub_pool(monkeypatch, ["a", "b"])
 

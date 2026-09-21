@@ -4,6 +4,7 @@ import threading
 import time
 
 import backend.app.domains.downloads.operations as operations_module
+import backend.app.domains.downloads.workers.processes as processes_module
 import backend.app.domains.downloads.workers.scheduler as scheduler_module
 
 
@@ -27,7 +28,7 @@ def test_ensure_worker_spawns_additional_workers_when_workers_already_active(mon
         "task-3": threading.Event(),
     }
 
-    def next_pending_task():
+    def next_pending_task(skip_sources=()):
         with lock:
             for tid in task_order:
                 if tasks.get(tid, {}).get("status") == "pending":
@@ -35,7 +36,7 @@ def test_ensure_worker_spawns_additional_workers_when_workers_already_active(mon
                     return tid, dict(tasks[tid])
             return None
 
-    def pending_task_count():
+    def pending_task_count(skip_sources=()):
         with lock:
             return sum(1 for t in tasks.values() if t.get("status") == "pending")
 
@@ -87,6 +88,78 @@ def test_ensure_worker_spawns_additional_workers_when_workers_already_active(mon
         deadline = time.monotonic() + 3
         while scheduler_module._active_worker_count > 0 and time.monotonic() < deadline:
             time.sleep(0.01)
+
+
+def _run_benched_queue(monkeypatch, queue: list[tuple[str, str]], jar_free: threading.Event) -> list[str]:
+    """Drain ``queue`` of (task id, source key) on one worker; a task defers while its jar is busy."""
+    tasks = {tid: {"status": "pending", "source_key": key} for tid, key in queue}
+    lock = threading.Lock()
+    ran: list[str] = []
+    done = threading.Event()
+
+    def next_pending_task(skip_sources=()):
+        with lock:
+            for tid, task in tasks.items():
+                if task["status"] == "pending" and task["source_key"] not in skip_sources:
+                    task["status"] = "running"
+                    return tid, dict(task)
+            return None
+
+    def pending_task_count(skip_sources=()):
+        with lock:
+            return sum(
+                1 for task in tasks.values() if task["status"] == "pending" and task["source_key"] not in skip_sources
+            )
+
+    def defer_task(tid):
+        with lock:
+            tasks[tid]["status"] = "pending"
+
+    def fake_run_task(tid, task, mark_running=False):
+        ran.append(tid)
+        if task["source_key"] == "example" and not jar_free.is_set():
+            raise processes_module.TaskDeferred("example")
+        with lock:
+            tasks[tid]["status"] = "completed"
+            if all(task["status"] == "completed" for task in tasks.values()):
+                done.set()
+        # Another source's download takes long enough for the busy jar to come back.
+        jar_free.set()
+
+    monkeypatch.setattr(scheduler_module, "_worker_started", False)
+    monkeypatch.setattr(scheduler_module, "_active_worker_count", 0)
+    monkeypatch.setattr(scheduler_module, "_benched", set())
+    monkeypatch.setattr(scheduler_module, "_BENCH_POLL_SECONDS", 0.05)
+    monkeypatch.setattr(scheduler_module, "next_pending_task", next_pending_task)
+    monkeypatch.setattr(scheduler_module, "pending_task_count", pending_task_count)
+    monkeypatch.setattr(scheduler_module, "defer_task", defer_task)
+    monkeypatch.setattr(scheduler_module, "fail_running_task_records", lambda msg: None)
+    monkeypatch.setattr(scheduler_module, "run_task", fake_run_task)
+    monkeypatch.setattr(scheduler_module, "max_concurrency", lambda: 1)
+    monkeypatch.setattr(scheduler_module, "cookie_ready_in", lambda key: 0.0 if jar_free.is_set() else 0.05)
+
+    scheduler_module.ensure_worker()
+    assert done.wait(timeout=3)
+    deadline = time.monotonic() + 3
+    while scheduler_module._active_worker_count and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert scheduler_module._active_worker_count == 0
+    return ran
+
+
+def test_a_deferred_task_steps_aside_for_another_source_until_its_jar_frees(monkeypatch):
+    ran = _run_benched_queue(monkeypatch, [("example-1", "example"), ("other-1", "other")], threading.Event())
+
+    assert ran == ["example-1", "other-1", "example-1"]
+
+
+def test_the_last_worker_waits_for_a_benched_source_instead_of_retiring(monkeypatch):
+    jar_free = threading.Event()
+    threading.Timer(0.2, jar_free.set).start()
+
+    ran = _run_benched_queue(monkeypatch, [("example-1", "example")], jar_free)
+
+    assert ran == ["example-1", "example-1"]
 
 
 def test_remove_pending_task_allows_cancelling_and_removing_running_task(monkeypatch):

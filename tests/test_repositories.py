@@ -444,6 +444,22 @@ def test_next_pending_task_payload_claims_the_oldest_queued_row(tmp_path, monkey
     assert repositories.count_pending_tasks() == 1
 
 
+def test_next_pending_task_payload_skips_benched_sources(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+    repositories.merge_task_payload(
+        "benched", {"status": "pending", "source_key": "example", "created_at": "2026-01-01T00:00:00"}
+    )
+    repositories.merge_task_payload(
+        "other", {"status": "pending", "source_key": "other", "created_at": "2026-01-02T00:00:00"}
+    )
+
+    assert repositories.count_pending_tasks(["example"]) == 1
+    claimed = repositories.next_pending_task_payload(["example"])
+    assert claimed is not None and claimed[0] == "other"
+    assert repositories.next_pending_task_payload(["example"]) is None
+    assert repositories.count_pending_tasks() == 1
+
+
 def test_next_pending_task_payload_is_none_when_queue_is_empty(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
     repositories.merge_task_payload("running", {"status": "running"})

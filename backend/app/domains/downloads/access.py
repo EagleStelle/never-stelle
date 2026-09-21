@@ -91,14 +91,18 @@ def impersonation_target() -> str:
 
 
 def access_rotation(
-    cookie_source_key: str | Callable[[], str], *, fingerprint: bool = True
+    cookie_source_key: str | Callable[[], str],
+    *,
+    fingerprint: bool = True,
+    first_cookie_wait: float | None = None,
 ) -> Iterator[AccessIdentity]:
     """Yield ways to reach a site, cheapest first, until the caller finds one that works.
 
     Anonymous first. After a wall, anonymous again behind a browser fingerprint. Then
     each of the source's cookie jars, fingerprinted once any attempt hit a wall. Callers
     that cannot present a fingerprint pass ``fingerprint=False``. A callable source key
-    is only resolved once cookies are needed. Call ``report`` with a failed attempt's
+    is only resolved once cookies are needed. ``first_cookie_wait`` caps the wait for the
+    first jar, the source's policy by default. Call ``report`` with a failed attempt's
     output before continuing, and close the iterator (``contextlib.closing``) when
     breaking early.
     """
@@ -111,7 +115,7 @@ def access_rotation(
         cookie_source_key = cookie_source_key()
     if not has_cookies_for_source(cookie_source_key):
         return
-    with closing(cookie_rotation(cookie_source_key)) as rotation:
+    with closing(cookie_rotation(cookie_source_key, first_wait=first_cookie_wait)) as rotation:
         for lease in rotation:
             identity = AccessIdentity(cookies_file=lease.path, impersonate=impersonate, lease=lease)
             yield identity
