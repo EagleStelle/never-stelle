@@ -29,6 +29,7 @@ from backend.app.domains.downloads.formats import (
     reconstruct_url_candidates,
 )
 from backend.app.domains.downloads.history import save_history_entry
+from backend.app.domains.downloads.learning import learn_formats
 from backend.app.domains.downloads.naming import detect_ffmpeg_location
 from backend.app.domains.downloads.postprocessing import (
     apply_finalized_post_processing,
@@ -55,9 +56,9 @@ from backend.app.domains.downloads.workers.completion import (
     _extractor_metadata_fields,
     _filename_template,
     _finalize_completed_output,
+    _format_sample,
     _has_output_media,
     _learn_field_roles_from_download,
-    _learn_source_format,
     _metadata_output_paths,
     _probe_single_output_metadata_inline,
     _read_metadata_sidecar,
@@ -402,7 +403,8 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                 return
             groups = _download_groups(output_paths, used_engine, filename_template, metadata_by_path, source_url)
             completed_rows: list[tuple[str, dict[str, Any]]] = []
-            enrichment_jobs: list[tuple[str, dict[str, str], bool, bool]] = []
+            enrichment_jobs: list[tuple[str, dict[str, str], bool]] = []
+            format_samples: list[tuple[str, str, dict[str, str] | None]] = []
             probed_media_fields: dict[str, tuple[str, dict[str, Any]]] = {}
             # gallery-dl's yt-dlp handoff writes its info.json beside the part file.
             payload_index = (
@@ -529,35 +531,21 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
                         },
                     )
                 )
-                format_learned = _learn_source_format(
-                    finalized.source_url,
-                    finalized.display_filename,
-                    finalized.media_id,
-                    metadata,
-                    finalized.source_key,
+                format_samples.append(
+                    _format_sample(finalized.source_url, finalized.display_filename, finalized.media_id, metadata)
                 )
-                needs_metadata_probe = metadata_enrichment_needed and index == 0
-                needs_field_probe = bool(format_learned and not field_roles_ready)
-                if needs_metadata_probe or needs_field_probe:
-                    enrichment_jobs.append(
-                        (
-                            row_task_id,
-                            dict(metadata),
-                            needs_metadata_probe,
-                            needs_field_probe,
-                        )
-                    )
+                enrichment_jobs.append((row_task_id, dict(metadata), metadata_enrichment_needed and index == 0))
             raise_if_cancelled(task_id)
             for row_task_id, completed_updates in completed_rows:
                 completed_task = update_task(row_task_id, **completed_updates)
                 save_history_entry(row_task_id, completed_task)
                 remove_task_record(row_task_id)
-            for (
-                row_task_id,
-                metadata,
-                needs_metadata_probe,
-                needs_field_probe,
-            ) in enrichment_jobs:
+            # Only a download whose every output was saved teaches its format.
+            fields_needed = learn_formats(format_samples) and not field_roles_ready
+            for index, (row_task_id, metadata, needs_metadata_probe) in enumerate(enrichment_jobs):
+                needs_field_probe = fields_needed and index == 0
+                if not (needs_metadata_probe or needs_field_probe):
+                    continue
                 enqueue_completion_enrichment(
                     row_task_id,
                     metadata=metadata,

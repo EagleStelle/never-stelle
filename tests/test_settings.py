@@ -469,7 +469,7 @@ def test_add_source_and_learn_format_returns_matched_template(tmp_path, monkeypa
             ]
         },
     )
-    monkeypatch.setattr(learning_mod, "learn_missing_fields_for_format", lambda *args, **kwargs: {})
+    monkeypatch.setattr(learning_mod, "probe_link_fields", lambda *args, **kwargs: {})
 
     result = settings_formats_module.add_source_and_learn_format(
         "https://www.facebook.com/reel/898199989283474"
@@ -536,7 +536,6 @@ def test_save_learned_fields_ignores_url_creator_hint(monkeypatch):
     saved: list[dict] = []
     monkeypatch.setattr(learning_mod, "load_saved_settings_file", lambda: payload)
     monkeypatch.setattr(learning_mod, "save_saved_settings_file", lambda data: saved.append(dict(data)))
-    monkeypatch.setattr(learning_mod, "load_learned_formats", lambda: {})
 
     result = save_learned_fields(
         "",
@@ -647,53 +646,49 @@ def test_format_field_probe_does_not_touch_existing_fields_when_all_present(monk
     assert learn_missing_fields_for_format("https://www.tiktok.com/@fzyahoo.com/photo/1", "tiktok") == existing
 
 
-def test_format_field_probe_promotes_literal_url_creator_template(monkeypatch):
-    import backend.app.domains.downloads.learning as learning_mod
+def test_format_field_probe_writes_no_format(tmp_path, monkeypatch):
     import backend.app.domains.downloads.probe as probe_mod
+    from backend.app.db import repositories
 
-    payload: dict = {}
-    learned = {
-        "tiktok": {
-            "templates": ["https://www.tiktok.com/@fzyahoo.com/video/{id}"],
-        }
-    }
-    saved_formats: list[dict] = []
-    saved_settings: list[dict] = []
-
-    monkeypatch.setattr(learning_mod, "load_saved_settings_file", lambda: payload)
-    monkeypatch.setattr(learning_mod, "save_saved_settings_file", lambda data: saved_settings.append(dict(data)))
-    monkeypatch.setattr(learning_mod, "load_learned_formats", lambda: learned)
-    monkeypatch.setattr(
-        learning_mod,
-        "save_changed_learned_formats",
-        lambda before, after: bool(saved_formats.append(after)) or True,
-    )
+    use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setattr(
         probe_mod,
         "probe_fields",
         lambda url, key: {
-            "source_key": "tiktok",
-            "fields": [
-                {"field": "uploader_id", "value": "6673617364291994625"},
-                {"field": "uploader", "value": "fzyahoo.com"},
-            ],
-            "field_roles": {
-                "username": ["uploader", "uploader_id"],
-                "nickname": ["uploader"],
-            },
+            "source_key": "example",
+            "field_roles": {"username": ["author[uniqueId]"]},
+            "metadata": {"author[uniqueId]": "alice"},
         },
     )
 
-    result = learn_missing_fields_for_format(
-        "https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913",
-        "tiktok",
-    )
+    learn_missing_fields_for_format("https://example.test/alice/post/22222222", "example")
 
-    assert result["username"] == ["uploader", "uploader_id"]
-    assert saved_formats[-1]["tiktok"]["templates"] == [
-        "https://www.tiktok.com/@{creator}/video/{id}",
-    ]
-    assert saved_settings[-1]["source_fields"]["tiktok"] == result
+    # Only a link saved by hand or a successful download stores a format.
+    assert repositories.load_learned_formats_payload() == {}
+
+
+def test_adding_a_link_learns_its_format_from_one_probe(tmp_path, monkeypatch):
+    import backend.app.domains.downloads.learning as learning_mod
+    from backend.app.db import repositories
+
+    use_temp_db(tmp_path, monkeypatch)
+    probes: list[str] = []
+
+    def probe(url, key=""):
+        probes.append(url)
+        return {
+            "source_key": "example",
+            "field_roles": {"username": ["author[uniqueId]"]},
+            "metadata": {"author[uniqueId]": "alice"},
+        }
+
+    monkeypatch.setattr(learning_mod, "probe_link_fields", probe)
+
+    result = settings_formats_module.add_source_and_learn_format("https://example.test/alice/post/22222222")
+
+    assert probes == ["https://example.test/alice/post/22222222"]
+    assert result["format_template"] == "https://example.test/{username}/post/{id}"
+    assert repositories.load_learned_formats_payload()["example"]["samples"] == 1
 
 
 def test_get_effective_title_cleaning_resolves_per_source(monkeypatch):

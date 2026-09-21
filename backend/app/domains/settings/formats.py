@@ -29,7 +29,7 @@ def get_learned_formats_for_ui() -> dict[str, dict[str, Any]]:
 def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
     """Add a platform from a pasted link and learn its URL format in one step."""
     from backend.app.domains.downloads.formats import match_template, media_id_from_url
-    from backend.app.domains.downloads.learning import learn_missing_fields_for_format, learn_source_format
+    from backend.app.domains.downloads.learning import learn_formats, probe_link_fields, save_missing_learned_fields
     from backend.app.domains.downloads.store import load_learned_formats
 
     url = str(url_or_link or "").strip()
@@ -44,13 +44,19 @@ def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
     existed = any(normalize_source_key(profile.get("key")) == key for profile in profiles)
     ensure_source_profile_for_url(url)
     media_id = media_id_from_url(url)
-    learned = learn_source_format(url, media_id) if media_id else False
-    field_roles = learn_missing_fields_for_format(url, key) if learned else {}
+    # The probe's metadata tells which parts of the link change per item.
+    probed = probe_link_fields(url, key) if media_id else {}
+    field_roles = (
+        save_missing_learned_fields(url, str(probed.get("source_key") or key), probed.get("field_roles"))
+        if probed
+        else {}
+    )
+    learned = learn_formats([(url, media_id, probed.get("metadata"))]) if media_id else False
     format_template = match_template(load_learned_formats(), key, url, media_id) if media_id else ""
     return {
         "source_key": key,
         "created": not existed,
-        "learned": bool(learned),
+        "learned": learned,
         "media_id": media_id,
         "format_template": format_template,
         "field_roles": field_roles,
@@ -61,7 +67,6 @@ def set_learned_format_templates(source_key: str, templates: Any) -> dict[str, A
     """Reorder or delete a source's learned URL templates."""
     from backend.app.domains.downloads.store import (
         forget_learned_format,
-        forget_seeded_downloads,
         load_learned_formats,
         save_learned_formats,
     )
@@ -85,9 +90,6 @@ def set_learned_format_templates(source_key: str, templates: Any) -> dict[str, A
         save_learned_formats({key: new_entry})
     else:
         forget_learned_format(key)
-    # The user just edited or deleted learned templates by hand. What was folded in
-    # from history no longer describes the saved state, so the next scan rebuilds it.
-    forget_seeded_downloads()
     if not ordered:
         payload = load_saved_settings_file()
         field_roles = normalize_source_fields(payload.get("source_fields"))

@@ -7,7 +7,6 @@ from backend.app.domains.downloads.learning import (
     has_learned_fields,
     save_learned_fields,
 )
-from backend.app.domains.downloads.learning import learn_source_format as persist_source_format
 from backend.app.domains.downloads.scan import parse_filename_media_id
 
 
@@ -18,16 +17,14 @@ def _cleanup_file(path: str) -> None:
     except OSError:
         pass
 
-def _learn_source_format(
+def _format_sample(
     source_url: str,
     filename: str,
     media_id: str = "",
     metadata: dict[str, str] | None = None,
-    source_key: str = "",
-) -> bool:
-    # Teach the DB this source's URL shape + id signature from a real download.
-    media_id = str(media_id or "").strip() or parse_filename_media_id(filename)[0]
-    return persist_source_format(source_url, media_id, metadata)
+) -> tuple[str, str, dict[str, str] | None]:
+    # One finished output, as learn_formats takes it.
+    return source_url, str(media_id or "").strip() or parse_filename_media_id(filename)[0], metadata
 
 def _learn_field_roles_from_download(
     source_url: str, source_key: str, engine_name: str, metadata: dict[str, str] | None

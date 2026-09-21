@@ -34,7 +34,6 @@ from .formats import (
     reconstruct_url,
     reconstruct_url_candidates,
 )
-from .learning import update_learned_formats_with_download
 from .naming import (
     clean_template_display_filename,
     strip_numbered_suffix,
@@ -45,13 +44,10 @@ from .store import (
     load_history,
     load_learned_formats,
     load_task_store,
-    mark_downloads_seeded,
     remove_history_record,
     remove_task_record,
     resolution_revision,
-    save_changed_learned_formats,
     save_history_entry_rows,
-    seeded_download_ids,
     sync_history_resolve_flags,
 )
 
@@ -813,38 +809,6 @@ def _source_from_named_folder(root: Path, path: Path, source_keys: set[str]) -> 
     return key if key in source_keys else ""
 
 
-def _seed_learned_from_history(
-    learned: dict[str, Any], records: dict[str, dict[str, Any]], pacer: CpuPacer | None = None
-) -> dict[str, Any]:
-    """Recover route templates from real past downloads (never disk reconstructions).
-
-    Analyzing a URL is the most expensive thing a scan does, and learning is
-    cumulative and already persisted, so each download is folded in exactly once.
-    A scan reads only the downloads that appeared since the last one; a library
-    whose history has not grown does no URL analysis at all.
-    """
-    already_seeded = seeded_download_ids()
-    pending = [
-        (task_id, payload)
-        for task_id, payload in records.items()
-        if not _is_disk_record(task_id, payload) and task_id not in already_seeded
-    ]
-    if not pending:
-        return learned
-
-    seeded: list[str] = []
-    for task_id, payload in pending:
-        if pacer is not None:
-            pacer.tick()
-        source_url = str(payload.get("source_url") or "").strip()
-        media_id = _payload_media_id(payload)
-        if source_url and media_id:
-            learned = update_learned_formats_with_download(learned, source_url, media_id)
-        seeded.append(task_id)
-    mark_downloads_seeded(seeded)
-    return learned
-
-
 def infer_disk_source(
     path: Path,
     media_id: str,
@@ -930,13 +894,6 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
     field_roles_map = _scan_field_roles_map()
     field_defaults_map = _scan_field_defaults()
     learned = load_learned_formats()
-    learned_before = learned
-    learned = _seed_learned_from_history(learned, records, pacer)
-    # Persist seeding before anything is resolved, so the revision stamped on each
-    # row is the one the next scan will compute. Saving afterwards made every row
-    # this pass wrote look stale on the very next pass. The file loop only reads
-    # `learned`, so there is nothing later to write.
-    save_changed_learned_formats(learned_before, learned)
 
     # Index of what each disk file resolved from last time. A rescan compares the
     # file and the rules against it and re-resolves only what actually moved,

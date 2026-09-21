@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from typing import Any
 
 from backend.app.core.resolution import invalidate, resolved
@@ -8,7 +8,6 @@ from backend.app.db.repositories import (
     begin_rename_journal_entry,
     claim_next_enrichment_job_payload,
     clear_rename_journal_entries,
-    clear_seeded_downloads,
     complete_enrichment_job_payload,
     count_active_by_source_and_media,
     count_active_download_tasks,
@@ -36,6 +35,7 @@ from backend.app.db.repositories import (
     load_learned_redirects_payload,
     load_task_payload,
     load_task_store_payload,
+    merge_learned_formats_payload,
     merge_task_payload,
     next_pending_task_payload,
     open_rename_journal_entries,
@@ -53,12 +53,6 @@ from backend.app.db.repositories import (
 )
 from backend.app.db.repositories import (
     clear_history_resolve_flags as clear_history_resolve_flag_rows,
-)
-from backend.app.db.repositories import (
-    mark_downloads_seeded as mark_downloads_seeded_rows,
-)
-from backend.app.db.repositories import (
-    seeded_download_ids as seeded_download_id_rows,
 )
 from backend.app.db.repositories import (
     sync_history_resolve_flags as sync_history_resolve_flag_rows,
@@ -245,18 +239,6 @@ def learn_redirect(shape: str, *, expands: bool) -> None:
     invalidate(LEARNED_REDIRECTS_KEY)
 
 
-def seeded_download_ids() -> set[str]:
-    return seeded_download_id_rows()
-
-
-def mark_downloads_seeded(task_ids: list[str]) -> None:
-    mark_downloads_seeded_rows(task_ids)
-
-
-def forget_seeded_downloads() -> None:
-    clear_seeded_downloads()
-
-
 def open_renames() -> list[dict[str, str]]:
     return open_rename_journal_entries()
 
@@ -289,18 +271,13 @@ def save_learned_formats(payload: dict[str, Any]) -> None:
     invalidate(LEARNED_FORMATS_KEY)
 
 
-def save_changed_learned_formats(before: dict[str, Any], after: dict[str, Any]) -> bool:
-    """Persist only the sources learning actually touched.
-
-    Callers learn from a map they read minutes earlier (a download holds one
-    resolution scope for its whole run), so writing the snapshot back would restore
-    stale entries over what another worker learned in between.
-    """
-    changed = {key: entry for key, entry in after.items() if entry != before.get(key)}
-    if not changed:
-        return False
-    save_learned_formats(changed)
-    return True
+def merge_learned_formats(
+    update: Callable[[dict[str, Any]], dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Learn on top of the stored formats as they are now, not a snapshot read earlier."""
+    before, after = merge_learned_formats_payload(update)
+    invalidate(LEARNED_FORMATS_KEY)
+    return before, after
 
 
 def forget_learned_format(source_key: str) -> None:

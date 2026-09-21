@@ -15,8 +15,7 @@ from backend.app.domains.downloads.files import (
     is_media_file,
     recover_task_path,
 )
-from backend.app.domains.downloads.formats import media_id_from_url, reconstruct_url
-from backend.app.domains.downloads.learning import update_learned_formats_with_download
+from backend.app.domains.downloads.formats import learn_download, media_id_from_url, reconstruct_url
 from backend.app.domains.downloads.naming import clean_template_filename, numbered_suffix_of, strip_numbered_suffix
 from backend.app.domains.downloads.scan import parse_filename_media_id
 from backend.app.domains.downloads.store import (
@@ -42,7 +41,7 @@ from backend.app.domains.settings import get_effective_title_cleaning
 def _reconstruct_item_url(source_url: str, source_key: str, media_id: str, creator: str) -> str:
     # Freshly learned from this one URL, so descriptive segments are still literals in
     # the template (no {var}); {id}/{creator} fill is all that's needed.
-    learned = update_learned_formats_with_download({}, source_url, media_id)
+    learned = learn_download({}, source_url, media_id)
     return reconstruct_url(learned, source_key, media_id, creator=creator)
 
 def _distinct_metadata_item_url(source_url: str, metadata: dict[str, str]) -> str:

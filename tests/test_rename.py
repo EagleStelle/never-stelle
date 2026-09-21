@@ -43,8 +43,6 @@ def _rename_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, template: str =
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
     monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: rows.pop(task_id, None))
     monkeypatch.setattr(scan_module, "resolution_revision", lambda: "rev-1")
-    monkeypatch.setattr(scan_module, "seeded_download_ids", set)
-    monkeypatch.setattr(scan_module, "mark_downloads_seeded", lambda ids: None)
 
     monkeypatch.setattr(rename_module, "save_history_entry_rows", lambda batch: rows.update(dict(batch)))
     _pin_template(monkeypatch, template)

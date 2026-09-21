@@ -24,8 +24,8 @@ from backend.app.domains.downloads.workers.completion_folders import (
 )
 from backend.app.domains.downloads.workers.completion_learning import (
     _cleanup_file,
+    _format_sample,
     _learn_field_roles_from_download,
-    _learn_source_format,
 )
 from backend.app.domains.downloads.workers.completion_metadata import (
     _extractor_metadata_fields,
@@ -86,6 +86,7 @@ __all__ = [
     "_existing_output_paths",
     "_extractor_metadata_fields",
     "_finalize_completed_output",
+    "_format_sample",
     "_field_value",
     "_filename_creator",
     "_filename_media_id",
@@ -96,7 +97,6 @@ __all__ = [
     "_item_source_url",
     "_json_sidecar_value",
     "_learn_field_roles_from_download",
-    "_learn_source_format",
     "_looks_like_handle_value",
     "_looks_like_opaque_identifier",
     "_metadata_creator",

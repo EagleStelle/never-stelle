@@ -520,6 +520,7 @@ def probe_fields(
 
     Probes both yt-dlp and gallery-dl and merges the username/nickname/title catalog fields
     each returns, so the user sees whichever engine's fields apply to this source.
+    ``metadata`` holds every flat field the engines returned, first engine first.
     """
     url = _prepare_url(source_url)
     if not url:
@@ -553,8 +554,11 @@ def probe_fields(
     fields: list[dict[str, str]] = []
     fields_by_engine: dict[str, list[str]] = {}
     values_by_field: dict[str, str] = {}
+    metadata: dict[str, str] = {}
     seen: set[str] = set()
     for engine, flat in probed:
+        for name, value in flat.items():
+            metadata.setdefault(name, value)
         engine_fields = _candidate_probe_fields(flat, engine)
         fields_by_engine[engine] = [item["field"] for item in engine_fields]
         for item in engine_fields:
@@ -572,4 +576,5 @@ def probe_fields(
         "source_key": resolved_key,
         "fields": fields,
         "field_roles": field_roles,
+        "metadata": metadata,
     }

@@ -235,7 +235,7 @@ curl http://localhost:8840/api/integration/downloads?state=history \
 ```
 
 The integration API is read-only and focuses on the data the app creates: active tasks,
-completed history, learned formats, seeded downloads, and enrichment jobs. Sensitive storage
+completed history, learned formats, and enrichment jobs. Sensitive storage
 such as auth settings and uploaded source cookies is not exposed through the table endpoint.
 
 Interactive API docs are available while the app is running:

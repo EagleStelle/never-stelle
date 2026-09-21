@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Callable
 from typing import Any
 
 from backend.app.core.sources import normalize_source_key
@@ -98,10 +98,10 @@ def _save_format_rows(connection: Any, payload: dict[str, Any]) -> None:
 def learned_formats_revision() -> str:
     """Marker of what learning would resolve differently, ignoring bookkeeping.
 
-    Deliberately excludes ``samples`` and ``updated_at``: a scan re-learns from
-    history every pass, which bumps both without changing a single answer. Keying a
-    rescan on those would mark every file stale on every run. Only the columns that
-    steer reconstruction are hashed.
+    Deliberately excludes ``samples`` and ``updated_at``: every download of a known
+    format bumps both without changing a single answer. Keying a rescan on those
+    would mark every file stale after each download. Only the columns that steer
+    reconstruction are hashed.
     """
     with transaction() as connection:
         rows = connection.execute(
@@ -115,54 +115,50 @@ def learned_formats_revision() -> str:
     return digest.hexdigest()
 
 
-def seeded_download_ids() -> set[str]:
-    """Downloads already folded into the learned formats."""
-    with transaction() as connection:
-        rows = connection.execute("SELECT task_id FROM seeded_downloads").fetchall()
-    return {str(row["task_id"]) for row in rows}
-
-
-def mark_downloads_seeded(task_ids: Iterable[str]) -> None:
-    now = utc_now()
-    rows = [(str(task_id), now) for task_id in task_ids]
-    if not rows:
-        return
-    with transaction() as connection:
-        connection.executemany(
-            "INSERT OR REPLACE INTO seeded_downloads (task_id, seeded_at) VALUES (?, ?)", rows
-        )
-
-
-def clear_seeded_downloads() -> None:
-    """Forget what was seeded, so learning is rebuilt from history on the next scan."""
-    with transaction() as connection:
-        connection.execute("DELETE FROM seeded_downloads")
+def _load_format_rows(connection: Any) -> dict[str, Any]:
+    rows = connection.execute(
+        """
+        SELECT source_key, host, templates, id_min, id_max, id_classes,
+               samples
+        FROM learned_formats
+        ORDER BY source_key
+        """
+    ).fetchall()
+    loaded: dict[str, Any] = {}
+    for row in rows:
+        key = normalize_source_key(row["source_key"])
+        entry = _format_entry_from_row(row)
+        if key and entry.get("templates"):
+            loaded[key] = entry
+    return loaded
 
 
 def load_learned_formats_payload() -> dict[str, Any]:
     with transaction() as connection:
-        rows = connection.execute(
-            """
-            SELECT source_key, host, templates, id_min, id_max, id_classes,
-                   samples
-            FROM learned_formats
-            ORDER BY source_key
-            """
-        ).fetchall()
-        if rows:
-            loaded: dict[str, Any] = {}
-            for row in rows:
-                key = normalize_source_key(row["source_key"])
-                entry = _format_entry_from_row(row)
-                if key and entry.get("templates"):
-                    loaded[key] = entry
-            return loaded
-        return {}
+        return _load_format_rows(connection)
 
 
 def save_learned_formats_payload(payload: dict[str, Any]) -> None:
     with transaction() as connection:
         _save_format_rows(connection, payload)
+
+
+def merge_learned_formats_payload(
+    update: Callable[[dict[str, Any]], dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Apply ``update`` to the stored formats and upsert the sources it changed, atomically.
+
+    Reading and writing in one transaction under the process-wide DB lock means two
+    downloads finishing at once each learn on top of the other, instead of the later
+    write restoring the snapshot it read. Returns the formats before and after.
+    """
+    with transaction() as connection:
+        before = _load_format_rows(connection)
+        after = update(before)
+        changed = {key: entry for key, entry in after.items() if entry != before.get(key)}
+        if changed:
+            _save_format_rows(connection, changed)
+    return before, after
 
 
 def delete_learned_format_row(source_key: str) -> None:

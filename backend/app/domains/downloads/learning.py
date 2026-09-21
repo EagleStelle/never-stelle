@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 from backend.app.core.sources import normalize_source_key
 from backend.app.domains.settings import (
+    get_effective_fields,
     get_source_profile_for_url,
     load_saved_settings_file,
     normalize_default_fields,
@@ -11,8 +13,8 @@ from backend.app.domains.settings import (
     save_saved_settings_file,
 )
 
-from .formats import learn_download, learn_media_id, media_id_from_url
-from .store import load_learned_formats, save_changed_learned_formats
+from .formats import learn_download, learn_media_id
+from .store import merge_learned_formats
 
 
 def _resolved_field_source_key(
@@ -166,27 +168,18 @@ def save_learned_fields(
     return updated
 
 
-def _metadata_from_probe_fields(fields: Any) -> dict[str, str]:
-    metadata: dict[str, str] = {}
-    for item in fields if isinstance(fields, list) else []:
-        if not isinstance(item, dict):
-            continue
-        field = str(item.get("field") or "").strip()
-        value = str(item.get("value") or "").strip()
-        if field and value and field not in metadata:
-            metadata[field] = value
-    return metadata
+def probe_link_fields(source_url: str, source_key: str = "", *, low_priority: bool = False) -> dict[str, Any]:
+    """One probe of a link's fields and metadata; ``{}`` when no engine reads it."""
+    if not str(source_url or "").strip():
+        return {}
+    try:
+        from .probe import probe_fields
 
-
-def promote_learned_format_from_probe(source_url: str, fields: Any) -> bool:
-    """Use probed field values to upgrade literal URL creators to role tokens."""
-    media_id = media_id_from_url(source_url)
-    metadata = _metadata_from_probe_fields(fields)
-    if not media_id or not metadata:
-        return False
-    learned = load_learned_formats()
-    updated = learn_download(learned, source_url, media_id, metadata)
-    return save_changed_learned_formats(learned, updated)
+        if low_priority:
+            return probe_fields(source_url, source_key, low_priority=True, stop_after_first_with_roles=True)
+        return probe_fields(source_url, source_key)
+    except Exception:
+        return {}
 
 
 def learn_missing_fields_for_format(
@@ -196,46 +189,40 @@ def learn_missing_fields_for_format(
     low_priority: bool = False,
 ) -> dict[str, list[str]]:
     """Probe a newly learned URL format and append any missing fields."""
-    if not str(source_url or "").strip():
+    result = probe_link_fields(source_url, source_key, low_priority=low_priority)
+    if not result:
         return {}
-    try:
-        from .probe import probe_fields
-
-        if low_priority:
-            result = probe_fields(
-                source_url,
-                source_key,
-                low_priority=True,
-                stop_after_first_with_roles=True,
-            )
-        else:
-            result = probe_fields(source_url, source_key)
-    except Exception:
-        return {}
-
-    promote_learned_format_from_probe(source_url, result.get("fields"))
     key = str(result.get("source_key") or source_key)
     return save_missing_learned_fields(source_url, key, result.get("field_roles"))
 
 
-def learn_source_format(
-    source_url: str, media_id: str, metadata: dict[str, Any] | None = None, creator: str = ""
-) -> bool:
-    learned = load_learned_formats()
-    updated = learn_download(learned, source_url, media_id, metadata, creator)
-    return save_changed_learned_formats(learned, updated)
+def _templates(formats: dict[str, Any]) -> dict[str, Any]:
+    return {key: entry.get("templates") for key, entry in formats.items()}
 
 
-def learn_source_id_signature(source_key: str, media_id: str) -> bool:
-    learned = load_learned_formats()
-    updated = learn_media_id(learned, source_key, media_id)
-    return save_changed_learned_formats(learned, updated)
+def learn_formats(samples: Iterable[tuple[str, str, dict[str, Any] | None]]) -> bool:
+    """Fold item links into the stored formats in one write; True when a template changed.
+
+    Each sample is ``(source_url, media_id, metadata)`` from a link that was saved by hand
+    or downloaded successfully. The fields holding the creator are resolved first, since
+    the write holds the database lock.
+    """
+    prepared: dict[tuple[str, str], tuple[dict[str, Any] | None, dict[str, list[str]]]] = {}
+    for source_url, media_id, metadata in samples:
+        source_url, media_id = str(source_url or "").strip(), str(media_id or "").strip()
+        if source_url and media_id and (source_url, media_id) not in prepared:
+            prepared[(source_url, media_id)] = (metadata, get_effective_fields(source_url))
+    if not prepared:
+        return False
+
+    def update(learned: dict[str, Any]) -> dict[str, Any]:
+        for (source_url, media_id), (metadata, roles) in prepared.items():
+            learned = learn_download(learned, source_url, media_id, metadata, roles)
+        return learned
+
+    before, after = merge_learned_formats(update)
+    return _templates(before) != _templates(after)
 
 
-def update_learned_formats_with_download(
-    learned: dict[str, Any],
-    source_url: str,
-    media_id: str,
-    metadata: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return learn_download(learned, source_url, media_id, metadata)
+def learn_source_id_signature(source_key: str, media_id: str) -> None:
+    merge_learned_formats(lambda learned: learn_media_id(learned, source_key, media_id))

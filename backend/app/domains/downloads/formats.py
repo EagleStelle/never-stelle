@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
@@ -14,7 +15,7 @@ from backend.app.domains.settings import (
     normalize_template_settings,
 )
 
-from .constants import TEMPLATE_RE, normalize_title_cleaning, quality_label
+from .constants import FIELD_DEFAULTS, TEMPLATE_RE, normalize_title_cleaning, quality_label
 
 _ID_TOKEN = "{id}"
 _CREATOR_TOKEN = "{creator}"
@@ -50,6 +51,8 @@ _STATIC_ROUTE_SEGMENTS = {
     "watch",
 }
 _ROLE_TOKENS = {_CREATOR_TOKEN, _USERNAME_TOKEN, _NICKNAME_TOKEN}
+# Shorter values match too many unrelated cells.
+_MIN_BOUND_LENGTH = 3
 
 
 def _id_classes(value: str) -> set[str]:
@@ -98,6 +101,10 @@ def _is_role_cell(value: str) -> bool:
 
 def _is_var_cell(value: str) -> bool:
     return _without_at(value) == _VAR_TOKEN
+
+
+def _normalized(value: Any) -> str:
+    return "".join(ch for ch in str(value).casefold() if ch.isalnum())
 
 
 def _merged_prefixed_token(a: str, b: str, token: str) -> str:
@@ -259,37 +266,62 @@ def _creator_exact_value(value: Any) -> str:
     return unquote(str(value or "")).strip().strip("/").lstrip("@").strip()
 
 
-def _creator_token_for_segment(value: str, metadata: dict[str, Any] | None) -> str:
-    """Return a role token only when metadata proves the URL cell exactly."""
-    if not isinstance(metadata, dict):
-        return ""
-    candidate = _creator_exact_value(value)
-    if not candidate:
-        return ""
+@dataclass(frozen=True)
+class _Bindings:
+    """What an item's own metadata proves about the cells of its link."""
 
-    try:
-        from .constants import FIELD_ROLE_CHAINS
-    except Exception:
-        return ""
+    # Exact role values, filled back as a role token.
+    roles: dict[str, set[str]]
+    # Normalized role values, and those of every other field.
+    creator: set[str]
+    other: set[str]
 
-    matched_roles: set[str] = set()
+
+def _metadata_bindings(metadata: dict[str, Any] | None, roles: dict[str, Any] | None) -> _Bindings:
+    exact: dict[str, set[str]] = {}
+    creator: set[str] = set()
+    other: set[str] = set()
+    if not isinstance(metadata, dict) or not metadata:
+        return _Bindings(exact, creator, other)
+    roles = roles if isinstance(roles, dict) else {}
+    role_fields: set[str] = set()
     for role in ("username", "nickname"):
-        role_fields: list[str] = []
-        for chains in FIELD_ROLE_CHAINS.values():
-            for field in chains.get(role, ()):
-                if field not in role_fields:
-                    role_fields.append(field)
-        for field in role_fields:
-            if _creator_exact_value(metadata.get(field)) == candidate:
-                matched_roles.add(role)
-                break
-    if matched_roles == {"username", "nickname"}:
-        return _CREATOR_TOKEN
-    if matched_roles == {"username"}:
-        return _USERNAME_TOKEN
-    if matched_roles == {"nickname"}:
-        return _NICKNAME_TOKEN
-    return ""
+        fields = roles.get(role) or FIELD_DEFAULTS[role]
+        role_fields.update(fields)
+        for name in fields:
+            if value := _creator_exact_value(metadata.get(name)):
+                exact.setdefault(value, set()).add(role)
+                creator.add(_normalized(value))
+    for name, value in metadata.items():
+        # A link field echoes the URL itself, so it proves nothing about it.
+        if name in role_fields or "url" in str(name).lower():
+            continue
+        if len(normalized := _normalized(value)) >= _MIN_BOUND_LENGTH:
+            other.add(normalized)
+    return _Bindings(exact, creator, other)
+
+
+def _bound_cell(cell: str, bindings: _Bindings) -> str:
+    """The token a URL cell's own metadata proves, "" when it proves the cell could be constant."""
+    if not (bindings.creator or bindings.other):
+        return ""
+    value = _creator_exact_value(cell)
+    if not value or _is_static_route_segment(value):
+        return ""
+    matched = bindings.roles.get(value, set())
+    if matched == {"username", "nickname"}:
+        token = _CREATOR_TOKEN
+    elif matched:
+        token = _USERNAME_TOKEN if "username" in matched else _NICKNAME_TOKEN
+    else:
+        normalized = _normalized(value)
+        if len(normalized) < _MIN_BOUND_LENGTH:
+            return ""
+        # A route-shaped word matches only a person, never a field like the file's type.
+        if normalized not in bindings.creator and (normalized not in bindings.other or _is_route_segment(value)):
+            return ""
+        token = _VAR_TOKEN
+    return f"@{token}" if str(cell).startswith("@") else token
 
 
 def _looks_like_slug(value: str) -> bool:
@@ -480,7 +512,17 @@ def url_dedup_key(source_url: str) -> str:
     return f"{scope}#{media_id}"
 
 
-def _url_shape(source_url: str, media_id: str, metadata: dict[str, Any] | None = None, creator: str = "") -> str:
+def _url_shape(
+    source_url: str,
+    media_id: str,
+    metadata: dict[str, Any] | None = None,
+    roles: dict[str, Any] | None = None,
+) -> str:
+    """The link with its id and every cell its metadata proves variable as tokens.
+
+    Each sample types its own cells, so samples that all share one creator still
+    generalize; cells nothing proves stay literal for ``_merge_shape`` to compare.
+    """
     analysis = analyze_url(source_url, media_id)
     url = str(analysis.get("canonical") or "").strip()
     if not url:
@@ -490,39 +532,14 @@ def _url_shape(source_url: str, media_id: str, metadata: dict[str, Any] | None =
     except Exception:
         return url.replace(media_id, _ID_TOKEN) if media_id and media_id in url else url
 
+    bindings = _metadata_bindings(metadata, roles)
     raw_segments = [part for part in str(parsed.path or "").split("/") if part.strip()]
-    decoded_segments = _path_segments(parsed.path)
     id_part = str(analysis.get("id_part") or "")
-    creator_part = str(analysis.get("creator_part") or "")
-    # A known creator marks its own segment, even one that reads like a route word.
-    hinted = next(
-        (
-            index
-            for index, segment in enumerate(decoded_segments)
-            if creator and segment.lstrip("@") == creator.lstrip("@") and f"path:{index}" != id_part
-        ),
-        None,
-    )
-    if hinted is not None:
-        creator_part = f"path:{hinted}"
-
-    if id_part.startswith("path:"):
-        try:
-            index = int(id_part.split(":", 1)[1])
-        except ValueError:
-            index = -1
-        if 0 <= index < len(raw_segments):
+    for index, segment in enumerate(_path_segments(parsed.path)):
+        if id_part == f"path:{index}":
             raw_segments[index] = _ID_TOKEN
-    if creator_part.startswith("path:"):
-        try:
-            index = int(creator_part.split(":", 1)[1])
-        except ValueError:
-            index = -1
-        if 0 <= index < len(raw_segments) and 0 <= index < len(decoded_segments):
-            role_token = _creator_token_for_segment(decoded_segments[index], metadata)
-            role_token = role_token or (_CREATOR_TOKEN if hinted is not None else "")
-            if role_token:
-                raw_segments[index] = f"@{role_token}" if decoded_segments[index].startswith("@") else role_token
+        elif token := _bound_cell(segment, bindings):
+            raw_segments[index] = token
 
     path = "/" + "/".join(raw_segments) if parsed.path.startswith("/") else "/".join(raw_segments)
     query_pairs = []
@@ -530,7 +547,7 @@ def _url_shape(source_url: str, media_id: str, metadata: dict[str, Any] | None =
         if id_part == f"query:{key}" and media_id and value == media_id:
             query_pairs.append((key, _ID_TOKEN))
         else:
-            query_pairs.append((key, value))
+            query_pairs.append((key, _bound_cell(value, bindings) or value))
     query = "&".join(f"{key}={value}" for key, value in query_pairs) if query_pairs else ""
     return urlunparse((parsed.scheme, parsed.netloc, path, "", query, ""))
 
@@ -689,15 +706,16 @@ def learn_download(
     source_url: str,
     media_id: str,
     metadata: dict[str, Any] | None = None,
-    creator: str = "",
+    roles: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Fold one item link into its source's templates; ``roles`` names the fields holding the creator."""
     analysis = analyze_url(source_url, media_id)
     canonical = str(analysis.get("canonical") or "")
     key = source_key_from_url(canonical or source_url)
     media_id = str(media_id or "").strip()
     if not canonical or not key:
         return learned
-    shape = _url_shape(canonical, media_id, metadata, creator)
+    shape = _url_shape(canonical, media_id, metadata, roles)
     entry = dict(learned.get(key) or {})
     templates = _entry_templates(entry)
     if shape:
@@ -705,7 +723,6 @@ def learn_download(
     if templates:
         entry["templates"] = templates
     entry["host"] = str(entry.get("host") or analysis.get("host") or "")
-    entry["id_part"] = str(entry.get("id_part") or analysis.get("id_part") or "")
     entry["samples"] = int(entry.get("samples") or 0) + 1
     if media_id:
         _record_id_signature(entry, media_id)
@@ -880,13 +897,31 @@ def learned_templates_for(learned: dict[str, Any], source_key: str) -> list[str]
     return _entry_templates(learned.get(normalize_source_key(source_key)) or {})
 
 
+def _is_token_cell(cell: str) -> bool:
+    return _is_role_cell(cell) or _is_var_cell(cell)
+
+
+def format_covers(template: str, saved: str) -> bool:
+    """Whether a saved format key names ``template``, as it is or from before learning turned
+    some of its literal cells into tokens. A route word is never absorbed."""
+    left, right = _canonical_shape(template), _canonical_shape(saved)
+    if left == right:
+        return True
+    left_cells, right_cells = _SPLIT_RE.split(left), _SPLIT_RE.split(right)
+    return len(left_cells) == len(right_cells) and all(
+        a == b or (_is_token_cell(a) and bool(b) and not _is_token_cell(b) and not _is_static_route_segment(b))
+        for a, b in zip(left_cells, right_cells, strict=True)
+    )
+
+
 def select_for_format(mapping: Any, format_template: str) -> Any:
     """The entry a format-keyed per-source setting holds for one learned template.
 
     Callers key their settings by the learned template string (source_templates,
     source_locations); this looks the matched template up through ``_canonical_shape`` so a
-    stored ``{username}`` key still matches a ``{creator}``-shaped template. Returns None
-    when the source has nothing configured for that format, so callers apply their own default.
+    stored ``{username}`` key still matches a ``{creator}``-shaped template, and a key saved
+    before the template generalized still finds it. Returns None when the source has nothing
+    configured for that format, so callers apply their own default.
     """
     if not isinstance(mapping, dict) or not mapping:
         return None
@@ -894,7 +929,7 @@ def select_for_format(mapping: Any, format_template: str) -> Any:
     for fmt, value in mapping.items():
         if _canonical_shape(fmt) == canonical:
             return value
-    return None
+    return next((value for fmt, value in mapping.items() if format_covers(format_template, fmt)), None)
 
 
 def match_template(learned: dict[str, Any], source_key: str, source_url: str, media_id: str = "") -> str:

@@ -53,8 +53,11 @@ def _coerce_scrape_rule_format(rule_format: Any, templates: list[str]) -> str:
     if not value:
         return templates[0]
 
+    from backend.app.domains.downloads.formats import format_covers
+
+    # Also finds the template a rule's format became once learning generalized it.
     scope = _format_scope_key(value)
-    matches = [template for template in templates if _format_scope_key(template) == scope]
+    matches = [template for template in templates if format_covers(template, scope)]
     if len(matches) == 1:
         return matches[0]
     if len(templates) == 1:

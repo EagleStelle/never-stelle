@@ -324,17 +324,8 @@ def _catalog_file(post_id: str) -> list:
 
 
 def test_catalog_learns_the_post_link_from_one_verified_post(temp_db, monkeypatch):
-    from backend.app.domains.downloads.formats import learn_download
+    from backend.app.db import repositories
 
-    learned: dict = {}
-    monkeypatch.setattr(listing_module, "load_learned_formats", lambda: learned)
-    monkeypatch.setattr(
-        listing_module,
-        "learn_source_format",
-        lambda url, media_id, metadata, creator: learned.update(
-            learn_download(learned, url, media_id, metadata, creator)
-        ),
-    )
     saved: list[list[str]] = []
     monkeypatch.setattr(
         listing_module, "save_missing_learned_fields", lambda url, key, roles: saved.append(roles["username"])
@@ -346,10 +337,11 @@ def test_catalog_learns_the_post_link_from_one_verified_post(temp_db, monkeypatc
         {post: [[2, {"post_id": "22222222"}], _catalog_file("22222222")]},
     )
     stats = ListingStats()
+    resolver = _resolver()
 
     entries = list(
         listing_module._gallerydl_entries(
-            iter([_catalog_file("22222222"), _catalog_file("33333333")]), _resolver(), stats, []
+            iter([_catalog_file("22222222"), _catalog_file("33333333")]), resolver, stats, []
         )
     )
 
@@ -357,27 +349,26 @@ def test_catalog_learns_the_post_link_from_one_verified_post(temp_db, monkeypatc
     assert probed == [post]
     assert stats.unresolved == 0
     # The creator is learned as a token read from the field that held it, not as this creator's name.
-    assert "alice" not in learned["example"]["templates"][0]
+    assert "alice" not in resolver.learned["example"]["templates"][0]
     assert saved[0][0] == "author[handle]"
+    # The format is stored only once a download of the post succeeds.
+    assert repositories.load_learned_formats_payload() == {}
 
 
 def test_catalog_that_verifies_nothing_learns_nothing_and_stops_probing(temp_db, monkeypatch):
-    learned: list[str] = []
-    monkeypatch.setattr(
-        listing_module, "learn_source_format", lambda url, media_id, metadata, creator: learned.append(url)
-    )
     probed = _fake_catalog(monkeypatch, [_list_extractor(name) for name in ("aa", "bb", "cc", "dd")], {})
     stats = ListingStats()
+    resolver = _resolver()
 
     entries = list(
         listing_module._gallerydl_entries(
-            iter([_catalog_file("22222222"), _catalog_file("33333333")]), _resolver(), stats, []
+            iter([_catalog_file("22222222"), _catalog_file("33333333")]), resolver, stats, []
         )
     )
 
     assert entries == []
     assert len(probed) == listing_module._MAX_PROBES
-    assert learned == []
+    assert resolver.learned == {}
     assert stats.unresolved == 2
 
 

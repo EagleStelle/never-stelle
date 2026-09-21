@@ -23,8 +23,8 @@ def isolated_database(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pyt
     """Every test gets its own database file.
 
     Tests that only stub the load side of a store still reach the real write path, and
-    the real path is the developer's own library: a scan test used to seed its fixture
-    URLs into the running install and drop the seeded-download ledger with them.
+    the real path is the developer's own library: a scan test used to write its fixture
+    URLs into the running install as learned formats.
     """
     use_temp_db(Path(tmp_path_factory.mktemp("db")), monkeypatch)
     yield

@@ -25,8 +25,10 @@ from backend.app.domains.downloads.formats import (
     _id_matches,
     _is_identifier_key,
     _is_route_segment,
+    _normalized,
     _prepare_url,
     canonicalize_url,
+    learn_download,
     match_template,
     media_id_from_url,
     reconstruct_url_candidates,
@@ -34,7 +36,7 @@ from backend.app.domains.downloads.formats import (
 )
 from backend.app.domains.downloads.gallerydl import gallerydl_access_args
 from backend.app.domains.downloads.history import find_history_by_source
-from backend.app.domains.downloads.learning import learn_source_format, save_missing_learned_fields
+from backend.app.domains.downloads.learning import save_missing_learned_fields
 from backend.app.domains.downloads.probe import (
     _flatten_metadata,
     _probe_rotation,
@@ -403,10 +405,6 @@ def _visit_key(url: str) -> str:
     return parsed._replace(scheme="https", netloc=apex_host(parsed.netloc), query=query).geturl()
 
 
-def _normalized(value: str) -> str:
-    return "".join(ch for ch in str(value).casefold() if ch.isalnum())
-
-
 def _is_image(flat: dict[str, str]) -> bool:
     extension = flat.get("extension") or flat.get("ext") or ""
     return f".{extension.lower()}" in IMAGE_EXTENSIONS
@@ -606,8 +604,9 @@ class _Resolver:
         if creator and _field_value(flat, self.username_fields).lstrip("@") != creator:
             self.username_fields = list(dict.fromkeys([*fields, *self.username_fields]))
             save_missing_learned_fields(url, self.source_key, {"username": self.username_fields})
-        learn_source_format(url, id_value, flat, creator)
-        self.learned = load_learned_formats()
+        # For this walk only: the format is stored once a download of the post succeeds.
+        roles = {"username": self.username_fields, "nickname": self.nickname_fields}
+        self.learned = learn_download(self.learned, url, id_value, flat, roles)
 
     def file_entry(self, file_url: str, kwdict: dict[str, Any], *, judged: bool = False) -> Entry | None:
         # A file's metadata carries its post's fields, so files of one post resolve to one link.

@@ -48,14 +48,17 @@ from backend.app.domains.downloads.formats import (
     creator_from_url,
     describe_learned_segments,
     extract_url_part,
+    format_covers,
     guess_sources,
     learn_download,
     learn_media_id,
     media_id_from_url,
     reconstruct_url,
     reconstruct_url_candidates,
+    select_for_format,
     url_dedup_key,
 )
+from backend.app.domains.downloads.learning import learn_formats
 from backend.app.domains.downloads.naming import (
     clean_template_filename,
     filename_template_title,
@@ -2794,7 +2797,7 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
     monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
-    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
@@ -2862,7 +2865,7 @@ def test_gallerydl_sparse_single_output_enqueues_metadata_repair_without_inline_
         "_probe_output_metadata",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("probe must not run inline")),
     )
-    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
     monkeypatch.setattr(worker_module, "_learn_field_roles_from_download", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
     monkeypatch.setattr(
@@ -3138,7 +3141,7 @@ def test_gallerydl_same_source_assets_share_one_row_and_source_id(
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
-    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
@@ -3384,7 +3387,7 @@ def test_worker_falls_back_to_gallerydl_after_empty_ytdlp_failure(
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
-    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
@@ -3449,7 +3452,7 @@ def test_worker_does_not_run_fallback_after_media_and_unsupported_tail(
     monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
-    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
@@ -3517,7 +3520,7 @@ def test_worker_runs_ytdlp_fallback_after_empty_gallerydl_failure(
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
-    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
@@ -3579,7 +3582,7 @@ def test_worker_runs_gallerydl_without_preflight(
     monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
-    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
@@ -3659,7 +3662,7 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
 
-    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
@@ -3762,7 +3765,7 @@ def test_worker_renames_display_creator_to_handle_and_template_folder(
     monkeypatch.setattr(worker_module, "all_engines", lambda: (engine_by_name("ytdlp"),))
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
-    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
@@ -3834,11 +3837,19 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
     monkeypatch.setattr(worker_module, "all_engines", lambda: (engine_by_name("ytdlp"),))
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
-    monkeypatch.setattr(worker_module, "_learn_source_format", lambda *args, **kwargs: None)
+    learned: list[tuple[list, set[str]]] = []
+    monkeypatch.setattr(
+        worker_module, "learn_formats", lambda samples: bool(learned.append((list(samples), set(saved))))
+    )
     monkeypatch.setattr(worker_module, "drop_file_cache", lambda paths: dropped_cache_paths.extend(paths))
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+
+    # Every output teaches the format in one write, only once all of them were saved.
+    assert len(learned) == 1
+    assert len(learned[0][0]) == 3
+    assert learned[0][1] == {task_id, f"{task_id}:DapLPfHEQz5", f"{task_id}:DapIP3mDqE2"}
 
     first_clean = tmp_path / "love.rizzzz - [DanBhNzkY9_].mp4"
     second_clean = tmp_path / "love.rizzzz - [DapLPfHEQz5].mp4"
@@ -4265,29 +4276,23 @@ def test_reconstruct_url_candidates_returns_every_learned_route():
     }
 
 
-def test_worker_marks_new_format_for_deferred_field_learning(monkeypatch):
-    url = "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833"
+def test_format_sample_reads_the_id_from_the_filename():
+    url = "https://example.test/@alice/photo/7420705673542978833"
 
-    monkeypatch.setattr(completion_learning_module, "persist_source_format", lambda *args, **kwargs: True)
-
-    assert (
-        completion_learning_module._learn_source_format(
-            url,
-            "fzyahoo.com - [7420705673542978833].jpg",
-            source_key="tiktok",
-        )
-        is True
+    assert completion_learning_module._format_sample(url, "alice - [7420705673542978833].jpg") == (
+        url,
+        "7420705673542978833",
+        None,
     )
 
-    monkeypatch.setattr(completion_learning_module, "persist_source_format", lambda *args, **kwargs: False)
-    assert (
-        completion_learning_module._learn_source_format(
-            url,
-            "fzyahoo.com - [7420705673542978833].jpg",
-            source_key="tiktok",
-        )
-        is False
+
+def test_learn_formats_reports_only_a_new_template():
+    # Only a new format is worth a deferred field probe.
+    assert learn_formats([("https://example.test/@alice/video/7420705673542978833", "7420705673542978833", None)])
+    assert not learn_formats(
+        [("https://example.test/@alice/video/7420705673542978834", "7420705673542978834", None)]
     )
+    assert repositories.load_learned_formats_payload()["example"]["samples"] == 2
 
 
 def test_learn_download_keeps_descriptive_segment_literal_for_single_sample():
@@ -4441,6 +4446,78 @@ def test_learn_download_keeps_distinct_route_words_unmerged():
         "https://www.tiktok.com/@{creator}/video/{id}",
         "https://www.tiktok.com/@{creator}/photo/{id}",
     }
+
+
+def _learn_posts(urls: list[str], metadata: dict | None) -> list[str]:
+    learned: dict = {}
+    for url in urls:
+        learned = learn_download(learned, url, media_id_from_url(url), metadata)
+    return learned["example"]["templates"]
+
+
+def test_learn_download_generalizes_one_creators_handle_from_metadata():
+    # Two posts of one creator never differ at the handle; the metadata still proves it varies.
+    posts = ["https://example.test/alice/post/22222222", "https://example.test/alice/post/33333333"]
+
+    assert _learn_posts(posts, {"author[uniqueId]": "alice"}) == ["https://example.test/{username}/post/{id}"]
+    # Without metadata the handle stays literal until another creator's post differs there.
+    assert _learn_posts(posts, None) == ["https://example.test/alice/post/{id}"]
+
+
+def test_learn_download_marks_a_loosely_matching_name_variable():
+    # The handle spells the display name, but not exactly enough to fill it back in.
+    templates = _learn_posts(["https://example.test/alice-chan/post/22222222"], {"author[nickname]": "Alice Chan"})
+
+    assert templates == ["https://example.test/{var}/post/{id}"]
+
+
+def test_learn_download_marks_an_album_from_one_post_variable():
+    templates = _learn_posts(
+        ["https://example.test/alice/albums/summer-2024/22222222"],
+        {"author[uniqueId]": "alice", "album[name]": "Summer 2024"},
+    )
+
+    assert templates == ["https://example.test/{username}/albums/{var}/{id}"]
+
+
+def test_learn_download_keeps_route_words_and_link_echoes_literal():
+    templates = _learn_posts(
+        ["https://example.test/gallery/22222222/clip-2024"],
+        {"subcategory": "gallery", "webpage_url_basename": "clip-2024"},
+    )
+
+    assert templates == ["https://example.test/gallery/{id}/clip-2024"]
+
+
+def test_learn_download_heals_a_literal_handle_once_metadata_proves_it():
+    learned = learn_download({}, "https://example.test/alice/post/22222222", "22222222")
+    learned = learn_download(
+        learned, "https://example.test/alice/post/33333333", "33333333", {"author[uniqueId]": "alice"}
+    )
+
+    assert learned["example"]["templates"] == ["https://example.test/{creator}/post/{id}"]
+
+
+def test_learn_download_binds_the_fields_the_caller_names():
+    # A tracker names the field it found holding the creator, outside the default chains.
+    learned = learn_download(
+        {},
+        "https://example.test/alice/post/22222222",
+        "22222222",
+        {"author[handle]": "alice"},
+        {"username": ["author[handle]"]},
+    )
+
+    assert learned["example"]["templates"] == ["https://example.test/{username}/post/{id}"]
+
+
+def test_a_setting_saved_on_a_format_follows_it_once_generalized():
+    saved = {"https://example.test/alice/post/{id}": "alice-folder"}
+
+    assert select_for_format(saved, "https://example.test/{creator}/post/{id}") == "alice-folder"
+    assert select_for_format(saved, "https://example.test/{creator}/photo/{id}") is None
+    # A route word is never absorbed by a token.
+    assert not format_covers("https://example.test/{creator}/{id}", "https://example.test/video/{id}")
 
 
 def test_convert_template_quality_uses_selected_label_best_reads_source():
@@ -5838,9 +5915,6 @@ def _incremental_scan_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
     monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: rows.pop(task_id, None))
     monkeypatch.setattr(scan_module, "resolution_revision", lambda: "rev-1")
-    seeded: set[str] = set()
-    monkeypatch.setattr(scan_module, "seeded_download_ids", lambda: set(seeded))
-    monkeypatch.setattr(scan_module, "mark_downloads_seeded", seeded.update)
 
     real_parse = scan_module._parse_media_fields
 
@@ -5912,45 +5986,9 @@ def test_rescan_reresolves_everything_when_the_rules_improve(
     assert result["unchanged"] == 0
 
 
-def test_seeded_learning_is_not_reanalyzed_when_nothing_changed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    # Re-deriving route templates from every past download is the most expensive
-    # part of a scan and returns the same answer until the downloads change.
-    media_root, _rows, _resolved = _incremental_scan_env(tmp_path, monkeypatch)
-    (media_root / "Creator - Clip [vid1].mp4").write_bytes(b"video")
-    history = {
-        f"gallerydl:{index}": {
-            "source_url": f"https://example.test/@creator/video/{index}",
-            "media_id": str(index),
-            "status": "completed",
-        }
-        for index in range(5)
-    }
-    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": dict(history)})
-
-    analyzed: list[str] = []
-    real_update = scan_module.update_learned_formats_with_download
-
-    def counting_update(learned, source_url, media_id):
-        analyzed.append(source_url)
-        return real_update(learned, source_url, media_id)
-
-    monkeypatch.setattr(scan_module, "update_learned_formats_with_download", counting_update)
-    monkeypatch.setattr(scan_module, "_drop_missing_records", lambda records, seen_paths, pacer=None: (0, 0))
-
-    scan_module.scan_media_library([media_root])
-    first_pass = len(analyzed)
-    analyzed.clear()
-    scan_module.scan_media_library([media_root])
-
-    assert first_pass == 5
-    assert analyzed == []
-
-
-def test_seeded_learning_reads_only_the_download_that_was_added(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_a_scan_learns_no_format_from_past_downloads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # A download teaches its format when it succeeds; a scan only reads formats, so one the
+    # user deleted stays deleted.
     media_root, _rows, _resolved = _incremental_scan_env(tmp_path, monkeypatch)
     (media_root / "Creator - Clip [vid1].mp4").write_bytes(b"video")
     history = {
@@ -5959,21 +5997,9 @@ def test_seeded_learning_reads_only_the_download_that_was_added(
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": dict(history)})
     monkeypatch.setattr(scan_module, "_drop_missing_records", lambda records, seen_paths, pacer=None: (0, 0))
 
-    analyzed: list[str] = []
-    real_update = scan_module.update_learned_formats_with_download
-    monkeypatch.setattr(
-        scan_module,
-        "update_learned_formats_with_download",
-        lambda learned, url, media_id: (analyzed.append(url), real_update(learned, url, media_id))[1],
-    )
-
-    scan_module.scan_media_library([media_root])
-    analyzed.clear()
-    history["gallerydl:2"] = {"source_url": "https://example.test/@other/video/2", "media_id": "2"}
     scan_module.scan_media_library([media_root])
 
-    # Only the new download is analyzed; the one already folded in is not re-read.
-    assert analyzed == ["https://example.test/@other/video/2"]
+    assert repositories.load_learned_formats_payload() == {}
 
 
 @pytest.mark.parametrize("placeholder", ["None", "unknown"])

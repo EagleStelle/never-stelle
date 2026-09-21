@@ -112,14 +112,14 @@ def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
 
 @router.post("/probe-fields")
 def probe_fields(payload: ProbeLinkPayload) -> dict[str, Any]:
-    from backend.app.domains.downloads.learning import promote_learned_format_from_probe, save_learned_fields
+    from backend.app.domains.downloads.learning import save_learned_fields
     from backend.app.domains.downloads.probe import probe_fields as probe_field_roles
     from backend.app.domains.downloads.urls import resolve_redirect_url
 
     url = resolve_redirect_url(payload.url)
     try:
         result = probe_field_roles(url, payload.source_key)
-        promote_learned_format_from_probe(url, result.get("fields"))
+        result.pop("metadata", None)
         learned = save_learned_fields(
             url,
             str(result.get("source_key") or payload.source_key),

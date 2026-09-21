@@ -196,7 +196,7 @@ def test_source_location_migration_is_idempotent(tmp_path, monkeypatch):
     assert _stored_payload() == first
 
 
-def _seed_learning(path, rows: list[tuple[str, str, str]], seeded: list[str], history: list[str]) -> None:
+def _seed_learning(path, rows: list[tuple[str, str, str]], seeded: list[str]) -> None:
     connection = sqlite3.connect(str(path))
     try:
         connection.executescript(SCHEMA)
@@ -209,25 +209,20 @@ def _seed_learning(path, rows: list[tuple[str, str, str]], seeded: list[str], hi
             "INSERT INTO seeded_downloads (task_id, seeded_at) VALUES (?, '')",
             [(task_id,) for task_id in seeded],
         )
-        connection.executemany(
-            "INSERT INTO download_history (id, created_at, updated_at) VALUES (?, '', '')",
-            [(task_id,) for task_id in history],
-        )
         connection.execute("PRAGMA user_version = 2")
         connection.commit()
     finally:
         connection.close()
 
 
-def test_test_fixture_learning_is_purged(tmp_path, monkeypatch):
+def test_test_fixture_learning_is_purged_and_the_seeding_ledger_dropped(tmp_path, monkeypatch):
     _seed_learning(
         tmp_path / "never-stelle.sqlite3",
         [
             ("example", "example.test", '["https://example.test/@other/video/{id}"]'),
             ("tiktok", "tiktok.com", '["https://www.tiktok.com/@{creator}/video/{id}"]'),
         ],
-        seeded=["gallerydl:1", "task-1"],
-        history=["gallerydl:1"],
+        seeded=["gallerydl:1"],
     )
     use_temp_db(tmp_path, monkeypatch)
 
@@ -235,11 +230,13 @@ def test_test_fixture_learning_is_purged(tmp_path, monkeypatch):
 
     with database_module.transaction() as connection:
         sources = [row["source_key"] for row in connection.execute("SELECT source_key FROM learned_formats")]
-        seeded = [row["task_id"] for row in connection.execute("SELECT task_id FROM seeded_downloads")]
+        ledger = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'seeded_downloads'"
+        ).fetchone()
 
-    # The real source and the seeded id that still has its download both survive.
     assert sources == ["tiktok"]
-    assert seeded == ["gallerydl:1"]
+    # Formats are learned once, as a download succeeds, so nothing tracks what history taught.
+    assert ledger is None
 
 
 def _seed_post_processing(path, saved: dict, task: dict, job: dict) -> None:

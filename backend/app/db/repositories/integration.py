@@ -9,7 +9,6 @@ PUBLIC_TABLES: tuple[str, ...] = (
     "download_history",
     "download_tasks",
     "learned_formats",
-    "seeded_downloads",
     "download_enrichment_jobs",
 )
 
@@ -17,7 +16,6 @@ _ORDER_BY: dict[str, str] = {
     "download_history": "created_at DESC, id DESC",
     "download_tasks": "created_at DESC, id DESC",
     "learned_formats": "source_key ASC",
-    "seeded_downloads": "seeded_at DESC, task_id DESC",
     "download_enrichment_jobs": "created_at ASC, id ASC",
 }
 

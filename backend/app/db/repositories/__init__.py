@@ -49,13 +49,11 @@ from backend.app.db.repositories.downloads import (
     upsert_enrichment_jobs_payload,
 )
 from backend.app.db.repositories.formats import (
-    clear_seeded_downloads,
     delete_learned_format_row,
     learned_formats_revision,
     load_learned_formats_payload,
-    mark_downloads_seeded,
+    merge_learned_formats_payload,
     save_learned_formats_payload,
-    seeded_download_ids,
 )
 from backend.app.db.repositories.redirects import (
     load_learned_redirects_payload,
@@ -99,7 +97,6 @@ __all__ = [
     "claim_next_enrichment_job_payload",
     "clear_history_resolve_flags",
     "clear_rename_journal_entries",
-    "clear_seeded_downloads",
     "complete_enrichment_job_payload",
     "count_active_by_source_and_media",
     "count_active_download_tasks",
@@ -143,7 +140,7 @@ __all__ = [
     "load_task_store_payload",
     "load_tracker_row",
     "load_tracker_rows",
-    "mark_downloads_seeded",
+    "merge_learned_formats_payload",
     "merge_task_payload",
     "missing_tracker_download_rows",
     "next_due_tracker_at",
@@ -162,7 +159,6 @@ __all__ = [
     "save_history_rows",
     "save_learned_formats_payload",
     "save_settings_payload",
-    "seeded_download_ids",
     "source_activity_rows",
     "sync_history_resolve_flags",
     "tracker_backlog_urls",

@@ -167,6 +167,30 @@ def test_deleting_one_source_leaves_the_others_learned(tmp_path, monkeypatch):
     assert set(repositories.load_learned_formats_payload()) == {"youtube"}
 
 
+def test_merging_learned_formats_rewrites_only_the_sources_it_changed(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+    repositories.save_learned_formats_payload(
+        {
+            "alpha": {"templates": ["https://alpha.example.test/{creator}/post/{id}"]},
+            "beta": {"templates": ["https://beta.example.test/watch?v={id}"]},
+        }
+    )
+    with database_module.transaction() as connection:
+        connection.execute("UPDATE learned_formats SET updated_at = 'before'")
+
+    def update(learned):
+        return {**learned, "alpha": {**learned["alpha"], "samples": 1}}
+
+    before, after = repositories.merge_learned_formats_payload(update)
+
+    with database_module.transaction() as connection:
+        stamps = dict(connection.execute("SELECT source_key, updated_at FROM learned_formats").fetchall())
+    assert before["alpha"].get("samples", 0) == 0
+    assert after["alpha"]["samples"] == 1
+    assert stamps["beta"] == "before"
+    assert stamps["alpha"] != "before"
+
+
 def _seed_history(monkeypatch, tmp_path):
     use_temp_db(tmp_path, monkeypatch)
     rows = [
