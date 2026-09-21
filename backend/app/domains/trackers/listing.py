@@ -96,7 +96,7 @@ class Entry:
     collection: str = ""
     # Keys of the items this entry downloads with it, as a post holds its photos.
     members: tuple[str, ...] = ()
-    # A page link to someone else's item is recorded but never queued.
+    # Someone else's item is recorded but never queued.
     owned: bool = True
 
 
@@ -499,14 +499,6 @@ class _Resolver:
             return bool(entry.get("id_classes")) and _id_matches(entry, media_id)
         return _is_strong_media_id(media_id)
 
-    def _is_post_link(self, url: str) -> bool:
-        return (
-            url.startswith(("http://", "https://"))
-            and apex_host(host_from_url(url)) == self.apex
-            and not _is_media_path(url)
-            and self.is_item(url)
-        )
-
     def _id_fields(self, flat: dict[str, str]) -> Iterator[tuple[str, str]]:
         for key, value in flat.items():
             words = set(_WORD_RE.findall(key.lower()))
@@ -519,16 +511,19 @@ class _Resolver:
         return {name for name in map(_normalized, values) if len(name) >= _MIN_NAME_LENGTH}
 
     def _linked_url(self, flat: dict[str, str], file_url: str) -> str:
+        links: list[str] = []
         for value in flat.values():
             link = urljoin(self.tracker_url, value) if value.startswith("/") and not value.startswith("//") else value
-            if link != file_url and self._is_post_link(link):
-                return link
-        return ""
+            if link != file_url and _is_item_link(link, self):
+                links.append(link)
+        # A post also links pages like its place; the one in a learned format is the post's own.
+        learned = (link for link in links if match_template(self.learned, self.learned_key, link))
+        return next(learned, next(iter(links), ""))
 
     def _wrapped_url(self, file_url: str) -> str:
         # gallery-dl hands pages another engine fetches over as "<engine>:<page link>".
         _, _, inner = file_url.partition(":")
-        return inner if self._is_post_link(inner) else ""
+        return inner if _is_item_link(inner, self) else ""
 
     def _reconstructed_url(self, flat: dict[str, str], creator: str) -> str:
         entry = self.learned.get(self.learned_key) or {}
@@ -591,7 +586,7 @@ class _Resolver:
         for url, id_key, id_value in _catalog_candidates(kind[0], list(ids.items()), self.placeholders):
             if probes >= _MAX_PROBES:
                 break
-            if not self._is_post_link(url):
+            if not (_on_site(url, self) and self.is_item(url)):
                 continue
             probes += 1
             if self._verified(url, id_key, id_value):
@@ -614,7 +609,7 @@ class _Resolver:
         learn_source_format(url, id_value, flat, creator)
         self.learned = load_learned_formats()
 
-    def file_entry(self, file_url: str, kwdict: dict[str, Any]) -> Entry | None:
+    def file_entry(self, file_url: str, kwdict: dict[str, Any], *, judged: bool = False) -> Entry | None:
         # A file's metadata carries its post's fields, so files of one post resolve to one link.
         flat = _flatten_metadata(kwdict)
         username = _field_value(flat, self.username_fields)
@@ -629,14 +624,23 @@ class _Resolver:
         # Learning a format can add the field that holds the creator.
         username = _field_value(flat, self.username_fields)
         nickname = _field_value(flat, self.nickname_fields)
-        self.names.update(self._person_names(flat))
+        # The tracked link's own listing teaches the creator's names; the pages beside it are judged by them.
+        if not judged:
+            self.names.update(self._person_names(flat))
+        owned = not judged or self.owns(url, flat)
         entry = Entry(
             url=url,
             title=_field_value(flat, self.title_fields),
             creator=username,
             collection=nickname or username,
+            owned=owned,
         )
-        return self.grouped(entry, flat)
+        return self.grouped(entry, flat) if owned else entry
+
+    def owns(self, link: str, flat: dict[str, str]) -> bool:
+        """Whether the link names the creator or its metadata carries a name or id the creator's own files do."""
+        own = self.names | {name for name in map(_normalized, self.creators()) if len(name) >= _MIN_NAME_LENGTH}
+        return bool(_url_exact_values(link) & self.creators()) or bool(self._person_names(flat) & own)
 
     def readable(self, link: str) -> bool:
         """Whether a learned format or an engine reads the link as an item."""
@@ -644,7 +648,7 @@ class _Resolver:
 
     def needs_probe(self, link: str) -> bool:
         key = url_dedup_key(link)
-        return key not in self.listed and not self.known(key) and self.readable(link)
+        return key not in self.listed and not self.known(key)
 
     def probe(self, link: str) -> dict[str, str]:
         return probe_metadata(link, cookie_source_key=self.source_key, low_priority=True)
@@ -659,16 +663,11 @@ class _Resolver:
             return None
         if self.known(key):
             return Entry(url=link)
-        if not self.readable(link):
-            return None
         flat = probed.result() if probed else self.probe(link)
-        names = self._person_names(flat)
         # Metadata without any name cannot tell whose item it is.
-        if not names:
+        if not self._person_names(flat):
             return None
-        own = self.names | {name for name in map(_normalized, self.creators()) if len(name) >= _MIN_NAME_LENGTH}
-        # Owned when the link names the creator or its metadata carries a name or id the creator's own files do.
-        owned = bool(_url_exact_values(link) & self.creators()) or bool(names & own)
+        owned = self.owns(link, flat)
         username = _field_value(flat, _USERNAME_FIELDS)
         entry = Entry(
             url=link,
@@ -718,35 +717,40 @@ class _Resolver:
 
     def _may_hold(self, link: str, item_key: str) -> bool:
         return (
-            apex_host(host_from_url(link)) == self.apex
-            and bool(_url_exact_values(link) & self.creators())
+            bool(_url_exact_values(link) & self.creators())
             and url_dedup_key(link) != item_key
-            and self.is_item(link)
-            and _engine_supports(link)
+            and _is_item_link(link, self)
         )
 
 
 def _gallerydl_entries(
-    messages: Iterator[Any], resolver: _Resolver, stats: ListingStats, sub_collections: list[str]
+    messages: Iterator[Any],
+    resolver: _Resolver,
+    stats: ListingStats,
+    sub_collections: list[str],
+    *,
+    judged: bool = False,
 ) -> Iterator[Entry]:
     for message in messages:
         if not isinstance(message, list) or len(message) < 2:
             continue
         kind, url = message[0], str(message[1])
         if kind == _GALLERYDL_URL and len(message) > 2 and isinstance(message[2], dict):
-            entry = resolver.file_entry(url, message[2])
+            entry = resolver.file_entry(url, message[2], judged=judged)
             if entry:
                 yield entry
             else:
                 stats.unresolved += 1
         elif kind == _GALLERYDL_QUEUE:
             if not _is_dispatch(url) and resolver.is_item(url):
-                yield Entry(url=url)
+                yield Entry(url=url, owned=not judged or resolver.owns(url, {}))
             else:
                 sub_collections.append(url)
 
 
-def _ytdlp_entries(lines: Iterator[Any], resolver: _Resolver, sub_collections: list[str]) -> Iterator[Entry]:
+def _ytdlp_entries(
+    lines: Iterator[Any], resolver: _Resolver, sub_collections: list[str], *, judged: bool = False
+) -> Iterator[Entry]:
     for info in lines:
         if not isinstance(info, dict):
             continue
@@ -774,6 +778,7 @@ def _ytdlp_entries(lines: Iterator[Any], resolver: _Resolver, sub_collections: l
             collection=str(
                 info.get("playlist_uploader") or info.get("playlist_channel") or info.get("playlist_title") or ""
             ),
+            owned=not judged or resolver.owns(url, _flatten_metadata(info)),
         )
 
 
@@ -917,17 +922,23 @@ def _collection_entries(
     visited: set[str],
     caught_up_after: int | None,
     depth: int,
+    *,
+    judged: bool,
 ) -> Generator[Entry, None, str]:
     """Entries of a link and its sub-collections; returns "" once an engine listed them cleanly, else why none did.
 
     An engine that failed or reported items it could not read leaves the next engine to list the link too.
+    A ``judged`` link is a page beside the tracked link: its items are the creator's only when ``owns`` says so.
     Raises ``ValueError`` when no engine listed anything.
     """
     listed = len(resolver.listed)
     detail = ""
     for command, parse in (
-        (_gallerydl_command, lambda messages, subs: _gallerydl_entries(messages, resolver, stats, subs)),
-        (_ytdlp_command, lambda lines, subs: _ytdlp_entries(lines, resolver, subs)),
+        (
+            _gallerydl_command,
+            lambda messages, subs: _gallerydl_entries(messages, resolver, stats, subs, judged=judged),
+        ),
+        (_ytdlp_command, lambda lines, subs: _ytdlp_entries(lines, resolver, subs, judged=judged)),
     ):
         sub_collections: list[str] = []
         entries, outcome = _engine_entries(url, resolver.source_key, command, parse, sub_collections)
@@ -944,7 +955,7 @@ def _collection_entries(
             visited.add(key)
             try:
                 sub_failure = yield from _collection_entries(
-                    sub_url, stats, resolver, visited, caught_up_after, depth + 1
+                    sub_url, stats, resolver, visited, caught_up_after, depth + 1, judged=judged
                 )
             except ValueError as exc:
                 # One blocked or unsupported tab leaves its siblings listable.
@@ -963,7 +974,11 @@ def _collection_entries(
 
 
 def _on_site(link: str, resolver: _Resolver) -> bool:
-    return apex_host(host_from_url(link)) == resolver.apex and not _is_media_path(link)
+    return (
+        link.startswith(("http://", "https://"))
+        and apex_host(host_from_url(link)) == resolver.apex
+        and not _is_media_path(link)
+    )
 
 
 def _is_item_link(link: str, resolver: _Resolver) -> bool:
@@ -1130,7 +1145,8 @@ def probe_tabs(source_url: str, source_key: str) -> list[dict[str, Any]]:
     resolver = _Resolver(url, source_key)
     stats = ListingStats()
     # The engines hand out their pages before their first item.
-    with closing(_collection_entries(url, stats, resolver, set(), None, _MAX_DEPTH)) as entries, suppress(ValueError):
+    listing = _collection_entries(url, stats, resolver, set(), None, _MAX_DEPTH, judged=False)
+    with closing(listing) as entries, suppress(ValueError):
         next(entries, None)
     with BrowserSession(resolver.source_key) as browser:
         _read_navigation(browser, url, lambda text: True)
@@ -1225,10 +1241,9 @@ def _find_items(
         if url == resolver.tracker_url
         else _page_links(fetch_html(url, resolver.source_key), url)
     )
-    items = [link for link in dict.fromkeys(markup) if _on_site(link, resolver) and resolver.is_item(link)]
 
     def batches() -> Iterator[list[str]]:
-        yield [link for link in items if resolver.readable(link)]
+        yield [link for link in dict.fromkeys(markup) if _is_item_link(link, resolver)]
         # The markup rarely holds what the page renders, so the browser judges the page itself.
         yield from browser.scroll_links(
             url,
@@ -1359,7 +1374,9 @@ def iter_entries(
     only catch up with it. A caller that stops early leaves the rest in the backlog for a later walk.
 
     ``tabs`` are the source's page rows. Once the engines are done, a ticked row's page is scrolled;
-    an unticked one is left to the engines when they list it and skipped otherwise. Each row is found
+    an unticked one is left to the engines when they list it and skipped otherwise. Only the link's own
+    listing tells whose items are the creator's; what any row's page shows is the creator's only when
+    it names the creator or a name the creator's own items carry. Each row is found
     on the link as the page it was last (``pages``), a tab the link offers that resembles it, or a
     name it went by, including the ones ``learned`` on other links; ``stats`` reports the pages the
     rows turned out to be. A link with no page for its own row in ``pages`` was never loaded, so it is
@@ -1382,7 +1399,9 @@ def iter_entries(
     try:
         error: ValueError | None = None
         try:
-            stats.unread = yield from _collection_entries(url, stats, resolver, visited, caught_up_after, 0)
+            stats.unread = yield from _collection_entries(
+                url, stats, resolver, visited, caught_up_after, 0, judged=False
+            )
         except ValueError as exc:
             error = exc
         # An unticked page the engines read and did not reach is listed by them too.
@@ -1396,7 +1415,9 @@ def iter_entries(
                 continue
             visited.add(_visit_key(page))
             with suppress(ValueError):
-                unread = yield from _collection_entries(page, stats, resolver, visited, caught_up_after, 1)
+                unread = yield from _collection_entries(
+                    page, stats, resolver, visited, caught_up_after, 1, judged=True
+                )
                 stats.unread = stats.unread or unread
                 stats.tab_pages[row["tab"]] = page
         # One browser for every page, closed before the walk waits on its last probes so other walks can scroll

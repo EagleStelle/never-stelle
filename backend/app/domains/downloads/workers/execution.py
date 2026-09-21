@@ -22,7 +22,12 @@ from backend.app.domains.downloads.constants import (
     quality_needs_ffmpeg,
 )
 from backend.app.domains.downloads.engine import Engine, all_engines
-from backend.app.domains.downloads.formats import creator_from_url, media_id_from_url, reconstruct_url_candidates
+from backend.app.domains.downloads.formats import (
+    creator_from_url,
+    match_template,
+    media_id_from_url,
+    reconstruct_url_candidates,
+)
 from backend.app.domains.downloads.history import save_history_entry
 from backend.app.domains.downloads.naming import detect_ffmpeg_location
 from backend.app.domains.downloads.postprocessing import (
@@ -111,12 +116,14 @@ def _engine_link(engine: Engine, source_url: str) -> str:
     """The item's link as the engine takes it: the link itself, else the same item in another learned format."""
     if engine.reads(source_url):
         return source_url
+    learned = load_learned_formats()
+    source_key = source_key_from_url(source_url)
+    # Only a link in a learned format names an item another format can name too.
+    if not match_template(learned, source_key, source_url):
+        return source_url
     media_id = media_id_from_url(source_url)
     candidates = reconstruct_url_candidates(
-        load_learned_formats(),
-        source_key_from_url(source_url),
-        media_id,
-        creator=creator_from_url(source_url, media_id),
+        learned, source_key, media_id, creator=creator_from_url(source_url, media_id)
     )
     return next((url for url in candidates if url != source_url and engine.reads(url)), source_url)
 

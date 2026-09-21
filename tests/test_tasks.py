@@ -4011,8 +4011,10 @@ def test_worker_hands_an_engine_the_item_in_a_learned_format_it_takes(monkeypatc
 
     assert worker_module._engine_link(VideoEngine(), photo) == video
     assert worker_module._engine_link(VideoEngine(), video) == video
-    # A link naming no item keeps the link it was given.
+    # A link naming no item, or in no learned format, keeps the link it was given.
     assert worker_module._engine_link(VideoEngine(), "https://example.test/@alice") == "https://example.test/@alice"
+    place = "https://example.test/@alice/places/12345678"
+    assert worker_module._engine_link(VideoEngine(), place) == place
     assert worker_module._engine_link(Engine(), photo) == photo
 
 

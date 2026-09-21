@@ -136,7 +136,8 @@ def test_gallerydl_queue_messages_are_entries_or_sub_collections(temp_db):
     assert subs == ["https://example.test/u/alice/media"]
 
 
-def test_gallerydl_file_resolves_to_a_same_site_post_link(temp_db):
+def test_gallerydl_file_resolves_to_a_same_site_post_link(temp_db, monkeypatch):
+    monkeypatch.setattr(listing_module, "_engine_supports", lambda url: True)
     kwdict = {
         "author": {"name": "alice"},
         "file_url": "https://cdn.other.test/x/99999999.jpg",
@@ -153,6 +154,32 @@ def test_gallerydl_file_resolves_to_a_same_site_post_link(temp_db):
 
     assert [entry.url for entry in entries] == ["https://www.example.test/post/55555555"] * 2
     assert entries[0].title == "Sunset"
+
+
+@pytest.mark.parametrize(
+    ("learned", "read"),
+    [
+        # No engine reads the place page.
+        ({}, "/post/"),
+        # Engines read both; the post's link is in a learned format.
+        ({"example": {"templates": ["https://example.test/post/{id}"]}}, ""),
+    ],
+)
+def test_gallerydl_file_resolves_to_its_post_over_other_pages_it_links(temp_db, monkeypatch, learned, read):
+    monkeypatch.setattr(listing_module, "_engine_supports", lambda url: read in url)
+    kwdict = {
+        "post_id": "22222222",
+        "place_url": "https://example.test/explore/places/1234567890123456/on-fire/",
+        "post_url": "https://example.test/post/22222222/",
+    }
+
+    entries = list(
+        listing_module._gallerydl_entries(
+            iter([[3, "https://cdn.other.test/a.jpg", kwdict]]), _resolver(learned, monkeypatch), ListingStats(), []
+        )
+    )
+
+    assert [entry.url for entry in entries] == ["https://example.test/post/22222222/"]
 
 
 def test_gallerydl_file_reconstructs_a_link_from_the_learned_format(temp_db, monkeypatch):
@@ -227,7 +254,8 @@ def test_gallerydl_dispatcher_queue_is_a_sub_collection(temp_db, monkeypatch):
     assert subs == ["https://example.test/post/12345678"]
 
 
-def test_gallerydl_wrapped_page_and_relative_permalink_resolve_to_posts(temp_db):
+def test_gallerydl_wrapped_page_and_relative_permalink_resolve_to_posts(temp_db, monkeypatch):
+    monkeypatch.setattr(listing_module, "_engine_supports", lambda url: True)
     messages = [
         [3, "ytdl:https://example.test/post/12345678", {"title": "Clip"}],
         [
@@ -1162,6 +1190,36 @@ def test_tabs_the_engines_hand_out_are_left_to_them_even_when_their_listing_fail
     # The page the engines hand out joins unticked, so only the others are scrolled.
     assert [(row["tab"], row["engine"]) for row in stats.found_tabs] == [("", False), ("about", False), ("reels", True)]
     assert fetched == [TRACKER_URL, f"{TRACKER_URL}/about"]
+
+
+def test_items_a_row_page_lists_are_the_creators_only_when_they_carry_the_creators_names(temp_db, monkeypatch):
+    tagged = f"{TRACKER_URL}/tagged"
+
+    def file(name: str, user_id: str, post: str) -> list:
+        return [3, f"https://cdn.other.test/{post}.jpg", {"username": name, "user_id": user_id, "post_url": post}]
+
+    _engines_by_page(
+        monkeypatch,
+        {
+            TRACKER_URL: [file("Alice A", "11111111", "https://example.test/post/22222222")],
+            tagged: [
+                file("Bob B", "33333333", "https://example.test/post/44444444"),
+                file("Alice Again", "11111111", "https://example.test/post/55555555"),
+            ],
+        },
+    )
+    monkeypatch.setattr(listing_module, "_engine_supports", lambda url: True)
+    monkeypatch.setattr(listing_module, "_engine_reads", lambda url: url == tagged)
+    _browser(monkeypatch)
+
+    entries = list(listing_module.iter_entries(TRACKER_URL, "example", tabs=[_row("tagged", enabled=False)]))
+
+    # The link's own listing is the creator's; the tagged page's items are theirs only by a name or id they carry.
+    assert [(entry.url, entry.owned) for entry in entries] == [
+        ("https://example.test/post/22222222", True),
+        ("https://example.test/post/44444444", False),
+        ("https://example.test/post/55555555", True),
+    ]
 
 
 def test_only_an_engine_reading_a_page_itself_lists_it(monkeypatch):
