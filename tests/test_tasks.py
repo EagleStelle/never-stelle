@@ -3534,6 +3534,95 @@ def test_worker_runs_ytdlp_fallback_after_empty_gallerydl_failure(
     assert saved[task_id]["resolved_full_path"] == str(video)
 
 
+def test_worker_resumes_a_deferred_task_at_the_cookie_stage_of_the_engine_that_found_the_jar_busy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import backend.app.domains.downloads.access as access_module
+    from backend.app.domains.downloads.workers.processes import TaskDeferred
+    from backend.app.domains.settings import CookieLease
+
+    video = tmp_path / "Creator - Clip [abc123].mp4"
+    video.write_bytes(b"video")
+    source_url = "https://www.example.test/post/abc123"
+    task_id = "gallerydl:resumed"
+    store = {
+        "tasks": {
+            task_id: {
+                "engine": "gallerydl",
+                "source_url": source_url,
+                "source_key": "example",
+                "status": "pending",
+                "output_dir": str(tmp_path),
+                "resolved_folder": str(tmp_path),
+                "folder_template": "",
+                "filename_template": "{{username}} - {{title}} [{{id}}]",
+            }
+        }
+    }
+    saved: dict[str, dict] = {}
+    commands: list[tuple[str, bool]] = []
+    jar = {"free": True}
+    lease = CookieLease(cookie_id="jar", source_key="example", path=str(tmp_path / "jar.txt"), filename="jar.txt")
+
+    def rotation(source_key, *, first_wait=None):
+        # The only jar rests after each use.
+        if jar["free"]:
+            jar["free"] = False
+            yield lease
+
+    class FakeProcess:
+        def __init__(self, lines: list[str], rc: int):
+            self.stdout = iter(lines)
+            self._rc = rc
+
+        def wait(self):
+            return self._rc
+
+        def poll(self):
+            return self._rc
+
+        def kill(self):
+            return None
+
+    def fake_popen(cmd, *args, **kwargs):
+        with_cookies = "--cookies" in cmd
+        commands.append((cmd[0], with_cookies))
+        if cmd[0] == "yt-dlp" and with_cookies:
+            return FakeProcess([f"[download] Destination: {video}\n"], 0)
+        return FakeProcess(["ERROR: login required\n"], 1)
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    monkeypatch.setattr(access_module, "has_cookies_for_source", lambda source_key: True)
+    monkeypatch.setattr(access_module, "cookie_rotation", rotation)
+    monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
+    monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0 if jar["free"] else 5.0)
+    monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
+    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
+
+    with pytest.raises(TaskDeferred) as deferred:
+        worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+
+    assert commands == [("gallery-dl", False), ("gallery-dl", True), ("yt-dlp", False)]
+    assert deferred.value.engine == 1
+    assert deferred.value.walled is False
+    assert [failure.split()[0] for failure in deferred.value.failures] == ["gallerydl"]
+
+    commands.clear()
+    jar["free"] = True
+    worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False, resume=deferred.value)
+
+    # Everything before yt-dlp's cookie stage already failed, so only that stage runs.
+    assert commands == [("yt-dlp", True)]
+    assert store["tasks"][task_id]["status"] == "completed"
+    assert saved[task_id]["resolved_full_path"] == str(video)
+
+
 def test_worker_runs_gallerydl_without_preflight(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

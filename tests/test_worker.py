@@ -87,7 +87,7 @@ def _stub_access(monkeypatch, rotation, *, target=""):
     monkeypatch.setattr(worker_module, "impersonation_target", lambda: target)
 
 
-def _run_attempts(worker_module):
+def _run_attempts(worker_module, **options):
     from backend.app.domains.downloads.engine import YtdlpEngine
 
     return worker_module._run_engine_attempts(
@@ -101,6 +101,7 @@ def _run_attempts(worker_module):
         "",
         "",
         0,
+        **options,
     )
 
 
@@ -259,7 +260,7 @@ def test_run_engine_attempts_rests_a_cookie_that_came_back_rate_limited(monkeypa
     assert lease.banned is True
 
 
-def _stub_busy_jars(monkeypatch, worker_module, ready_in):
+def _stub_busy_jars(monkeypatch, worker_module, ready_in, tail="ERROR: Unsupported URL"):
     first_waits = []
 
     def busy_rotation(source_key, **kwargs):
@@ -268,23 +269,49 @@ def _stub_busy_jars(monkeypatch, worker_module, ready_in):
 
     _stub_access(monkeypatch, busy_rotation)
     monkeypatch.setattr(worker_module, "_run_engine_to_task", lambda *args, **kwargs: (1, "", []))
-    monkeypatch.setattr(worker_module, "_task_log_tail", lambda task_id: "ERROR: Unsupported URL")
+    monkeypatch.setattr(worker_module, "_task_log_tail", lambda task_id: tail)
     monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: ready_in)
     return first_waits
 
 
-def test_run_engine_attempts_defers_the_task_when_every_jar_is_busy(monkeypatch):
+@pytest.mark.parametrize(
+    ("tail", "walled"),
+    [("ERROR: Unsupported URL", False), ("ERROR: Got HTTP Error 403 caused by Cloudflare anti-bot challenge", True)],
+)
+def test_run_engine_attempts_defers_the_task_when_every_jar_is_busy(monkeypatch, tail, walled):
     import backend.app.domains.downloads.workers.execution as worker_module
     from backend.app.domains.downloads.workers.processes import TaskDeferred
 
-    first_waits = _stub_busy_jars(monkeypatch, worker_module, ready_in=4.0)
+    first_waits = _stub_busy_jars(monkeypatch, worker_module, ready_in=4.0, tail=tail)
 
     with pytest.raises(TaskDeferred) as deferred:
         _run_attempts(worker_module)
 
     assert deferred.value.source_key == "youtube"
+    # The resumed cookie stage keeps the fingerprint a wall called for.
+    assert deferred.value.walled is walled
     # The first jar is never waited for, so the worker is free at once.
     assert first_waits == [0]
+
+
+def test_run_engine_attempts_resumes_at_the_cookie_stage(monkeypatch):
+    import backend.app.domains.downloads.workers.execution as worker_module
+
+    attempts: list[tuple[bool, bool]] = []
+
+    def fake_run_engine(engine, task_id, cmd, **options):
+        attempts.append(("--impersonate" in cmd, "--cookies" in cmd))
+        return 0, "/tmp/out.mp4", ["/tmp/out.mp4"]
+
+    _stub_worker_cookie_rotation(monkeypatch, worker_module, target="chrome")
+    monkeypatch.setattr(worker_module, "_run_engine_to_task", fake_run_engine)
+    monkeypatch.setattr(worker_module, "append_task_log", lambda task_id, message: None)
+
+    rc, _, _ = _run_attempts(worker_module, resume_walled=True)
+
+    assert rc == 0
+    # No anonymous or fingerprint-only rerun; the cookie is fingerprinted after the earlier wall.
+    assert attempts == [(True, True)]
 
 
 def test_run_engine_attempts_fails_instead_of_deferring_when_a_jar_is_free(monkeypatch):

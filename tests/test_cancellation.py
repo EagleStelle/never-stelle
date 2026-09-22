@@ -177,7 +177,7 @@ def test_worker_releases_its_pool_slot_when_the_reservation_is_cancelled(monkeyp
     monkeypatch.setattr(
         scheduler_module,
         "run_task",
-        lambda value, task, mark_running=True: ran.append(value),
+        lambda value, task, mark_running=True, resume=None: ran.append(value),
     )
 
     with processes_module._cancel_lock:

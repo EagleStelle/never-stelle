@@ -95,6 +95,7 @@ def access_rotation(
     *,
     fingerprint: bool = True,
     first_cookie_wait: float | None = None,
+    walled: bool | None = None,
 ) -> Iterator[AccessIdentity]:
     """Yield ways to reach a site, cheapest first, until the caller finds one that works.
 
@@ -102,14 +103,18 @@ def access_rotation(
     each of the source's cookie jars, fingerprinted once any attempt hit a wall. Callers
     that cannot present a fingerprint pass ``fingerprint=False``. A callable source key
     is only resolved once cookies are needed. ``first_cookie_wait`` caps the wait for the
-    first jar, the source's policy by default. Call ``report`` with a failed attempt's
-    output before continuing, and close the iterator (``contextlib.closing``) when
-    breaking early.
+    first jar, the source's policy by default. A known ``walled`` means the public
+    attempts already failed, so the rotation starts at the jars. Call ``report`` with a
+    failed attempt's output before continuing, and close the iterator
+    (``contextlib.closing``) when breaking early.
     """
-    anonymous = AccessIdentity()
-    yield anonymous
-    impersonate = impersonation_target() if fingerprint and anonymous.walled else ""
-    if impersonate:
+    public = walled is None
+    if public:
+        anonymous = AccessIdentity()
+        yield anonymous
+        walled = anonymous.walled
+    impersonate = impersonation_target() if fingerprint and walled else ""
+    if impersonate and public:
         yield AccessIdentity(impersonate=impersonate)
     if callable(cookie_source_key):
         cookie_source_key = cookie_source_key()

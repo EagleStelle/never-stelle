@@ -32,10 +32,10 @@ def _stub(monkeypatch, *, jars=(), target="chrome", has_cookies=True):
     return leases
 
 
-def _walk(outputs, cookie_source_key="example"):
+def _walk(outputs, cookie_source_key="example", **options):
     """Drive the rotation, failing every attempt with the next output."""
     seen = []
-    with closing(access_module.access_rotation(cookie_source_key)) as rotation:
+    with closing(access_module.access_rotation(cookie_source_key, **options)) as rotation:
         for access, output in zip(rotation, outputs, strict=False):
             seen.append(access)
             access.report(output)
@@ -79,6 +79,18 @@ def test_a_wall_behind_a_cookie_fingerprints_the_remaining_jars(monkeypatch):
     seen = _walk(["ERROR: Unsupported URL", _DDOS_GUARD, "ERROR: Unsupported URL"])
 
     assert [access.impersonate for access in seen] == ["", "", "chrome"]
+
+
+@pytest.mark.parametrize(("walled", "impersonate"), [(True, "chrome"), (False, "")])
+def test_a_known_wall_state_starts_at_the_jars(monkeypatch, walled, impersonate):
+    _stub(monkeypatch, jars=["a", "b"])
+
+    seen = _walk(["ERROR: Unsupported URL"] * 2, walled=walled)
+
+    assert [(access.impersonate, access.cookies_file) for access in seen] == [
+        (impersonate, "/tmp/a.txt"),
+        (impersonate, "/tmp/b.txt"),
+    ]
 
 
 def test_the_fingerprint_step_is_skipped_without_an_impersonation_backend(monkeypatch):

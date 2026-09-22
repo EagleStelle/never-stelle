@@ -40,7 +40,7 @@ def test_ensure_worker_spawns_additional_workers_when_workers_already_active(mon
         with lock:
             return sum(1 for t in tasks.values() if t.get("status") == "pending")
 
-    def fake_run_task(tid, task, mark_running=False):
+    def fake_run_task(tid, task, mark_running=False, resume=None):
         running_events[tid].set()
         # Hold until released
         release_events[tid].wait(timeout=5)
@@ -90,11 +90,16 @@ def test_ensure_worker_spawns_additional_workers_when_workers_already_active(mon
             time.sleep(0.01)
 
 
-def _run_benched_queue(monkeypatch, queue: list[tuple[str, str]], jar_free: threading.Event) -> list[str]:
-    """Drain ``queue`` of (task id, source key) on one worker; a task defers while its jar is busy."""
+def _run_benched_queue(
+    monkeypatch, queue: list[tuple[str, str]], jar_free: threading.Event
+) -> list[tuple[str, int | None]]:
+    """Drain ``queue`` of (task id, source key) on one worker; a task defers while its jar is busy.
+
+    Returns each run as (task id, engine it resumed at, or None for a fresh start).
+    """
     tasks = {tid: {"status": "pending", "source_key": key} for tid, key in queue}
     lock = threading.Lock()
-    ran: list[str] = []
+    ran: list[tuple[str, int | None]] = []
     done = threading.Event()
 
     def next_pending_task(skip_sources=()):
@@ -115,10 +120,10 @@ def _run_benched_queue(monkeypatch, queue: list[tuple[str, str]], jar_free: thre
         with lock:
             tasks[tid]["status"] = "pending"
 
-    def fake_run_task(tid, task, mark_running=False):
-        ran.append(tid)
+    def fake_run_task(tid, task, mark_running=False, resume=None):
+        ran.append((tid, resume.engine if resume else None))
         if task["source_key"] == "example" and not jar_free.is_set():
-            raise processes_module.TaskDeferred("example")
+            raise processes_module.TaskDeferred("example", engine=1)
         with lock:
             tasks[tid]["status"] = "completed"
             if all(task["status"] == "completed" for task in tasks.values()):
@@ -150,7 +155,8 @@ def _run_benched_queue(monkeypatch, queue: list[tuple[str, str]], jar_free: thre
 def test_a_deferred_task_steps_aside_for_another_source_until_its_jar_frees(monkeypatch):
     ran = _run_benched_queue(monkeypatch, [("example-1", "example"), ("other-1", "other")], threading.Event())
 
-    assert ran == ["example-1", "other-1", "example-1"]
+    # The deferred task comes back at the engine that deferred, not from the start.
+    assert ran == [("example-1", None), ("other-1", None), ("example-1", 1)]
 
 
 def test_the_last_worker_waits_for_a_benched_source_instead_of_retiring(monkeypatch):
@@ -159,7 +165,7 @@ def test_the_last_worker_waits_for_a_benched_source_instead_of_retiring(monkeypa
 
     ran = _run_benched_queue(monkeypatch, [("example-1", "example")], jar_free)
 
-    assert ran == ["example-1", "example-1"]
+    assert ran == [("example-1", None), ("example-1", 1)]
 
 
 def test_remove_pending_task_allows_cancelling_and_removing_running_task(monkeypatch):

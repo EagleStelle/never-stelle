@@ -22,11 +22,20 @@ class TaskCancelled(BaseException):
 
 
 class TaskDeferred(BaseException):
-    """Every cookie jar of ``source_key`` is busy, so the task goes back to the queue."""
+    """Every cookie jar of ``source_key`` is busy, so the task goes back to the queue.
 
-    def __init__(self, source_key: str) -> None:
+    It resumes at the cookie stage of ``engine``, fingerprinted when ``walled``; ``failures``
+    holds what the engines before it reported.
+    """
+
+    def __init__(
+        self, source_key: str, *, engine: int = 0, walled: bool = False, failures: Sequence[str] = ()
+    ) -> None:
         super().__init__(source_key)
         self.source_key = source_key
+        self.engine = engine
+        self.walled = walled
+        self.failures = list(failures)
 
 
 def _kill_process_tree(process: subprocess.Popen[Any]) -> None:

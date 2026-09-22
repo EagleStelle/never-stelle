@@ -22,6 +22,8 @@ _active_worker_count = 0
 # Sources whose every cookie jar was busy; their tasks wait in the queue until one frees.
 _bench_lock = threading.Lock()
 _benched: set[str] = set()
+# Where each benched task resumes, so it never redoes an attempt it already made.
+_resume_points: dict[str, TaskDeferred] = {}
 # Longest nap of the worker left for benched tasks, so a jar added meanwhile is noticed.
 _BENCH_POLL_SECONDS = 5.0
 
@@ -90,8 +92,10 @@ def _worker_loop() -> None:
                     continue
                 # Any remaining pending tasks get their own worker, up to the cap.
                 ensure_worker()
+                with _bench_lock:
+                    resume = _resume_points.pop(task_id, None)
                 with task_execution(task_id):
-                    run_task(task_id, task, mark_running=False)
+                    run_task(task_id, task, mark_running=False, resume=resume)
             except TaskCancelled:
                 # BaseException, so `except Exception` would let it kill the worker.
                 continue
@@ -99,6 +103,7 @@ def _worker_loop() -> None:
                 # Benched before requeued, so no worker claims it straight back.
                 with _bench_lock:
                     _benched.add(deferred.source_key)
+                    _resume_points[task_id] = deferred
                 defer_task(task_id)
             except Exception:
                 time.sleep(1)

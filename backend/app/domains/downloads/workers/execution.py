@@ -148,6 +148,7 @@ def _run_engine_attempts(
     post_processing: dict[str, Any] | None = None,
     progress: TaskProgress | None = None,
     part_directory: str = "",
+    resume_walled: bool | None = None,
 ) -> tuple[int, str, list[str]]:
     def _attempt(access: AccessIdentity) -> tuple[int, str, list[str]]:
         cmd = engine.build_command(
@@ -175,8 +176,8 @@ def _run_engine_attempts(
     # Cheapest first: a fingerprint only after a wall, a cookie only once the public path fails.
     rc, last_dest, emitted_paths = 1, "", []
     tried = 0
-    walled = False
-    with closing(access_rotation(cookie_source_key, first_cookie_wait=0)) as rotation:
+    walled = bool(resume_walled)
+    with closing(access_rotation(cookie_source_key, first_cookie_wait=0, walled=resume_walled)) as rotation:
         for access in rotation:
             if access.lease is not None:
                 tried += 1
@@ -204,7 +205,7 @@ def _run_engine_attempts(
                 )
     # Every jar busy: the worker takes another source's task while this one waits in the queue.
     if not tried and cookie_ready_in(cookie_source_key):
-        raise TaskDeferred(cookie_source_key)
+        raise TaskDeferred(cookie_source_key, walled=walled)
     return rc, last_dest, emitted_paths
 
 
@@ -212,22 +213,26 @@ def _task_template_settings(task: dict[str, Any]) -> dict[str, str] | None:
     return template_settings_from_row(task)
 
 
-def run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
+def run_task(
+    task_id: str, task: dict[str, Any], *, mark_running: bool = True, resume: TaskDeferred | None = None
+) -> None:
     # One resolution scope for the whole download: config, saved settings, source
     # profiles and per-source field rules are otherwise rebuilt for every output
     # item, which made a large gallery cost more in settings lookups than in I/O.
     try:
         if current_task_id() == task_id:
             with resolution_scope():
-                _run_task(task_id, task, mark_running=mark_running)
+                _run_task(task_id, task, mark_running=mark_running, resume=resume)
         else:
             with task_execution(task_id), resolution_scope():
-                _run_task(task_id, task, mark_running=mark_running)
+                _run_task(task_id, task, mark_running=mark_running, resume=resume)
     except TaskCancelled:
         remove_task_record(task_id)
 
 
-def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) -> None:
+def _run_task(
+    task_id: str, task: dict[str, Any], *, mark_running: bool = True, resume: TaskDeferred | None = None
+) -> None:
     from backend.app.domains.downloads.enrich import resolve_scraped_tokens, resolve_slug_tokens
 
     source_url = canonicalize_source_url(str(task.get("source_url") or ""))
@@ -289,13 +294,14 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
     emitted_paths: list[str] = []
     started_at = time.time()
     used_engine = candidates[0]
-    failure_details: list[str] = []
+    failure_details: list[str] = list(resume.failures) if resume else []
     output_paths: list[Path] = []
     try:
         raise_if_cancelled(task_id)
         record_task_progress(task_id, progress.prepare(0.6))
 
-        for index, engine in enumerate(candidates):
+        first_engine = resume.engine if resume else 0
+        for index, engine in enumerate(candidates[first_engine:], start=first_engine):
             if _cancel_pending(task_id):
                 break
             if engine.needs_ffmpeg and quality_needs_ffmpeg(quality):
@@ -330,22 +336,28 @@ def _run_task(task_id: str, task: dict[str, Any], *, mark_running: bool = True) 
             engine_url = _engine_link(engine, source_url)
             if engine_url != source_url:
                 append_task_log(task_id, f"[never-stelle] {engine.name} takes this item as {engine_url}")
-            rc, last_dest, emitted_paths = _run_engine_attempts(
-                engine,
-                task_id,
-                engine_url,
-                output_dir,
-                ffmpeg_location,
-                output_template,
-                cookie_source_key,
-                creator_sidecar,
-                metadata_sidecar,
-                total_items,
-                quality,
-                post_processing,
-                progress,
-                str(task_parts),
-            )
+            try:
+                rc, last_dest, emitted_paths = _run_engine_attempts(
+                    engine,
+                    task_id,
+                    engine_url,
+                    output_dir,
+                    ffmpeg_location,
+                    output_template,
+                    cookie_source_key,
+                    creator_sidecar,
+                    metadata_sidecar,
+                    total_items,
+                    quality,
+                    post_processing,
+                    progress,
+                    str(task_parts),
+                    resume_walled=resume.walled if resume and index == resume.engine else None,
+                )
+            except TaskDeferred as deferred:
+                # Resumes at this engine's cookie stage; nothing already tried runs again.
+                deferred.engine, deferred.failures = index, failure_details
+                raise
             if _cancel_pending(task_id):
                 break
             # Only a run without media hands over, so every output path belongs to this engine.
