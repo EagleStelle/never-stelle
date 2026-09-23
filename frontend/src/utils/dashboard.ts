@@ -958,7 +958,6 @@ export const TRACKER_SETTINGS_DEFAULTS: TrackerSettings = {
   page_size: 30,
   caught_up_after: 5,
   interval_seconds: 6 * 3600,
-  backfill: true,
 };
 
 export function createTrackerSettings(source: Partial<TrackerSettings> = {}): TrackerSettings {
@@ -967,7 +966,6 @@ export function createTrackerSettings(source: Partial<TrackerSettings> = {}): Tr
     const value = Math.floor(Number(source?.[field]));
     if (Number.isFinite(value) && value > 0) out[field] = value;
   }
-  if (typeof source?.backfill === "boolean") out.backfill = source.backfill;
   return out;
 }
 

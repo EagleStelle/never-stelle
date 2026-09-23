@@ -9,7 +9,7 @@ import threading
 import time
 from collections import Counter, deque
 from collections.abc import Callable, Generator, Iterator
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 from contextlib import closing, suppress
 from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
@@ -48,7 +48,17 @@ from backend.app.domains.downloads.probe import (
 )
 from backend.app.domains.downloads.store import load_learned_formats
 from backend.app.domains.downloads.urls import _is_strong_media_id
-from backend.app.domains.downloads.workers.processes import _kill_process_tree, request_cancel, task_execution
+from backend.app.domains.downloads.workers.processes import (
+    TaskCancelled,
+    _kill_process_tree,
+    _register_process,
+    _unregister_process,
+    cancel_on_request,
+    current_task_id,
+    raise_if_cancelled,
+    request_cancel,
+    task_execution,
+)
 from backend.app.domains.downloads.ytdlp import ytdlp_access_args
 from backend.app.domains.settings.fields import get_effective_source_fields_map
 from backend.app.domains.settings.trackers import merge_tracker_tabs, page_words, row_matches, same_label
@@ -194,7 +204,8 @@ class _Run:
 def _stream(cmd: list[str], access: AccessIdentity, run: _Run) -> Iterator[Any]:
     """Yield each JSON line the command prints; other lines are kept as its log.
 
-    Closing the iterator early kills the process, so a caller can stop a long listing.
+    Closing the iterator early kills the process, so a caller can stop a long listing; so does cancelling
+    the task it runs in.
     """
     cmd, kwargs = low_priority_command(cmd, {"start_new_session": True} if os.name != "nt" else {})
     process = subprocess.Popen(
@@ -207,6 +218,8 @@ def _stream(cmd: list[str], access: AccessIdentity, run: _Run) -> Iterator[Any]:
         env=access_env(access),
         **kwargs,
     )
+    task_id = current_task_id()
+    _register_process(task_id, process)
     last_output = [time.monotonic()]
     # Set while the caller handles a message, so slow probing is not taken for a silent listing.
     handling = threading.Event()
@@ -241,8 +254,11 @@ def _stream(cmd: list[str], access: AccessIdentity, run: _Run) -> Iterator[Any]:
             if text:
                 run.note(text)
         run.returncode = process.wait()
+        # A cancelled listing was killed, not finished.
+        raise_if_cancelled()
     finally:
         done.set()
+        _unregister_process(task_id, process)
         _kill_process_tree(process)
         process.wait()
 
@@ -540,9 +556,8 @@ class _Resolver:
         return ""
 
     def _route(self, candidates: list[str], kind: tuple[str, str], id_key: str, id_value: str) -> str:
-        # Several learned routes fit one id; the route an engine confirms for this kind of file is kept.
-        if len(candidates) <= 1:
-            return next(iter(candidates), "")
+        # A learned route can belong to another kind of file, as a reel route for a photo; only the route an
+        # engine confirms for this kind of file is kept.
         if kind not in self.routes:
             self.routes[kind] = ""
             for candidate in candidates[:_MAX_PROBES]:
@@ -924,8 +939,13 @@ class _Probes:
                 return
             self.waiting.popleft()
             key = url_dedup_key(link)
+            try:
+                flat = probed.result() if probed else {}
+            except CancelledError:
+                # Only closing the walk drops a probe, as when its check is stopped.
+                raise TaskCancelled() from None
             entry = Entry(url=link) if downloaded and key not in self.resolver.listed else None
-            entry = entry or self.resolver.page_entry(link, probed.result() if probed else {})
+            entry = entry or self.resolver.page_entry(link, flat)
             if entry:
                 self.resolver.listed.update((url_dedup_key(entry.url), *entry.members))
                 yield entry
@@ -934,11 +954,14 @@ class _Probes:
                 self.backlog.failed(link)
 
     def close(self) -> None:
-        # A walk closed early stops the runs still reading; their links stay in the backlog.
+        # A walk closed early stops the runs still reading and drops the links no run took; they stay in the backlog.
         with self.lock:
             self.closed = True
             running = list(self.running)
+            unread, self.unread = self.unread, deque()
         self.pool.shutdown(wait=False, cancel_futures=True)
+        for _, future in unread:
+            future.cancel()
         for run_id in running:
             request_cancel(run_id)
 
@@ -1424,7 +1447,8 @@ def iter_entries(
     resolver.batch = batch
     visited = {_visit_key(url)}
     probes = _Probes(resolver, backlog)
-    try:
+    # Cancelling the task the walk runs in stops its probes too.
+    with closing(probes), cancel_on_request(probes.close):
         error: ValueError | None = None
         try:
             stats.unread = yield from _collection_entries(
@@ -1489,5 +1513,3 @@ def iter_entries(
         # Items a page showed count even when all were known, so a page with nothing new is no failure.
         if error and not (resolver.listed or stats.shown):
             raise error
-    finally:
-        probes.close()

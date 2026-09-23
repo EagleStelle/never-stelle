@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import sys
 import threading
 import time
 from contextlib import closing
@@ -61,7 +62,6 @@ def _insert_tracker(**overrides) -> dict:
             "name": "alice",
             "enabled": True,
             "interval_seconds": 3600,
-            "backfill": True,
             "quality": {"mode": "audio"},
             "post_processing": {"metadata": "embed"},
             "next_check_at": "",
@@ -192,6 +192,8 @@ def test_gallerydl_file_reconstructs_a_link_from_the_learned_format(temp_db, mon
         }
     }
     kwdict = {"user_id": "11111111", "post_id": "22222222", "username": "alice"}
+    post = "https://example.test/alice/post/22222222"
+    probed = _fake_catalog(monkeypatch, [], {post: [[2, {}], [3, "https://cdn.other.test/a.jpg", kwdict]]})
     stats = ListingStats()
 
     entries = list(
@@ -201,7 +203,8 @@ def test_gallerydl_file_reconstructs_a_link_from_the_learned_format(temp_db, mon
     )
 
     # The creator's own id matches the signature too, but names the person, not the post.
-    assert entries == [Entry(url="https://example.test/alice/post/22222222", creator="alice", collection="alice")]
+    assert entries == [Entry(url=post, creator="alice", collection="alice")]
+    assert probed == [post]
     assert stats.unresolved == 0
 
 
@@ -406,6 +409,24 @@ def test_learned_routes_are_confirmed_once_per_kind_of_file(temp_db, monkeypatch
     )
 
     assert [entry.url for entry in entries] == [photo, "https://example.test/photo?fbid=33333333"]
+    assert probed == ["https://example.test/reel/22222222", photo]
+
+
+def test_a_single_learned_route_of_another_kind_of_file_is_not_used(temp_db, monkeypatch):
+    learned = {"example": {"templates": ["https://example.test/reel/{id}"], "id_classes": ["d"]}}
+    photo = "https://example.test/photo/22222222"
+    probed = _fake_catalog(monkeypatch, [_list_extractor("photo")], {photo: [[2, {}], _catalog_file("22222222")]})
+
+    entries = list(
+        listing_module._gallerydl_entries(
+            iter([_catalog_file("22222222"), _catalog_file("33333333")]),
+            _resolver(learned, monkeypatch),
+            ListingStats(),
+            [],
+        )
+    )
+
+    assert [entry.url for entry in entries] == [photo, "https://example.test/photo/33333333"]
     assert probed == ["https://example.test/reel/22222222", photo]
 
 
@@ -1450,11 +1471,9 @@ def test_created_tracker_is_due_at_once_without_listing_its_link(temp_db, monkey
 
     monkeypatch.setattr(service_module, "iter_entries", never)
 
-    created = service_module.create_tracker(
-        TRACKER_URL, quality={"mode": "audio"}, backfill=False, interval_seconds=10
-    )
+    created = service_module.create_tracker(TRACKER_URL, quality={"mode": "audio"}, interval_seconds=10)
 
-    assert (created["enabled"], created["backfill"], created["interval_seconds"]) == (True, False, 3600)
+    assert (created["enabled"], created["interval_seconds"]) == (True, 3600)
     assert created["name"] == service_module._fallback_name(TRACKER_URL)
     with pytest.raises(ValueError, match="already tracked"):
         service_module.create_tracker(TRACKER_URL)
@@ -1462,18 +1481,6 @@ def test_created_tracker_is_due_at_once_without_listing_its_link(temp_db, monkey
 
 
 # --- Check ---
-def test_first_check_without_backfill_records_everything_and_queues_nothing(temp_db, monkeypatch):
-    _insert_tracker(backfill=False)
-    queue = _Queue()
-
-    tracker = _check(monkeypatch, [_entry(n) for n in range(5)], queue)
-
-    assert queue.calls == []
-    assert repositories.count_tracker_items()["t1"]["seen"] == 5
-    assert tracker["last_success_at"]
-    assert tracker["checking_at"] == ""
-
-
 def test_first_check_of_a_single_item_link_explains_why_and_stays_first(temp_db, monkeypatch):
     _insert_tracker()
     queue = _Queue()
@@ -1492,15 +1499,16 @@ def test_first_check_names_the_tracker_after_its_collection(temp_db, monkeypatch
     assert tracker["name"] == "Alice Films"
 
 
-def test_backfill_queues_every_entry_with_the_saved_settings(temp_db, monkeypatch):
+def test_first_check_queues_every_entry_with_the_saved_settings(temp_db, monkeypatch):
     _insert_tracker()
     queue = _Queue()
 
-    _check(monkeypatch, [_entry(n) for n in range(3)], queue)
+    tracker = _check(monkeypatch, [_entry(n) for n in range(3)], queue)
 
     assert [url for url, _ in queue.calls] == [_entry(n).url for n in range(3)]
     assert queue.calls[0][1] == {"mode": "audio", "_post_processing": {"metadata": "embed"}}
     assert sorted(repositories.tracker_download_ids("t1")) == ["gallerydl:1", "gallerydl:2", "gallerydl:3"]
+    assert (bool(tracker["last_success_at"]), tracker["checking_at"]) == (True, "")
 
 
 def test_later_check_queues_only_new_entries_and_lets_listings_stop_at_known_ones(temp_db, monkeypatch):
@@ -1547,20 +1555,6 @@ def test_a_full_batch_waits_for_the_interval_then_takes_new_entries_before_older
 
     assert [url for url, _ in queue.calls[6:]] == [entries[4].url]
     assert last["last_success_at"]
-
-
-def test_pages_of_a_first_pass_without_backfill_queue_nothing(temp_db, monkeypatch):
-    _insert_tracker(backfill=False)
-    _page_size(2)
-    entries = [_entry(n) for n in range(3)]
-    queue = _Queue()
-
-    _check(monkeypatch, entries, queue)
-    tracker = _check(monkeypatch, entries, queue)
-
-    assert queue.calls == []
-    assert repositories.count_tracker_items()["t1"]["seen"] == 3
-    assert tracker["last_success_at"]
 
 
 def test_a_page_of_only_queue_failures_waits_for_the_next_interval(temp_db, monkeypatch):
@@ -1731,7 +1725,7 @@ def test_each_check_scrolls_one_batch_deeper_past_what_earlier_checks_found(temp
 def test_a_backlogged_link_no_engine_reads_is_dropped_after_its_attempts(temp_db):
     _insert_tracker()
     link = "https://example.test/reel/11111111"
-    backlog = service_module._TrackerBacklog("t1", queue_new=True)
+    backlog = service_module._TrackerBacklog("t1")
     backlog.add([link])
 
     for _ in range(service_module._BACKLOG_ATTEMPTS - 1):
@@ -1741,23 +1735,6 @@ def test_a_backlogged_link_no_engine_reads_is_dropped_after_its_attempts(temp_db
     backlog.failed(link)
     assert backlog.links() == []
 
-
-def test_a_first_pass_without_backfill_records_what_pages_show_without_a_backlog(temp_db, monkeypatch):
-    _insert_tracker(backfill=False)
-    reels = [f"https://example.test/reel/{n}1111111" for n in range(1, 4)]
-    _reel_page(monkeypatch, "")
-    _browser(monkeypatch, *([reel] for reel in reels))
-    queue = _Queue()
-    monkeypatch.setattr(service_module, "queue_task", queue)
-    probed: list[str] = []
-    monkeypatch.setattr(listing_module, "probe_metadata", lambda urls, **options: probed.extend(urls) or {})
-
-    service_module.run_check(repositories.load_tracker_row("t1"))
-    tracker = repositories.load_tracker_row("t1")
-
-    assert (queue.calls, probed, repositories.tracker_backlog_urls("t1")) == ([], [], [])
-    assert repositories.count_tracker_items()["t1"]["seen"] == len(reels)
-    assert (tracker["last_error"], bool(tracker["last_success_at"])) == ("", True)
 
 
 def _check_while(monkeypatch, listing) -> None:
@@ -1794,18 +1771,62 @@ def test_a_tracker_deleted_mid_check_keeps_no_entries(temp_db, monkeypatch):
     assert "t1" not in repositories.count_tracker_items()
 
 
+def _check_in_background(monkeypatch) -> threading.Thread:
+    # A check that recorded one entry and then waits on an engine that never answers.
+    started = threading.Event()
+
+    def listing(url, source_key, stats=None, **kwargs):
+        yield _entry(1)
+        started.set()
+        command = [sys.executable, "-c", "import time; time.sleep(60)"]
+        yield from listing_module._stream(command, AccessIdentity(), listing_module._Run())
+
+    monkeypatch.setattr(service_module, "iter_entries", listing)
+    monkeypatch.setattr(service_module, "queue_task", _Queue())
+    check = threading.Thread(target=service_module.run_check, args=(repositories.load_tracker_row("t1"),))
+    check.start()
+    assert started.wait(timeout=10)
+    return check
+
+
+def test_stopping_a_check_ends_it_at_once_and_keeps_what_it_recorded(temp_db, monkeypatch):
+    _insert_tracker()
+    check = _check_in_background(monkeypatch)
+    began = time.monotonic()
+
+    service_module.stop_check("t1")
+    check.join(timeout=10)
+
+    assert not check.is_alive()
+    assert time.monotonic() - began < 5
+    tracker = repositories.load_tracker_row("t1")
+    assert (tracker["checking_at"], tracker["last_success_at"], tracker["last_error"]) == ("", "", "")
+    assert repositories.count_tracker_items()["t1"]["seen"] == 1
+
+
+def test_deleting_a_tracker_stops_its_check_before_removing_it(temp_db, monkeypatch):
+    _insert_tracker()
+    check = _check_in_background(monkeypatch)
+
+    service_module.delete_tracker("t1")
+    check.join(timeout=1)
+
+    assert not check.is_alive()
+    assert repositories.load_tracker_row("t1") == {}
+    assert repositories.tracker_download_ids("t1") == []
+
+
 def test_tracker_settings_are_clamped_and_seed_new_trackers(temp_db):
     assert normalize_tracker_settings({"page_size": 0, "caught_up_after": "x", "interval_seconds": 10**9}) == {
         "page_size": 1,
         "caught_up_after": 5,
         "interval_seconds": 30 * 24 * 3600,
-        "backfill": True,
     }
-    save_saved_settings_file({"tracker_settings": {"interval_seconds": 3 * 3600, "backfill": False}})
+    save_saved_settings_file({"tracker_settings": {"interval_seconds": 3 * 3600}})
 
     created = service_module.create_tracker(TRACKER_URL)
 
-    assert (created["interval_seconds"], created["backfill"]) == (3 * 3600, False)
+    assert created["interval_seconds"] == 3 * 3600
 
 
 def test_a_post_records_its_photos_and_foreign_items_are_never_queued(temp_db, monkeypatch):

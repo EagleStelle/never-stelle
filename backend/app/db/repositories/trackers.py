@@ -14,7 +14,6 @@ _TRACKER_COLUMNS = (
     "name",
     "enabled",
     "interval_seconds",
-    "backfill",
     "quality",
     "post_processing",
     "next_check_at",
@@ -28,7 +27,7 @@ _TRACKER_COLUMNS = (
 )
 _TRACKER_SELECT = ", ".join(_TRACKER_COLUMNS)
 _JSON_COLUMNS = {"quality", "post_processing", "feeds"}
-_BOOL_COLUMNS = {"enabled", "backfill"}
+_BOOL_COLUMNS = {"enabled"}
 _UPDATABLE = set(_TRACKER_COLUMNS) - {"id", "source_url", "source_key", "created_at", "updated_at"}
 # SQLite caps bound parameters per statement; stay well under it.
 _CHUNK = 500

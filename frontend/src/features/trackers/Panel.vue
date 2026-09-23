@@ -81,6 +81,11 @@ function trackerStatus(tracker: Tracker): string {
   return tracker.enabled ? "" : "Paused";
 }
 
+// The check button stops a check already running.
+function checkLabel(tracker: Tracker): string {
+  return tracker.checking ? "Stop check" : "Check now";
+}
+
 const TRACKER_STATS: { label: string; icon: Component; count: (counts: Tracker["counts"]) => number }[] = [
   { label: "Seen", icon: IconSeen, count: (counts) => counts.seen },
   { label: "Downloaded", icon: COUNT_ICONS.completed, count: (counts) => counts.completed },
@@ -100,7 +105,6 @@ function toggleTracker(tracker: Tracker): void {
 const draftSelection = reactive<QualitySelection>(createQualitySelection());
 const draftPostProcessing = reactive<PostProcessingSelection>(createPostProcessingSelection());
 const draftInterval = ref("");
-const draftBackfill = ref(true);
 const draftQualityFields = computed(() => qualityFieldsFor(draftSelection, qualityOptions.value));
 const draftCapabilities = computed(() => postProcessingCapabilitiesForQuality(draftSelection, qualityOptions.value));
 
@@ -114,7 +118,6 @@ watch(
     Object.assign(draftSelection, createQualitySelection(tracker ? tracker.quality : downloadSelection, qualityOptions.value));
     Object.assign(draftPostProcessing, createPostProcessingSelection(tracker ? tracker.post_processing : downloadPostProcessing));
     draftInterval.value = String(tracker ? tracker.interval_seconds : defaults.interval_seconds);
-    draftBackfill.value = tracker ? tracker.backfill : defaults.backfill;
   },
   { immediate: true },
 );
@@ -148,10 +151,6 @@ function setDraftInterval(value: string | string[]): void {
   if (typeof value === "string" && value) draftInterval.value = value;
 }
 
-function setDraftBackfill(value: boolean): void {
-  draftBackfill.value = value;
-}
-
 const saving = ref(false);
 const applyButton = useTemplateRef<InstanceType<typeof Button>>("applyButton");
 
@@ -166,7 +165,6 @@ async function applyTracker(): Promise<void> {
     quality: createQualitySelection(draftSelection, qualityOptions.value),
     post_processing: constrainPostProcessingSelection(draftPostProcessing, draftCapabilities.value),
     interval_seconds: Number(draftInterval.value),
-    backfill: draftBackfill.value,
   };
   const tracker = openTracker.value;
   if (tracker) {
@@ -266,9 +264,9 @@ async function confirmDelete(): Promise<void> {
             <div class="flex items-center justify-end gap-1.5">
               <Button
                 type="button"
-                title="Check now"
-                aria-label="Check now"
-                :disabled="tracker.checking || !tracker.enabled"
+                :title="checkLabel(tracker)"
+                :aria-label="checkLabel(tracker)"
+                :disabled="!tracker.checking && !tracker.enabled"
                 @click="checkTracker(tracker.id)"
               >
                 <template #icon>
@@ -354,9 +352,9 @@ async function confirmDelete(): Promise<void> {
           <CardAction @click.stop>
             <Button
               type="button"
-              title="Check now"
-              aria-label="Check now"
-              :disabled="tracker.checking || !tracker.enabled"
+              :title="checkLabel(tracker)"
+              :aria-label="checkLabel(tracker)"
+              :disabled="!tracker.checking && !tracker.enabled"
               @click="checkTracker(tracker.id)"
             >
               <template #icon>
@@ -519,17 +517,6 @@ async function confirmDelete(): Promise<void> {
               empty-text="No intervals."
               @update:model-value="setDraftInterval"
             />
-            <FieldLabel
-              class="cursor-pointer items-center gap-2 whitespace-nowrap"
-              :title="openTracker?.last_success_at ? 'Only applies until the first full check finishes.' : undefined"
-            >
-              <Checkbox
-                :checked="draftBackfill"
-                :disabled="Boolean(openTracker?.last_success_at)"
-                @update:checked="setDraftBackfill"
-              />
-              <span>Download existing media</span>
-            </FieldLabel>
           </div>
           <div class="flex items-center gap-2">
             <Button variant="ghost" type="button" @click="closeTracker">Cancel</Button>

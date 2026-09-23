@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import itertools
 import random
+import time
 import uuid
-from contextlib import closing
+from contextlib import closing, suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,12 @@ from backend.app.domains.downloads.formats import creator_from_url, url_dedup_ke
 from backend.app.domains.downloads.operations import queue_task, remove_pending_task, retry_task
 from backend.app.domains.downloads.store import load_history_entry, load_task, remove_history_record
 from backend.app.domains.downloads.urls import canonicalize_source_url
+from backend.app.domains.downloads.workers.processes import (
+    TaskCancelled,
+    has_active_task,
+    request_cancel,
+    task_execution,
+)
 from backend.app.domains.settings import (
     get_effective_source_profiles,
     get_tracker_settings,
@@ -57,6 +64,9 @@ UNRESOLVED_ERROR = "Could not build post links for this source."
 SINGLE_ITEM_ERROR = "This link points to a single item; add a creator, channel or playlist link."
 # Trackers whose next check was asked for by hand: it queues their missing downloads again.
 _asked: set[str] = set()
+# How long a stop that waits gives the check to end.
+_STOP_WAIT_SECONDS = 30.0
+_STOP_POLL_SECONDS = 0.1
 
 
 def _interval(value: Any) -> int:
@@ -89,7 +99,6 @@ def tracker_to_api(tracker: dict[str, Any], counts: dict[str, int] | None = None
         "name": tracker["name"],
         "enabled": tracker["enabled"],
         "interval_seconds": tracker["interval_seconds"],
-        "backfill": tracker["backfill"],
         "quality": tracker["quality"],
         "post_processing": tracker["post_processing"],
         "next_check_at": tracker["next_check_at"],
@@ -128,7 +137,6 @@ def create_tracker(
     quality: dict[str, Any] | None = None,
     post_processing: dict[str, Any] | None = None,
     interval_seconds: int | None = None,
-    backfill: bool | None = None,
 ) -> dict[str, Any]:
     """Save the link and make it due at once."""
     url = canonicalize_source_url(source_url)
@@ -138,7 +146,6 @@ def create_tracker(
         raise ValueError("Links handled by Swaratelle cannot be tracked.")
     if find_tracker_by_url(url):
         raise ValueError("This link is already tracked.")
-    defaults = get_tracker_settings()
     tracker = insert_tracker_row(
         {
             "id": uuid.uuid4().hex[:12],
@@ -147,7 +154,6 @@ def create_tracker(
             "name": _fallback_name(url),
             "enabled": True,
             "interval_seconds": _interval(interval_seconds),
-            "backfill": defaults["backfill"] if backfill is None else backfill,
             "quality": normalize_quality_selection(quality) if quality else {},
             "post_processing": normalize_post_processing(post_processing) if post_processing is not None else {},
             "next_check_at": utc_now(),
@@ -163,8 +169,6 @@ def update_tracker(tracker_id: str, changes: dict[str, Any]) -> dict[str, Any]:
         updates["enabled"] = bool(changes["enabled"])
     if changes.get("interval_seconds") is not None:
         updates["interval_seconds"] = _interval(changes["interval_seconds"])
-    if changes.get("backfill") is not None:
-        updates["backfill"] = bool(changes["backfill"])
     if changes.get("quality") is not None:
         updates["quality"] = normalize_quality_selection(changes["quality"])
     if changes.get("post_processing") is not None:
@@ -181,6 +185,21 @@ def check_tracker_now(tracker_id: str) -> None:
         raise PermissionError("Resume the tracker to check it.")
     _asked.add(tracker_id)
     update_tracker_row(tracker_id, {"next_check_at": utc_now()})
+
+
+def _check_task_id(tracker_id: str) -> str:
+    return f"tracker-check:{tracker_id}"
+
+
+def stop_check(tracker_id: str, *, wait: bool = False) -> None:
+    """Stop the tracker's running check at once; what it recorded stays, and the next check comes at the interval.
+    With ``wait``, returns once the check ended, so it queues nothing after."""
+    get_tracker(tracker_id)
+    task_id = _check_task_id(tracker_id)
+    request_cancel(task_id)
+    deadline = time.monotonic() + _STOP_WAIT_SECONDS
+    while wait and has_active_task(task_id) and time.monotonic() < deadline:
+        time.sleep(_STOP_POLL_SECONDS)
 
 
 def _remove_files(entry: dict[str, Any], emptied: set[Path]) -> None:
@@ -205,7 +224,8 @@ def _remove_files(entry: dict[str, Any], emptied: set[Path]) -> None:
 
 
 def delete_tracker(tracker_id: str, *, delete_files: bool = False) -> None:
-    get_tracker(tracker_id)
+    stop_check(tracker_id, wait=True)
+    _asked.discard(tracker_id)
     for download_id in tracker_download_ids(tracker_id):
         if str(load_task(download_id).get("status") or "") in _ACTIVE_STATUSES:
             remove_pending_task(download_id)
@@ -251,9 +271,8 @@ def _queue_missing(tracker: dict[str, Any]) -> list[str]:
 class _TrackerBacklog:
     """The tracker's backlog, kept between checks."""
 
-    def __init__(self, tracker_id: str, queue_new: bool) -> None:
+    def __init__(self, tracker_id: str) -> None:
         self.tracker_id = tracker_id
-        self.queue_new = queue_new
         self.found_at = utc_now()
         self.positions = itertools.count()
 
@@ -261,13 +280,8 @@ class _TrackerBacklog:
         return has_tracker_backlog_row(self.tracker_id, key)
 
     def add(self, links: list[str]) -> None:
-        rows = [(url_dedup_key(link), link) for link in links]
-        if self.queue_new:
-            positioned = [(key, link, next(self.positions)) for key, link in rows]
-            add_tracker_backlog_rows(self.tracker_id, self.found_at, positioned)
-        else:
-            # A pass that queues nothing needs no probe to tell whose item is whose.
-            record_tracker_entry_rows(self.tracker_id, [(key, link, "") for key, link in rows])
+        rows = [(url_dedup_key(link), link, next(self.positions)) for link in links]
+        add_tracker_backlog_rows(self.tracker_id, self.found_at, rows)
 
     def links(self) -> list[str]:
         return tracker_backlog_urls(self.tracker_id)
@@ -297,15 +311,20 @@ def run_check(tracker: dict[str, Any]) -> None:
     has yet to reach. Pages are scrolled once and what they showed waits in the backlog for the
     batches after; ``last_success_at`` marks a pass that reached every end, where later ones stop.
     Pages the link offers that the source's rows lack are added to them for every tracker of the source.
-    A check asked for by hand first queues again the downloads its seen entries lost.
+    A check asked for by hand first queues again the downloads its seen entries lost. ``stop_check`` ends it
+    at once.
     """
+    with task_execution(_check_task_id(tracker["id"])), suppress(TaskCancelled):
+        _run_check(tracker)
+
+
+def _run_check(tracker: dict[str, Any]) -> None:
     tracker_id = tracker["id"]
     asked = tracker_id in _asked
     _asked.discard(tracker_id)
     settings = get_tracker_settings()
     pass_start = tracker["last_success_at"]
     first = not pass_start
-    queue_new = tracker["backfill"] or not first
     stats = ListingStats()
     listed: set[str] = set()
     failures: list[str] = []
@@ -333,7 +352,7 @@ def run_check(tracker: dict[str, Any]) -> None:
                 learned=_learned_pages(tracker),
                 batch=settings["page_size"],
                 ended=tracker["feeds"].get("ended") or [],
-                backlog=_TrackerBacklog(tracker_id, queue_new),
+                backlog=_TrackerBacklog(tracker_id),
             )
             with closing(entries):
                 for entry in entries:
@@ -349,8 +368,9 @@ def run_check(tracker: dict[str, Any]) -> None:
                     if counted + len(failures) >= settings["page_size"]:
                         break
                     download_id = ""
-                    if queue_new and entry.owned:
+                    if entry.owned:
                         try:
+                            # An item the app already downloaded is linked, not fetched again.
                             download_id = _queue_entry(tracker, entry)
                         except Exception as exc:
                             # Left unrecorded, so the next check tries the entry again.
@@ -362,10 +382,9 @@ def run_check(tracker: dict[str, Any]) -> None:
                         tracker_id,
                         [(member, entry.url, download_id) for member in dict.fromkeys((key, *entry.members))],
                     )
-                    # Someone else's item is recorded without taking a place in a batch that queues.
-                    if entry.owned or not queue_new:
+                    # Someone else's item is recorded without taking a place in the batch.
+                    if entry.owned:
                         counted += 1
-        # A pass that queues nothing records what pages show without listing it.
         if not listed and not stats.shown and (first or stats.unresolved):
             raise ValueError(UNRESOLVED_ERROR if stats.unresolved else SINGLE_ITEM_ERROR)
         succeeded = True

@@ -768,22 +768,17 @@ def test_tracker_routes_create_apply_check_and_delete(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
     monkeypatch.setattr(trackers_router, "ensure_tracker_worker", lambda: None)
 
-    created = client.post(
-        "/api/trackers", json={"url": "https://example.test/u/alice", "backfill": False, "interval_seconds": 86400}
-    )
+    created = client.post("/api/trackers", json={"url": "https://example.test/u/alice", "interval_seconds": 86400})
     assert created.status_code == 200
     tracker_id = created.json()["id"]
-    assert (created.json()["enabled"], created.json()["backfill"], created.json()["interval_seconds"]) == (
-        True,
-        False,
-        86400,
-    )
+    assert (created.json()["enabled"], created.json()["interval_seconds"]) == (True, 86400)
     assert client.post("/api/trackers", json={"url": "https://example.test/u/alice"}).status_code == 400
 
     listed = client.get("/api/trackers").json()["trackers"]
     assert [(tracker["id"], tracker["counts"]["seen"]) for tracker in listed] == [(tracker_id, 0)]
 
     assert client.post(f"/api/trackers/{tracker_id}/check").status_code == 204
+    assert client.delete(f"/api/trackers/{tracker_id}/check").status_code == 204
     # Paused, so there is nothing to check.
     assert client.patch(f"/api/trackers/{tracker_id}", json={"enabled": False}).json()["enabled"] is False
     assert client.post(f"/api/trackers/{tracker_id}/check").status_code == 409

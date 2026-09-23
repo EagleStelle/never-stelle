@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
 import {
   Field,
@@ -110,13 +109,6 @@ function setIntervalSeconds(value: string | string[]): void {
             empty-text="No intervals."
             @update:model-value="setIntervalSeconds"
           />
-          <FieldLabel class="cursor-pointer items-center gap-2">
-            <Checkbox
-              :checked="settingsDraft.tracker_settings.backfill"
-              @update:checked="(value: boolean) => (settingsDraft.tracker_settings.backfill = value)"
-            />
-            <span>Download existing media</span>
-          </FieldLabel>
         </FieldGroup>
       </FieldSet>
     </div>

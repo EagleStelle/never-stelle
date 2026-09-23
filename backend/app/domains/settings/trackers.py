@@ -31,8 +31,6 @@ def normalize_tracker_settings(raw: Any) -> dict[str, Any]:
         value = source.get(field)
         number = default if value is None or isinstance(value, bool) else safe_int(value, default)
         out[field] = max(minimum, min(number, maximum))
-    # Whether a new tracker downloads what its link already holds.
-    out["backfill"] = bool(source.get("backfill", True))
     return out
 
 

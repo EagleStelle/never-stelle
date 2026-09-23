@@ -6,6 +6,7 @@ import {
   createTracker,
   deleteTracker as deleteTrackerRequest,
   getTrackers,
+  stopTrackerCheck,
   updateTracker as updateTrackerRequest,
 } from "@/api";
 import { HISTORY_QUERY_KEY, POLL_RUNNING_MS, TASKS_QUERY_KEY, TRACKERS_QUERY_KEY } from "@/ui";
@@ -174,9 +175,20 @@ export function useTrackers({ enabled, tasks, toast, url }: UseTrackersOptions) 
     }
   }
 
-  // Reports once the check is done, not when it is asked for.
+  // Reports once the check is done, not when it is asked for. A check already running is stopped instead.
   async function checkTracker(trackerId: string): Promise<void> {
     const tracker = trackers.value.find((item) => item.id === trackerId);
+    if (tracker?.checking) {
+      requestedChecks.delete(trackerId);
+      try {
+        await stopTrackerCheck(trackerId);
+        toast(`${tracker.name}: check stopped.`);
+        await refreshTrackers();
+      } catch (error) {
+        toast(errorMessage(error, "Could not stop the check."), "error");
+      }
+      return;
+    }
     try {
       await checkTrackerRequest(trackerId);
       if (tracker) requestedChecks.set(trackerId, { seen: tracker.counts.seen, lastCheckedAt: tracker.last_checked_at });

@@ -61,3 +61,12 @@ def check_tracker(tracker_id: str) -> Response:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     ensure_tracker_worker()
     return Response(status_code=204)
+
+
+@router.delete("/{tracker_id}/check", status_code=204, response_class=Response)
+def stop_tracker_check(tracker_id: str) -> Response:
+    try:
+        service.stop_check(tracker_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)

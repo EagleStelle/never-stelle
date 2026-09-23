@@ -288,7 +288,6 @@ export interface TrackerSettings {
   caught_up_after: number;
   // What a new tracker starts with.
   interval_seconds: number;
-  backfill: boolean;
 }
 
 // A name a page went by: a path segment, or a query value with its field.
@@ -415,7 +414,6 @@ export interface Tracker {
   name: string;
   enabled: boolean;
   interval_seconds: number;
-  backfill: boolean;
   quality: Partial<QualitySelection>;
   post_processing: Partial<PostProcessingSelection>;
   next_check_at: string;
@@ -435,7 +433,6 @@ export interface TrackersResponse {
 export interface TrackerPayload {
   enabled?: boolean;
   interval_seconds?: number;
-  backfill?: boolean;
   quality?: QualitySelection;
   post_processing?: PostProcessingSelection;
 }

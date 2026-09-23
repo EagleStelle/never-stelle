@@ -22,7 +22,6 @@ def upgrade(connection: sqlite3.Connection) -> None:
             name             TEXT    NOT NULL DEFAULT '',
             enabled          INTEGER NOT NULL DEFAULT 0,
             interval_seconds INTEGER NOT NULL DEFAULT 21600,
-            backfill         INTEGER NOT NULL DEFAULT 1,
             quality          TEXT    NOT NULL DEFAULT '{}',
             post_processing  TEXT    NOT NULL DEFAULT '{}',
             next_check_at    TEXT    NOT NULL DEFAULT '',

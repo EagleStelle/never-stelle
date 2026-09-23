@@ -20,7 +20,13 @@ from backend.app.runtime.scratch import remove_scratch_path, scratch_temp_dir
 
 from .enrich import _load_cookie_jar
 from .probe import low_priority_command
-from .workers.processes import _kill_process_tree
+from .workers.processes import (
+    _kill_process_tree,
+    _register_process,
+    _unregister_process,
+    current_task_id,
+    raise_if_cancelled,
+)
 
 # The image ships the browser compressed; arches and checkouts without it list static pages only.
 _BUNDLE_DIR = Path("/opt/chrome")
@@ -159,6 +165,7 @@ class BrowserSession:
     def __init__(self, source_key: str) -> None:
         self.source_key = source_key
         self._process: subprocess.Popen[bytes] | None = None
+        self._task_id = ""
         self._profile: Path | None = None
         self._cookies: list[dict[str, Any]] = []
         # The browser the pages see: the jar's own, else the default one, never a headless one.
@@ -219,6 +226,8 @@ class BrowserSession:
                 raise
             self._follow(url, session_id, follow)
         except Exception:
+            # A browser killed by cancelling its task stops the walk.
+            raise_if_cancelled()
             # The page's end was never seen, so a later walk has to scroll it again.
             self.cut_short = True
             return
@@ -230,6 +239,7 @@ class BrowserSession:
     def close(self) -> None:
         process, self._process = self._process, None
         if process:
+            _unregister_process(self._task_id, process)
             with suppress(Exception):
                 if process.stdin:
                     process.stdin.close()
@@ -273,6 +283,9 @@ class BrowserSession:
             self.close()
             self.cut_short = True
             return False
+        # Cancelling the task the walk runs in kills the browser.
+        self._task_id = current_task_id()
+        _register_process(self._task_id, self._process)
         threading.Thread(target=self._read, name="never-stelle-browser-reader", daemon=True).start()
         return True
 

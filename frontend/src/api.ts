@@ -349,6 +349,12 @@ export async function checkTracker(trackerId: string): Promise<void> {
   throw new Error(await readError(response, "Could not check tracker."));
 }
 
+export async function stopTrackerCheck(trackerId: string): Promise<void> {
+  const response = await fetch(`/api/trackers/${encodeURIComponent(trackerId)}/check`, { method: "DELETE" });
+  if (response.status === 204) return;
+  throw new Error(await readError(response, "Could not stop the check."));
+}
+
 export async function deleteTracker(trackerId: string, deleteFiles: boolean): Promise<void> {
   const params = new URLSearchParams({ delete_files: String(deleteFiles) });
   const response = await fetch(`/api/trackers/${encodeURIComponent(trackerId)}?${params.toString()}`, {
