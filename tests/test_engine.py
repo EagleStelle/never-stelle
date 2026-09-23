@@ -256,7 +256,7 @@ def test_audio_metadata_and_thumbnail_request_youtube_music_cover_metadata():
         "https://www.youtube.com/watch?v=Yb9FzUPpk0Y",
         "/media",
         "\x1f{id}.{extension}",
-        metadata_sidecar="/scratch/task/downloads.tsv",
+        metadata_sidecar="/scratch/task/downloads.jsonl",
         quality=quality,
         post_processing=processing,
     )
@@ -286,7 +286,7 @@ def test_subtitle_options_capture_extractor_payload_for_finalization():
         "https://example.test/post/1",
         "/media",
         "\x1f{id}.{extension}",
-        metadata_sidecar="/scratch/task/downloads.tsv",
+        metadata_sidecar="/scratch/task/downloads.jsonl",
         post_processing=processing,
     )
     postprocessors = _gallerydl_postprocessors(cmd)
@@ -315,7 +315,7 @@ def test_chapter_options_capture_extractor_payload_for_finalization():
         "https://example.test/post/1",
         "/media",
         "\x1f{id}.{extension}",
-        metadata_sidecar="/scratch/task/downloads.tsv",
+        metadata_sidecar="/scratch/task/downloads.jsonl",
         post_processing=processing,
     )
     for integration in ("downloader", "extractor"):
@@ -338,7 +338,7 @@ def test_split_chapters_alone_captures_extractor_payload():
         "https://example.test/post/1",
         "/media",
         "\x1f{id}.{extension}",
-        metadata_sidecar="/scratch/task/downloads.tsv",
+        metadata_sidecar="/scratch/task/downloads.jsonl",
         post_processing={"split_chapters": True},
     )
     for integration in ("downloader", "extractor"):
@@ -1517,7 +1517,7 @@ def test_downloader_commands_route_parts_to_staging_and_extractor_payloads_to_ta
         "/usr/bin/ffmpeg",
         "/media/creator/clip.%(ext)s",
         output_dir="/media",
-        metadata_sidecar="/scratch/nvs-download-task-1/downloads.tsv",
+        metadata_sidecar="/scratch/nvs-download-task-1/downloads.jsonl",
         part_directory=part_directory,
         post_processing={"metadata": "sidecar"},
     )
@@ -1525,7 +1525,7 @@ def test_downloader_commands_route_parts_to_staging_and_extractor_payloads_to_ta
         "https://example.test/post/1",
         "/media",
         f"creator{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
-        metadata_sidecar="/scratch/nvs-download-task-1/downloads.tsv",
+        metadata_sidecar="/scratch/nvs-download-task-1/downloads.jsonl",
         part_directory=part_directory,
         post_processing={"metadata": "sidecar"},
     )
@@ -1538,9 +1538,38 @@ def test_downloader_commands_route_parts_to_staging_and_extractor_payloads_to_ta
     assert _has_cli_pair(gallery_cmd, "-o", f"downloader.part-directory={part_directory}")
     gallery_postprocessors = _gallerydl_postprocessors(gallery_cmd)
     assert gallery_postprocessors[0]["base-directory"] == "/scratch/nvs-download-task-1"
-    assert gallery_postprocessors[0]["filename"] == "downloads.tsv"
+    assert gallery_postprocessors[0]["filename"] == "downloads.jsonl"
     assert gallery_postprocessors[1]["directory"] == "/scratch/nvs-download-task-1/extractor"
     assert "--postprocessor-option" not in gallery_cmd
+
+
+def test_ytdlp_metadata_line_carries_every_field_the_fields_order_names(tmp_path: Path, monkeypatch):
+    from backend.app.domains.downloads.workers.completion_metadata import _read_metadata_sidecar
+
+    monkeypatch.setattr(
+        ytdlp,
+        "get_effective_fields",
+        lambda url: {"username": ["channel_handle", "scraper[var0]"], "nickname": ["owner[name]"]},
+    )
+    cmd = ytdlp.build_ytdlp_command(
+        "https://example.test/watch/1",
+        "/usr/bin/ffmpeg",
+        "/media/%(id)s.%(ext)s",
+        metadata_sidecar="/scratch/task/downloads.jsonl",
+    )
+    line = next(arg for arg in cmd if arg.startswith("after_move:%(.{"))
+    keys = line.removeprefix("after_move:%(.{").removesuffix("})j").split(",")
+
+    assert {"filepath", "_filename", "channel_handle", "owner", "uploader"} <= set(keys)
+    assert "scraper" not in keys
+
+    # What yt-dlp prints for that line reaches naming as flat fields.
+    output = tmp_path / "clip.mp4"
+    sidecar = tmp_path / "downloads.jsonl"
+    printed = {"_filename": str(output), "channel_handle": "alice", "owner": {"name": "Alice"}}
+    sidecar.write_text(json.dumps(printed) + "\n", encoding="utf-8")
+    metadata = next(iter(_read_metadata_sidecar(str(sidecar)).values()))
+    assert metadata == {"filepath": str(output), "channel_handle": "alice", "owner[name]": "Alice"}
 
 
 def test_downloader_commands_keep_tool_default_parts_without_a_part_directory():

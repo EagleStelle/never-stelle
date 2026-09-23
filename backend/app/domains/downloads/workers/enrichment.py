@@ -40,7 +40,7 @@ from backend.app.domains.downloads.workers.completion_finalization import (
     _finalize_completed_output,
 )
 from backend.app.domains.downloads.workers.completion_metadata import (
-    _empty_metadata_value,
+    _merge_probe_metadata,
     _probe_output_metadata,
 )
 
@@ -67,18 +67,6 @@ def _nested_string_dict(value: Any) -> dict[str, dict[str, str]]:
     if not isinstance(value, dict):
         return {}
     return {str(key): _string_dict(item) for key, item in value.items() if str(key or "").strip()}
-
-
-def _merge_probe_metadata(sidecar: dict[str, str], probed: dict[str, str]) -> dict[str, str]:
-    merged = {
-        str(key): str(value)
-        for key, value in probed.items()
-        if str(key or "").strip() and str(value or "").strip()
-    }
-    for key, value in sidecar.items():
-        if not _empty_metadata_value(value):
-            merged[str(key)] = str(value)
-    return merged
 
 
 def enqueue_completion_enrichment(

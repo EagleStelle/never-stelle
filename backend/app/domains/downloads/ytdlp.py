@@ -150,6 +150,28 @@ def build_output_template(
     return str(base / folder_template / filename_template) if folder_template else str(base / filename_template)
 
 
+_SIDECAR_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_SIDECAR_KEYS = (
+    "filepath",
+    "_filename",
+    "id",
+    "webpage_url",
+    "original_url",
+    "uploader_url",
+    "channel_url",
+    "username",
+)
+
+
+def _metadata_line(source_url: str) -> str:
+    # One JSON object per output: its path and links, the role chains, and every field Fields names.
+    chains = [field for fields in FIELD_ROLE_CHAINS["ytdlp"].values() for field in fields]
+    roles = get_effective_fields(source_url)
+    configured = [field.split("[", 1)[0] for role in roles for field in field_role_list(roles, role) or ()]
+    keys = field_spec_parts([*_SIDECAR_KEYS, *chains, *configured], _SIDECAR_KEY_RE)
+    return "%(.{" + ",".join(keys) + "})j"
+
+
 def read_creator_sidecar(path: str) -> str:
     # yt-dlp appends the resolved creator field here after the file is moved.
     try:
@@ -291,36 +313,7 @@ def build_ytdlp_command(
     if creator_sidecar:
         cmd.extend(["--print-to-file", f"after_move:{_effective_nickname_field(source_url)}", creator_sidecar])
     if metadata_sidecar:
-        item_template = "\t".join(
-            [
-                "%(filepath,_filename|)j",
-                "%(id|)j",
-                "%(webpage_url,original_url|)j",
-                "%(original_url,webpage_url|)j",
-                "%(channel|)j",
-                "%(uploader|)j",
-                "%(creator|)j",
-                "%(artist|)j",
-                "%(artists|)j",
-                "%(album_artist|)j",
-                "%(playlist_uploader|)j",
-                "%(playlist_uploader_id|)j",
-                "%(creators|)j",
-                "%(uploader_url|)j",
-                "%(channel_url|)j",
-                "%(uploader_id|)j",
-                "%(channel_id|)j",
-                "%(display_name|)j",
-                "%(full_name|)j",
-                "%(nickname|)j",
-                "%(author|)j",
-                "%(username|)j",
-                "%(title|)j",
-                "%(fulltitle|)j",
-                "%(description|)j",
-            ]
-        )
-        cmd.extend(["--print-to-file", f"after_move:{item_template}", metadata_sidecar])
+        cmd.extend(["--print-to-file", f"after_move:{_metadata_line(source_url)}", metadata_sidecar])
     cmd.extend(ytdlp_access_args(access or AccessIdentity()))
     cmd.extend(["--output", final_output_template, source_url])
     return cmd

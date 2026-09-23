@@ -2959,7 +2959,7 @@ def test_complete_sidecar_metadata_skips_completion_enrichment(tmp_path: Path):
     path = tmp_path / "ChannelHandle - Nice clip [abc123].mp4"
     path.write_bytes(b"video")
 
-    needed = completion_metadata_module._single_output_metadata_enrichment_needed(
+    needed = completion_metadata_module._metadata_enrichment_needed(
         [path],
         engine_by_name("gallerydl"),
         {
@@ -2970,9 +2970,117 @@ def test_complete_sidecar_metadata_skips_completion_enrichment(tmp_path: Path):
             }
         },
         {"filename_template": "{{username}} - {{title}} [{{id}}]"},
+        "https://example.test/watch/abc123",
     )
 
     assert needed is False
+
+
+_FIELDS_URL = "https://example.test/watch/abc123"
+_FIELDS_TEMPLATES = {
+    "folder_template": "{{username}}",
+    "filename_template": "{{username}} - {{title}} [{{id}}]",
+}
+
+
+def _save_example_fields(**roles: list[str]) -> None:
+    from backend.app.domains.settings import load_saved_settings_file, save_saved_settings_file
+
+    payload = load_saved_settings_file()
+    payload["source_fields"] = {"example": roles}
+    save_saved_settings_file(payload)
+
+
+def _finalized_creator(tmp_path: Path, raw: Path, metadata: dict[str, str]) -> str:
+    return completion_module._finalize_completed_output(
+        source_url=_FIELDS_URL,
+        source_key="example",
+        output_root=tmp_path,
+        raw_path=raw,
+        metadata=metadata,
+        media_id="abc123",
+        template_settings=_FIELDS_TEMPLATES,
+        cache_dropper=None,
+    ).creator
+
+
+def test_probe_fills_the_top_field_the_engine_left_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _save_example_fields(username=["uploader", "username", "uploader_id"])
+    raw = tmp_path / "unknown - Nice clip [abc123].mp4"
+    raw.write_bytes(b"video")
+    # The engine carried an id but none of the names above it.
+    metadata_by_path = {path_key(raw): {"filepath": str(raw), "id": "abc123", "username": "", "user_id": "1001"}}
+    monkeypatch.setattr(
+        completion_metadata_module,
+        "_probe_output_metadata",
+        lambda url, key: {"uploader": "Alice Example", "uploader_id": "1001", "title": "Probed"},
+    )
+
+    completion_metadata_module._probe_output_metadata_inline(
+        [raw], engine_by_name("gallerydl"), metadata_by_path, _FIELDS_URL, "example", _FIELDS_TEMPLATES
+    )
+
+    assert metadata_by_path[path_key(raw)]["user_id"] == "1001"
+    assert _finalized_creator(tmp_path, raw, metadata_by_path[path_key(raw)]) == "Alice Example"
+
+
+def test_the_next_field_names_the_download_when_the_top_one_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    use_temp_db(tmp_path, monkeypatch)
+    _save_example_fields(username=["uploader", "username", "uploader_id"])
+    raw = tmp_path / "raw [abc123].mp4"
+    raw.write_bytes(b"video")
+
+    creator = _finalized_creator(
+        tmp_path, raw, {"filepath": str(raw), "username": "alice_handle", "uploader_id": "1001", "title": "Clip"}
+    )
+
+    assert creator == "alice_handle"
+
+
+def test_a_field_outside_the_fields_order_does_not_skip_the_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _save_example_fields(username=["uploader_id"])
+    path = tmp_path / "ChannelHandle - Nice clip [abc123].mp4"
+    path.write_bytes(b"video")
+
+    needed = completion_metadata_module._metadata_enrichment_needed(
+        [path],
+        engine_by_name("gallerydl"),
+        {path_key(path): {"id": "abc123", "channel": "ChannelHandle", "title": "Nice clip"}},
+        _FIELDS_TEMPLATES,
+        _FIELDS_URL,
+    )
+
+    assert needed is True
+
+
+def test_one_probe_names_every_output_of_a_multi_file_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _save_example_fields(username=["uploader", "username"])
+    paths = [tmp_path / f"unknown - [abc123]_{index}.jpg" for index in (1, 2)]
+    metadata_by_path = {
+        path_key(path): {"filepath": str(path), "id": "abc123", "title": f"Photo {index}"}
+        for index, path in enumerate(paths, start=1)
+    }
+    probes: list[str] = []
+
+    def probe(url: str, key: str) -> dict[str, str]:
+        probes.append(url)
+        return {"uploader": "Alice Example", "title": "Post"}
+
+    monkeypatch.setattr(completion_metadata_module, "_probe_output_metadata", probe)
+
+    completion_metadata_module._probe_output_metadata_inline(
+        paths, engine_by_name("gallerydl"), metadata_by_path, _FIELDS_URL, "example", _FIELDS_TEMPLATES
+    )
+
+    assert probes == [_FIELDS_URL]
+    # The creator fits every output; each keeps its own title.
+    assert [metadata_by_path[path_key(path)]["uploader"] for path in paths] == ["Alice Example"] * 2
+    assert [metadata_by_path[path_key(path)]["title"] for path in paths] == ["Photo 1", "Photo 2"]
 
 
 def test_enrichment_repairs_sparse_creator_title_and_filename(
@@ -3823,22 +3931,8 @@ def test_worker_renames_display_creator_to_handle_and_template_folder(
             sidecar = Path(cmd[index + 2])
             if "filepath" in template:
                 sidecar.write_text(
-                    "\t".join(
-                        [
-                            str(raw_video),
-                            "DOS-dVRkUK3",
-                            "",
-                            "",
-                            "love.rizzzz",
-                            "Riz",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                        ]
+                    json.dumps(
+                        {"filepath": str(raw_video), "id": "DOS-dVRkUK3", "channel": "love.rizzzz", "uploader": "Riz"}
                     )
                     + "\n",
                     encoding="utf-8",

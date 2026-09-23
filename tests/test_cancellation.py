@@ -265,8 +265,8 @@ def test_run_task_cancellation_during_post_processing_removes_task_and_workspace
     monkeypatch.setattr(execution_module, "update_task", lambda value, **updates: store[value].update(updates))
     monkeypatch.setattr(execution_module, "remove_task_record", lambda value: store.pop(value, None))
     monkeypatch.setattr(execution_module, "_read_metadata_sidecar", lambda value: {})
-    monkeypatch.setattr(execution_module, "_probe_single_output_metadata_inline", lambda *args: None)
-    monkeypatch.setattr(execution_module, "_single_output_metadata_enrichment_needed", lambda *args: False)
+    monkeypatch.setattr(execution_module, "_probe_output_metadata_inline", lambda *args: None)
+    monkeypatch.setattr(execution_module, "_metadata_enrichment_needed", lambda *args: False)
     monkeypatch.setattr(
         execution_module,
         "_download_groups",

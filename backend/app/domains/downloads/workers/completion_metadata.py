@@ -16,13 +16,16 @@ from backend.app.domains.downloads.constants import (
 )
 from backend.app.domains.downloads.engine import Engine
 from backend.app.domains.downloads.files import is_media_file
+from backend.app.domains.downloads.formats import field_role_list
 from backend.app.domains.downloads.naming import filename_template_fields
 from backend.app.domains.downloads.scan import parse_filename_media_id
+from backend.app.domains.downloads.workers.completion_creators import _configured_field_value
 from backend.app.domains.downloads.workers.completion_values import (
     _clean_creator_candidate,
     _field_value,
+    _metadata_title,
 )
-from backend.app.domains.settings import has_cookies_for_source, has_cookies_for_url
+from backend.app.domains.settings import get_effective_fields, has_cookies_for_source, has_cookies_for_url
 
 
 def _filename_template(template_settings: dict[str, str] | None) -> str:
@@ -63,14 +66,18 @@ def _metadata_title_has_value(value: str, media_id: str = "") -> bool:
     stripped = pattern.sub("", value).strip(" -|,;:._")
     return not _empty_metadata_value(stripped)
 
-def _filename_satisfies_template_metadata(path: Path, template_settings: dict[str, str] | None) -> bool:
-    return _metadata_satisfies_template(path, {}, template_settings)
+def _configured_role_value(metadata: dict[str, str], role: str, fields: list[str]) -> str:
+    """The value naming takes for a role: the first field in the Fields order that has one."""
+    if role == "title":
+        return _metadata_title(metadata, fields)
+    return _configured_field_value(metadata, fields)
 
 
 def _metadata_satisfies_template(
     path: Path,
     metadata: dict[str, str],
     template_settings: dict[str, str] | None,
+    source_url: str = "",
 ) -> bool:
     filename_template = _filename_template(template_settings)
     tokens = _template_token_names(template_settings) - {"quality", "ext"}
@@ -79,6 +86,7 @@ def _metadata_satisfies_template(
     fields = filename_template_fields(path.name, filename_template) if filename_template else {}
     parsed_media_id, parsed_title = parse_filename_media_id(path.name)
     media_id = _field_value(fields, "id") or parsed_media_id
+    roles = get_effective_fields(source_url) if source_url else {}
 
     def metadata_role_value(role: str) -> str:
         candidates: list[str] = []
@@ -101,6 +109,9 @@ def _metadata_satisfies_template(
     def has_token(token: str) -> bool:
         if token == "id":
             return bool(_field_value(metadata, "id") or media_id)
+        if configured := field_role_list(roles, token):
+            value = _configured_role_value(metadata, token, configured)
+            return _metadata_title_has_value(value, media_id) if token == "title" else bool(value)
         if token == "title":
             return _metadata_title_has_value(
                 _field_value(metadata, "title", "fulltitle", "caption", "description", "alt_text")
@@ -186,19 +197,46 @@ def _probe_output_metadata(source_url: str, source_key: str = "", *, low_priorit
     return _run_probe(probe_metadata, source_url, source_key, low_priority=low_priority)
 
 
-def _single_output_metadata_enrichment_needed(
+def _merge_probe_metadata(metadata: dict[str, str], probed: dict[str, str]) -> dict[str, str]:
+    """The probe fills what the engine's own metadata left empty; the engine's values win."""
+    merged = {
+        str(key): str(value) for key, value in probed.items() if str(key or "").strip() and str(value or "").strip()
+    }
+    for key, value in metadata.items():
+        if not _empty_metadata_value(value):
+            merged[str(key)] = str(value)
+    return merged
+
+
+def _creator_field_lists(source_url: str, template_settings: dict[str, str] | None) -> list[list[str]]:
+    """The Fields order of each creator role the templates use."""
+    roles = get_effective_fields(source_url)
+    used = _template_token_names(template_settings)
+    return [fields for role in sorted(CREATOR_FIELDS & used) if (fields := field_role_list(roles, role))]
+
+
+def _metadata_enrichment_needed(
     paths: list[Path],
     engine: Engine,
     metadata_by_path: dict[str, dict[str, str]],
     template_settings: dict[str, str] | None,
+    source_url: str,
 ) -> bool:
-    """Whether a lone output's sparse metadata leaves template fields only a probe can fill."""
-    if len(paths) != 1 or not engine.sparse_metadata or not _template_needs_probe_metadata(template_settings):
+    """Whether a probe can fill what sparse metadata lacks: a lone output's fields, or the creator of several."""
+    if not paths or not engine.sparse_metadata or not _template_needs_probe_metadata(template_settings):
         return False
-    return not _metadata_satisfies_template(paths[0], metadata_by_path.get(_path_key(paths[0]), {}), template_settings)
+    if len(paths) == 1:
+        metadata = metadata_by_path.get(_path_key(paths[0]), {})
+        return not _metadata_satisfies_template(paths[0], metadata, template_settings, source_url)
+    field_lists = _creator_field_lists(source_url, template_settings)
+    return any(
+        not _configured_field_value(metadata_by_path.get(_path_key(path), {}), fields)
+        for path in paths
+        for fields in field_lists
+    )
 
 
-def _probe_single_output_metadata_inline(
+def _probe_output_metadata_inline(
     paths: list[Path],
     engine: Engine,
     metadata_by_path: dict[str, dict[str, str]],
@@ -206,21 +244,20 @@ def _probe_single_output_metadata_inline(
     source_key: str,
     template_settings: dict[str, str] | None,
 ) -> None:
-    if not _single_output_metadata_enrichment_needed(paths, engine, metadata_by_path, template_settings):
+    if not _metadata_enrichment_needed(paths, engine, metadata_by_path, template_settings, source_url):
         return
-    if metadata := _probe_output_metadata(source_url, source_key):
-        metadata.setdefault("filepath", str(paths[0]))
-        metadata_by_path[_path_key(paths[0])] = metadata
+    probed = _probe_output_metadata(source_url, source_key)
+    if len(paths) > 1:
+        # The task's link answers for every output alike, so only its creator fits them all.
+        fields = {field for field_list in _creator_field_lists(source_url, template_settings) for field in field_list}
+        probed = {key: value for key, value in probed.items() if key in fields}
+    if not probed:
+        return
+    for path in paths:
+        key = _path_key(path)
+        metadata_by_path[key] = _merge_probe_metadata(metadata_by_path.get(key, {}), probed)
+        metadata_by_path[key].setdefault("filepath", str(path))
 
-
-def _json_sidecar_value(value: str) -> str:
-    try:
-        decoded = json.loads(value)
-    except Exception:
-        return str(value or "").strip()
-    if isinstance(decoded, list):
-        return ", ".join(str(item).strip() for item in decoded if str(item).strip())
-    return str(decoded or "").strip()
 
 def _metadata_scalar(value: Any) -> str:
     if isinstance(value, bool) or value is None:
@@ -250,59 +287,22 @@ def _flatten_json_metadata(data: Any, prefix: str = "") -> dict[str, str]:
     return out
 
 def _read_metadata_sidecar(path: str) -> dict[str, dict[str, str]]:
+    """Each engine writes one JSON object per output; keyed by the output's path."""
     try:
         lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return {}
     out: dict[str, dict[str, str]] = {}
-    keys = [
-        "filepath",
-        "id",
-        "webpage_url",
-        "original_url",
-        "channel",
-        "uploader",
-        "creator",
-        "artist",
-        "artists",
-        "album_artist",
-        "playlist_uploader",
-        "playlist_uploader_id",
-        "creators",
-        "uploader_url",
-        "channel_url",
-        "uploader_id",
-        "channel_id",
-        "display_name",
-        "full_name",
-        "nickname",
-        "author",
-        "username",
-        "title",
-        "fulltitle",
-        "description",
-    ]
     for line in lines:
-        stripped = str(line or "").strip()
-        if stripped.startswith("{"):
-            try:
-                metadata = _flatten_json_metadata(json.loads(stripped))
-            except json.JSONDecodeError:
-                metadata = {}
-            filepath = str(metadata.get("filepath") or "").strip()
-            if filepath:
-                out[_path_key(filepath)] = metadata
+        try:
+            metadata = _flatten_json_metadata(json.loads(line))
+        except json.JSONDecodeError:
             continue
-        parts = str(line or "").split("\t")
-        if not parts:
-            continue
-        filepath = _json_sidecar_value(parts[0])
-        if not filepath:
-            continue
-        metadata = {"filepath": filepath}
-        for index, key in enumerate(keys[1:], start=1):
-            metadata[key] = _json_sidecar_value(parts[index]) if len(parts) > index else ""
-        out[_path_key(filepath)] = metadata
+        filename = metadata.pop("_filename", "")
+        filepath = metadata.get("filepath") or filename
+        if filepath:
+            metadata["filepath"] = filepath
+            out[_path_key(filepath)] = metadata
     return out
 
 

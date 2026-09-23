@@ -59,11 +59,11 @@ from backend.app.domains.downloads.workers.completion import (
     _format_sample,
     _has_output_media,
     _learn_field_roles_from_download,
+    _metadata_enrichment_needed,
     _metadata_output_paths,
-    _probe_single_output_metadata_inline,
+    _probe_output_metadata_inline,
     _read_metadata_sidecar,
     _resolved_task_creator,
-    _single_output_metadata_enrichment_needed,
     _with_ytdlp_media_fields,
 )
 from backend.app.domains.downloads.workers.enrichment import enqueue_completion_enrichment
@@ -285,7 +285,7 @@ def _run_task(
 
     task_scratch = scratch_temp_dir(prefix="nvs-download-task-")
     creator_sidecar = str(task_scratch / "creator.txt")
-    metadata_sidecar = str(task_scratch / "downloads.tsv")
+    metadata_sidecar = str(task_scratch / "downloads.jsonl")
     # Downloader parts, on the output's mount.
     task_parts = staging_temp_dir(output_root, prefix="nvs-download-task-")
 
@@ -381,20 +381,6 @@ def _run_task(
             raise_if_cancelled(task_id)
             filename_template = _filename_template(template_settings)
             metadata_by_path = _read_metadata_sidecar(metadata_sidecar)
-            if has_post_processing:
-                raise_if_cancelled(task_id)
-                _probe_single_output_metadata_inline(
-                    output_paths,
-                    used_engine,
-                    metadata_by_path,
-                    source_url,
-                    task_source_key,
-                    template_settings,
-                )
-            metadata_enrichment_needed = _single_output_metadata_enrichment_needed(
-                output_paths, used_engine, metadata_by_path, template_settings
-            )
-            raise_if_cancelled(task_id)
             if not output_paths:
                 output_paths = _metadata_output_paths(metadata_by_path)
             if not output_paths:
@@ -413,6 +399,21 @@ def _run_task(
                     error=f"{used_engine.name} finished, but no media file was found.",
                 )
                 return
+            # Post-processed and multi-output tasks probe here; a lone plain output is repaired later.
+            if has_post_processing or len(output_paths) > 1:
+                raise_if_cancelled(task_id)
+                _probe_output_metadata_inline(
+                    output_paths,
+                    used_engine,
+                    metadata_by_path,
+                    source_url,
+                    task_source_key,
+                    template_settings,
+                )
+            metadata_enrichment_needed = len(output_paths) == 1 and _metadata_enrichment_needed(
+                output_paths, used_engine, metadata_by_path, template_settings, source_url
+            )
+            raise_if_cancelled(task_id)
             groups = _download_groups(output_paths, used_engine, filename_template, metadata_by_path, source_url)
             completed_rows: list[tuple[str, dict[str, Any]]] = []
             enrichment_jobs: list[tuple[str, dict[str, str], bool]] = []
@@ -445,6 +446,8 @@ def _run_task(
                     else []
                 )
                 extractor_payload = extractor_payload_from_sidecars(extraction_sidecars, metadata)
+                # Naming walks the Fields order over everything the engine left for this output.
+                metadata = {**_extractor_metadata_fields(extractor_payload), **metadata}
                 raise_if_cancelled(task_id)
                 finalized = _finalize_completed_output(
                     source_url=source_url,
@@ -466,9 +469,6 @@ def _run_task(
                     ),
                     cache_dropper=drop_file_cache,
                 )
-                # Rich extractor metadata is only for post-processing; merging it
-                # after naming keeps Fields/Templates independent without a copy.
-                metadata = {**_extractor_metadata_fields(extractor_payload), **metadata}
                 if has_post_processing:
                     raise_if_cancelled(task_id)
                     extractor_payload = _with_ytdlp_media_fields(
