@@ -173,7 +173,7 @@ def _run_engine_attempts(
             env=access_env(access),
         )
 
-    # Cheapest first: a fingerprint only after a wall, a cookie only once the public path fails.
+    # Cheapest first: a public fingerprint only after a wall, a cookie only once the public path fails.
     rc, last_dest, emitted_paths = 1, "", []
     tried = 0
     walled = bool(resume_walled)

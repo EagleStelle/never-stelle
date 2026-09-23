@@ -23,6 +23,8 @@ class CookiePolicy:
     cooldown: float = 900.0
     # Seconds a task waits for a free jar before continuing without one.
     wait: float = 300.0
+    # Seconds a run with the jar waits between requests, before each file and between retries, in every engine.
+    interval: float = 2.0
 
 
 DEFAULT_COOKIE_POLICY = CookiePolicy()
@@ -34,6 +36,7 @@ _POLICY_FIELDS: dict[str, tuple[float, float, bool]] = {
     "delay": (0.0, 3_600.0, False),
     "cooldown": (0.0, 86_400.0, False),
     "wait": (0.0, 3_600.0, False),
+    "interval": (0.0, 3_600.0, False),
 }
 
 _cache_lock = threading.RLock()
@@ -89,13 +92,7 @@ def normalize_default_cookie_policy(raw: Any) -> dict[str, Any]:
 
 
 def builtin_cookie_policy_defaults() -> dict[str, Any]:
-    return {
-        "limit": DEFAULT_COOKIE_POLICY.limit,
-        "window": DEFAULT_COOKIE_POLICY.window,
-        "delay": DEFAULT_COOKIE_POLICY.delay,
-        "cooldown": DEFAULT_COOKIE_POLICY.cooldown,
-        "wait": DEFAULT_COOKIE_POLICY.wait,
-    }
+    return {field: getattr(DEFAULT_COOKIE_POLICY, field) for field in _POLICY_FIELDS}
 
 
 def cookie_policy_defaults(payload: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -17,6 +17,7 @@ from backend.app.db.repositories import (
 )
 from backend.app.runtime.scratch import remove_scratch_path, write_scratch_file
 
+from .browser_identity import browser_identity, desktop_chrome_user_agent
 from .profiles import (
     get_effective_source_profiles,
     get_source_profile_for_url,
@@ -38,10 +39,13 @@ def detect_cookie_source(source_url: str) -> str:
 
 
 def _cookie_entry(row: dict[str, Any]) -> dict[str, Any]:
+    user_agent = str(row.get("user_agent") or "")
     return {
         "id": str(row.get("id") or ""),
         "filename": str(row.get("filename") or "cookies.txt"),
         "uploaded_at": str(row.get("created_at") or row.get("updated_at") or ""),
+        "user_agent": user_agent,
+        "browser": browser_identity(user_agent).label,
     }
 
 
@@ -107,7 +111,8 @@ def _stored_cookie_filename(source_key: str) -> str:
     return candidate
 
 
-async def save_ytdlp_cookies_upload(uploaded: UploadFile, source_key: str) -> dict[str, Any]:
+async def save_ytdlp_cookies_upload(uploaded: UploadFile, source_key: str, user_agent: str = "") -> dict[str, Any]:
+    """Store a jar with the browser that uploaded it, which is the one it presents from then on."""
     require_settings_managed_source(source_key)
     source_key = normalize_cookie_source(source_key)
     raw = await uploaded.read()
@@ -117,11 +122,12 @@ async def save_ytdlp_cookies_upload(uploaded: UploadFile, source_key: str) -> di
         raise ValueError("Cookies file is too large.")
     cookie_id = uuid.uuid4().hex
     filename = _stored_cookie_filename(source_key)
-    add_source_cookie(cookie_id, source_key, filename, raw)
+    user_agent = desktop_chrome_user_agent(user_agent)
+    add_source_cookie(cookie_id, source_key, filename, raw, user_agent)
     from .cookie_pool import invalidate_cookie_pool
 
     invalidate_cookie_pool(source_key)
-    return _cookie_entry({"id": cookie_id, "filename": filename})
+    return _cookie_entry({"id": cookie_id, "filename": filename, "user_agent": user_agent})
 
 
 def reorder_ytdlp_cookies(source_key: str, cookie_ids: list[str]) -> None:

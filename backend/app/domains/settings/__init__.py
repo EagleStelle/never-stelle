@@ -1,3 +1,4 @@
+from backend.app.domains.settings.browser_identity import BrowserIdentity, browser_identity
 from backend.app.domains.settings.cookie_policy import (
     DEFAULT_COOKIE_POLICY,
     CookiePolicy,
@@ -105,9 +106,11 @@ __all__ = [
     "BUILTIN_SUBFOLDER_TEMPLATE",
     "DEFAULT_COOKIE_POLICY",
     "TEMPLATE_KEYS",
+    "BrowserIdentity",
     "CookieLease",
     "CookiePolicy",
     "add_source_and_learn_format",
+    "browser_identity",
     "build_settings_response",
     "builtin_cookie_policy_defaults",
     "clear_ytdlp_cookie",

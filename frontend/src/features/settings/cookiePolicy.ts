@@ -14,32 +14,38 @@ export interface CookiePolicyFieldDef {
 export const COOKIE_POLICY_FIELDS: CookiePolicyFieldDef[] = [
   {
     key: "limit",
-    label: "Uses before rotate",
-    help: "Downloads a cookies file handles before the next file takes over.",
+    label: "Use limit",
+    help: "Times a cookie file can be used in one use window.",
     min: "1",
   },
   {
     key: "window",
-    label: "Quota resets after",
-    help: "Seconds before that use count starts over from zero.",
+    label: "Use window",
+    help: "Seconds until the use count starts over.",
     min: "1",
   },
   {
     key: "delay",
-    label: "Rest between uses",
-    help: "Seconds a cookies file rests between two of its own downloads.",
+    label: "Use gap",
+    help: "Seconds a cookie file rests between uses.",
     min: "0",
   },
   {
     key: "cooldown",
-    label: "Rest after block",
-    help: "Seconds a cookies file rests after the site blocks or rate-limits it.",
+    label: "Ban cooldown",
+    help: "Seconds a cookie file rests after a site blocks it.",
     min: "0",
   },
   {
     key: "wait",
-    label: "Download wait limit",
-    help: "Seconds a download waits for a free cookies file before continuing without one.",
+    label: "Wait limit",
+    help: "Seconds to wait for a free cookie file before going without.",
+    min: "0",
+  },
+  {
+    key: "interval",
+    label: "Request gap",
+    help: "Seconds a cookie file pauses between requests.",
     min: "0",
   },
 ];

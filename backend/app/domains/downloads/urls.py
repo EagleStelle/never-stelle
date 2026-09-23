@@ -18,7 +18,7 @@ from backend.app.domains.downloads.formats import (
     media_id_from_url,
 )
 from backend.app.domains.downloads.store import learn_redirect, load_learned_redirects
-from backend.app.domains.settings import cookie_rotation, detect_cookie_source
+from backend.app.domains.settings import browser_identity, cookie_rotation, detect_cookie_source
 
 _REDIRECT_TIMEOUT_SECONDS = 8.0
 _REDIRECT_UA = "Mozilla/5.0"
@@ -149,7 +149,7 @@ def _needs_expansion(shape: str) -> bool:
     return _stale(str(record.get("updated_at") or ""))
 
 
-def _follow(url: str, jar=None) -> str:
+def _follow(url: str, jar=None, headers: dict[str, str] | None = None) -> str:
     """Where ``url`` lands after its redirects, or "" when nothing usable answered.
 
     HEAD first: the body is never read. A host that refuses HEAD, or fails the request
@@ -162,7 +162,7 @@ def _follow(url: str, jar=None) -> str:
                 url,
                 follow_redirects=True,
                 timeout=_REDIRECT_TIMEOUT_SECONDS,
-                headers={"User-Agent": _REDIRECT_UA},
+                headers=headers or {"User-Agent": _REDIRECT_UA},
                 cookies=httpx.Cookies(jar) if jar else None,
             )
         except (httpx.HTTPError, httpx.RequestError):
@@ -174,8 +174,8 @@ def _follow(url: str, jar=None) -> str:
     return ""
 
 
-def _resolve_redirect_request(url: str, jar=None) -> _Attempt:
-    final_url = _fetchable(_follow(url, jar))
+def _resolve_redirect_request(url: str, jar=None, headers: dict[str, str] | None = None) -> _Attempt:
+    final_url = _fetchable(_follow(url, jar, headers))
     if not final_url:
         return _INCONCLUSIVE
     # Followed everything and arrived back at what was pasted: this route redirects nowhere.
@@ -194,7 +194,7 @@ def _resolve_with_cookies(url: str) -> _Attempt:
             jar = _load_cookie_jar(lease.path)
             if not jar:
                 continue
-            attempt = _resolve_redirect_request(url, jar=jar)
+            attempt = _resolve_redirect_request(url, jar=jar, headers=browser_identity(lease.user_agent).headers())
             if attempt.conclusive:
                 return attempt
     return _INCONCLUSIVE

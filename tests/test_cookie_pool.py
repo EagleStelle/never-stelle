@@ -42,6 +42,15 @@ def test_rotation_spreads_requests_evenly_across_every_jar(monkeypatch):
     assert sorted(used) == ["a", "a", "b", "b", "c", "c"]
 
 
+def test_a_lease_carries_the_browser_its_jar_was_uploaded_from(monkeypatch):
+    entries = _stub_pool(monkeypatch, ["a"])
+    entries["instagram"][0]["user_agent"] = "Mozilla/5.0 Chrome/140.0.0.0"
+
+    lease = pool.lease_cookie("instagram")
+
+    assert lease is not None and lease.user_agent == "Mozilla/5.0 Chrome/140.0.0.0"
+
+
 def test_a_leased_jar_is_not_handed_to_a_second_caller(monkeypatch):
     _stub_pool(monkeypatch, ["a", "b"])
 

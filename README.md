@@ -21,6 +21,7 @@
 - Reconcile history against files on disk.
 - Customize output with folder and filename templates.
 - Rotate any number of cookie files per source, spreading requests across them under per-source rate limits, and retry the whole list when one stops working.
+- Present each cookie file as the browser that uploaded it, so upload it from the browser you exported it from.
 - Retry behind a browser TLS fingerprint when a site answers with an anti-bot wall, before and alongside cookie rotation.
 - Protect the app with session-based login and in-app account management.
 

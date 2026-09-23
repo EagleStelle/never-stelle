@@ -786,6 +786,28 @@ def test_icon_state_leaves_saved_settings(tmp_path, monkeypatch):
     assert stored["template_settings"] == {"folder_template": "{{creator}}"}
 
 
+def test_stored_cookie_jars_gain_an_empty_browser(tmp_path, monkeypatch):
+    database_path = tmp_path / "never-stelle.sqlite3"
+    _seed_pre_migration_db(database_path, None, version=11)
+    connection = sqlite3.connect(str(database_path))
+    try:
+        connection.execute(
+            "INSERT INTO source_cookies (id, source_key, filename, position, content, created_at, updated_at)"
+            " VALUES ('jar1', 'instagram', 'jar.txt', 0, x'00', '', '')"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        row = connection.execute("SELECT id, user_agent FROM source_cookies").fetchone()
+    # A jar from before presents the default browser until it is uploaded again.
+    assert (row["id"], row["user_agent"]) == ("jar1", "")
+
+
 def test_tracker_tables_arrive_without_touching_the_download_tables(tmp_path, monkeypatch):
     database_path = tmp_path / "never-stelle.sqlite3"
     _seed_pre_migration_db(database_path, None, version=6)

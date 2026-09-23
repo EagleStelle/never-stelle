@@ -15,7 +15,7 @@ from queue import Empty, Queue
 from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
-from backend.app.domains.settings import lease_cookie, release_cookie
+from backend.app.domains.settings import BrowserIdentity, browser_identity, lease_cookie, release_cookie
 from backend.app.runtime.scratch import remove_scratch_path, scratch_temp_dir
 
 from .enrich import _load_cookie_jar
@@ -114,6 +114,9 @@ _FLAGS = (
     "--disable-features=Vulkan",
     "--blink-settings=imagesEnabled=false",
     "--mute-audio",
+    # A desktop browser's window, and no navigator.webdriver telling sites it is automated.
+    "--window-size=1366,768",
+    "--disable-blink-features=AutomationControlled",
 )
 
 # Scoped patterns pause only what we intend to drop, so no other request waits on us.
@@ -158,6 +161,10 @@ class BrowserSession:
         self._process: subprocess.Popen[bytes] | None = None
         self._profile: Path | None = None
         self._cookies: list[dict[str, Any]] = []
+        # The browser the pages see: the jar's own, else the default one, never a headless one.
+        self._identity: BrowserIdentity = browser_identity()
+        # The jar's wait between requests, spacing the scrolls; anonymous walks keep the page's pace.
+        self._interval = 0.0
         self._ids = itertools.count(1)
         self._pending: dict[int, Queue[dict[str, Any]]] = {}
         self._write_lock = threading.Lock()
@@ -270,10 +277,11 @@ class BrowserSession:
         return True
 
     def _cookie_params(self) -> list[dict[str, Any]]:
-        """The source's jar as CDP cookies; empty when the source has none.
+        """The source's jar as CDP cookies, taking on the browser it came from; empty when the source has none.
 
         The jar goes straight back to the pool once read: the walk probes each item it finds
         with the same jar, and a lease held for the whole session left every probe waiting.
+        The probes present the same browser, so the site sees one browser with several tabs.
         """
         lease = lease_cookie(self.source_key)
         try:
@@ -282,6 +290,8 @@ class BrowserSession:
             release_cookie(lease)
         if not jar:
             return []
+        self._identity = browser_identity(lease.user_agent)
+        self._interval = lease.policy.interval
         cookies = []
         for cookie in jar:
             params: dict[str, Any] = {
@@ -491,6 +501,7 @@ class BrowserSession:
     ) -> Iterator[list[str]]:
         self._call("Fetch.enable", {"patterns": _BLOCKED_PATTERNS}, session_id=session_id)
         self._call("Network.enable", session_id=session_id)
+        self._call("Emulation.setUserAgentOverride", self._identity.cdp_override(), session_id=session_id)
         if self._cookies:
             self._call("Network.setCookies", {"cookies": self._cookies}, session_id=session_id)
         self._call("Page.navigate", {"url": url}, session_id=session_id, timeout=_NAVIGATE_TIMEOUT_SECONDS)
@@ -506,10 +517,13 @@ class BrowserSession:
         self.navigation[url] = []
         self.landed[url] = ""
         first = True
+        started = float("-inf")
         # Feeds often render nothing until scrolled, so a page is judged after its first scroll.
         while spent < _SCROLL_BUDGET_SECONDS and (
             idle < _IDLE_ROUNDS or time.monotonic() - shown_at < _IDLE_SECONDS if feed else idle < 1
         ):
+            # Scrolls are spaced by the jar's wait between requests; waiting is no scrolling, so it costs no budget.
+            time.sleep(max(0.0, self._interval - (time.monotonic() - started)))
             started = time.monotonic()
             # Time the walk spends on a batch mid-round, which is no scrolling.
             paused = 0.0

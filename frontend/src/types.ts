@@ -221,6 +221,8 @@ export interface CookieFile {
   id: string;
   filename: string;
   uploaded_at: string;
+  user_agent: string;
+  browser: string;
 }
 
 export interface CookiesStatus {
@@ -231,7 +233,7 @@ export interface CookiesStatus {
 
 export type CookiesMap = Record<string, CookiesStatus>;
 
-export type CookiePolicyField = "limit" | "window" | "delay" | "cooldown" | "wait";
+export type CookiePolicyField = "limit" | "window" | "delay" | "cooldown" | "wait" | "interval";
 
 // Only the fields a source overrides; the rest fall back to the global cookie default,
 // then to cookie_policy_defaults.

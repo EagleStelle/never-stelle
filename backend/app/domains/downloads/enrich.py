@@ -246,7 +246,7 @@ def fetch_html(url: str, cookie_source_key: str = "") -> str:
                     url,
                     follow_redirects=True,
                     timeout=_FETCH_TIMEOUT_SECONDS,
-                    headers=headers,
+                    headers={**headers, **access.headers},
                     cookies=httpx.Cookies(jar) if jar else None,
                 )
             except Exception:

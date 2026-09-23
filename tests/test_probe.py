@@ -265,7 +265,7 @@ def _stub_rotation(monkeypatch, paths, source_key="instagram"):
     monkeypatch.setattr(probe_module, "has_cookies_for_source", lambda key: key == source_key)
     monkeypatch.setattr(access_module, "has_cookies_for_source", lambda key: key == source_key)
     monkeypatch.setattr(access_module, "cookie_rotation", fake_rotation)
-    monkeypatch.setattr(access_module, "impersonation_target", lambda: "")
+    monkeypatch.setattr(access_module, "_impersonation_families", lambda: ())
     return leases
 
 
@@ -292,7 +292,10 @@ def test_ytdlp_dumps_falls_back_to_a_leased_cookie_after_anonymous_fails(monkeyp
     assert error == ""
     assert found == {url: {"id": "abc123", "uploader": "Cookie Creator"}}
     assert "--cookies" not in calls[0]
-    assert calls[1][-3:] == ["--cookies", "/tmp/instagram-jar1.txt", "https://www.instagram.com/reel/abc123/"]
+    assert calls[1][calls[1].index("--cookies") + 1] == "/tmp/instagram-jar1.txt"
+    assert calls[1][-1] == url
+    # The jar's run presents its browser; the anonymous one keeps the engine's own.
+    assert "--add-headers" in calls[1] and "--add-headers" not in calls[0]
     assert lease.banned is False
 
 
@@ -314,7 +317,7 @@ def test_ytdlp_dumps_loads_the_fingerprint_backend_only_when_impersonating(monke
     _stub_rotation(monkeypatch, [])
     import backend.app.domains.downloads.access as access_module
 
-    monkeypatch.setattr(access_module, "impersonation_target", lambda: "chrome")
+    monkeypatch.setattr(access_module, "_impersonation_families", lambda: ("chrome",))
     monkeypatch.setenv("NEVER_STELLE_IMPERSONATE_PATH", "/opt/impersonate")
     monkeypatch.delenv("PYTHONPATH", raising=False)
 
@@ -389,7 +392,10 @@ def test_gallerydl_dumps_falls_back_to_a_leased_cookie_after_anonymous_fails(mon
 
     assert found == {url: {"id": "abc123", "username": "cookie.creator"}}
     assert "--cookies" not in calls[0]
-    assert calls[1][-3:] == ["--cookies", "/tmp/instagram-jar1.txt", "https://www.instagram.com/reel/abc123/"]
+    assert calls[1][calls[1].index("--cookies") + 1] == "/tmp/instagram-jar1.txt"
+    assert calls[1][-1] == url
+    assert any(arg.startswith("headers=") for arg in calls[1])
+    assert not any(arg.startswith("headers=") for arg in calls[0])
 
 
 def _fake_engine_runs(monkeypatch, answer):

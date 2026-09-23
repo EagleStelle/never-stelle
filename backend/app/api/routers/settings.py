@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from backend.app.api.deps import require_authenticated_session
 from backend.app.api.schemas.settings import (
@@ -175,11 +175,12 @@ def set_format_templates(source_key: str, payload: FormatTemplatesPayload) -> di
 @router.post("/cookies/{source_key}")
 async def upload_cookies(
     source_key: str,
+    request: Request,
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
     """Add one more jar to a source's rotation pool."""
     try:
-        await save_ytdlp_cookies_upload(file, source_key)
+        await save_ytdlp_cookies_upload(file, source_key, request.headers.get("user-agent", ""))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

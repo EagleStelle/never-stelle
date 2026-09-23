@@ -19,6 +19,14 @@ def isolated_swaratelle_breaker() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def no_impersonation_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test asks the real yt-dlp what it can impersonate; tests that need a backend stub one."""
+    import backend.app.domains.downloads.access as access_module
+
+    monkeypatch.setattr(access_module, "_impersonation_families", lambda: ())
+
+
+@pytest.fixture(autouse=True)
 def isolated_database(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Every test gets its own database file.
 

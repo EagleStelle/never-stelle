@@ -63,6 +63,8 @@ class CookieLease:
     source_key: str
     path: str
     filename: str
+    # The browser the jar was uploaded from, "" when unknown.
+    user_agent: str = ""
     # Caller sets this when the run came back blocked; the jar then rests longer.
     banned: bool = False
     # Limits this source was configured with, resolved once when the jar was taken
@@ -226,6 +228,7 @@ def lease_cookie(
                     source_key=source_key,
                     path=path,
                     filename=str(entries[state.cookie_id].get("filename") or "cookies.txt"),
+                    user_agent=str(entries[state.cookie_id].get("user_agent") or ""),
                     policy=policy,
                 )
             remaining = deadline - now

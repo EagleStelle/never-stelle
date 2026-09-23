@@ -590,14 +590,22 @@ def test_cookies_endpoint_stacks_multiple_jars_on_one_source(tmp_path, monkeypat
     )
     assert created.status_code == 200
 
+    chrome = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
+        " Chrome/140.0.0.0 Safari/537.36"
+    )
     added = client.post(
         "/api/settings/cookies/instagram",
         files={"file": ("another-name.txt", jar + b"second\n", "text/plain")},
+        headers={"User-Agent": chrome},
     )
     assert added.status_code == 200
     status = added.json()["ytdlp_cookies"]["instagram"]
     assert status["configured"] is True
     assert status["count"] == 2
+    # Each jar keeps the browser that uploaded it; a client that is no desktop Chrome leaves the default.
+    assert [entry["browser"] for entry in status["cookies"]] == ["Default Chrome", "Chrome 140 Windows"]
+    assert status["cookies"][1]["user_agent"] == chrome
     # Uploads are renamed to the upload date and time plus the source, not the
     # browser's name. Both land in the same second unless the clock rolls over,
     # in which case the second name carries a later stamp instead of a suffix.
@@ -657,6 +665,7 @@ def test_settings_put_round_trips_per_source_cookie_policies(tmp_path, monkeypat
         "delay": 5.0,
         "cooldown": 900.0,
         "wait": 300.0,
+        "interval": 2.0,
     }
 
 

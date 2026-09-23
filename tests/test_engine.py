@@ -32,6 +32,7 @@ from backend.app.domains.downloads.workers.progress import (
     TaskProgress,
 )
 from backend.app.domains.downloads.workers.runner import _count_progress
+from backend.app.domains.settings import CookieLease, CookiePolicy
 from tests.support import engine_by_name
 
 
@@ -1370,18 +1371,33 @@ def test_ytdlp_command_includes_js_runtimes_universally():
     assert "--remote-components" in cmd
 
 
+def _lease(path: str = "/c.txt", *, user_agent: str = "", interval: float = 2.0) -> CookieLease:
+    return CookieLease(
+        cookie_id="jar",
+        source_key="example",
+        path=path,
+        filename="c.txt",
+        user_agent=user_agent,
+        policy=CookiePolicy(interval=interval),
+    )
+
+
+def _cmdline(*flags: str) -> str:
+    return json.dumps([*flags, "--socket-timeout", "30"], separators=(",", ":"))
+
+
 def test_downloader_commands_use_the_leased_cookie_file():
     ytdlp_cmd = ytdlp.build_ytdlp_command(
         "https://twitter.com/DohaVT/status/1",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
-        access=AccessIdentity(cookies_file="/cookies/twitter-2.txt"),
+        access=AccessIdentity(lease=_lease("/cookies/twitter-2.txt")),
     )
     gallery_cmd = gallerydl.build_gallerydl_command(
         "https://twitter.com/DohaVT/status/1",
         "/media/twitter",
         f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
-        access=AccessIdentity(cookies_file="/cookies/twitter-2.txt"),
+        access=AccessIdentity(lease=_lease("/cookies/twitter-2.txt")),
     )
 
     assert ytdlp_cmd[ytdlp_cmd.index("--cookies") + 1] == "/cookies/twitter-2.txt"
@@ -1393,8 +1409,10 @@ def test_downloader_commands_impersonate_only_when_asked():
     plain_gallery = gallerydl.build_gallerydl_command(
         "https://example.test/p/1", "/media", f"creator{gallerydl._TEMPLATE_SEP}clip.{{extension}}"
     )
+    anonymous = _cmdline("--retries", "3", "--fragment-retries", "3")
     assert "--impersonate" not in plain_ytdlp
-    assert not any("browser=" in arg or "cmdline-args" in arg for arg in plain_gallery)
+    assert not any(arg.startswith("browser=") for arg in plain_gallery)
+    assert _has_cli_pair(plain_gallery, "-o", f"downloader.ytdl.cmdline-args={anonymous}")
 
     access = AccessIdentity(impersonate="chrome")
     ytdlp_cmd = ytdlp.build_ytdlp_command(
@@ -1410,17 +1428,86 @@ def test_downloader_commands_impersonate_only_when_asked():
     assert ytdlp_cmd[ytdlp_cmd.index("--impersonate") + 1] == "chrome"
     assert "--cookies" not in ytdlp_cmd
     assert _has_cli_pair(gallery_cmd, "-o", "browser=chrome")
-    cmdline = '["--impersonate","chrome","--retries","3","--socket-timeout","30"]'
+    cmdline = _cmdline("--impersonate", "chrome", "--retries", "3", "--fragment-retries", "3")
     assert _has_cli_pair(gallery_cmd, "-o", f"downloader.ytdl.cmdline-args={cmdline}")
     assert _has_cli_pair(gallery_cmd, "-o", f"extractor.ytdl.cmdline-args={cmdline}")
 
 
+def test_every_engine_and_path_paces_a_cookie_run_with_the_sources_one_wait():
+    from backend.app.domains.trackers import listing
+
+    access = AccessIdentity(lease=_lease(interval=12))
+    ytdlp_pacing = [
+        "--retries",
+        "5",
+        "--fragment-retries",
+        "5",
+        "--sleep-requests",
+        "12",
+        "--sleep-interval",
+        "12",
+        "--retry-sleep",
+        "12",
+        "--retry-sleep",
+        "fragment:12",
+        "--retry-sleep",
+        "extractor:12",
+    ]
+    gallery_pacing = ["--retries", "5", "--sleep-request", "12", "--sleep", "12", "--sleep-retries", "12"]
+
+    def has(cmd: list[str], flags: list[str]) -> bool:
+        return any(cmd[index : index + len(flags)] == flags for index in range(len(cmd)))
+
+    # Downloads, tracker listings and probes all take the access args, so they all wait alike.
+    for cmd in (
+        ytdlp.build_ytdlp_command("https://example.test/v/1", "/usr/bin/ffmpeg", "/o", access=access),
+        listing._ytdlp_command(access),
+    ):
+        assert has(cmd, ytdlp_pacing)
+    for cmd in (
+        gallerydl.build_gallerydl_command("https://example.test/p/1", "/media", "clip.{extension}", access=access),
+        listing._gallerydl_command(access),
+    ):
+        assert has(cmd, gallery_pacing)
+        # gallery-dl hands its streams to yt-dlp with the very same waits.
+        assert _has_cli_pair(cmd, "-o", f"downloader.ytdl.cmdline-args={_cmdline(*ytdlp_pacing)}")
+
+    anonymous = ytdlp.ytdlp_access_args(AccessIdentity()) + gallerydl.gallerydl_access_args(AccessIdentity())
+    assert not any(flag.startswith(("--sleep", "--retry-sleep")) for flag in anonymous)
+
+
+def test_cookie_runs_present_the_jars_browser_to_every_engine():
+    agent = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"
+        " Chrome/140.0.0.0 Safari/537.36"
+    )
+    access = AccessIdentity(impersonate="chrome", lease=_lease(user_agent=agent))
+
+    ytdlp_cmd = ytdlp.build_ytdlp_command(
+        "https://example.test/v/1", "/usr/bin/ffmpeg", "/media/out.%(ext)s", access=access
+    )
+    gallery_args = gallerydl.gallerydl_access_args(access)
+
+    assert _has_cli_pair(ytdlp_cmd, "--add-headers", f"User-Agent:{agent}")
+    assert _has_cli_pair(ytdlp_cmd, "--add-headers", 'sec-ch-ua-platform:"macOS"')
+    headers = json.dumps(access.headers, separators=(",", ":"))
+    # Top level for gallery-dl itself, and handed on to the yt-dlp it delegates to.
+    assert _has_cli_pair(gallery_args, "-o", f"headers={headers}")
+    assert _has_cli_pair(gallery_args, "-o", f"downloader.ytdl.raw-options.http_headers={headers}")
+    assert _has_cli_pair(gallery_args, "-o", f"extractor.ytdl.raw-options.http_headers={headers}")
+    # Anonymous runs keep each engine's own headers.
+    assert "--add-headers" not in ytdlp.build_ytdlp_command("https://example.test/v/1", "/usr/bin/ffmpeg", "/o")
+    assert not any(arg.startswith("headers=") for arg in gallerydl.gallerydl_access_args(AccessIdentity()))
+
+
 def test_gallerydl_access_args_skip_browser_presets_it_does_not_ship():
-    args = gallerydl.gallerydl_access_args(AccessIdentity(impersonate="safari", cookies_file="/c.txt"))
+    access = AccessIdentity(impersonate="safari", lease=_lease())
+    args = gallerydl.gallerydl_access_args(access)
 
     assert not any(arg.startswith("browser=") for arg in args)
-    assert 'downloader.ytdl.cmdline-args=["--impersonate","safari","--retries","5","--socket-timeout","30"]' in args
-    assert args[-2:] == ["--cookies", "/c.txt"]
+    cmdline = _cmdline("--impersonate", "safari", *ytdlp.ytdlp_pacing_args(access))
+    assert f"downloader.ytdl.cmdline-args={cmdline}" in args
+    assert _has_cli_pair(args, "--cookies", "/c.txt")
 
 
 def test_downloader_commands_route_parts_to_staging_and_extractor_payloads_to_task_scratch():

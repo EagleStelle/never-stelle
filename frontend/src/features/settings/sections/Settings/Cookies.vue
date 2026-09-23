@@ -242,6 +242,13 @@ function isDropTarget(key: string, index: number): boolean {
                     class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere"
                   >
                     {{ cookie.filename }}
+                    <span
+                      v-if="cookie.browser"
+                      class="block text-xs text-muted-foreground"
+                      title="Browser this file acts as"
+                    >
+                      {{ cookie.browser }}
+                    </span>
                   </span>
                   <Button
                     variant="destructive"

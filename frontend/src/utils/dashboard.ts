@@ -931,21 +931,16 @@ export function createSourceTitleCleaning(
   return out;
 }
 
-const COOKIE_POLICY_FIELDS: CookiePolicyField[] = [
-  "limit",
-  "window",
-  "delay",
-  "cooldown",
-  "wait",
-];
-
 export const BUILTIN_COOKIE_POLICY_DEFAULTS: CookiePolicyDefaults = {
   limit: 20,
   window: 300,
   delay: 5,
   cooldown: 900,
   wait: 300,
+  interval: 2,
 };
+
+const COOKIE_POLICY_FIELDS = Object.keys(BUILTIN_COOKIE_POLICY_DEFAULTS) as CookiePolicyField[];
 
 export function createCookiePolicy(source: CookiePolicy = {}): CookiePolicy {
   // Blank fields stay absent so the source keeps inheriting the default.
@@ -1026,6 +1021,8 @@ export function createCookiesStatus(
     id: String(cookie?.id || ""),
     filename: String(cookie?.filename || "cookies.txt"),
     uploaded_at: String(cookie?.uploaded_at || ""),
+    user_agent: String(cookie?.user_agent || ""),
+    browser: String(cookie?.browser || ""),
   }));
   return {
     configured: cookies.length > 0,

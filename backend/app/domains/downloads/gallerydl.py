@@ -38,6 +38,7 @@ from .formats import (
     substitute_template,
 )
 from .naming import detect_ffmpeg_location, sanitize_path_literal
+from .ytdlp import ytdlp_pacing_args
 
 # gallery-dl keys are identifiers with optional [sub] nesting; reject anything else.
 _GALLERYDL_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\[[A-Za-z0-9_]+\])*$")
@@ -84,8 +85,6 @@ _YTDL_EXTRACTOR_ENABLED_OPTION = "extractor.ytdl.enabled=true"
 _YTDL_JS_RUNTIMES = json.dumps({"node": {}}, separators=(",", ":"))
 _YTDL_REMOTE_COMPONENTS = json.dumps(["ejs:github"], separators=(",", ":"))
 _HTTP_TIMEOUT_SECONDS = 30
-_RETRIES = 3
-_COOKIE_RETRIES = 5
 # Browser families gallery-dl ships header and cipher presets for.
 _GALLERYDL_BROWSERS = ("chrome", "firefox")
 
@@ -95,32 +94,34 @@ def _ytdl_options(name: str, value: str) -> list[str]:
     return ["-o", f"downloader.ytdl.{name}={value}", "-o", f"extractor.ytdl.{name}={value}"]
 
 
-def _access_retries(access: AccessIdentity) -> int:
-    return _COOKIE_RETRIES if access.cookies_file else _RETRIES
-
-
 def gallerydl_access_args(access: AccessIdentity) -> list[str]:
-    """Cookies and browser fingerprint for gallery-dl's own requests and its yt-dlp handoff."""
+    """Cookies, browser fingerprint, retries and waits for gallery-dl's own requests and its yt-dlp handoff."""
     args: list[str] = []
     target = access.impersonate
-    if target:
-        if target in _GALLERYDL_BROWSERS:
-            args.extend(["-o", f"browser={target}"])
-        # Only yt-dlp's CLI parser builds an ImpersonateTarget, and parsed args replace
-        # gallery-dl's own ytdl options, so the ones it set are passed back alongside.
-        cmdline = [
-            "--impersonate",
-            target,
-            "--retries",
-            str(_access_retries(access)),
-            "--socket-timeout",
-            str(_HTTP_TIMEOUT_SECONDS),
-        ]
-        args.extend(_ytdl_options("cmdline-args", json.dumps(cmdline, separators=(",", ":"))))
-        args.extend(["-o", "downloader.ytdl.raw-options.ignoreerrors=true"])
+    if target in _GALLERYDL_BROWSERS:
+        args.extend(["-o", f"browser={target}"])
+    args.extend(["--retries", str(access.retries)])
+    if access.interval:
+        wait = f"{access.interval:g}"
+        args.extend(["--sleep-request", wait, "--sleep", wait, "--sleep-retries", wait])
+    # The handoff takes yt-dlp's own flags, as only its CLI parser builds an ImpersonateTarget. Parsed flags
+    # replace gallery-dl's ytdl options, so the ones it set are passed back alongside.
+    cmdline = [
+        *(["--impersonate", target] if target else []),
+        *ytdlp_pacing_args(access),
+        "--socket-timeout",
+        str(_HTTP_TIMEOUT_SECONDS),
+    ]
+    args.extend(_ytdl_options("cmdline-args", json.dumps(cmdline, separators=(",", ":"))))
+    args.extend(["-o", "downloader.ytdl.raw-options.ignoreerrors=true"])
     if access.cookies_file:
         args.extend(_ytdl_options("raw-options.cookies", access.cookies_file.replace("\\", "/")))
         args.extend(["--cookies", access.cookies_file])
+    if headers := access.headers:
+        serialized = json.dumps(headers, separators=(",", ":"))
+        # Top level, so it beats a site's own user agent and the browser preset.
+        args.extend(["-o", f"headers={serialized}"])
+        args.extend(_ytdl_options("raw-options.http_headers", serialized))
     return args
 
 
@@ -356,8 +357,6 @@ def build_gallerydl_command(
         f"downloader.http.chunk-size={_PROGRESS_CHUNK_SIZE}",
         "-o",
         f"downloader.http.timeout={_HTTP_TIMEOUT_SECONDS}",
-        "--retries",
-        str(_access_retries(access)),
         *_ytdl_downloader_options(quality, processing, trim_length),
         *gallerydl_access_args(access),
     ]
@@ -376,8 +375,6 @@ def build_gallerydl_command(
         # app's after-move metadata row into the extractor-payload directory.
         serialized = json.dumps(postprocessors, ensure_ascii=False, separators=(",", ":"))
         cmd.extend(["-o", f"postprocessors={serialized}"])
-    if access.cookies_file:
-        cmd.extend(["--sleep-request", "2"])
     cmd.append(source_url)
     return cmd
 

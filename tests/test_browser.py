@@ -11,8 +11,12 @@ from pathlib import Path
 from queue import Queue
 
 import backend.app.domains.downloads.browser as browser_module
+from backend.app.domains.settings import CookieLease, CookiePolicy
 
 PAGE_URL = "https://example.test/u/alice"
+_CHROME_140 = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+)
 
 
 def _any_item(link: str) -> bool:
@@ -67,6 +71,7 @@ class _FakeBrowser:
         self.scrolls = 0
         self.loaded = 0
         self.methods: list[str] = []
+        self.params: dict[str, dict] = {}
         read_fd, self._write_fd = os.pipe()
         self._emit_lock = threading.Lock()
         self.stdout = os.fdopen(read_fd, "rb", buffering=0)
@@ -99,6 +104,7 @@ class _FakeBrowser:
 
     def _answer(self, message: dict) -> None:
         self.methods.append(message["method"])
+        self.params[message["method"]] = message.get("params") or {}
         reply = (
             {"error": {"message": "failed"}} if message["method"] == self.fail else {"result": self._result(message)}
         )
@@ -357,7 +363,9 @@ def test_the_cookie_jar_returns_to_the_pool_before_scrolling(monkeypatch, tmp_pa
     reel = "https://example.test/reel/11111111"
     fake = _FakeBrowser([[reel]])
     session = _session(monkeypatch, tmp_path, fake)
-    lease = types.SimpleNamespace(path=str(jar))
+    lease = CookieLease(
+        cookie_id="jar", source_key="example", path=str(jar), filename="jar.txt", user_agent=_CHROME_140
+    )
     released: list = []
     monkeypatch.setattr(browser_module, "lease_cookie", lambda source_key: lease)
     monkeypatch.setattr(browser_module, "release_cookie", released.append)
@@ -371,6 +379,42 @@ def test_the_cookie_jar_returns_to_the_pool_before_scrolling(monkeypatch, tmp_pa
 
     assert first == [reel]
     assert "Network.setCookies" in fake.methods
+    # The page sees the browser the jar came from, set before it loads.
+    assert fake.params["Emulation.setUserAgentOverride"]["userAgent"] == _CHROME_140
+    assert fake.methods.index("Emulation.setUserAgentOverride") < fake.methods.index("Page.navigate")
+
+
+def test_a_walk_with_a_jar_spaces_its_scrolls_by_the_jars_wait(monkeypatch, tmp_path):
+    jar = tmp_path / "cookies.txt"
+    jar.write_text("# Netscape HTTP Cookie File\n.example.test\tTRUE\t/\tTRUE\t0\tsid\tabc\n", encoding="utf-8")
+    pages = [[f"https://example.test/reel/{index}{index}{index}{index}"] for index in range(1, 4)]
+    fake = _FakeBrowser(pages)
+    session = _session(monkeypatch, tmp_path, fake)
+    lease = CookieLease(
+        cookie_id="jar", source_key="example", path=str(jar), filename="jar.txt", policy=CookiePolicy(interval=5.0)
+    )
+    monkeypatch.setattr(browser_module, "lease_cookie", lambda source_key: lease)
+    waits: list[float] = []
+    monkeypatch.setattr(browser_module.time, "sleep", waits.append)
+
+    with session:
+        list(session.scroll_links(PAGE_URL, _any_item, _nothing_known))
+
+    # Every scroll after the first waits out what is left of the jar's interval.
+    assert len([wait for wait in waits if wait > 4]) == fake.scrolls - 1
+
+
+def test_a_walk_without_a_jar_never_announces_a_headless_browser(monkeypatch, tmp_path):
+    fake = _FakeBrowser([["https://example.test/reel/11111111"]])
+    session = _session(monkeypatch, tmp_path, fake)
+
+    with session:
+        list(session.scroll_links(PAGE_URL, _any_item, _nothing_known))
+
+    override = fake.params["Emulation.setUserAgentOverride"]
+    assert "Headless" not in override["userAgent"]
+    assert all("Headless" not in brand["brand"] for brand in override["userAgentMetadata"]["brands"])
+    assert "--disable-blink-features=AutomationControlled" in browser_module._FLAGS
 
 
 def test_no_archive_means_no_browser(monkeypatch, tmp_path):

@@ -10,6 +10,7 @@ from typing import Any
 
 from backend.app.domains.settings import (
     CookieLease,
+    browser_identity,
     cookie_rotation,
     has_cookies_for_source,
     looks_antibot_walled,
@@ -20,20 +21,42 @@ _TARGET_LIST_TIMEOUT_SECONDS = 30
 # Directory holding the fingerprint backend (curl_cffi), kept off the default import path
 # because yt-dlp loads every installed request handler at startup.
 _IMPERSONATE_PATH_ENV = "NEVER_STELLE_IMPERSONATE_PATH"
+# Every jar presents a Chromium browser, so its runs connect like one.
+_COOKIE_FAMILY = "chrome"
+# Retries a failed request gets; a jar's runs try harder before the rotation moves on.
+_RETRIES = 3
+_COOKIE_RETRIES = 5
 
 _target_lock = threading.Lock()
-_target_cache: str | None = None
+_families_cache: tuple[str, ...] | None = None
 
 
 @dataclass
 class AccessIdentity:
     """How one attempt reaches a site. Each engine translates it into its own flags."""
 
-    cookies_file: str = ""
     # Browser family whose TLS fingerprint the engine presents; "" sends its own.
     impersonate: str = ""
     lease: CookieLease | None = None
     walled: bool = False
+
+    @property
+    def cookies_file(self) -> str:
+        return self.lease.path if self.lease else ""
+
+    @property
+    def headers(self) -> dict[str, str]:
+        """The browser a jar presents, as request headers; none for anonymous attempts."""
+        return browser_identity(self.lease.user_agent).headers() if self.lease else {}
+
+    @property
+    def retries(self) -> int:
+        return _COOKIE_RETRIES if self.lease else _RETRIES
+
+    @property
+    def interval(self) -> float:
+        """Seconds a jar's run waits between requests, before each file and between retries; 0 for anonymous."""
+        return self.lease.policy.interval if self.lease else 0.0
 
     def report(self, output: Any) -> None:
         """Classify a failed attempt's output so the rotation can pick the next step."""
@@ -56,24 +79,24 @@ def access_env(access: AccessIdentity) -> dict[str, str] | None:
     return _impersonation_env() if access.impersonate else None
 
 
-def parse_impersonate_targets(output: str) -> str:
-    """Browser family of yt-dlp's preferred usable target; its listing prints that one last."""
-    preferred = ""
+def parse_impersonate_targets(output: str) -> tuple[str, ...]:
+    """Browser families of yt-dlp's usable targets, preferred last as its listing prints them."""
+    families: dict[str, None] = {}
     for line in str(output or "").splitlines():
         cells = line.split()
         if len(cells) < 3 or line.startswith("[") or "(unavailable)" in line:
             continue
         family = cells[0].partition("-")[0].lower()
         if family.isalpha() and family != "client":
-            preferred = family
-    return preferred
+            families.pop(family, None)
+            families[family] = None
+    return tuple(families)
 
 
-def impersonation_target() -> str:
-    """Browser family this install can impersonate, or "" when no backend is present."""
-    global _target_cache
+def _impersonation_families() -> tuple[str, ...]:
+    global _families_cache
     with _target_lock:
-        if _target_cache is None:
+        if _families_cache is None:
             try:
                 result = subprocess.run(
                     ["yt-dlp", "--list-impersonate-targets"],
@@ -85,9 +108,20 @@ def impersonation_target() -> str:
                     env=_impersonation_env(),
                 )
             except (OSError, subprocess.SubprocessError):
-                return ""
-            _target_cache = parse_impersonate_targets(result.stdout)
-        return _target_cache
+                return ()
+            _families_cache = parse_impersonate_targets(result.stdout)
+        return _families_cache
+
+
+def impersonation_target() -> str:
+    """Browser family this install can impersonate, or "" when no backend is present."""
+    families = _impersonation_families()
+    return families[-1] if families else ""
+
+
+def cookie_impersonation_target() -> str:
+    """The family a jar's runs connect as, or "" when this install cannot present it."""
+    return _COOKIE_FAMILY if _COOKIE_FAMILY in _impersonation_families() else ""
 
 
 def access_rotation(
@@ -100,29 +134,24 @@ def access_rotation(
     """Yield ways to reach a site, cheapest first, until the caller finds one that works.
 
     Anonymous first. After a wall, anonymous again behind a browser fingerprint. Then
-    each of the source's cookie jars, fingerprinted once any attempt hit a wall. Callers
-    that cannot present a fingerprint pass ``fingerprint=False``. A callable source key
-    is only resolved once cookies are needed. ``first_cookie_wait`` caps the wait for the
-    first jar, the source's policy by default. A known ``walled`` means the public
-    attempts already failed, so the rotation starts at the jars. Call ``report`` with a
-    failed attempt's output before continuing, and close the iterator
-    (``contextlib.closing``) when breaking early.
+    each of the source's cookie jars, always connecting as the Chrome it presents, so a
+    session never shows up as a second client. Callers that cannot present a fingerprint
+    pass ``fingerprint=False``. A callable source key is only resolved once cookies are
+    needed. ``first_cookie_wait`` caps the wait for the first jar, the source's policy by
+    default. A known ``walled`` means the public attempts already failed, so the rotation
+    starts at the jars. Call ``report`` with a failed attempt's output before continuing,
+    and close the iterator (``contextlib.closing``) when breaking early.
     """
-    public = walled is None
-    if public:
+    if walled is None:
         anonymous = AccessIdentity()
         yield anonymous
-        walled = anonymous.walled
-    impersonate = impersonation_target() if fingerprint and walled else ""
-    if impersonate and public:
-        yield AccessIdentity(impersonate=impersonate)
+        if fingerprint and anonymous.walled and (target := impersonation_target()):
+            yield AccessIdentity(impersonate=target)
     if callable(cookie_source_key):
         cookie_source_key = cookie_source_key()
     if not has_cookies_for_source(cookie_source_key):
         return
+    impersonate = cookie_impersonation_target() if fingerprint else ""
     with closing(cookie_rotation(cookie_source_key, first_wait=first_cookie_wait)) as rotation:
         for lease in rotation:
-            identity = AccessIdentity(cookies_file=lease.path, impersonate=impersonate, lease=lease)
-            yield identity
-            if fingerprint and identity.walled and not impersonate:
-                impersonate = impersonation_target()
+            yield AccessIdentity(impersonate=impersonate, lease=lease)

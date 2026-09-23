@@ -519,6 +519,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
             id: upload.id,
             filename: nextCookieFilename(key, taken),
             uploaded_at: "",
+            user_agent: "",
+            browser: "",
           })),
         ],
       });

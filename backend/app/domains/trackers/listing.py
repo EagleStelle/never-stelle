@@ -57,7 +57,6 @@ from backend.app.domains.settings.trackers import merge_tracker_tabs, page_words
 _IDLE_TIMEOUT_SECONDS = 300
 # Sub-collections (tabs, timelines) are followed this many levels below the tracked link.
 _MAX_DEPTH = 2
-_COOKIE_SLEEP_SECONDS = "2"
 _LOG_TAIL = 20
 _GALLERYDL_DIRECTORY = 2
 _GALLERYDL_URL = 3
@@ -781,14 +780,11 @@ def _ytdlp_entries(
 
 
 def _gallerydl_command(access: AccessIdentity) -> list[str]:
-    cmd = ["gallery-dl", "-j", "-o", "output.jsonl=true", *gallerydl_access_args(access)]
-    if access.cookies_file:
-        cmd.extend(["--sleep-request", _COOKIE_SLEEP_SECONDS])
-    return cmd
+    return ["gallery-dl", "-j", "-o", "output.jsonl=true", *gallerydl_access_args(access)]
 
 
 def _ytdlp_command(access: AccessIdentity) -> list[str]:
-    cmd = [
+    return [
         "yt-dlp",
         "--flat-playlist",
         "--lazy-playlist",
@@ -800,9 +796,6 @@ def _ytdlp_command(access: AccessIdentity) -> list[str]:
         "ejs:github",
         *ytdlp_access_args(access),
     ]
-    if access.cookies_file:
-        cmd.extend(["--sleep-requests", _COOKIE_SLEEP_SECONDS])
-    return cmd
 
 
 _Parser = Callable[[Iterator[Any], list[str]], Iterator[Any]]

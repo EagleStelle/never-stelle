@@ -17,6 +17,11 @@ _SCRIPT_CHALLENGE = (
 )
 
 
+_CHROME_140 = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+)
+
+
 def _stub(monkeypatch, *, jars=(), target="chrome", has_cookies=True):
     leases = [
         CookieLease(cookie_id=f"jar-{index}", source_key="example", path=f"/tmp/{name}.txt", filename=f"{name}.txt")
@@ -28,7 +33,7 @@ def _stub(monkeypatch, *, jars=(), target="chrome", has_cookies=True):
         yield from leases
 
     monkeypatch.setattr(access_module, "cookie_rotation", fake_rotation)
-    monkeypatch.setattr(access_module, "impersonation_target", lambda: target)
+    monkeypatch.setattr(access_module, "_impersonation_families", lambda: (target,) if target else ())
     return leases
 
 
@@ -64,33 +69,49 @@ def test_a_wall_adds_one_fingerprinted_attempt_before_cookies(monkeypatch):
     assert [access.lease.banned for access in seen[2:]] == [False, False]
 
 
-def test_no_fingerprint_without_a_wall(monkeypatch):
+def test_jars_connect_like_chrome_while_anonymous_stays_plain_without_a_wall(monkeypatch):
     _stub(monkeypatch, jars=["a"])
 
     seen = _walk(["ERROR: HTTP Error 429: Too Many Requests"] * 2)
 
-    assert [(access.impersonate, access.cookies_file) for access in seen] == [("", ""), ("", "/tmp/a.txt")]
+    assert [(access.impersonate, access.cookies_file) for access in seen] == [("", ""), ("chrome", "/tmp/a.txt")]
     assert seen[1].lease.banned is True
 
 
-def test_a_wall_behind_a_cookie_fingerprints_the_remaining_jars(monkeypatch):
-    _stub(monkeypatch, jars=["a", "b"])
+def test_jars_connect_like_chrome_only_when_the_backend_offers_it(monkeypatch):
+    _stub(monkeypatch, jars=["a"], target="safari")
 
-    seen = _walk(["ERROR: Unsupported URL", _DDOS_GUARD, "ERROR: Unsupported URL"])
+    seen = _walk([_CLOUDFLARE] * 3)
 
-    assert [access.impersonate for access in seen] == ["", "", "chrome"]
+    # The public retry takes what the backend prefers; a jar never claims a browser it is not.
+    assert [(access.impersonate, access.cookies_file) for access in seen] == [
+        ("", ""),
+        ("safari", ""),
+        ("", "/tmp/a.txt"),
+    ]
 
 
-@pytest.mark.parametrize(("walled", "impersonate"), [(True, "chrome"), (False, "")])
-def test_a_known_wall_state_starts_at_the_jars(monkeypatch, walled, impersonate):
+@pytest.mark.parametrize("walled", [True, False])
+def test_a_known_wall_state_starts_at_the_jars(monkeypatch, walled):
     _stub(monkeypatch, jars=["a", "b"])
 
     seen = _walk(["ERROR: Unsupported URL"] * 2, walled=walled)
 
     assert [(access.impersonate, access.cookies_file) for access in seen] == [
-        (impersonate, "/tmp/a.txt"),
-        (impersonate, "/tmp/b.txt"),
+        ("chrome", "/tmp/a.txt"),
+        ("chrome", "/tmp/b.txt"),
     ]
+
+
+def test_a_jar_presents_the_browser_it_was_uploaded_from(monkeypatch):
+    leases = _stub(monkeypatch, jars=["a"])
+    leases[0].user_agent = _CHROME_140
+
+    anonymous, jar = _walk(["ERROR: Unsupported URL"] * 2)
+
+    assert anonymous.headers == {}
+    assert jar.headers["User-Agent"] == _CHROME_140
+    assert jar.headers["sec-ch-ua"] == '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"'
 
 
 def test_the_fingerprint_step_is_skipped_without_an_impersonation_backend(monkeypatch):
@@ -103,7 +124,7 @@ def test_the_fingerprint_step_is_skipped_without_an_impersonation_backend(monkey
 
 def test_callers_without_a_fingerprint_go_straight_to_cookies_after_a_wall(monkeypatch):
     _stub(monkeypatch, jars=["a"])
-    monkeypatch.setattr(access_module, "impersonation_target", lambda: pytest.fail("no fingerprint lookup"))
+    monkeypatch.setattr(access_module, "_impersonation_families", lambda: pytest.fail("no fingerprint lookup"))
 
     seen = []
     with closing(access_module.access_rotation("example", fingerprint=False)) as rotation:
@@ -134,6 +155,24 @@ def test_fetch_html_rests_a_jar_on_a_block_but_not_on_a_cloudflare_challenge(mon
     assert leases[0].banned is banned
 
 
+def test_fetch_html_sends_the_jars_browser_only_with_the_jar(monkeypatch):
+    leases = _stub(monkeypatch, jars=["a"])
+    leases[0].user_agent = _CHROME_140
+    monkeypatch.setattr(enrich, "_load_cookie_jar", lambda path: {"session": "1"} if path else None)
+    agents = []
+    monkeypatch.setattr(
+        enrich.httpx,
+        "get",
+        lambda url, **kwargs: (
+            agents.append(kwargs["headers"]["User-Agent"]) or httpx.Response(404, request=httpx.Request("GET", url))
+        ),
+    )
+
+    enrich.fetch_html("https://example.test/post/1", "example")
+
+    assert agents == ["Mozilla/5.0", _CHROME_140]
+
+
 def test_a_lazy_cookie_source_is_not_resolved_when_anonymous_works(monkeypatch):
     _stub(monkeypatch, jars=["a"])
     resolved = []
@@ -144,7 +183,7 @@ def test_a_lazy_cookie_source_is_not_resolved_when_anonymous_works(monkeypatch):
     assert resolved == []
 
 
-def test_impersonate_targets_parse_to_the_preferred_usable_family():
+def test_impersonate_targets_parse_to_the_usable_families_preferred_last(monkeypatch):
     listing = "\n".join(
         [
             "[info] Available impersonate targets",
@@ -157,8 +196,12 @@ def test_impersonate_targets_parse_to_the_preferred_usable_family():
             "Edge            -            curl_cffi (unavailable)",
         ]
     )
+    families = access_module.parse_impersonate_targets(listing)
+    monkeypatch.setattr(access_module, "_impersonation_families", lambda: families)
 
-    assert access_module.parse_impersonate_targets(listing) == "chrome"
+    assert families == ("tor", "safari", "chrome")
+    assert access_module.impersonation_target() == "chrome"
+    assert access_module.cookie_impersonation_target() == "chrome"
 
 
 def test_impersonate_targets_parse_empty_when_every_target_is_unavailable():
@@ -172,14 +215,15 @@ def test_impersonate_targets_parse_empty_when_every_target_is_unavailable():
         ]
     )
 
-    assert access_module.parse_impersonate_targets(listing) == ""
+    assert access_module.parse_impersonate_targets(listing) == ()
 
 
 def test_access_env_only_adds_the_fingerprint_backend_when_impersonating(monkeypatch):
     monkeypatch.setenv("NEVER_STELLE_IMPERSONATE_PATH", "/opt/impersonate")
     monkeypatch.setenv("PYTHONPATH", "/app")
 
-    assert access_module.access_env(access_module.AccessIdentity(cookies_file="/tmp/a.txt")) is None
+    cookie = CookieLease(cookie_id="a", source_key="example", path="/tmp/a.txt", filename="a.txt")
+    assert access_module.access_env(access_module.AccessIdentity(lease=cookie)) is None
     env = access_module.access_env(access_module.AccessIdentity(impersonate="chrome"))
     assert env is not None
     assert env["PYTHONPATH"] == os.pathsep.join(["/opt/impersonate", "/app"])

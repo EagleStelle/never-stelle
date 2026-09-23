@@ -161,12 +161,25 @@ def read_creator_sidecar(path: str) -> str:
     return "" if value.lower() == "unknown" else value
 
 
+def ytdlp_pacing_args(access: AccessIdentity) -> list[str]:
+    """Retries and waits for one attempt, alike in yt-dlp and in gallery-dl's yt-dlp handoff."""
+    retries = str(access.retries)
+    args = ["--retries", retries, "--fragment-retries", retries]
+    if access.interval:
+        wait = f"{access.interval:g}"
+        args.extend(["--sleep-requests", wait, "--sleep-interval", wait])
+        args.extend(["--retry-sleep", wait, "--retry-sleep", f"fragment:{wait}", "--retry-sleep", f"extractor:{wait}"])
+    return args
+
+
 def ytdlp_access_args(access: AccessIdentity) -> list[str]:
-    """Cookies and browser fingerprint for one attempt."""
+    """Cookies, browser fingerprint, retries and waits for one attempt."""
     args = ["--impersonate", access.impersonate] if access.impersonate else []
     if access.cookies_file:
         args.extend(["--cookies", access.cookies_file])
-    return args
+    for name, value in access.headers.items():
+        args.extend(["--add-headers", f"{name}:{value}"])
+    return [*args, *ytdlp_pacing_args(access)]
 
 
 def build_ytdlp_command(
@@ -211,10 +224,6 @@ def build_ytdlp_command(
         "--no-continue",
         "--socket-timeout",
         "30",
-        "--retries",
-        "3",
-        "--fragment-retries",
-        "3",
         "--trim-filenames",
         str(trim_length),
         # No --verbose: it multiplies the output lines the worker has to parse for
@@ -312,24 +321,6 @@ def build_ytdlp_command(
             ]
         )
         cmd.extend(["--print-to-file", f"after_move:{item_template}", metadata_sidecar])
-    access = access or AccessIdentity()
-    cmd.extend(ytdlp_access_args(access))
-    if access.cookies_file:
-        cmd.extend(
-            [
-                "--sleep-requests",
-                "1",
-                "--min-sleep-interval",
-                "2",
-                "--max-sleep-interval",
-                "6",
-                "--retries",
-                "5",
-                "--fragment-retries",
-                "5",
-                "--retry-sleep",
-                "linear=1::2",
-            ]
-        )
+    cmd.extend(ytdlp_access_args(access or AccessIdentity()))
     cmd.extend(["--output", final_output_template, source_url])
     return cmd

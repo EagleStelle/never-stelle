@@ -5,7 +5,7 @@ from typing import Any
 from backend.app.core.time import utc_now
 from backend.app.db.database import transaction
 
-_METADATA_COLUMNS = "id, source_key, filename, position, length(content) AS size, created_at, updated_at"
+_METADATA_COLUMNS = "id, source_key, filename, position, user_agent, length(content) AS size, created_at, updated_at"
 # List order is the user's preference order: the pool breaks ties top-first.
 _LIST_ORDER = "ORDER BY position ASC, created_at ASC, rowid ASC"
 
@@ -16,6 +16,7 @@ def _metadata_row(row: Any) -> dict[str, Any]:
         "source_key": str(row["source_key"] or ""),
         "filename": str(row["filename"] or ""),
         "position": int(row["position"] or 0),
+        "user_agent": str(row["user_agent"] or ""),
         "size": int(row["size"] or 0),
         "created_at": str(row["created_at"] or ""),
         "updated_at": str(row["updated_at"] or ""),
@@ -60,7 +61,9 @@ def get_source_cookie(cookie_id: str) -> dict[str, Any] | None:
     }
 
 
-def add_source_cookie(cookie_id: str, source_key: str, filename: str, content: bytes) -> dict[str, Any]:
+def add_source_cookie(
+    cookie_id: str, source_key: str, filename: str, content: bytes, user_agent: str = ""
+) -> dict[str, Any]:
     """Append a jar to the end of a source's rotation list."""
     now = utc_now()
     with transaction() as connection:
@@ -72,17 +75,18 @@ def add_source_cookie(cookie_id: str, source_key: str, filename: str, content: b
         connection.execute(
             """
             INSERT OR REPLACE INTO source_cookies (
-                id, source_key, filename, position, content, created_at, updated_at
+                id, source_key, filename, position, user_agent, content, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (cookie_id, source_key, filename, position, content, now, now),
+            (cookie_id, source_key, filename, position, user_agent, content, now, now),
         )
     return {
         "id": cookie_id,
         "source_key": source_key,
         "filename": filename,
         "position": position,
+        "user_agent": user_agent,
         "size": len(content),
         "created_at": now,
         "updated_at": now,

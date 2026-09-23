@@ -83,7 +83,7 @@ def _stub_access(monkeypatch, rotation, *, target=""):
 
     monkeypatch.setattr(access_module, "has_cookies_for_source", lambda source_key: True)
     monkeypatch.setattr(access_module, "cookie_rotation", rotation)
-    monkeypatch.setattr(access_module, "impersonation_target", lambda: target)
+    monkeypatch.setattr(access_module, "_impersonation_families", lambda: (target,) if target else ())
     monkeypatch.setattr(worker_module, "impersonation_target", lambda: target)
 
 
@@ -220,7 +220,7 @@ def test_run_engine_attempts_retries_behind_a_fingerprint_after_a_wall(monkeypat
     assert leases[0].banned is False
 
 
-def test_run_engine_attempts_skips_the_fingerprint_without_a_wall(monkeypatch):
+def test_run_engine_attempts_fingerprints_only_the_cookie_without_a_wall(monkeypatch):
     import backend.app.domains.downloads.workers.execution as worker_module
 
     attempts: list[bool] = []
@@ -229,7 +229,7 @@ def test_run_engine_attempts_skips_the_fingerprint_without_a_wall(monkeypatch):
         attempts.append("--impersonate" in cmd)
         return (0, "/tmp/out.mp4", ["/tmp/out.mp4"]) if "--cookies" in cmd else (1, "", [])
 
-    _stub_worker_cookie_rotation(monkeypatch, worker_module)
+    _stub_worker_cookie_rotation(monkeypatch, worker_module, target="chrome")
     monkeypatch.setattr(worker_module, "_run_engine_to_task", fake_run_engine)
     monkeypatch.setattr(worker_module, "append_task_log", lambda task_id, message: None)
     monkeypatch.setattr(worker_module, "_task_log_tail", lambda task_id: "ERROR: Unsupported URL")
@@ -237,7 +237,7 @@ def test_run_engine_attempts_skips_the_fingerprint_without_a_wall(monkeypatch):
     rc, _, _ = _run_attempts(worker_module)
 
     assert rc == 0
-    assert attempts == [False, False]
+    assert attempts == [False, True]
 
 
 def test_run_engine_attempts_rests_a_cookie_that_came_back_rate_limited(monkeypatch):
@@ -310,7 +310,7 @@ def test_run_engine_attempts_resumes_at_the_cookie_stage(monkeypatch):
     rc, _, _ = _run_attempts(worker_module, resume_walled=True)
 
     assert rc == 0
-    # No anonymous or fingerprint-only rerun; the cookie is fingerprinted after the earlier wall.
+    # No anonymous or fingerprint-only rerun; the cookie connects as its browser.
     assert attempts == [(True, True)]
 
 
