@@ -90,12 +90,16 @@ def _next_after(last_checked_at: str, interval_seconds: int) -> str:
         return utc_now()
 
 
+def _source_key(tracker: dict[str, Any], profiles: list[dict[str, Any]] | None = None) -> str:
+    return source_key_from_url(tracker["source_url"], profiles or get_effective_source_profiles())
+
+
 def tracker_to_api(tracker: dict[str, Any], counts: dict[str, int] | None = None) -> dict[str, Any]:
     counts = counts or {}
     return {
         "id": tracker["id"],
         "source_url": tracker["source_url"],
-        "source_key": tracker["source_key"],
+        "source_key": _source_key(tracker),
         "name": tracker["name"],
         "enabled": tracker["enabled"],
         "interval_seconds": tracker["interval_seconds"],
@@ -150,7 +154,6 @@ def create_tracker(
         {
             "id": uuid.uuid4().hex[:12],
             "source_url": url,
-            "source_key": source_key_from_url(url, get_effective_source_profiles()),
             "name": _fallback_name(url),
             "enabled": True,
             "interval_seconds": _interval(interval_seconds),
@@ -293,8 +296,10 @@ class _TrackerBacklog:
 def _learned_pages(tracker: dict[str, Any]) -> dict[str, list[tuple[str, str]]]:
     """Per row, the names and query fields its page went by on the source's other trackers."""
     learned: dict[str, list[tuple[str, str]]] = {}
+    profiles = get_effective_source_profiles()
+    source_key = _source_key(tracker, profiles)
     for other in load_tracker_rows():
-        if other["id"] == tracker["id"] or other["source_key"] != tracker["source_key"]:
+        if other["id"] == tracker["id"] or _source_key(other, profiles) != source_key:
             continue
         for tab, page in (other["feeds"].get("pages") or {}).items():
             variant = page_variant(other["source_url"], page)
@@ -320,6 +325,7 @@ def run_check(tracker: dict[str, Any]) -> None:
 
 def _run_check(tracker: dict[str, Any]) -> None:
     tracker_id = tracker["id"]
+    source_key = _source_key(tracker)
     asked = tracker_id in _asked
     _asked.discard(tracker_id)
     settings = get_tracker_settings()
@@ -339,7 +345,7 @@ def _run_check(tracker: dict[str, Any]) -> None:
         with CpuPacer() as pacer:
             entries = iter_entries(
                 tracker["source_url"],
-                tracker["source_key"],
+                source_key,
                 stats,
                 known=lambda key: has_tracker_entry(tracker_id, key),
                 settled=lambda key: (
@@ -347,7 +353,7 @@ def _run_check(tracker: dict[str, Any]) -> None:
                     or has_tracker_backlog_row(tracker_id, key, found_by=pass_start)
                 ),
                 caught_up_after=None if first else settings["caught_up_after"],
-                tabs=get_tracker_tabs(tracker["source_key"]),
+                tabs=get_tracker_tabs(source_key),
                 pages=tracker["feeds"].get("pages") or {},
                 learned=_learned_pages(tracker),
                 batch=settings["page_size"],
@@ -389,7 +395,7 @@ def _run_check(tracker: dict[str, Any]) -> None:
             raise ValueError(UNRESOLVED_ERROR if stats.unresolved else SINGLE_ITEM_ERROR)
         succeeded = True
         if stats.found_tabs:
-            save_tracker_tabs(tracker["source_key"], stats.found_tabs)
+            save_tracker_tabs(source_key, stats.found_tabs)
         updates["feeds"] = {"pages": stats.tab_pages, "ended": sorted(stats.ended)}
         errors = [*lost, *failures]
         updates["last_error"] = (

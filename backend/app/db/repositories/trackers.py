@@ -10,7 +10,6 @@ from backend.app.db.repositories.utils import _decode, _encode
 _TRACKER_COLUMNS = (
     "id",
     "source_url",
-    "source_key",
     "name",
     "enabled",
     "interval_seconds",
@@ -28,7 +27,7 @@ _TRACKER_COLUMNS = (
 _TRACKER_SELECT = ", ".join(_TRACKER_COLUMNS)
 _JSON_COLUMNS = {"quality", "post_processing", "feeds"}
 _BOOL_COLUMNS = {"enabled"}
-_UPDATABLE = set(_TRACKER_COLUMNS) - {"id", "source_url", "source_key", "created_at", "updated_at"}
+_UPDATABLE = set(_TRACKER_COLUMNS) - {"id", "source_url", "created_at", "updated_at"}
 # SQLite caps bound parameters per statement; stay well under it.
 _CHUNK = 500
 

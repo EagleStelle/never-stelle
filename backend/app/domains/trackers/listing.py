@@ -36,7 +36,6 @@ from backend.app.domains.downloads.formats import (
 )
 from backend.app.domains.downloads.gallerydl import gallerydl_access_args
 from backend.app.domains.downloads.history import find_history_by_source
-from backend.app.domains.downloads.learning import save_missing_learned_fields
 from backend.app.domains.downloads.probe import (
     _flatten_metadata,
     _probe_rotation,
@@ -60,7 +59,7 @@ from backend.app.domains.downloads.workers.processes import (
     task_execution,
 )
 from backend.app.domains.downloads.ytdlp import ytdlp_access_args
-from backend.app.domains.settings.fields import get_effective_source_fields_map
+from backend.app.domains.settings.fields import get_effective_field_defaults, get_effective_fields
 from backend.app.domains.settings.trackers import merge_tracker_tabs, page_words, row_matches, same_label
 
 # A listing that prints nothing for this long is stuck, not slow.
@@ -97,8 +96,6 @@ _ROUTE_WORDS_RE = re.compile(r"[a-z]+(?:[_-][a-z]+)+")
 _PAGE_LINK_RE = re.compile(r"""https?://[^\s"'<>\\]+|href="(/[^"]*)\"""")
 # Links inside a page's JSON data are escaped.
 _PAGE_ESCAPES = ((r"\/", "/"), (r"\u0025", "%"), (r"\u0026", "&"), ("&amp;", "&"))
-_USERNAME_FIELDS = tuple(dict.fromkeys(name for chains in FIELD_ROLE_CHAINS.values() for name in chains["username"]))
-_NICKNAME_FIELDS = tuple(dict.fromkeys(name for chains in FIELD_ROLE_CHAINS.values() for name in chains["nickname"]))
 
 
 @dataclass(frozen=True)
@@ -449,11 +446,12 @@ class _Resolver:
         # Learned formats are stored under the link's own host key.
         self.learned_key = source_key_from_url(tracker_url)
         self.learned = load_learned_formats()
-        roles = get_effective_source_fields_map().get(self.source_key) or {}
-        chains = FIELD_ROLE_CHAINS["gallerydl"]
-        self.username_fields = roles.get("username") or list(chains["username"])
-        self.nickname_fields = roles.get("nickname") or list(chains["nickname"])
-        self.title_fields = roles.get("title") or list(chains["title"])
+        # The source's Fields order names entries, as it names downloads.
+        roles = get_effective_fields(tracker_url)
+        defaults = get_effective_field_defaults()
+        self.username_fields = roles.get("username") or defaults["username"]
+        self.nickname_fields = roles.get("nickname") or defaults["nickname"]
+        self.title_fields = roles.get("title") or defaults["title"]
         self.role_words = _role_words()
         self.catalog_tried: set[tuple[str, str]] = set()
         self.placeholders: dict[str, str] | None = None
@@ -618,10 +616,9 @@ class _Resolver:
         if len(creators) > 1 or {flat[key].lstrip("@") for key in fields} != creators:
             return
         creator = next(iter(creators), "")
+        # For this walk only: Fields stay as set, and the format is stored once a download of the post succeeds.
         if creator and _field_value(flat, self.username_fields).lstrip("@") != creator:
             self.username_fields = list(dict.fromkeys([*fields, *self.username_fields]))
-            save_missing_learned_fields(url, self.source_key, {"username": self.username_fields})
-        # For this walk only: the format is stored once a download of the post succeeds.
         roles = {"username": self.username_fields, "nickname": self.nickname_fields}
         self.learned = learn_download(self.learned, url, id_value, flat, roles)
 
@@ -637,21 +634,24 @@ class _Resolver:
         )
         if not url:
             return None
-        # Learning a format can add the field that holds the creator.
-        username = _field_value(flat, self.username_fields)
-        nickname = _field_value(flat, self.nickname_fields)
         # The tracked link's own listing teaches the creator's names; the pages beside it are judged by them.
         if not judged:
             self.names.update(self._person_names(flat))
         owned = not judged or self.owns(url, flat)
-        entry = Entry(
+        # Named after learning the format, which can add the field that holds the creator.
+        entry = self.named(url, flat, owned)
+        return self.grouped(entry, flat) if owned else entry
+
+    def named(self, url: str, flat: dict[str, str], owned: bool) -> Entry:
+        """An entry named by the Fields order; its collection is its nickname, else its username."""
+        username = _field_value(flat, self.username_fields)
+        return Entry(
             url=url,
             title=_field_value(flat, self.title_fields),
             creator=username,
-            collection=nickname or username,
+            collection=_field_value(flat, self.nickname_fields) or username,
             owned=owned,
         )
-        return self.grouped(entry, flat) if owned else entry
 
     def owns(self, link: str, flat: dict[str, str]) -> bool:
         """Whether the link names the creator or its metadata carries a name or id the creator's own files do."""
@@ -680,14 +680,7 @@ class _Resolver:
         if not self._person_names(flat):
             return None
         owned = self.owns(link, flat)
-        username = _field_value(flat, _USERNAME_FIELDS)
-        entry = Entry(
-            url=link,
-            title=_field_value(flat, self.title_fields),
-            creator=username,
-            collection=_field_value(flat, _NICKNAME_FIELDS) or username,
-            owned=owned,
-        )
+        entry = self.named(link, flat, owned)
         return self.grouped(entry, flat) if owned else entry
 
     def grouped(self, entry: Entry, flat: dict[str, str]) -> Entry:
@@ -783,15 +776,11 @@ def _ytdlp_entries(
         if not (resolver.is_item(url) if single is None else single):
             sub_collections.append(url)
             continue
-        yield Entry(
-            url=url,
-            title=str(info.get("title") or ""),
-            creator=str(info.get("uploader") or info.get("channel") or ""),
-            collection=str(
-                info.get("playlist_uploader") or info.get("playlist_channel") or info.get("playlist_title") or ""
-            ),
-            owned=not judged or resolver.owns(url, _flatten_metadata(info)),
-        )
+        flat = _flatten_metadata(info)
+        entry = resolver.named(url, flat, not judged or resolver.owns(url, flat))
+        # The playlist the entry was listed from, as yt-dlp reports it.
+        playlist = info.get("playlist_uploader") or info.get("playlist_channel") or info.get("playlist_title")
+        yield replace(entry, collection=str(playlist or entry.collection))
 
 
 def _gallerydl_command(access: AccessIdentity) -> list[str]:

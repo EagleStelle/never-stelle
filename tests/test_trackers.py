@@ -45,7 +45,6 @@ def _entry(number: int) -> Entry:
 def temp_db(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setattr(listing_module, "load_learned_formats", lambda: {})
-    monkeypatch.setattr(listing_module, "get_effective_source_fields_map", lambda: {})
     monkeypatch.setattr(listing_module, "fetch_html", lambda url, cookie_source_key="": "")
     monkeypatch.setattr(listing_module, "probe_metadata", lambda urls, **options: {})
     monkeypatch.setattr(listing_module, "BrowserSession", _Browser().open)
@@ -58,7 +57,6 @@ def _insert_tracker(**overrides) -> dict:
         {
             "id": "t1",
             "source_url": TRACKER_URL,
-            "source_key": "example",
             "name": "alice",
             "enabled": True,
             "interval_seconds": 3600,
@@ -328,11 +326,8 @@ def _catalog_file(post_id: str) -> list:
 
 def test_catalog_learns_the_post_link_from_one_verified_post(temp_db, monkeypatch):
     from backend.app.db import repositories
+    from backend.app.domains.settings import load_saved_settings_file
 
-    saved: list[list[str]] = []
-    monkeypatch.setattr(
-        listing_module, "save_missing_learned_fields", lambda url, key, roles: saved.append(roles["username"])
-    )
     post = "https://example.test/alice/post/22222222"
     probed = _fake_catalog(
         monkeypatch,
@@ -353,7 +348,9 @@ def test_catalog_learns_the_post_link_from_one_verified_post(temp_db, monkeypatc
     assert stats.unresolved == 0
     # The creator is learned as a token read from the field that held it, not as this creator's name.
     assert "alice" not in resolver.learned["example"]["templates"][0]
-    assert saved[0][0] == "author[handle]"
+    # The field that held the creator names this walk's entries; Fields stay as the user set them.
+    assert resolver.username_fields[0] == "author[handle]"
+    assert not load_saved_settings_file().get("source_fields")
     # The format is stored only once a download of the post succeeds.
     assert repositories.load_learned_formats_payload() == {}
 
@@ -510,6 +507,39 @@ def test_ytdlp_lines_become_entries(temp_db):
 
     assert entries == [Entry(url="https://example.test/post/12345678", title="One", collection="Alice")]
     assert subs == ["https://example.test/u/alice/shorts"]
+
+
+def test_listed_entries_are_named_by_the_fields_order(temp_db):
+    from backend.app.domains.settings import load_saved_settings_file, save_saved_settings_file
+
+    payload = load_saved_settings_file()
+    payload["source_fields"] = {
+        "example": {"username": ["author[handle]", "uploader"], "title": ["description", "title"]}
+    }
+    save_saved_settings_file(payload)
+    lines = [
+        {
+            "url": "https://example.test/post/12345678",
+            "title": "One",
+            "description": "Caption",
+            "uploader": "Alice Example",
+            "author": {"handle": "alice"},
+        }
+    ]
+
+    entries = list(listing_module._ytdlp_entries(iter(lines), _resolver(), []))
+
+    assert (entries[0].creator, entries[0].title) == ("alice", "Caption")
+
+
+def test_trackers_take_their_source_from_their_link(temp_db):
+    _insert_tracker()
+
+    with database_module.transaction() as connection:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info('trackers')")}
+
+    assert "source_key" not in columns
+    assert service_module.list_trackers()[0]["source_key"] == "example"
 
 
 def _fake_engines(monkeypatch, outputs: dict[str, tuple[list, int, list[str]]]) -> list[str]:

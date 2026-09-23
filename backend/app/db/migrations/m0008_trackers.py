@@ -18,7 +18,6 @@ def upgrade(connection: sqlite3.Connection) -> None:
         CREATE TABLE trackers (
             id               TEXT PRIMARY KEY,
             source_url       TEXT    NOT NULL DEFAULT '',
-            source_key       TEXT    NOT NULL DEFAULT '',
             name             TEXT    NOT NULL DEFAULT '',
             enabled          INTEGER NOT NULL DEFAULT 0,
             interval_seconds INTEGER NOT NULL DEFAULT 21600,
