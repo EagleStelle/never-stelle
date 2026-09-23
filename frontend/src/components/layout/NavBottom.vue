@@ -19,7 +19,7 @@ const { activePage, pageItems, setActivePage } = useDashboard();
       @click="setActivePage(item.key)"
     >
       <component :is="item.icon" class="w-6 h-6" aria-hidden="true" />
-      <span class="text-10px font-medium tracking-wide">{{
+      <span class="text-xs font-medium tracking-wide">{{
         item.label
       }}</span>
     </button>

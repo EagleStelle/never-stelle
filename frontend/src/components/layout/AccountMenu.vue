@@ -141,7 +141,7 @@ watch(
       @click="toggleMenu"
     >
       <IconAccount class="h-6 w-6" aria-hidden="true" />
-      <span class="text-10px font-medium tracking-wide">Account</span>
+      <span class="text-xs font-medium tracking-wide">Account</span>
     </button>
 
     <button
