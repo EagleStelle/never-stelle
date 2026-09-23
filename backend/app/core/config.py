@@ -62,13 +62,18 @@ def _frontend_dir(candidates: list[Path]) -> Path:
     return _first_existing(candidates)
 
 
-FRONTEND_DIR = _frontend_dir(
-    [
-        DATA_DIR / "frontend-dist",
-        PROJECT_ROOT / "frontend" / "dist",
-        PROJECT_ROOT / "frontend",
-    ],
-)
+def _frontend_candidates(in_container: bool) -> list[Path]:
+    """Where the built frontend may be, first match wins.
+
+    A container serves only the frontend its image was built with: a local run builds into the data
+    folder, which a container may mount, and that older build would hide every newer image.
+    """
+    if in_container:
+        return [PROJECT_ROOT / "frontend" / "dist"]
+    return [DATA_DIR / "frontend-dist", PROJECT_ROOT / "frontend" / "dist", PROJECT_ROOT / "frontend"]
+
+
+FRONTEND_DIR = _frontend_dir(_frontend_candidates(_running_in_container()))
 APP_CONFIG_PATH = _first_existing(
     [
         DATA_DIR / "config.yaml",

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from backend.app.core.config import (
+    DATA_DIR,
     MEDIA_DIR,
+    PROJECT_ROOT,
+    _frontend_candidates,
     _frontend_dir,
     download_concurrency,
     is_allowed_location,
@@ -61,3 +64,12 @@ def test_frontend_dir_skips_existing_directory_without_index(tmp_path):
     (baked_dist / "index.html").write_text("<!doctype html>", encoding="utf-8")
 
     assert _frontend_dir([empty_mount, baked_dist]) == baked_dist.resolve()
+
+
+def test_a_container_never_serves_a_local_runs_build_from_the_data_folder():
+    local_build = DATA_DIR / "frontend-dist"
+
+    assert local_build not in _frontend_candidates(True)
+    assert _frontend_candidates(True) == [PROJECT_ROOT / "frontend" / "dist"]
+    # A local run still serves the build it made there.
+    assert _frontend_candidates(False)[0] == local_build
