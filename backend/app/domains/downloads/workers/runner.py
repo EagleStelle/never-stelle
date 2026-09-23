@@ -112,6 +112,7 @@ def _run_engine_to_task(
                 )
         return process.wait(), last_dest, emitted_paths
     finally:
-        _unregister_process(task_id)
+        if process:
+            _unregister_process(task_id, process)
         if process and process.poll() is None:
             _kill_process_tree(process)

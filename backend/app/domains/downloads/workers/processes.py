@@ -11,7 +11,8 @@ from typing import Any
 
 _cancel_lock = threading.Lock()
 _cancel_requested: set[str] = set()
-_active_processes: dict[str, subprocess.Popen[str]] = {}
+# Processes per task; a tracker check runs several at once.
+_active_processes: dict[str, set[subprocess.Popen[Any]]] = {}
 _active_tasks: set[str] = set()
 _active_cancel_callbacks: dict[str, Callable[[], None]] = {}
 _current_task_id: ContextVar[str] = ContextVar("never_stelle_task_id", default="")
@@ -73,9 +74,9 @@ def request_cancel(task_id: str) -> None:
         if task_id not in _active_tasks:
             return
         _cancel_requested.add(task_id)
-        process = _active_processes.get(task_id)
+        processes = list(_active_processes.get(task_id, ()))
         callback = _active_cancel_callbacks.get(task_id)
-    if process:
+    for process in processes:
         _kill_process_tree(process)
     if callback:
         try:
@@ -98,9 +99,12 @@ def _cancel_pending(task_id: str) -> bool:
         return task_id in _cancel_requested
 
 
-def _register_process(task_id: str, process: subprocess.Popen[str]) -> None:
+def _register_process(task_id: str, process: subprocess.Popen[Any]) -> None:
+    # Outside a task nothing can cancel the process.
+    if not task_id:
+        return
     with _cancel_lock:
-        _active_processes[task_id] = process
+        _active_processes.setdefault(task_id, set()).add(process)
         cancelled = task_id in _cancel_requested
     # Close the check/register race: a cancellation recorded just before this
     # subprocess appeared must still terminate it.
@@ -108,9 +112,13 @@ def _register_process(task_id: str, process: subprocess.Popen[str]) -> None:
         _kill_process_tree(process)
 
 
-def _unregister_process(task_id: str) -> None:
+def _unregister_process(task_id: str, process: subprocess.Popen[Any]) -> None:
     with _cancel_lock:
-        _active_processes.pop(task_id, None)
+        processes = _active_processes.get(task_id)
+        if processes is not None:
+            processes.discard(process)
+            if not processes:
+                del _active_processes[task_id]
 
 
 def has_active_process(task_id: str) -> bool:
@@ -140,10 +148,10 @@ def task_execution(task_id: str) -> Iterator[None]:
     finally:
         with _cancel_lock:
             _active_tasks.discard(task_id)
-            process = _active_processes.pop(task_id, None)
+            processes = _active_processes.pop(task_id, set())
             _active_cancel_callbacks.pop(task_id, None)
             _cancel_requested.discard(task_id)
-        if process is not None:
+        for process in processes:
             _kill_process_tree(process)
         _current_task_id.reset(token)
 
@@ -210,7 +218,7 @@ def run_task_subprocess(
             exc.stderr = stderr
             raise
     finally:
-        _unregister_process(task_id)
+        _unregister_process(task_id, process)
 
     raise_if_cancelled(task_id)
     completed = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
