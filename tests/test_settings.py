@@ -239,6 +239,14 @@ def test_resolve_slug_tokens_maps_url_part_to_role_and_custom_token(monkeypatch)
     assert resolved["series"] == "wsds-minus8"
 
 
+def test_scrape_tokens_keep_the_characters_only_paths_replace():
+    from backend.app.domains.downloads.enrich import normalize_scrape_rule, scrape_tokens
+
+    rule = normalize_scrape_rule({"token": "headline", "selector": "h1"})
+
+    assert scrape_tokens("<html><body><h1>Live: A/B?</h1></body></html>", [rule]) == {"headline": "Live: A/B?"}
+
+
 def test_normalize_source_token_roles_keeps_known_roles():
     result = normalize_source_token_roles(
         {

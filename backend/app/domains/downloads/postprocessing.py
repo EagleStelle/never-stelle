@@ -125,6 +125,8 @@ _XMP_APP1_HEADER = b"http://ns.adobe.com/xap/1.0/\x00"
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _PNG_XMP_KEYWORD = b"XML:com.adobe.xmp\x00"
 _WEBP_XMP_FLAG = 0x04
+# Characters XML 1.0 cannot carry, the only ones dropped from XMP tags.
+_XML_ILLEGAL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f￾￿\ud800-\udfff]")
 _VIDEO_CONTAINER_BY_EXTENSION = {
     ".m4v": "mp4",
     ".mkv": "mkv",
@@ -1119,7 +1121,7 @@ def ensure_container_codec_compatibility(
 
 
 def _xmp_text(value: Any) -> str:
-    return escape(_tag_text(value), {'"': "&quot;", "'": "&apos;"})
+    return escape(_XML_ILLEGAL_RE.sub("", _tag_text(value)), {'"': "&quot;", "'": "&apos;"})
 
 
 def _xmp_alt(name: str, value: Any) -> str:

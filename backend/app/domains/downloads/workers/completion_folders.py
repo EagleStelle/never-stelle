@@ -65,13 +65,16 @@ class _FolderRenderer:
         if field == "id":
             return self._media_id
         if field == "title":
-            return sanitize_path_literal(self._title)
+            return self._title
         if field == "quality" and self._quality is not None:
             return quality_label(self._quality)
         return ""
 
     def segments(self, template: str) -> list[str]:
-        rendered = TEMPLATE_RE.sub(self._token, str(template or "").strip())
+        # Each token value stays one segment.
+        rendered = TEMPLATE_RE.sub(
+            lambda match: sanitize_path_literal(self._token(match)), str(template or "").strip()
+        )
         if not rendered.strip():
             return []
         segments = [sanitize_path_literal(part) for part in _PATH_SEPARATOR_RE.split(rendered)]

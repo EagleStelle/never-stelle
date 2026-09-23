@@ -16,7 +16,6 @@ from backend.app.domains.settings import (
 from .access import access_rotation
 from .constants import TEMPLATE_RE
 from .formats import _canonical_shape, _prepare_url, extract_url_part, match_template
-from .naming import sanitize_path_literal
 
 # Per-platform user rules turn a page's own markup into filename/folder tokens,
 # for sites whose downloader leaves uploader/artist unextracted. Nothing here is
@@ -194,7 +193,7 @@ def _extract_rule(doc: Any, rule: dict[str, Any]) -> list[str]:
 
 
 def scrape_tokens(html_text: str, rules: list[dict[str, Any]]) -> dict[str, str]:
-    """Apply normalized rules to page HTML, returning {token: filename-safe value}."""
+    """Apply normalized rules to page HTML, returning {token: value as the page shows it}."""
     if not html_text or not rules:
         return {}
     try:
@@ -203,8 +202,7 @@ def scrape_tokens(html_text: str, rules: list[dict[str, Any]]) -> dict[str, str]
         return {}
     out: dict[str, str] = {}
     for rule in rules:
-        values = [sanitize_path_literal(value) for value in _extract_rule(doc, rule)]
-        values = [value for value in dict.fromkeys(values) if value]
+        values = [value for value in dict.fromkeys(_extract_rule(doc, rule)) if value]
         if not values:
             continue
         out[rule["token"]] = _MULTI_JOIN.join(values) if rule["multi"] else values[0]
@@ -467,7 +465,7 @@ def resolve_slug_tokens(
         token = rule["token"]
         if token in raw_values:
             continue
-        value = sanitize_path_literal(extract_url_part(source_url, str(rule.get("part") or "")))
+        value = extract_url_part(source_url, str(rule.get("part") or ""))
         if value:
             raw_values[token] = value
     return _map_output_values(output_rules, raw_values)

@@ -4,7 +4,6 @@ import re
 from typing import Any
 
 from backend.app.domains.downloads.constants import normalize_title_cleaning
-from backend.app.domains.downloads.naming import sanitize_path_literal
 from backend.app.domains.settings import is_scraper_field
 
 _DEFAULT_TITLE_FIELDS = ("title", "fulltitle", "content", "caption", "description", "alt_text")
@@ -33,7 +32,6 @@ def _clean_creator_candidate(value: str, *, strip_at: bool = True) -> str:
     value = str(value or "").strip()
     if strip_at:
         value = value.lstrip("@")
-    value = sanitize_path_literal(value)
     empty_key = value.lstrip("@").lower()
     return "" if empty_key in {"", "unknown", "none", "null", "undefined", "na", "n/a"} else value
 

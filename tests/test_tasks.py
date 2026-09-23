@@ -1561,6 +1561,12 @@ def test_webp_metadata_embed_adds_standard_xmp_without_reencoding_pixels():
     assert int.from_bytes(embedded[4:8], "little") == len(embedded) - 8
 
 
+def test_image_xmp_drops_only_what_xml_cannot_carry():
+    xmp = postprocessing_module._image_xmp_packet({"title": "Live:\x01 A/B?\x1f <3"})
+
+    assert b'<rdf:li xml:lang="x-default">Live: A/B? &lt;3</rdf:li>' in xmp
+
+
 def test_finished_video_repairs_codec_mismatches_from_any_extractor(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -2496,6 +2502,26 @@ def test_finalized_title_keeps_the_characters_only_the_filename_replaces(
 
     assert finalized.display_filename == "Cafe_ What_ [abc123].mp4"
     assert finalized.title == "Café: What?"
+
+
+def test_scraped_title_and_creator_reach_metadata_unreplaced(tmp_path: Path):
+    raw = tmp_path / "Extractor title [abc123].mp4"
+    raw.write_bytes(b"video")
+
+    finalized = completion_module._finalize_completed_output(
+        source_url="https://example.test/watch/abc123",
+        source_key="example",
+        output_root=tmp_path,
+        raw_path=raw,
+        metadata={"id": "abc123", "title": "Extractor title"},
+        template_settings={"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"},
+        extra_tokens={"title": "Live: A/B?", "username": "AC/DC"},
+        cache_dropper=None,
+    )
+    tags = postprocessing_module.finalized_metadata_payload({}, finalized)
+
+    assert finalized.final_path == tmp_path / "AC_DC" / "Live_ A_B_ [abc123].mp4"
+    assert (tags["title"], tags["artist"]) == ("Live: A/B?", "AC/DC")
 
 
 def test_configured_title_fields_are_authoritative():
