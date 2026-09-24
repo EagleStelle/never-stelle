@@ -91,13 +91,6 @@ export function useFieldsSettings(
     return Boolean(settings.learned_formats?.[key]?.templates?.length);
   }
 
-  function sourceHasDraftFormats(key: string): boolean {
-    if (Object.prototype.hasOwnProperty.call(learnedFormatsDraft, key)) {
-      return Boolean(learnedFormatsDraft[key]?.templates?.length);
-    }
-    return sourceHasSavedFormats(key);
-  }
-
   function sourceFormatsClearedInDraft(key: string): boolean {
     return (
       sourceHasSavedFormats(key) &&

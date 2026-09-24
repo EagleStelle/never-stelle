@@ -666,32 +666,22 @@ export function constrainPostProcessingSelection(
 export function createSourceTemplates(
   source: Record<string, any> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
-  fallback = createTemplateSettings(),
 ): SourceTemplates {
   const out: SourceTemplates = {};
-  for (const profile of profiles) {
-    out[profile.key] = {};
-    const rawVal = source[profile.key];
-    if (rawVal && typeof rawVal === "object") {
-      for (const [fmt, settings_dict] of Object.entries(rawVal)) {
-        if (settings_dict && typeof settings_dict === "object") {
-          out[profile.key][fmt] = createTemplateSettings(settings_dict);
-        }
+  const add = (key: string, rawVal: unknown): void => {
+    out[key] = {};
+    if (!rawVal || typeof rawVal !== "object") return;
+    for (const [fmt, settings_dict] of Object.entries(rawVal)) {
+      if (settings_dict && typeof settings_dict === "object") {
+        out[key][fmt] = createTemplateSettings(settings_dict);
       }
     }
-  }
+  };
+  for (const profile of profiles) add(profile.key, source[profile.key]);
+  // Keys saved for a source not in the profile list yet are kept too.
   for (const [key, rawVal] of Object.entries(source)) {
     const normalizedKey = normalizeSourceKey(key);
-    if (normalizedKey && !out[normalizedKey]) {
-      out[normalizedKey] = {};
-      if (rawVal && typeof rawVal === "object") {
-        for (const [fmt, settings_dict] of Object.entries(rawVal)) {
-          if (settings_dict && typeof settings_dict === "object") {
-            out[normalizedKey][fmt] = createTemplateSettings(settings_dict);
-          }
-        }
-      }
-    }
+    if (normalizedKey && !out[normalizedKey]) add(normalizedKey, rawVal);
   }
   return out;
 }

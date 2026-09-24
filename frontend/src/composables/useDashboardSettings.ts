@@ -23,7 +23,6 @@ import type {
   SourceTrackerTabs,
   FieldRoles,
   LearnedFormats,
-  NamingDefaults,
   ProbeFieldsResponse,
   RuntimeSettings,
   SavedSettings,
@@ -546,7 +545,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       source_templates: createSourceTemplates(
         recordForProfiles(source.source_templates, profiles),
         profiles,
-        templateSettings,
       ),
       default_quality: createQualityDefaults(
         source.default_quality,
@@ -632,7 +630,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
           profiles,
         ),
         profiles,
-        templateSettings,
       ),
       default_quality: createQualityDefaults(
         {
@@ -893,7 +890,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     const templates = createSourceTemplates(
       recordForProfiles(data.source_templates || {}, managedProfiles),
       managedProfiles,
-      templateSettings,
     );
     replaceRecord(defaults.source_templates, templates);
     replaceRecord(settings.source_templates, templates);
