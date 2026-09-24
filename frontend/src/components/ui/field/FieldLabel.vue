@@ -5,6 +5,8 @@ import { Label } from '@/components/ui/label'
 
 const props = defineProps<{
   class?: HTMLAttributes["class"]
+  /** Marks the field as required; the control itself carries `required` for assistive tech. */
+  required?: boolean
 }>()
 </script>
 
@@ -19,5 +21,6 @@ const props = defineProps<{
     )"
   >
     <slot />
+    <span v-if="props.required" class="-ml-1.5 text-accent-ink" aria-hidden="true">*</span>
   </Label>
 </template>

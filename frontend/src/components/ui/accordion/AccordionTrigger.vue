@@ -4,13 +4,15 @@ import type { HTMLAttributes } from "vue";
 import { ChevronDown } from "@lucide/vue";
 import { reactiveOmit } from "@vueuse/core";
 import { AccordionHeader, AccordionTrigger } from "reka-ui";
+import IconSource from "~icons/material-symbols/language";
+import { IconImage } from "@/components/ui/icon-image";
 import { cn } from "@/lib/utils";
 
 const props = defineProps<
-  AccordionTriggerProps & { class?: HTMLAttributes["class"] }
+  AccordionTriggerProps & { class?: HTMLAttributes["class"]; image?: string }
 >();
 
-const delegatedProps = reactiveOmit(props, "class");
+const delegatedProps = reactiveOmit(props, "class", "image");
 </script>
 
 <template>
@@ -20,15 +22,25 @@ const delegatedProps = reactiveOmit(props, "class");
       v-bind="delegatedProps"
       :class="
         cn(
-          'flex flex-1 items-start justify-between gap-4 rounded-md py-4 text-left text-sm font-medium font-sans tracking-normal outline-none transition-all hover:underline focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180',
+          'group/trigger flex min-h-12 flex-1 items-center gap-3 px-2 py-2.5 text-left font-sans text-[0.9375rem] font-semibold tracking-normal outline-none transition-colors duration-200 hover:bg-white/5 in-[.light-mode]:hover:bg-black/4 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-50',
           props.class,
         )
       "
     >
-      <slot />
+      <span
+        v-if="props.image !== undefined"
+        class="flex size-5 shrink-0 items-center justify-center"
+      >
+        <IconImage :src="props.image" class="size-5 rounded-sm object-contain">
+          <IconSource class="size-5 text-muted-foreground" aria-hidden="true" />
+        </IconImage>
+      </span>
+      <span class="min-w-0 flex-1 wrap-anywhere">
+        <slot />
+      </span>
       <slot name="icon">
         <ChevronDown
-          class="pointer-events-none size-4 shrink-0 translate-y-0.5 text-muted-foreground transition-transform duration-200"
+          class="pointer-events-none size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-hover/trigger:text-foreground group-data-[state=open]/trigger:rotate-180"
         />
       </slot>
     </AccordionTrigger>

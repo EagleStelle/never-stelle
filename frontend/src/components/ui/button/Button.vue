@@ -10,6 +10,8 @@ import { buttonVariants } from "@/components/ui/button";
 interface Props extends PrimitiveProps {
   variant?: ButtonVariants["variant"];
   size?: ButtonVariants["size"];
+  /** Shows only the icon on phones; the label stays for screen readers. */
+  compact?: boolean;
   class?: HTMLAttributes["class"];
 }
 
@@ -26,9 +28,11 @@ function hasContent(nodes?: VNode[]): boolean {
 
 const props = withDefaults(defineProps<Props>(), {
   as: "button",
+  compact: false,
 });
 const slots = useSlots();
 const iconOnly = computed(() => !!slots.icon && !hasContent(slots.default?.()));
+const compactLabel = computed(() => props.compact && !!slots.icon && !iconOnly.value);
 const resolvedSize = computed<ButtonVariants["size"]>(() => {
   if (!iconOnly.value) return props.size || "default";
   if (props.size === "sm") return "icon-sm";
@@ -43,9 +47,15 @@ const resolvedSize = computed<ButtonVariants["size"]>(() => {
     :data-size="resolvedSize"
     :as="as"
     :as-child="asChild"
-    :class="cn(buttonVariants({ variant, size: resolvedSize }), props.class)"
+    :class="
+      cn(
+        buttonVariants({ variant, size: resolvedSize, compact: compactLabel }),
+        props.class,
+      )
+    "
   >
     <slot name="icon" />
-    <slot />
+    <span v-if="compactLabel" class="max-sm:sr-only"><slot /></span>
+    <slot v-else />
   </Primitive>
 </template>

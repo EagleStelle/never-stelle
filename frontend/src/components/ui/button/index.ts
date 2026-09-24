@@ -16,13 +16,17 @@ export const buttonVariants = cva(
     variants: {
       variant: {
         primary:
-          "border border-(--glass-border) bg-accent text-black hover:bg-accent/45",
+          "border border-(--glass-border) bg-accent text-black hover:bg-accent/45 disabled:border-transparent disabled:bg-white/10 disabled:text-white/45 disabled:opacity-100 in-[.light-mode]:disabled:bg-black/6 in-[.light-mode]:disabled:text-black/40",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80 shadow-sm",
         ghost:
           "border border-transparent bg-transparent text-white/70 hover:bg-white/10 hover:text-white in-[.light-mode]:text-black/70 in-[.light-mode]:hover:bg-black/5 in-[.light-mode]:hover:text-black",
+        outline:
+          "border border-(--glass-border) bg-transparent text-white hover:bg-white/10 in-[.light-mode]:text-black in-[.light-mode]:hover:bg-black/5",
         destructive:
           "border border-(--glass-border) bg-destructive text-destructive-foreground hover:bg-destructive/85",
+        "destructive-ghost":
+          "border border-transparent bg-transparent text-white/70 hover:bg-white/10 hover:text-destructive in-[.light-mode]:text-black/70 in-[.light-mode]:hover:bg-black/5 in-[.light-mode]:hover:text-destructive",
         link: "h-auto p-0 text-accent underline-offset-4 hover:underline active:scale-100",
       },
       size: {
@@ -32,7 +36,17 @@ export const buttonVariants = cva(
         icon: "h-9 w-9 p-0 text-sm",
         "icon-sm": "h-8 w-8 p-0 text-xs",
       },
+      // Below `sm` a labelled button keeps only its icon, squared to its height.
+      compact: {
+        true: "max-sm:px-0",
+        false: "",
+      },
     },
+    compoundVariants: [
+      { compact: true, size: "sm", class: "max-sm:w-8" },
+      { compact: true, size: "default", class: "max-sm:w-9" },
+      { compact: true, size: "lg", class: "max-sm:w-10" },
+    ],
     defaultVariants: {
       variant: "primary",
       size: "default",

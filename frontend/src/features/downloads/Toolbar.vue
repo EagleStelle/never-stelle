@@ -119,6 +119,7 @@ function setPostProcessing(next: PostProcessingSelection): void {
         <Button
           v-if="hasAdvancedFields"
           type="button"
+          variant="outline"
           aria-label="Advanced settings"
           title="Advanced settings"
           @click="isAdvancedDialogOpen = true"

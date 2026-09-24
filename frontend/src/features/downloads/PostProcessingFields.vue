@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, useId } from "vue";
+import IconInfo from "~icons/material-symbols/info-outline";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
@@ -156,10 +157,10 @@ function setLanguageMode(value: string | string[]): void {
             <TooltipTrigger as-child>
               <button
                 type="button"
-                class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-(--glass-border) bg-black/20 text-[0.625rem] font-semibold leading-none text-muted-foreground transition-all duration-300 ease-glass hover:border-accent hover:text-white focus-visible:ring-2 focus-visible:ring-accent in-[.light-mode]:bg-white/40 in-[.light-mode]:hover:text-black"
+                class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 :aria-label="`${option.label} help`"
               >
-                i
+                <IconInfo class="size-4" aria-hidden="true" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="top">

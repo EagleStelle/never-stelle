@@ -97,7 +97,12 @@ const handleModelValue = (value: unknown) => {
 <template>
   <Field
     :label-width="props.labelWidth"
-    :class="layout === 'fill' ? 'w-full' : 'w-fit shrink-0'"
+    :class="[
+      layout === 'fill' ? 'w-full' : 'w-fit shrink-0',
+      props.label &&
+        props.labelPlacement === 'top' &&
+        'sm:flex-col sm:items-stretch sm:gap-1.5 sm:*:data-[slot=field-label]:w-auto',
+    ]"
   >
     <FieldLabel v-if="props.label" :for="controlId">
       {{ props.label }}
