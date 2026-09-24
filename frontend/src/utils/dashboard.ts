@@ -708,6 +708,11 @@ export function createScrapeRule(source: Partial<ScrapeRule> = {}): ScrapeRule {
   };
 }
 
+// A rule needs a token name and a way to find its value: a selector or an XPath.
+export function isScrapeRuleComplete(rule: ScrapeRule): boolean {
+  return Boolean(rule.token.trim() && (rule.selector.trim() || rule.xpath.trim()));
+}
+
 export function createPlatformScrapeRules(
   source: Partial<PlatformScrapeRules> = {},
 ): PlatformScrapeRules {
@@ -802,6 +807,14 @@ export function displayUrlTemplate(value: unknown): string {
     /(^|[^{])\{([a-zA-Z_][a-zA-Z0-9_]*)\}(?!\})/g,
     (_match, prefix: string, token: string) => `${prefix}${tokenLabel(token)}`,
   );
+}
+
+// Splits a displayed template into literal text and `{{token}}` runs.
+export function templateParts(value: string): { text: string; token: boolean }[] {
+  return value
+    .split(/(\{\{[^{}]+\}\})/)
+    .filter(Boolean)
+    .map((text) => ({ text, token: /^\{\{[^{}]+\}\}$/.test(text) }));
 }
 
 export function createSourceTokenRoles(

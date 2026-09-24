@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import IconClose from "~icons/material-symbols/close";
 import IconSearch from "~icons/material-symbols/search";
 import { TabsList, TabsTrigger } from "reka-ui";
@@ -15,6 +15,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import type { SettingsSection } from "@/types";
+import { useDashboard } from "@/composables/useDashboard";
 import { SETTINGS_SECTION_DEFS, SETTINGS_SECTION_GROUPS } from "@/features/settings/sections";
 
 const emit = defineEmits<{
@@ -23,6 +24,21 @@ const emit = defineEmits<{
 }>();
 
 const search = ref("");
+
+const { settingsOpen, settingsSection } = useDashboard();
+const tabList = useTemplateRef<InstanceType<typeof TabsList>>("tabList");
+
+// On phones the tabs scroll sideways, so keep the active one in view.
+watch(
+  [settingsOpen, settingsSection],
+  () =>
+    void nextTick(() =>
+      (tabList.value?.$el as HTMLElement | undefined)
+        ?.querySelector("[data-state=active]")
+        ?.scrollIntoView({ block: "nearest", inline: "center" }),
+    ),
+  { immediate: true },
+);
 
 // Group the registry by label; when a search filters everything out, fall back to
 // the full list so the sidebar is never empty.
@@ -75,18 +91,19 @@ const groups = computed(() => {
     </SidebarHeader>
 
     <TabsList
-      class="flex gap-4 overflow-x-auto pb-1 w-full sm:flex-1 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:pb-0 sm:gap-6"
+      ref="tabList"
+      class="flex gap-3 overflow-x-auto pb-1 pr-8 w-full mask-[linear-gradient(to_right,black_calc(100%-2.5rem),transparent)] scrollbar-none sm:flex-1 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:pb-0 sm:pr-0 sm:gap-6 sm:mask-none"
       aria-label="Settings sections"
     >
       <SidebarGroup
         v-for="group in groups"
         :key="group.label"
-        class="flex-row sm:flex-col w-auto sm:w-full gap-1 sm:gap-2"
+        class="shrink-0 flex-row sm:flex-col max-sm:w-max gap-1 sm:gap-2"
       >
         <SidebarGroupLabel class="hidden sm:block">
           {{ group.label }}
         </SidebarGroupLabel>
-        <SidebarMenu class="flex-row sm:flex-col gap-1 w-auto sm:w-full">
+        <SidebarMenu class="flex-row sm:flex-col gap-1 max-sm:w-max">
           <SidebarMenuItem
             v-for="item in group.items"
             :key="item.key"
@@ -98,11 +115,11 @@ const groups = computed(() => {
               @click="emit('select', item.key)"
             >
               <SidebarMenuButton
-                class="cursor-pointer w-auto sm:w-full justify-center sm:justify-start px-3.5 sm:px-3.5 h-8 sm:h-10"
+                class="cursor-pointer w-auto sm:w-full justify-center sm:justify-start gap-2 sm:gap-3 px-3 sm:px-3.5 h-9 sm:h-10"
               >
                 <component
                   :is="item.icon"
-                  class="hidden sm:block h-5 w-5 shrink-0 opacity-80 group-data-[state=active]:opacity-100"
+                  class="h-4.5 w-4.5 sm:h-5 sm:w-5 shrink-0 opacity-80 group-data-[state=active]:opacity-100"
                   aria-hidden="true"
                 />
                 <span class="whitespace-nowrap font-medium text-sm">{{

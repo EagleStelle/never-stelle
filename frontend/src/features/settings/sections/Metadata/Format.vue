@@ -2,6 +2,7 @@
 import { reactive, ref } from "vue";
 import IconAdd from "~icons/material-symbols/add";
 import IconDrag from "~icons/material-symbols/drag-indicator";
+import IconInfo from "~icons/material-symbols/info-outline";
 import IconSpinner from "~icons/material-symbols/sync";
 import IconTrash from "~icons/material-symbols/delete";
 
@@ -14,9 +15,8 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import type { LearnedFormat } from "@/types";
-import { displayUrlTemplate } from "@/utils/dashboard";
+import { displayUrlTemplate, sourceIconUrl, templateParts } from "@/utils/dashboard";
 import { useSettingsContext } from "@/features/settings/context";
-import { Card } from "@/components/ui/card";
 
 const {
   learnedFormatsDraft,
@@ -106,43 +106,44 @@ function isDropTarget(key: string, index: number): boolean {
 </script>
 
 <template>
-  <div class="py-2">
-    <div class="flex w-full items-center gap-2">
-      <Input
-        id="formatLearnInput"
-        v-model="link"
-        class="flex-1"
-        type="text"
-        inputmode="url"
-        placeholder="Paste a link"
-        @keydown.enter.prevent="submit"
-      />
-      <Button
-        variant="primary"
-        type="button"
-        aria-label="Learn format"
-        title="Learn format"
-        :disabled="learning"
-        :aria-busy="learning"
-        @click="submit"
-      >
-        <template #icon>
-          <IconSpinner
-            v-if="learning"
-            class="w-5 h-5 animate-spin"
-            aria-hidden="true"
-          />
-          <IconAdd v-else class="w-5 h-5" aria-hidden="true" />
-        </template>
-      </Button>
-    </div>
+  <div class="flex w-full items-center gap-2 pb-4">
+    <Input
+      id="formatLearnInput"
+      v-model="link"
+      class="flex-1"
+      type="text"
+      inputmode="url"
+      placeholder="Paste a link"
+      @keydown.enter.prevent="submit"
+    />
+    <Button
+      variant="primary"
+      size="icon"
+      type="button"
+      aria-label="Learn format"
+      title="Learn format"
+      :disabled="learning"
+      :aria-busy="learning"
+      @click="submit"
+    >
+      <template #icon>
+        <IconSpinner
+          v-if="learning"
+          class="animate-spin"
+          aria-hidden="true"
+        />
+        <IconAdd v-else aria-hidden="true" />
+      </template>
+    </Button>
   </div>
 
-  <Card v-if="editableSourceProfiles.length === 0" class="mt-3 px-6">
-    <p class="text-[0.8125rem] text-muted-foreground">
-      No sources yet.
-    </p>
-  </Card>
+  <p
+    v-if="editableSourceProfiles.length === 0"
+    class="flex items-start gap-2 text-[0.8125rem] leading-normal text-muted-foreground"
+  >
+    <IconInfo class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+    No sources yet.
+  </p>
 
   <Accordion v-else v-model="open" type="multiple" class="w-full">
     <AccordionItem
@@ -150,23 +151,25 @@ function isDropTarget(key: string, index: number): boolean {
       :key="site.key"
       :value="site.key"
     >
-      <AccordionTrigger>
+      <AccordionTrigger :image="sourceIconUrl(site.key)">
         {{ site.label }}
       </AccordionTrigger>
 
       <AccordionContent>
-        <Card v-if="!templatesFor(site.key).length" class="px-6">
-          <p class="text-[0.8125rem] text-muted-foreground">
-            Download once from this source to learn its URL format.
-          </p>
-        </Card>
+        <p
+          v-if="!templatesFor(site.key).length"
+          class="flex items-start gap-2 text-[0.8125rem] leading-normal text-muted-foreground"
+        >
+          <IconInfo class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          Download once from this source to learn its URL format.
+        </p>
 
-        <ul v-else class="flex flex-col gap-1">
+        <ul v-else class="flex flex-col">
           <li
             v-for="(template, index) in templatesFor(site.key)"
             :key="template"
             draggable="true"
-            class="flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors cursor-grab active:cursor-grabbing"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors duration-200 cursor-grab hover:bg-white/5 active:cursor-grabbing in-[.light-mode]:hover:bg-black/4"
             :class="[
               isDragging(site.key, index) ? 'opacity-40' : '',
               isDropTarget(site.key, index) ? 'bg-accent/15' : '',
@@ -176,21 +179,25 @@ function isDropTarget(key: string, index: number): boolean {
             @drop.prevent="onDrop(site.key, index)"
             @dragend="resetDrag"
           >
-            <IconDrag class="w-4 h-4 shrink-0 opacity-50" aria-hidden="true" />
-            <span
-              class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere"
-            >
-              {{ displayUrlTemplate(template) }}
+            <IconDrag class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span class="min-w-0 flex-1 font-mono text-[0.8125rem] leading-snug wrap-anywhere">
+              <span
+                v-for="(part, partIndex) in templateParts(displayUrlTemplate(template))"
+                :key="partIndex"
+                :class="part.token && 'text-accent-ink'"
+                >{{ part.text }}</span
+              >
             </span>
             <Button
-              variant="destructive"
+              variant="destructive-ghost"
+              size="icon-sm"
               type="button"
               title="Delete format"
               aria-label="Delete format"
               @click="deleteTemplate(site.key, index)"
             >
               <template #icon>
-                <IconTrash class="w-4 h-4" aria-hidden="true" />
+                <IconTrash aria-hidden="true" />
               </template>
             </Button>
           </li>

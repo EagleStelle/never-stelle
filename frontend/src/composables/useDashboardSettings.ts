@@ -64,6 +64,7 @@ import {
   displayHost,
   errorMessage,
   hostFromUrl,
+  isScrapeRuleComplete,
   mergeSourceProfiles,
   normalizeSourceKey,
   settingsManagedSourceProfiles,
@@ -461,6 +462,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
 
   const settingsOpen = ref(false);
   const settingsSection = ref<SettingsSection>("locations");
+  // Set by a Save that found empty required fields, so panes can mark them.
+  const showRequired = ref(false);
   const lastFocusedTrigger = ref<HTMLElement | null>(null);
   let lastSavedSnapshot = "";
   let lastDraftSnapshot = "";
@@ -1420,6 +1423,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     lastSavedSnapshot = snapshotFor(settingsDraft);
     clearSettingsDraftDirty();
     clearFormatDraftDirty();
+    showRequired.value = false;
   }
 
   function setSettingsSection(
@@ -1605,6 +1609,17 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     ) {
       return false;
     }
+
+    const incompleteRules = Object.values(settingsDraft.source_scrape_rules).some(
+      (platform) => platform.rules.some((rule) => !isScrapeRuleComplete(rule)),
+    );
+    if (shouldSaveSettings && incompleteRules) {
+      showRequired.value = true;
+      const message = "Fill in the required scraper fields.";
+      toast(message, "error");
+      throw new Error(message);
+    }
+    showRequired.value = false;
 
     if (shouldSaveAccount) {
       await persistAccountDraft();
@@ -1801,6 +1816,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   return {
     closeSettings,
     connectCookies,
+    showRequired,
     cookieStatuses,
     reorderCookies,
     learnFormat,

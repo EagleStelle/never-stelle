@@ -31,9 +31,9 @@ export const COOKIE_POLICY_FIELDS: CookiePolicyFieldDef[] = [
     min: "0",
   },
   {
-    key: "cooldown",
-    label: "Ban cooldown",
-    help: "Seconds a cookie file rests after a site blocks it.",
+    key: "interval",
+    label: "Request gap",
+    help: "Seconds a cookie file pauses between requests.",
     min: "0",
   },
   {
@@ -43,9 +43,9 @@ export const COOKIE_POLICY_FIELDS: CookiePolicyFieldDef[] = [
     min: "0",
   },
   {
-    key: "interval",
-    label: "Request gap",
-    help: "Seconds a cookie file pauses between requests.",
+    key: "cooldown",
+    label: "Ban cooldown",
+    help: "Seconds a cookie file rests after a site blocks it.",
     min: "0",
   },
 ];

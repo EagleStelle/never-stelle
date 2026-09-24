@@ -1,5 +1,6 @@
 ﻿<script setup lang="ts">
 import { computed, ref, nextTick } from "vue";
+import IconInfo from "~icons/material-symbols/info-outline";
 import IconResolve from "~icons/material-symbols/cloud-sync";
 import {
   Accordion,
@@ -7,13 +8,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardFooter,
-} from "@/components/ui/card";
 import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -33,6 +27,8 @@ import {
 import {
   displayUrlTemplate,
   normalizeTokenName,
+  sourceIconUrl,
+  templateParts,
 } from "@/utils/dashboard";
 
 const {
@@ -196,18 +192,19 @@ function insert(siteKey: string, format: string, token: string): void {
         :key="site.key"
         :value="site.key"
       >
-        <AccordionTrigger>
+        <AccordionTrigger :image="sourceIconUrl(site.key)">
           {{ site.label }}
         </AccordionTrigger>
 
         <AccordionContent>
-          <div class="flex flex-col gap-[0.85rem]">
+          <div class="flex flex-col divide-y divide-(--glass-border)">
             <!-- Links no learned format matches follow the default templates. -->
-            <Card
+            <div
               v-if="!formatsFor(site.key).length || renameCount(site.key, 'templates')"
-              class="px-6 flex-row items-center justify-between gap-3"
+              class="flex flex-wrap items-center justify-between gap-3 pb-4"
             >
-              <p class="text-[0.8125rem] text-muted-foreground">
+              <p class="flex min-w-0 flex-1 items-start gap-2 text-[0.8125rem] leading-normal text-muted-foreground">
+                <IconInfo class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                 {{
                   formatsFor(site.key).length
                     ? "Links outside these formats use the default templates."
@@ -215,17 +212,12 @@ function insert(siteKey: string, format: string, token: string): void {
                 }}
               </p>
               <Button
+                compact
+                variant="secondary"
                 class="shrink-0"
-                variant="primary"
+                size="sm"
                 type="button"
-                :title="
-                  renameRunning(site.key, 'templates')
-                    ? 'Resolving'
-                    : renameCount(site.key, 'templates')
-                      ? 'Resolve these files'
-                      : 'No template changes'
-                "
-                aria-label="Resolve these files"
+                title="Resolve these files"
                 :disabled="!renameCount(site.key, 'templates') || renameRunning(site.key, 'templates')"
                 :aria-busy="renameRunning(site.key, 'templates')"
                 @click="openRename(site.key, site.label, 'templates')"
@@ -236,30 +228,33 @@ function insert(siteKey: string, format: string, token: string): void {
                     :class="{ 'animate-spin': renameRunning(site.key, 'templates') }"
                   />
                 </template>
+                Resolve History
               </Button>
-            </Card>
+            </div>
 
-            <Card v-for="template in formatsFor(site.key)" :key="template">
-              <CardHeader class="flex flex-row items-center justify-between gap-2">
-                <CardTitle class="font-mono text-sm leading-snug">
-                  {{ displayUrlTemplate(template) }}
-                </CardTitle>
+            <section
+              v-for="template in formatsFor(site.key)"
+              :key="template"
+              class="flex flex-col gap-3 py-5 first:pt-1 last:pb-0"
+              :aria-label="displayUrlTemplate(template)"
+            >
+              <div class="flex min-h-8 items-center justify-between gap-3">
+                <p class="min-w-0 font-mono text-[0.8125rem] leading-snug wrap-anywhere text-muted-foreground">
+                  <span
+                    v-for="(part, index) in templateParts(displayUrlTemplate(template))"
+                    :key="index"
+                    :class="part.token && 'text-accent-ink'"
+                    >{{ part.text }}</span
+                  >
+                </p>
                 <Button
+                  compact
+                  variant="secondary"
                   class="shrink-0"
-                  variant="primary"
+                  size="sm"
                   type="button"
-                  :title="
-                    renameRunning(site.key, 'templates', template)
-                      ? 'Resolving'
-                      : renameCount(site.key, 'templates', template)
-                        ? 'Resolve this format'
-                        : 'No template changes'
-                  "
-                  aria-label="Resolve this format"
-                  :disabled="
-                    !renameCount(site.key, 'templates', template) ||
-                    renameRunning(site.key, 'templates', template)
-                  "
+                  title="Resolve this format"
+                  :disabled="!renameCount(site.key, 'templates', template) || renameRunning(site.key, 'templates', template)"
                   :aria-busy="renameRunning(site.key, 'templates', template)"
                   @click="openRename(site.key, site.label, 'templates', template)"
                 >
@@ -269,51 +264,52 @@ function insert(siteKey: string, format: string, token: string): void {
                       :class="{ 'animate-spin': renameRunning(site.key, 'templates', template) }"
                     />
                   </template>
+                  Resolve History
                 </Button>
-              </CardHeader>
-              <CardContent class="flex flex-col gap-3">
-                <Field v-for="field in TEMPLATE_FIELDS" :key="field.key">
-                  <FieldLabel
-                    :for="inputId(site.key, template, field)"
-                    class="items-center gap-1.5"
-                  >
-                    <span>{{ field.label }}</span>
-                    <Tooltip v-if="field.help">
-                      <TooltipTrigger as-child>
-                        <button
-                          type="button"
-                          class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-(--glass-border) bg-black/20 text-[0.625rem] font-semibold leading-none text-muted-foreground transition-all duration-300 ease-glass hover:border-accent hover:text-white focus-visible:ring-2 focus-visible:ring-accent in-[.light-mode]:bg-white/40 in-[.light-mode]:hover:text-black"
-                          :aria-label="`${field.label} help`"
-                        >
-                          i
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        {{ field.help }}
-                      </TooltipContent>
-                    </Tooltip>
-                  </FieldLabel>
-                  <FieldContent>
-                    <Input
-                      :id="inputId(site.key, template, field)"
-                      :model-value="getTemplate(site.key, template, field)"
-                      :placeholder="defaultTemplate(field)"
-                      @focus="recordFocus(inputId(site.key, template, field))"
-                      @update:model-value="
-                        (v) => setTemplate(site.key, template, field, String(v))
-                      "
-                    />
-                  </FieldContent>
-                </Field>
-              </CardContent>
-              <CardFooter
+              </div>
+
+              <Field v-for="field in TEMPLATE_FIELDS" :key="field.key">
+                <FieldLabel
+                  :for="inputId(site.key, template, field)"
+                  class="items-center gap-1.5"
+                >
+                  <span>{{ field.label }}</span>
+                  <Tooltip v-if="field.help">
+                    <TooltipTrigger as-child>
+                      <button
+                        type="button"
+                        class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        :aria-label="`${field.label} help`"
+                      >
+                        <IconInfo class="size-4" aria-hidden="true" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {{ field.help }}
+                    </TooltipContent>
+                  </Tooltip>
+                </FieldLabel>
+                <FieldContent>
+                  <Input
+                    :id="inputId(site.key, template, field)"
+                    :model-value="getTemplate(site.key, template, field)"
+                    :placeholder="defaultTemplate(field)"
+                    @focus="recordFocus(inputId(site.key, template, field))"
+                    @update:model-value="
+                      (v) => setTemplate(site.key, template, field, String(v))
+                    "
+                  />
+                </FieldContent>
+              </Field>
+
+              <div
                 v-if="baseTokens.length || customTokensFor(site.key).length"
-                class="flex flex-wrap gap-1.5 pt-0 pb-1"
+                class="flex flex-wrap gap-1.5 sm:pl-43"
               >
                 <Button
                   v-for="token in baseTokens"
                   :key="token.key"
-                  variant="secondary"
+                  variant="outline"
                   size="sm"
                   type="button"
                   class="font-mono text-[0.8125rem]"
@@ -326,7 +322,7 @@ function insert(siteKey: string, format: string, token: string): void {
                 <Button
                   v-for="token in customTokensFor(site.key)"
                   :key="token"
-                  variant="secondary"
+                  variant="outline"
                   size="sm"
                   type="button"
                   class="font-mono text-[0.8125rem]"
@@ -336,8 +332,8 @@ function insert(siteKey: string, format: string, token: string): void {
                 >
                   {{ token }}
                 </Button>
-              </CardFooter>
-            </Card>
+              </div>
+            </section>
           </div>
         </AccordionContent>
       </AccordionItem>

@@ -1,4 +1,4 @@
-import { inject, provide, type ComputedRef, type InjectionKey } from "vue";
+import { inject, provide, type ComputedRef, type InjectionKey, type Ref } from "vue";
 
 import type {
   CookiesMap,
@@ -18,6 +18,8 @@ export interface SettingsContext {
   settingsDraft: SettingsDraft;
   learnedFormatsDraft: LearnedFormats;
   cookieStatuses: ComputedRef<CookiesMap>;
+  // True after a Save that found empty required fields, so panes mark them.
+  showRequired: Ref<boolean>;
   editableSourceProfiles: ComputedRef<SourceProfile[]>;
   connectCookies: (platform: string, file?: File) => void;
   removeCookies: (platform: string, cookieId: string) => void;

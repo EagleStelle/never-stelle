@@ -10,14 +10,9 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import IconInfo from "~icons/material-symbols/info-outline";
 import type { LearnedSegment, TokenRole } from "@/types";
+import { sourceIconUrl, templateParts } from "@/utils/dashboard";
 import { useSlugTokens } from "@/features/settings/composables/useSlugTokens";
 import { useSettingsContext } from "@/features/settings/context";
 import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
@@ -89,88 +84,87 @@ function roleDisabled(
       :key="site.key"
       :value="site.key"
     >
-      <AccordionTrigger>
+      <AccordionTrigger :image="sourceIconUrl(site.key)">
         {{ site.label }}
       </AccordionTrigger>
 
       <AccordionContent>
-        <Card v-if="!learnedFormat(site.key)" class="px-6">
-          <p class="text-[0.8125rem] text-muted-foreground">
-            Download once from this source to learn its URL format, then choose
-            which parts become tokens.
-          </p>
-        </Card>
+        <!-- No learned format yet, or its links have no parts that can become tokens. -->
+        <p
+          v-if="!selectableSegments(site.key).length"
+          class="flex items-start gap-2 text-[0.8125rem] leading-normal text-muted-foreground"
+        >
+          <IconInfo class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          Download once from this source to see which parts of its links, if any,
+          can become tokens.
+        </p>
 
-        <div v-else class="flex flex-col gap-[0.85rem]">
-          <Card
+        <div v-else class="flex flex-col divide-y divide-(--glass-border)">
+          <section
             v-for="template in learnedFormat(site.key)?.templates || []"
             :key="template"
+            class="flex flex-col gap-3 py-5 first:pt-1 last:pb-0"
+            :aria-label="displayTemplate(site.key, template)"
           >
-            <CardHeader>
-              <CardTitle class="font-mono text-sm leading-snug">
-                {{ displayTemplate(site.key, template) }}
-              </CardTitle>
-            </CardHeader>
-
-            <CardContent class="flex flex-col gap-4">
-              <p
-                v-if="!selectableSegments(site.key).length"
-                class="text-[0.8125rem] text-muted-foreground"
+            <p class="min-w-0 font-mono text-[0.8125rem] leading-snug wrap-anywhere text-muted-foreground">
+              <span
+                v-for="(part, index) in templateParts(displayTemplate(site.key, template))"
+                :key="index"
+                :class="part.token && 'text-accent-ink'"
+                >{{ part.text }}</span
               >
-                This platform has no configurable parts yet.
-              </p>
+            </p>
 
-              <template
-                v-for="(segment, i) in selectableSegments(site.key)"
-                :key="segment.part"
+            <div
+              v-for="segment in selectableSegments(site.key)"
+              :key="segment.part"
+              class="flex flex-col gap-3 border-l border-(--glass-border) pl-4"
+            >
+              <span class="min-w-0 font-mono text-sm leading-snug wrap-anywhere text-muted-foreground">
+                <span
+                  v-for="(part, index) in templateParts(segmentLabel(site.key, segment))"
+                  :key="index"
+                  :class="part.token && 'text-accent-ink'"
+                  >{{ part.text }}</span
+                >
+              </span>
+
+              <Field label-width="sm">
+                <FieldLabel :for="`${site.key}SlugToken${segment.part}`">
+                  Token
+                </FieldLabel>
+                <FieldContent>
+                  <Input
+                    :id="`${site.key}SlugToken${segment.part}`"
+                    :model-value="tokenForPart(site.key, segment.part, segment)"
+                    @update:model-value="
+                      (v) =>
+                        setTokenName(site.key, segment.part, String(v), segment)
+                    "
+                  />
+                </FieldContent>
+              </Field>
+
+              <SegmentedControl
+                label="Role"
+                label-placement="start"
+                label-width="sm"
+                :model-value="roleValue(site.key, segment)"
+                @update:model-value="
+                  (value) => updateRole(site.key, segment, value)
+                "
               >
-                <Separator v-if="i > 0" class="my-2" />
-
-                <div class="flex flex-col gap-3">
-                  <span class="min-w-0 font-mono text-sm font-semibold wrap-anywhere">
-                    {{ segmentLabel(site.key, segment) }}
-                  </span>
-
-                  <div class="flex flex-col gap-3">
-                    <Field label-width="xs">
-                      <FieldLabel :for="`${site.key}SlugToken${segment.part}`">
-                        Token
-                      </FieldLabel>
-                      <FieldContent>
-                        <Input
-                          :id="`${site.key}SlugToken${segment.part}`"
-                          :model-value="tokenForPart(site.key, segment.part, segment)"
-                          @update:model-value="
-                            (v) =>
-                              setTokenName(site.key, segment.part, String(v), segment)
-                          "
-                        />
-                      </FieldContent>
-                    </Field>
-
-                    <SegmentedControl
-                      label="Role"
-                      label-placement="start"
-                      label-width="xs"
-                      :model-value="roleValue(site.key, segment)"
-                      @update:model-value="
-                        (value) => updateRole(site.key, segment, value)
-                      "
-                    >
-                      <SegmentedControlItem
-                        v-for="role in ROLE_ITEMS"
-                        :key="role.key"
-                        :value="role.key"
-                        :disabled="roleDisabled(site.key, segment, role.key)"
-                      >
-                        {{ role.label }}
-                      </SegmentedControlItem>
-                    </SegmentedControl>
-                  </div>
-                </div>
-              </template>
-            </CardContent>
-          </Card>
+                <SegmentedControlItem
+                  v-for="role in ROLE_ITEMS"
+                  :key="role.key"
+                  :value="role.key"
+                  :disabled="roleDisabled(site.key, segment, role.key)"
+                >
+                  {{ role.label }}
+                </SegmentedControlItem>
+              </SegmentedControl>
+            </div>
+          </section>
         </div>
       </AccordionContent>
     </AccordionItem>

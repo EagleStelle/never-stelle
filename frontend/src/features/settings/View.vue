@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref } from "vue";
 import IconClose from "~icons/material-symbols/close";
+import IconInfo from "~icons/material-symbols/info-outline";
 import { TabsContent, TabsRoot } from "reka-ui";
 
 import { DialogShell as Dialog } from "@/components/ui/dialog";
@@ -9,7 +10,6 @@ import type { SettingsSection } from "@/types";
 import { useDashboard } from "@/composables/useDashboard";
 import { useSettingsDraft } from "@/features/settings/composables/useSettingsDraft";
 import { provideSettingsContext } from "@/features/settings/context";
-import { Card } from "@/components/ui/card";
 import { SETTINGS_SECTION_DEFS } from "@/features/settings/sections";
 import SettingsSidebar from "@/features/settings/Sidebar.vue";
 
@@ -32,6 +32,7 @@ const {
   settingsDraft,
   settingsOpen,
   settingsSection,
+  showRequired,
   sourceProfiles,
 } = useDashboard();
 
@@ -65,6 +66,7 @@ provideSettingsContext({
   settingsDraft,
   learnedFormatsDraft,
   cookieStatuses,
+  showRequired,
   editableSourceProfiles,
   connectCookies,
   removeCookies,
@@ -140,7 +142,7 @@ function discardChanges() {
     :show-close="false"
     description="Configure download locations, cookies, and naming templates."
     overlay-class="settings-overlay fixed inset-0 z-60 bg-black/50 backdrop-blur-sm"
-    content-class="settings-content fixed inset-0 z-70 flex w-full h-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none border-0 bg-primary focus:outline-none sm:left-1/2 sm:top-1/2 sm:right-auto sm:bottom-auto sm:w-[min(980px,96vw)] sm:h-[min(700px,92vh)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-(--glass-border) sm:flex-row"
+    content-class="settings-content fixed inset-0 z-70 flex w-full h-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none border-0 bg-primary focus:outline-none sm:left-1/2 sm:top-1/2 sm:right-auto sm:bottom-auto sm:w-[min(1040px,96vw)] sm:h-[min(740px,92vh)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-(--glass-border) sm:flex-row"
   >
     <TabsRoot
       v-model="sectionModel"
@@ -149,15 +151,12 @@ function discardChanges() {
     >
       <SettingsSidebar @close="openModel = false" @select="selectSection" />
 
-      <!-- Content -->
       <!-- `sm:gap-4` separates the desktop header from the panes. The header is
            `display:none` on mobile, so it contributes no gap there. -->
       <div class="relative min-h-0 min-w-0 flex-1 flex flex-col sm:gap-4">
-        <!-- Desktop Header & Close Button -->
         <div
-          class="hidden sm:flex h-14 shrink-0 items-center justify-between px-4 gap-2 border-0 border-b border-(--glass-border) sm:border-0"
+          class="hidden sm:flex h-14 shrink-0 items-center justify-end px-4"
         >
-          <div></div>
           <button
             type="button"
             @click="openModel = false"
@@ -171,32 +170,37 @@ function discardChanges() {
         <!-- Scrollable Settings. The vertical inset is not spacing: `overflow-y-auto`
              clips at its own edge and a focus ring draws outside its element, so a first
              or last row sitting flush would lose its ring. Rows are spaced by group gaps. -->
-        <div
-          class="flex-1 overflow-y-auto px-5 pb-6 pt-4 sm:pt-1 sm:px-8"
-        >
+        <div class="flex-1 overflow-y-auto px-5 pb-6 pt-4 sm:pt-1 sm:px-8">
           <TabsContent
             v-for="def in SETTINGS_SECTION_DEFS"
             :key="def.key"
             :value="def.key"
             class="focus:outline-none"
           >
-            <Card
+            <p
               v-if="def.requiresSources && editableSourceProfiles.length === 0"
-              class="px-6"
+              class="flex items-start gap-2 text-[0.8125rem] leading-normal text-muted-foreground"
             >
-              <p class="text-[0.8125rem] text-muted-foreground">
-                No sources yet.
-              </p>
-            </Card>
+              <IconInfo class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              No sources yet.
+            </p>
             <component :is="def.component" />
           </TabsContent>
         </div>
 
-        <!-- Save / Discard Footer -->
         <div
-          class="shrink-0 flex justify-end px-5 py-4 border-0 border-t border-(--glass-border) bg-primary/45 backdrop-blur-md sm:px-6"
+          class="shrink-0 flex items-center justify-between gap-3 border-t border-(--glass-border) px-5 py-3 sm:px-6"
         >
-          <div class="flex items-center justify-end gap-3">
+          <p
+            class="flex min-w-0 items-center gap-2 text-[0.8125rem] text-muted-foreground"
+            aria-live="polite"
+          >
+            <template v-if="hasUnsavedChanges">
+              <span class="size-2 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+              Unsaved changes
+            </template>
+          </p>
+          <div class="flex items-center gap-2">
             <Button
               variant="ghost"
               :disabled="saving || !hasUnsavedChanges"

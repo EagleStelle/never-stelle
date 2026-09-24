@@ -22,6 +22,7 @@ import {
 import type { NamingChoice } from "@/types";
 import { useNamingSettings } from "@/features/settings/composables/useNamingSettings";
 import { useSettingsContext } from "@/features/settings/context";
+import { sourceIconUrl } from "@/utils/dashboard";
 
 const { settings, settingsDraft, editableSourceProfiles } =
   useSettingsContext();
@@ -58,12 +59,12 @@ function onChoice(
       :key="site.key"
       :value="site.key"
     >
-      <AccordionTrigger>
+      <AccordionTrigger :image="sourceIconUrl(site.key)">
         {{ site.label }}
       </AccordionTrigger>
 
       <AccordionContent>
-        <div class="flex flex-col gap-[0.85rem]">
+        <div class="flex flex-col gap-6">
           <FieldSet>
             <FieldLegend>
               Title

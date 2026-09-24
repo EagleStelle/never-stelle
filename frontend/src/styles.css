@@ -12,6 +12,7 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-accent-ink: var(--accent-ink);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-popover: var(--popover);
@@ -36,6 +37,7 @@
   --primary: #0a0711;
   --secondary: #2a2640;
   --accent: #ed9e59;
+  --accent-ink: #ed9e59;
   --background: var(--primary);
   --foreground: #f8f4f5;
   --card: rgba(22, 18, 32, 0.72);
@@ -71,6 +73,7 @@
   --primary: #f3f4f6;
   --secondary: #e5e7eb;
   --accent: #ed9e59;
+  --accent-ink: #9a4f12;
   --background: var(--primary);
   --foreground: #000;
   --card: rgba(255, 255, 255, 0.82);

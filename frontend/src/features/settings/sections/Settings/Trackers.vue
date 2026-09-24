@@ -1,13 +1,11 @@
 <script setup lang="ts">
+import IconInfo from "~icons/material-symbols/info-outline";
 import { Combobox } from "@/components/ui/combobox";
 import {
   Field,
   FieldContent,
   FieldGroup,
   FieldLabel,
-  FieldLegend,
-  FieldSeparator,
-  FieldSet,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -57,60 +55,46 @@ function setIntervalSeconds(value: string | string[]): void {
 
 <template>
   <TooltipProvider>
-    <div class="flex flex-col gap-4">
-      <FieldSet>
-        <FieldLegend>Checks</FieldLegend>
-        <FieldGroup>
-          <Field v-for="field in COUNT_FIELDS" :key="field.key">
-            <FieldLabel :for="field.id" class="items-center gap-1.5">
-              <span>{{ field.label }}</span>
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <button
-                    type="button"
-                    class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-(--glass-border) bg-black/20 text-[0.625rem] font-semibold leading-none text-muted-foreground transition-all duration-300 ease-glass hover:border-accent hover:text-white focus-visible:ring-2 focus-visible:ring-accent in-[.light-mode]:bg-white/40 in-[.light-mode]:hover:text-black"
-                    :aria-label="`${field.label} help`"
-                  >
-                    i
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {{ field.help }}
-                </TooltipContent>
-              </Tooltip>
-            </FieldLabel>
-            <FieldContent>
-              <Input
-                :id="field.id"
-                type="number"
-                min="1"
-                max="500"
-                :placeholder="String(TRACKER_SETTINGS_DEFAULTS[field.key])"
-                :model-value="String(settingsDraft.tracker_settings[field.key])"
-                class="w-24"
-                @update:model-value="(value: string | number) => setCount(field.key, value)"
-              />
-            </FieldContent>
-          </Field>
-        </FieldGroup>
-      </FieldSet>
-
-      <FieldSeparator />
-
-      <FieldSet>
-        <FieldLegend>New trackers</FieldLegend>
-        <FieldGroup>
-          <Combobox
-            :model-value="String(settingsDraft.tracker_settings.interval_seconds)"
-            :items="TRACKER_INTERVALS"
-            label="Check interval"
-            label-placement="start"
-            placeholder="Select..."
-            empty-text="No intervals."
-            @update:model-value="setIntervalSeconds"
+    <FieldGroup>
+      <Combobox
+        :model-value="String(settingsDraft.tracker_settings.interval_seconds)"
+        :items="TRACKER_INTERVALS"
+        label="Check interval"
+        label-placement="start"
+        placeholder="Select..."
+        empty-text="No intervals."
+        @update:model-value="setIntervalSeconds"
+      />
+      <Field v-for="field in COUNT_FIELDS" :key="field.key">
+        <FieldLabel :for="field.id" class="items-center gap-1.5">
+          <span>{{ field.label }}</span>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <button
+                type="button"
+                class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                :aria-label="`${field.label} help`"
+              >
+                <IconInfo class="size-4" aria-hidden="true" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {{ field.help }}
+            </TooltipContent>
+          </Tooltip>
+        </FieldLabel>
+        <FieldContent>
+          <Input
+            :id="field.id"
+            type="number"
+            min="1"
+            max="500"
+            :placeholder="String(TRACKER_SETTINGS_DEFAULTS[field.key])"
+            :model-value="String(settingsDraft.tracker_settings[field.key])"
+            @update:model-value="(value: string | number) => setCount(field.key, value)"
           />
-        </FieldGroup>
-      </FieldSet>
-    </div>
+        </FieldContent>
+      </Field>
+    </FieldGroup>
   </TooltipProvider>
 </template>

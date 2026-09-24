@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, watch } from "vue";
 import { toast } from "vue-sonner";
+import IconInfo from "~icons/material-symbols/info-outline";
 import IconSearch from "~icons/material-symbols/search";
 import IconSpinner from "~icons/material-symbols/sync";
 
@@ -12,7 +13,6 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -24,7 +24,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSettingsContext } from "@/features/settings/context";
-import { errorMessage, normalizeSourceKey } from "@/utils/dashboard";
+import { errorMessage, normalizeSourceKey, sourceIconUrl } from "@/utils/dashboard";
 
 const { settingsDraft, editableSourceProfiles } = useSettingsContext();
 
@@ -94,11 +94,11 @@ function resetPages(key: string): void {
         :key="site.key"
         :value="site.key"
       >
-        <AccordionTrigger>
+        <AccordionTrigger :image="sourceIconUrl(site.key)">
           {{ site.label }}
         </AccordionTrigger>
         <AccordionContent>
-          <div class="flex flex-col gap-[0.85rem]">
+          <div class="flex flex-col gap-4">
             <Field>
               <FieldLabel :for="`${site.key}ScrollingProbeInput`">
                 Probe creator
@@ -116,6 +116,7 @@ function resetPages(key: string): void {
                 />
                 <Button
                   variant="primary"
+                  size="icon"
                   type="button"
                   aria-label="Find pages"
                   title="Find pages"
@@ -135,31 +136,30 @@ function resetPages(key: string): void {
               </FieldContent>
             </Field>
 
-            <Card
+            <p
               v-if="!settingsDraft.source_tracker_tabs[site.key]?.length"
-              class="px-6"
+              class="flex items-start gap-2 text-[0.8125rem] leading-normal text-muted-foreground"
             >
-              <p class="text-[0.8125rem] text-muted-foreground">
-                Test a creator link from this source to choose which pages its
-                trackers scroll.
-              </p>
-            </Card>
+              <IconInfo class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              Test a creator link from this source to choose which pages its
+              trackers scroll.
+            </p>
 
             <div
               v-if="settingsDraft.source_tracker_tabs[site.key]?.length"
               class="flex flex-col gap-2"
             >
-              <div class="flex items-center justify-between gap-2 min-h-6">
+              <div class="flex items-center justify-between gap-2 min-h-8">
                 <div class="flex items-center gap-1.5">
                   <Label>Pages to scroll</Label>
                   <Tooltip>
                     <TooltipTrigger as-child>
                       <button
                         type="button"
-                        class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-(--glass-border) bg-black/20 text-[0.625rem] font-semibold leading-none text-muted-foreground transition-all duration-300 ease-glass hover:border-accent hover:text-white focus-visible:ring-2 focus-visible:ring-accent in-[.light-mode]:bg-white/40 in-[.light-mode]:hover:text-black"
+                        class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         aria-label="Pages to scroll help"
                       >
-                        i
+                        <IconInfo class="size-4" aria-hidden="true" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top">
@@ -173,7 +173,7 @@ function resetPages(key: string): void {
                 <button
                   v-if="hasChoices(site.key)"
                   type="button"
-                  class="text-xs opacity-70 hover:opacity-100 transition-opacity"
+                  class="rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   title="Scroll only the pages the engines can't list"
                   @click="resetPages(site.key)"
                 >

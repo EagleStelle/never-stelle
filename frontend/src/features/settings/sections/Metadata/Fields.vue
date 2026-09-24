@@ -1,6 +1,7 @@
 ﻿<script setup lang="ts">
 import { reactive } from "vue";
 import IconDrag from "~icons/material-symbols/drag-indicator";
+import IconInfo from "~icons/material-symbols/info-outline";
 import IconResolve from "~icons/material-symbols/cloud-sync";
 import IconSearch from "~icons/material-symbols/search";
 import IconSpinner from "~icons/material-symbols/sync";
@@ -22,7 +23,7 @@ import {
   type FieldRole,
 } from "@/features/settings/composables/useFieldsSettings";
 import { useSettingsContext } from "@/features/settings/context";
-import { Card } from "@/components/ui/card";
+import { sourceIconUrl } from "@/utils/dashboard";
 import { Label } from "@/components/ui/label";
 import {
   Accordion,
@@ -129,11 +130,11 @@ function filledRoles(key: string) {
       :key="site.key"
       :value="site.key"
     >
-      <AccordionTrigger>
+      <AccordionTrigger :image="sourceIconUrl(site.key)">
         {{ site.label }}
       </AccordionTrigger>
       <AccordionContent>
-        <div class="flex flex-col gap-[0.85rem]">
+        <div class="flex flex-col gap-4">
           <Field>
             <FieldLabel :for="`${site.key}FieldsProbeInput`">
               Probe URL
@@ -151,6 +152,7 @@ function filledRoles(key: string) {
               />
               <Button
                 variant="primary"
+                size="icon"
                 type="button"
                 aria-label="Test"
                 title="Test"
@@ -170,20 +172,19 @@ function filledRoles(key: string) {
             </FieldContent>
           </Field>
 
-          <Card
+          <p
             v-if="
               probes[site.key].message ||
               (!probes[site.key].fields.length && !filledRoles(site.key).length)
             "
-            class="px-6"
+            class="flex items-start gap-2 text-[0.8125rem] leading-normal text-muted-foreground"
           >
-            <p class="text-[0.8125rem] text-muted-foreground">
-              {{
-                probes[site.key].message ||
-                "Test a link from this source to list the fields it carries."
-              }}
-            </p>
-          </Card>
+            <IconInfo class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            {{
+              probes[site.key].message ||
+              "Test a link from this source to list the fields it carries."
+            }}
+          </p>
 
           <Table
             v-if="probes[site.key].fields.length"
@@ -209,7 +210,7 @@ function filledRoles(key: string) {
                 :key="result.field"
               >
                 <TableCell
-                  class="w-36 sm:w-44 max-w-[9rem] sm:max-w-[11rem] font-mono align-top"
+                  class="w-36 sm:w-44 max-w-36 sm:max-w-44 font-mono align-top"
                 >
                   <span class="block truncate" :title="result.field">
                     {{ result.field }}
@@ -217,7 +218,7 @@ function filledRoles(key: string) {
                 </TableCell>
                 <TableCell class="min-w-0 align-top">
                   <span
-                    class="block min-w-0 break-words whitespace-pre-wrap leading-normal [word-break:break-word] max-h-32 overflow-y-auto"
+                    class="block min-w-0 wrap-break-word whitespace-pre-wrap leading-normal [word-break:break-word] max-h-32 overflow-y-auto"
                     :title="result.value"
                   >
                     {{ result.value }}
@@ -227,10 +228,9 @@ function filledRoles(key: string) {
             </TableBody>
           </Table>
 
-          <!-- The resolve button closes the role row, under the probe's test button. -->
-          <div v-if="filledRoles(site.key).length" class="flex items-start gap-2 mt-3">
+          <div v-if="filledRoles(site.key).length" class="flex flex-col gap-3 pt-2">
             <div
-              class="grid flex-1 min-w-0 grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3"
+              class="grid min-w-0 grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3"
             >
               <div
                 v-for="role in filledRoles(site.key)"
@@ -242,7 +242,7 @@ function filledRoles(key: string) {
                   <button
                     v-if="isConfigured(site.key, role.key)"
                     type="button"
-                    class="text-xs opacity-70 hover:opacity-100 transition-opacity"
+                    class="rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     title="Restore the default order"
                     @click="resetRole(site.key, role.key)"
                   >
@@ -254,7 +254,7 @@ function filledRoles(key: string) {
                     v-for="(field, index) in fieldListItems(site.key, role.key)"
                     :key="field.key"
                     draggable="true"
-                    class="flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors cursor-grab active:cursor-grabbing"
+                    class="-mx-1 flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors duration-200 cursor-grab hover:bg-white/5 active:cursor-grabbing in-[.light-mode]:hover:bg-black/4"
                     :class="[
                       isDragging(site.key, role.key, index) ? 'opacity-40' : '',
                       isDropTarget(site.key, role.key, index)
@@ -267,7 +267,7 @@ function filledRoles(key: string) {
                     @dragend="resetDrag"
                   >
                     <IconDrag
-                      class="w-4 h-4 shrink-0 opacity-50"
+                      class="size-4 shrink-0 text-muted-foreground"
                       aria-hidden="true"
                     />
                     <span
@@ -279,29 +279,26 @@ function filledRoles(key: string) {
                 </ul>
               </div>
             </div>
-            <Button
-              class="shrink-0"
-              variant="primary"
-              type="button"
-              :title="
-                renameRunning(site.key, 'fields')
-                  ? 'Resolving'
-                  : renameCount(site.key, 'fields')
-                    ? 'Resolve platform'
-                    : 'No field changes'
-              "
-              aria-label="Resolve platform"
-              :disabled="!renameCount(site.key, 'fields') || renameRunning(site.key, 'fields')"
-              :aria-busy="renameRunning(site.key, 'fields')"
-              @click="openRename(site.key, site.label, 'fields')"
-            >
-              <template #icon>
-                <IconResolve
-                  aria-hidden="true"
-                  :class="{ 'animate-spin': renameRunning(site.key, 'fields') }"
-                />
-              </template>
-            </Button>
+            <!-- Full width on phones, where the roles stack in one column. -->
+            <div class="flex flex-col sm:flex-row sm:justify-end">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  title="Resolve platform"
+                  :disabled="!renameCount(site.key, 'fields') || renameRunning(site.key, 'fields')"
+                  :aria-busy="renameRunning(site.key, 'fields')"
+                  @click="openRename(site.key, site.label, 'fields')"
+                >
+                  <template #icon>
+                    <IconResolve
+                      aria-hidden="true"
+                      :class="{ 'animate-spin': renameRunning(site.key, 'fields') }"
+                    />
+                  </template>
+                  Resolve History
+                </Button>
+            </div>
           </div>
         </div>
       </AccordionContent>

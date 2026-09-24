@@ -1,14 +1,14 @@
 <script setup lang="ts">
+import IconInfo from "~icons/material-symbols/info-outline";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Card } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { useSettingsContext } from "@/features/settings/context";
-import { displayUrlTemplate } from "@/utils/dashboard";
+import { displayUrlTemplate, sourceIconUrl } from "@/utils/dashboard";
 
 const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles } =
   useSettingsContext();
@@ -64,19 +64,21 @@ function locationItems(
       :key="site.key"
       :value="site.key"
     >
-      <AccordionTrigger>
+      <AccordionTrigger :image="sourceIconUrl(site.key)">
         {{ site.label }}
       </AccordionTrigger>
 
       <AccordionContent>
-        <Card v-if="!formatsFor(site.key).length" class="px-6">
-          <p class="text-[0.8125rem] text-muted-foreground">
-            Download once from this source to learn its URL format, then choose
-            where its files go.
-          </p>
-        </Card>
+        <p
+          v-if="!formatsFor(site.key).length"
+          class="flex items-start gap-2 text-[0.8125rem] leading-normal text-muted-foreground"
+        >
+          <IconInfo class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          Download once from this source to learn its URL format, then choose
+          where its files go.
+        </p>
 
-        <div v-else class="flex flex-col gap-4 py-2">
+        <div v-else class="flex flex-col gap-5">
           <Combobox
             v-for="format in formatsFor(site.key)"
             :key="format"
@@ -84,8 +86,7 @@ function locationItems(
             :items="locationItems(site.key, format)"
             @update:model-value="(val) => setLocation(site.key, format, val)"
             :label="displayUrlTemplate(format)"
-            label-placement="start"
-            label-width="lg"
+            layout="fill"
             placeholder="Choose a save path"
             empty-text="No locations."
           />

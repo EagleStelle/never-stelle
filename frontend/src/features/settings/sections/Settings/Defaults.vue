@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref } from "vue";
 import IconDrag from "~icons/material-symbols/drag-indicator";
+import IconInfo from "~icons/material-symbols/info-outline";
 
 
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,6 @@ import {
   FieldGroup,
   FieldLabel,
   FieldLegend,
-  FieldSeparator,
   FieldSet,
   FieldTitle,
 } from "@/components/ui/field";
@@ -289,7 +289,7 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
 
 <template>
   <TooltipProvider>
-    <div class="flex flex-col gap-6">
+    <div class="flex flex-col gap-10">
       <FieldSet>
         <FieldLegend>Video</FieldLegend>
         <FieldGroup>
@@ -338,8 +338,6 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
         </FieldGroup>
       </FieldSet>
 
-      <FieldSeparator />
-
       <FieldSet>
         <FieldLegend>Audio</FieldLegend>
         <FieldGroup>
@@ -370,21 +368,17 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
         </FieldGroup>
       </FieldSet>
 
-      <FieldSeparator />
-
       <PostProcessingFields
         :model-value="settingsDraft.default_post_processing"
         :capabilities="defaultEmbedCapabilities"
         @update:model-value="setDefaultPostProcessing"
       />
 
-      <FieldSeparator />
-
       <FieldSet>
         <FieldLegend>
           Cookies
         </FieldLegend>
-        <FieldGroup>
+        <div class="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
           <Field
             v-for="field in COOKIE_POLICY_FIELDS"
             :key="field.key"
@@ -395,10 +389,10 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
                 <TooltipTrigger as-child>
                   <button
                     type="button"
-                    class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-(--glass-border) bg-black/20 text-[0.625rem] font-semibold leading-none text-muted-foreground transition-all duration-300 ease-glass hover:border-accent hover:text-white focus-visible:ring-2 focus-visible:ring-accent in-[.light-mode]:bg-white/40 in-[.light-mode]:hover:text-black"
+                    class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     :aria-label="`${field.label} help`"
                   >
-                    i
+                    <IconInfo class="size-4" aria-hidden="true" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="top">
@@ -414,7 +408,6 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
                 :min="field.min"
                 :placeholder="String(policyInherited(field.key))"
                 :model-value="policyValue(field.key)"
-                class="w-full"
                 @blur="endPolicyEdit(field.key)"
                 @update:model-value="
                   (value: string | number) => setPolicyValue(field.key, value)
@@ -422,10 +415,8 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
               />
             </FieldContent>
           </Field>
-        </FieldGroup>
+        </div>
       </FieldSet>
-
-      <FieldSeparator />
 
       <FieldSet>
         <FieldLegend>
@@ -437,12 +428,12 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
             :key="role.key"
             class="flex flex-col gap-2"
           >
-            <div class="flex items-center justify-between gap-2 min-h-6">
+            <div class="flex items-center justify-between gap-2 min-h-8">
               <Label>{{ role.label }}</Label>
               <button
                 v-if="isFieldOrderConfigured(role.key)"
                 type="button"
-                class="text-xs opacity-70 hover:opacity-100 transition-opacity"
+                class="rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 title="Restore the built-in order"
                 @click="resetFieldOrder(role.key)"
               >
@@ -454,7 +445,7 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
                 v-for="(field, index) in fieldList(role.key)"
                 :key="field"
                 draggable="true"
-                class="flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors cursor-grab active:cursor-grabbing"
+                class="-mx-1 flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors duration-200 cursor-grab hover:bg-white/5 active:cursor-grabbing in-[.light-mode]:hover:bg-black/4"
                 :class="[
                   isDragging(role.key, index) ? 'opacity-40' : '',
                   isDropTarget(role.key, index) ? 'bg-accent/15' : '',
@@ -465,7 +456,7 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
                 @dragend="resetDrag"
               >
                 <IconDrag
-                  class="w-4 h-4 shrink-0 opacity-50"
+                  class="size-4 shrink-0 text-muted-foreground"
                   aria-hidden="true"
                 />
                 <span
@@ -479,8 +470,6 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
         </div>
       </FieldSet>
 
-      <FieldSeparator />
-
       <FieldSet>
         <FieldLegend>
           Templates
@@ -493,10 +482,10 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
                 <TooltipTrigger as-child>
                   <button
                     type="button"
-                    class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-(--glass-border) bg-black/20 text-[0.625rem] font-semibold leading-none text-muted-foreground transition-all duration-300 ease-glass hover:border-accent hover:text-white focus-visible:ring-2 focus-visible:ring-accent in-[.light-mode]:bg-white/40 in-[.light-mode]:hover:text-black"
+                    class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     :aria-label="`${field.label} help`"
                   >
-                    i
+                    <IconInfo class="size-4" aria-hidden="true" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="top">
@@ -516,11 +505,11 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
               />
             </FieldContent>
           </Field>
-          <div v-if="templateTokens.length" class="flex flex-wrap gap-1.5">
+          <div v-if="templateTokens.length" class="flex flex-wrap gap-1.5 sm:pl-43">
             <Button
               v-for="token in templateTokens"
               :key="token.key"
-              variant="secondary"
+              variant="outline"
               size="sm"
               type="button"
               class="font-mono text-[0.8125rem]"
@@ -533,8 +522,6 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
           </div>
         </FieldGroup>
       </FieldSet>
-
-      <FieldSeparator />
 
       <FieldSet>
         <FieldLegend>
@@ -579,8 +566,6 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
           </Field>
         </FieldGroup>
       </FieldSet>
-
-      <FieldSeparator />
 
       <FieldSet>
         <FieldLegend>

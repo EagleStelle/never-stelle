@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from "vue";
 import IconDrag from "~icons/material-symbols/drag-indicator";
+import IconInfo from "~icons/material-symbols/info-outline";
 import IconTrash from "~icons/material-symbols/delete";
 import IconUpload from "~icons/material-symbols/upload";
 
@@ -23,6 +24,7 @@ import {
 import type { CookieFile, CookiePolicyField } from "@/types";
 import { COOKIE_POLICY_FIELDS } from "@/features/settings/cookiePolicy";
 import { useSettingsContext } from "@/features/settings/context";
+import { sourceIconUrl } from "@/utils/dashboard";
 
 const {
   settings,
@@ -162,13 +164,13 @@ function isDropTarget(key: string, index: number): boolean {
         :key="site.key"
         :value="site.key"
       >
-        <AccordionTrigger>
+        <AccordionTrigger :image="sourceIconUrl(site.key)">
           {{ site.label }}
         </AccordionTrigger>
 
         <AccordionContent>
-          <div class="flex flex-col gap-4">
-            <div class="flex flex-col gap-3 w-full">
+          <div class="flex flex-col gap-6">
+            <div class="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
               <Field
                 v-for="field in COOKIE_POLICY_FIELDS"
                 :key="field.key"
@@ -182,10 +184,10 @@ function isDropTarget(key: string, index: number): boolean {
                     <TooltipTrigger as-child>
                       <button
                         type="button"
-                        class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-(--glass-border) bg-black/20 text-[0.625rem] font-semibold leading-none text-muted-foreground transition-all duration-300 ease-glass hover:border-accent hover:text-white focus-visible:ring-2 focus-visible:ring-accent in-[.light-mode]:bg-white/40 in-[.light-mode]:hover:text-black"
+                        class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         :aria-label="`${field.label} help`"
                       >
-                        i
+                        <IconInfo class="size-4" aria-hidden="true" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top">
@@ -201,7 +203,6 @@ function isDropTarget(key: string, index: number): boolean {
                     :min="field.min"
                     :placeholder="String(policyInherited(field.key))"
                     :model-value="policyValue(site.key, field.key)"
-                    class="w-full"
                     @blur="endPolicyEdit(site.key, field.key)"
                     @update:model-value="
                       (value: string | number) => setPolicyValue(site.key, field.key, value)
@@ -220,14 +221,32 @@ function isDropTarget(key: string, index: number): boolean {
               @change="onCookieFile(site.key, $event)"
             />
 
-            <div class="flex flex-col gap-1.5 mt-3">
-              <Label>Cookie Pool</Label>
-              <ul class="flex flex-col gap-1">
+            <div class="flex flex-col gap-2">
+              <div class="flex min-h-8 items-center justify-between gap-3">
+                <h3 class="text-sm font-semibold">Cookie Pool</h3>
+                <Button
+                  compact
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  :title="`Upload ${site.label} cookie file`"
+                  @click="openPicker(site.key)"
+                >
+                  <template #icon>
+                    <IconUpload aria-hidden="true" />
+                  </template>
+                  Upload Cookies
+                </Button>
+              </div>
+              <ul
+                v-if="cookiesFor(site.key).length"
+                class="flex flex-col"
+              >
                 <li
                   v-for="(cookie, index) in cookiesFor(site.key)"
                   :key="cookie.id"
                   draggable="true"
-                  class="flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors cursor-grab active:cursor-grabbing"
+                  class="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors duration-200 cursor-grab hover:bg-white/5 active:cursor-grabbing in-[.light-mode]:hover:bg-black/4"
                   :class="[
                     isDragging(site.key, index) ? 'opacity-40' : '',
                     isDropTarget(site.key, index) ? 'bg-accent/15' : '',
@@ -237,11 +256,11 @@ function isDropTarget(key: string, index: number): boolean {
                   @drop.prevent="onDrop(site.key, index)"
                   @dragend="resetDrag"
                 >
-                  <IconDrag class="w-4 h-4 shrink-0 opacity-50" aria-hidden="true" />
-                  <span
-                    class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere"
-                  >
-                    {{ cookie.filename }}
+                  <IconDrag class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <span class="min-w-0 flex-1">
+                    <span class="block font-mono text-[0.8125rem] wrap-anywhere">
+                      {{ cookie.filename }}
+                    </span>
                     <span
                       v-if="cookie.browser"
                       class="block text-xs text-muted-foreground"
@@ -251,35 +270,22 @@ function isDropTarget(key: string, index: number): boolean {
                     </span>
                   </span>
                   <Button
-                    variant="destructive"
+                    variant="destructive-ghost"
+                    size="icon-sm"
                     type="button"
                     title="Delete cookies file"
                     aria-label="Delete cookies file"
                     @click="deleteCookie(site.key, cookie.id)"
                   >
                     <template #icon>
-                      <IconTrash class="w-4 h-4" aria-hidden="true" />
-                    </template>
-                  </Button>
-                </li>
-                <li class="flex items-center gap-1.5 rounded-md px-1 py-1">
-                  <IconUpload class="w-4 h-4 shrink-0 opacity-50" aria-hidden="true" />
-                  <span class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere">
-                    Upload cookie
-                  </span>
-                  <Button
-                    variant="primary"
-                    type="button"
-                    :title="`Upload ${site.label} cookie`"
-                    :aria-label="`Upload ${site.label} cookie`"
-                    @click="openPicker(site.key)"
-                  >
-                    <template #icon>
-                      <IconUpload class="w-4 h-4" aria-hidden="true" />
+                      <IconTrash aria-hidden="true" />
                     </template>
                   </Button>
                 </li>
               </ul>
+              <p v-else class="text-[0.8125rem] text-muted-foreground">
+                No cookie files yet.
+              </p>
             </div>
           </div>
         </AccordionContent>
