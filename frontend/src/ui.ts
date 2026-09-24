@@ -1,10 +1,23 @@
 import type { Component } from "vue";
-import IconWarning from "~icons/material-symbols/warning";
+import IconAccount from "~icons/material-symbols/admin-panel-settings";
 import IconCheck from "~icons/material-symbols/check-circle";
 import IconClock from "~icons/material-symbols/schedule";
+import IconCookie from "~icons/material-symbols/cookie";
+import IconDefaults from "~icons/material-symbols/tune";
+import IconDownloads from "~icons/material-symbols/download";
+import IconFields from "~icons/material-symbols/badge";
+import IconFolder from "~icons/material-symbols/folder";
+import IconFormat from "~icons/material-symbols/pattern";
+import IconNaming from "~icons/material-symbols/text-format";
+import IconRadar from "~icons/material-symbols/radar";
+import IconRuleFolder from "~icons/material-symbols/rule-folder";
+import IconScraper from "~icons/material-symbols/travel-explore";
+import IconScrolling from "~icons/material-symbols/swipe-vertical";
+import IconSlug from "~icons/material-symbols/link";
 import IconSpinner from "~icons/material-symbols/sync";
+import IconWarning from "~icons/material-symbols/warning";
 
-import type { SourceProfile } from "@/types";
+import type { PageKey, SettingsSection, SourceProfile } from "@/types";
 
 export const DEFAULT_SOURCE_PROFILES: SourceProfile[] = [];
 
@@ -30,6 +43,28 @@ export const COUNT_ICONS: Record<
   running: IconSpinner,
   completed: IconCheck,
   failed: IconWarning,
+};
+
+// One glyph per page and per settings section, so every place that names one shows the same icon.
+export const PAGE_ICONS: Record<PageKey, Component> = {
+  downloads: IconDownloads,
+  trackers: IconRadar,
+  history: IconClock,
+};
+
+export const SETTINGS_SECTION_ICONS: Record<SettingsSection, Component> = {
+  account: IconAccount,
+  defaults: IconDefaults,
+  locations: IconFolder,
+  cookies: IconCookie,
+  trackers: IconRadar,
+  scrolling: IconScrolling,
+  format: IconFormat,
+  slug: IconSlug,
+  scraper: IconScraper,
+  fields: IconFields,
+  templates: IconRuleFolder,
+  naming: IconNaming,
 };
 
 export const TASKS_QUERY_KEY = ["tasks"] as const;

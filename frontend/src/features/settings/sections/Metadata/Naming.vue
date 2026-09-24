@@ -66,7 +66,7 @@ function onChoice(
       <AccordionContent>
         <div class="flex flex-col gap-6">
           <FieldSet>
-            <FieldLegend>
+            <FieldLegend variant="divider">
               Title
             </FieldLegend>
             <FieldGroup>
@@ -111,7 +111,7 @@ function onChoice(
           </FieldSet>
 
           <FieldSet>
-            <FieldLegend>
+            <FieldLegend variant="divider">
               Filename
             </FieldLegend>
             <FieldGroup>

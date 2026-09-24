@@ -1,11 +1,9 @@
 import { computed, nextTick, reactive, ref, watch } from "vue";
-import { refDebounced, useEventListener, useLocalStorage } from "@vueuse/core";
-import IconHistory from "~icons/material-symbols/schedule";
+import { useEventListener, useLocalStorage } from "@vueuse/core";
 import IconTray from "~icons/material-symbols/inbox";
 import IconMedia from "~icons/material-symbols/perm-media";
 import IconVideo from "~icons/material-symbols/movie";
 import IconImage from "~icons/material-symbols/image";
-import IconTrackers from "~icons/material-symbols/radar";
 
 import { useDashboardSettings } from "@/composables/useDashboardSettings";
 import { useAuth } from "@/composables/useAuth";
@@ -13,7 +11,7 @@ import { useTaskQueue } from "@/composables/useTaskQueue";
 import { useHistory } from "@/composables/useHistory";
 import { useTrackers } from "@/composables/useTrackers";
 import { useSonner } from "@/composables/useSonner";
-import { COUNT_ICONS, PAGE_ROUTES } from "@/ui";
+import { COUNT_ICONS, PAGE_ICONS, PAGE_ROUTES } from "@/ui";
 import type {
   MediaFilter,
   MenuKey,
@@ -264,9 +262,9 @@ export function useDownloadDashboard() {
     ];
   });
   const pageItems = computed(() => [
-    { key: "downloads" as PageKey, label: "Downloads", icon: IconTray },
-    { key: "trackers" as PageKey, label: "Trackers", icon: IconTrackers },
-    { key: "history" as PageKey, label: "History", icon: IconHistory },
+    { key: "downloads" as PageKey, label: "Downloads", icon: PAGE_ICONS.downloads },
+    { key: "trackers" as PageKey, label: "Trackers", icon: PAGE_ICONS.trackers },
+    { key: "history" as PageKey, label: "History", icon: PAGE_ICONS.history },
   ]);
   const menuTasks = computed(() => {
     const tasks = taskQueue.taskItems.value;

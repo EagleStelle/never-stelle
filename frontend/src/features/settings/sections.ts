@@ -1,18 +1,7 @@
 import type { Component } from "vue";
-import IconAccount from "~icons/material-symbols/admin-panel-settings";
-import IconCookie from "~icons/material-symbols/cookie";
-import IconFolder from "~icons/material-symbols/folder";
-import IconDefaults from "~icons/material-symbols/tune";
-import IconFields from "~icons/material-symbols/badge";
-import IconFormat from "~icons/material-symbols/pattern";
-import IconNaming from "~icons/material-symbols/text-format";
-import IconRuleFolder from "~icons/material-symbols/rule-folder";
-import IconScraper from "~icons/material-symbols/travel-explore";
-import IconSlug from "~icons/material-symbols/link";
-import IconScrolling from "~icons/material-symbols/swipe-vertical";
-import IconTrackers from "~icons/material-symbols/radar";
 
 import type { SettingsSection } from "@/types";
+import { SETTINGS_SECTION_ICONS } from "@/ui";
 import Account from "@/features/settings/sections/Settings/Account.vue";
 import Cookies from "@/features/settings/sections/Settings/Cookies.vue";
 import Locations from "@/features/settings/sections/Settings/Locations.vue";
@@ -46,7 +35,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     key: "account",
     label: "Account",
     group: "Settings",
-    icon: IconAccount,
+    icon: SETTINGS_SECTION_ICONS.account,
     component: Account,
     focusId: () => "accountUsernameInput",
     requiresSources: false,
@@ -57,7 +46,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     key: "defaults",
     label: "Defaults",
     group: "Settings",
-    icon: IconDefaults,
+    icon: SETTINGS_SECTION_ICONS.defaults,
     component: Defaults,
     requiresSources: false,
   },
@@ -65,7 +54,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     key: "locations",
     label: "Locations",
     group: "Settings",
-    icon: IconFolder,
+    icon: SETTINGS_SECTION_ICONS.locations,
     component: Locations,
     requiresSources: true,
   },
@@ -73,7 +62,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     key: "cookies",
     label: "Cookies",
     group: "Settings",
-    icon: IconCookie,
+    icon: SETTINGS_SECTION_ICONS.cookies,
     component: Cookies,
     requiresSources: true,
   },
@@ -81,7 +70,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     key: "trackers",
     label: "Trackers",
     group: "Settings",
-    icon: IconTrackers,
+    icon: SETTINGS_SECTION_ICONS.trackers,
     component: Trackers,
     focusId: () => "trackerPageSizeInput",
     requiresSources: false,
@@ -90,7 +79,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     key: "scrolling",
     label: "Scrolling",
     group: "Settings",
-    icon: IconScrolling,
+    icon: SETTINGS_SECTION_ICONS.scrolling,
     component: Scrolling,
     focusId: (source) => `${source}ScrollingProbeInput`,
     requiresSources: true,
@@ -99,7 +88,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     key: "format",
     label: "Format",
     group: "Metadata",
-    icon: IconFormat,
+    icon: SETTINGS_SECTION_ICONS.format,
     component: Format,
     focusId: () => "formatLearnInput",
     requiresSources: false,
@@ -108,7 +97,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     key: "slug",
     label: "Slug",
     group: "Metadata",
-    icon: IconSlug,
+    icon: SETTINGS_SECTION_ICONS.slug,
     component: Slug,
     requiresSources: true,
   },
@@ -116,7 +105,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     key: "scraper",
     label: "Scraper",
     group: "Metadata",
-    icon: IconScraper,
+    icon: SETTINGS_SECTION_ICONS.scraper,
     component: Scraper,
     focusId: (source) => `${source}ScraperProbeInput`,
     requiresSources: true,
@@ -125,7 +114,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     key: "fields",
     label: "Fields",
     group: "Metadata",
-    icon: IconFields,
+    icon: SETTINGS_SECTION_ICONS.fields,
     component: Fields,
     focusId: (source) => `${source}FieldsProbeInput`,
     requiresSources: true,
@@ -134,7 +123,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     key: "templates",
     label: "Templates",
     group: "Metadata",
-    icon: IconRuleFolder,
+    icon: SETTINGS_SECTION_ICONS.templates,
     component: Templates,
     requiresSources: true,
   },
@@ -143,7 +132,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     key: "naming",
     label: "Naming",
     group: "Metadata",
-    icon: IconNaming,
+    icon: SETTINGS_SECTION_ICONS.naming,
     component: Naming,
     requiresSources: true,
   },

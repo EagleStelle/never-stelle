@@ -20,21 +20,19 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
 import { DialogShell as Dialog } from "@/components/ui/dialog";
-import { FieldGroup, FieldLabel, FieldLegend, FieldSeparator, FieldSet } from "@/components/ui/field";
+import { FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { IconImage } from "@/components/ui/icon-image";
-import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import PostProcessingFields from "@/features/downloads/PostProcessingFields.vue";
-import { MEDIA_MODE_ITEMS, qualityFieldGroups, type QualityField } from "@/features/downloads/qualityFields";
+import DownloadFields from "@/features/downloads/DownloadFields.vue";
+import type { QualityField } from "@/features/downloads/qualityFields";
 import { useDashboard } from "@/composables/useDashboard";
 import { COUNT_ICONS, TRACKER_INTERVALS } from "@/ui";
 import type { Component } from "vue";
-import type { PostProcessingSelection, QualitySelection, Tracker } from "@/types";
+import type { MediaMode, PostProcessingSelection, QualitySelection, Tracker } from "@/types";
 import {
   createPostProcessingSelection,
   createQualitySelection,
   constrainPostProcessingSelection,
-  isMediaMode,
   postProcessingCapabilitiesForQuality,
   sourceIconUrl,
 } from "@/utils/dashboard";
@@ -104,7 +102,6 @@ function toggleTracker(tracker: Tracker): void {
 const draftSelection = reactive<QualitySelection>(createQualitySelection());
 const draftPostProcessing = reactive<PostProcessingSelection>(createPostProcessingSelection());
 const draftInterval = ref("");
-const draftQualityGroups = computed(() => qualityFieldGroups(draftSelection, qualityOptions.value));
 const draftCapabilities = computed(() => postProcessingCapabilitiesForQuality(draftSelection, qualityOptions.value));
 
 // A new link starts from the toolbar and tracker settings.
@@ -130,17 +127,13 @@ function closeTracker(): void {
   newTrackerUrl.value = "";
 }
 
-function setDraftField(key: QualityField["key"], value: string | string[]): void {
-  if (typeof value === "string") {
-    Object.assign(draftSelection, createQualitySelection({ ...draftSelection, [key]: value }, qualityOptions.value));
-  }
+function setDraftField(key: QualityField["key"], value: string): void {
+  Object.assign(draftSelection, createQualitySelection({ ...draftSelection, [key]: value }, qualityOptions.value));
 }
 
 // A mode starts from its own defaults; draft edits are not kept per mode.
-function setDraftMode(value: string | string[]): void {
-  if (isMediaMode(value)) {
-    Object.assign(draftSelection, createQualitySelection(settings.default_quality[value], qualityOptions.value));
-  }
+function setDraftMode(mode: MediaMode): void {
+  Object.assign(draftSelection, createQualitySelection(settings.default_quality[mode], qualityOptions.value));
 }
 
 function setDraftPostProcessing(next: PostProcessingSelection): void {
@@ -440,56 +433,18 @@ async function confirmDelete(): Promise<void> {
         </header>
 
         <div class="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 flex flex-col gap-6">
-          <FieldSet v-if="qualityOptions.video.length">
-            <FieldLegend>Mode</FieldLegend>
-            <SegmentedControl
-              :model-value="draftSelection.mode"
-              aria-label="Mode"
-              class="self-start"
-              @update:model-value="setDraftMode"
-            >
-              <SegmentedControlItem
-                v-for="item in MEDIA_MODE_ITEMS"
-                :key="item.value"
-                :value="item.value"
-                :aria-label="item.label"
-                :title="item.title"
-              >
-                <component :is="item.icon" class="w-3.5 h-3.5" aria-hidden="true" />
-                <span>{{ item.label }}</span>
-              </SegmentedControlItem>
-            </SegmentedControl>
-          </FieldSet>
-
-          <FieldSet v-for="group in draftQualityGroups" :key="group.legend">
-            <FieldLegend>{{ group.legend }}</FieldLegend>
-            <FieldGroup>
-              <Combobox
-                v-for="field in group.fields"
-                :key="field.key"
-                :model-value="draftSelection[field.key]"
-                :items="field.items"
-                :label="field.label"
-                label-placement="start"
-                :placeholder="field.placeholder"
-                :empty-text="field.emptyText"
-                @update:model-value="(value) => setDraftField(field.key, value)"
-              />
-            </FieldGroup>
-          </FieldSet>
-
-          <FieldSeparator />
-
-          <PostProcessingFields
-            :model-value="draftPostProcessing"
+          <DownloadFields
+            :selection="draftSelection"
+            :options="qualityOptions"
+            :post-processing="draftPostProcessing"
             :capabilities="draftCapabilities"
-            @update:model-value="setDraftPostProcessing"
+            @update:mode="setDraftMode"
+            @update:field="setDraftField"
+            @update:post-processing="setDraftPostProcessing"
           />
 
-          <FieldSeparator v-if="openTracker" />
-
           <FieldSet v-if="openTracker">
-            <FieldLegend>Items</FieldLegend>
+            <FieldLegend variant="divider">Items</FieldLegend>
             <TaskCollection
               :tasks="trackerTasks"
               :view-mode="viewMode"

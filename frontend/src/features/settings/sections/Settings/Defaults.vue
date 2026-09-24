@@ -3,19 +3,21 @@ import { computed, nextTick, reactive, ref } from "vue";
 import IconDrag from "~icons/material-symbols/drag-indicator";
 import IconInfo from "~icons/material-symbols/info-outline";
 
-
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Combobox } from "@/components/ui/combobox";
 import {
   Field,
   FieldContent,
-  FieldDescription,
   FieldGroup,
   FieldLabel,
   FieldLegend,
   FieldSet,
-  FieldTitle,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,18 +31,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { CookiePolicyField, NamingChoice } from "@/types";
+import type { CookiePolicyField, MediaMode, NamingChoice } from "@/types";
 import {
   createQualitySelection,
-  isMediaMode,
   postProcessingCapabilitiesForDefaults,
 } from "@/utils/dashboard";
-import PostProcessingFields from "@/features/downloads/PostProcessingFields.vue";
-import {
-  MEDIA_MODE_ITEMS,
-  qualityFieldGroups,
-  type QualityField,
-} from "@/features/downloads/qualityFields";
+import DownloadFields from "@/features/downloads/DownloadFields.vue";
+import { PAGE_ICONS, SETTINGS_SECTION_ICONS } from "@/ui";
+import type { QualityField } from "@/features/downloads/qualityFields";
 import { COOKIE_POLICY_FIELDS } from "@/features/settings/cookiePolicy";
 import { useSettingsContext } from "@/features/settings/context";
 import {
@@ -76,12 +74,9 @@ const {
 const defaultSelection = computed(
   () => settingsDraft.default_quality[settingsDraft.default_quality.mode],
 );
-const qualityGroups = computed(() =>
-  qualityFieldGroups(defaultSelection.value, settings.quality_options),
-);
 
-function setDefaultMode(value: string | string[]): void {
-  if (isMediaMode(value)) settingsDraft.default_quality.mode = value;
+function setDefaultMode(mode: MediaMode): void {
+  settingsDraft.default_quality.mode = mode;
 }
 
 function setDefaultField(key: QualityField["key"], value: string): void {
@@ -102,9 +97,8 @@ const defaultEmbedCapabilities = computed(() =>
 );
 
 function setDefaultPostProcessing(next: typeof settingsDraft.default_post_processing): void {
-  // Defaults cover both the video and audio pickers. Do not erase a compatible
-  // video choice merely because the currently configured audio format cannot
-  // carry it; the download toolbar filters only the task being submitted.
+  // Shared by every mode, so keep a choice one mode's output cannot carry; the
+  // download toolbar filters only the task being submitted.
   Object.assign(settingsDraft.default_post_processing, next);
 }
 
@@ -276,292 +270,270 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
 
 <template>
   <TooltipProvider>
-    <div class="flex flex-col gap-10">
-      <FieldSet>
-        <FieldLegend>Mode</FieldLegend>
-        <SegmentedControl
-          :model-value="settingsDraft.default_quality.mode"
-          aria-label="Mode"
-          class="self-start"
-          @update:model-value="setDefaultMode"
-        >
-          <SegmentedControlItem
-            v-for="item in MEDIA_MODE_ITEMS"
-            :key="item.value"
-            :value="item.value"
-            :aria-label="item.label"
-            :title="item.title"
-          >
-            <component :is="item.icon" class="w-3.5 h-3.5" aria-hidden="true" />
-            <span>{{ item.label }}</span>
-          </SegmentedControlItem>
-        </SegmentedControl>
-      </FieldSet>
-
-      <FieldSet v-for="group in qualityGroups" :key="group.legend">
-        <FieldLegend>{{ group.legend }}</FieldLegend>
-        <FieldGroup>
-          <Combobox
-            v-for="field in group.fields"
-            :key="field.key"
-            :model-value="defaultSelection[field.key]"
-            :items="field.items"
-            @update:model-value="(val) => setDefaultField(field.key, val)"
-            :label="field.label"
-            label-placement="start"
-            :placeholder="field.placeholder"
-            :empty-text="field.emptyText"
+    <Accordion type="multiple" :default-value="['downloads']" class="w-full">
+      <AccordionItem value="downloads">
+        <AccordionTrigger :icon="PAGE_ICONS.downloads">Downloads</AccordionTrigger>
+        <AccordionContent>
+          <DownloadFields
+            :selection="defaultSelection"
+            :options="settings.quality_options"
+            :post-processing="settingsDraft.default_post_processing"
+            :capabilities="defaultEmbedCapabilities"
+            @update:mode="setDefaultMode"
+            @update:field="setDefaultField"
+            @update:post-processing="setDefaultPostProcessing"
           />
-        </FieldGroup>
-      </FieldSet>
+        </AccordionContent>
+      </AccordionItem>
 
-      <PostProcessingFields
-        :model-value="settingsDraft.default_post_processing"
-        :capabilities="defaultEmbedCapabilities"
-        @update:model-value="setDefaultPostProcessing"
-      />
-
-      <FieldSet>
-        <FieldLegend>
-          Cookies
-        </FieldLegend>
-        <div class="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
-          <Field
-            v-for="field in COOKIE_POLICY_FIELDS"
-            :key="field.key"
-          >
-            <FieldLabel :for="`defaultCookie${field.key}`" class="items-center gap-1.5">
-              <span>{{ field.label }}</span>
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <button
-                    type="button"
-                    class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                    :aria-label="`${field.label} help`"
-                  >
-                    <IconInfo class="size-4" aria-hidden="true" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {{ field.help }}
-                </TooltipContent>
-              </Tooltip>
-            </FieldLabel>
-            <FieldContent>
-              <Input
-                :id="`defaultCookie${field.key}`"
-                data-settings-system
-                type="number"
-                :min="field.min"
-                :placeholder="String(policyInherited(field.key))"
-                :model-value="policyValue(field.key)"
-                @blur="endPolicyEdit(field.key)"
-                @update:model-value="
-                  (value: string | number) => setPolicyValue(field.key, value)
-                "
-              />
-            </FieldContent>
-          </Field>
-        </div>
-      </FieldSet>
-
-      <FieldSet>
-        <FieldLegend>
-          Fields
-        </FieldLegend>
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
-          <div
-            v-for="role in FIELD_ROLE_DEFS"
-            :key="role.key"
-            class="flex flex-col gap-2"
-          >
-            <div class="flex items-center justify-between gap-2 min-h-8">
-              <Label>{{ role.label }}</Label>
-              <button
-                v-if="isFieldOrderConfigured(role.key)"
-                type="button"
-                class="rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                title="Restore the built-in order"
-                @click="resetFieldOrder(role.key)"
-              >
-                Reset
-              </button>
-            </div>
-            <ul class="flex flex-col gap-1">
-              <li
-                v-for="(field, index) in fieldList(role.key)"
-                :key="field"
-                draggable="true"
-                class="-mx-1 flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors duration-200 cursor-grab hover:bg-white/5 active:cursor-grabbing in-[.light-mode]:hover:bg-black/4"
-                :class="[
-                  isDragging(role.key, index) ? 'opacity-40' : '',
-                  isDropTarget(role.key, index) ? 'bg-accent/15' : '',
-                ]"
-                @dragstart="onDragStart(role.key, index, $event)"
-                @dragover.prevent="onDragOver(role.key, index)"
-                @drop.prevent="onDrop(role.key, index)"
-                @dragend="resetDrag"
-              >
-                <IconDrag
-                  class="size-4 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
+      <AccordionItem value="cookies">
+        <AccordionTrigger :icon="SETTINGS_SECTION_ICONS.cookies">Cookies</AccordionTrigger>
+        <AccordionContent>
+          <div class="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+            <Field
+              v-for="field in COOKIE_POLICY_FIELDS"
+              :key="field.key"
+            >
+              <FieldLabel :for="`defaultCookie${field.key}`" class="items-center gap-1.5">
+                <span>{{ field.label }}</span>
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <button
+                      type="button"
+                      class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      :aria-label="`${field.label} help`"
+                    >
+                      <IconInfo class="size-4" aria-hidden="true" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {{ field.help }}
+                  </TooltipContent>
+                </Tooltip>
+              </FieldLabel>
+              <FieldContent>
+                <Input
+                  :id="`defaultCookie${field.key}`"
+                  data-settings-system
+                  type="number"
+                  :min="field.min"
+                  :placeholder="String(policyInherited(field.key))"
+                  :model-value="policyValue(field.key)"
+                  @blur="endPolicyEdit(field.key)"
+                  @update:model-value="
+                    (value: string | number) => setPolicyValue(field.key, value)
+                  "
                 />
-                <span
-                  class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere"
+              </FieldContent>
+            </Field>
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+
+      <AccordionItem value="fields">
+        <AccordionTrigger :icon="SETTINGS_SECTION_ICONS.fields">Fields</AccordionTrigger>
+        <AccordionContent>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
+            <div
+              v-for="role in FIELD_ROLE_DEFS"
+              :key="role.key"
+              class="flex flex-col gap-2"
+            >
+              <div class="flex items-center justify-between gap-2 min-h-8">
+                <Label>{{ role.label }}</Label>
+                <button
+                  v-if="isFieldOrderConfigured(role.key)"
+                  type="button"
+                  class="rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  title="Restore the built-in order"
+                  @click="resetFieldOrder(role.key)"
                 >
-                  {{ field }}
-                </span>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </FieldSet>
-
-      <FieldSet>
-        <FieldLegend>
-          Templates
-        </FieldLegend>
-        <FieldGroup>
-          <Field v-for="field in TEMPLATE_FIELDS" :key="field.key">
-            <FieldLabel :for="templateInputId(field)" class="items-center gap-1.5">
-              <span>{{ field.label }}</span>
-              <Tooltip v-if="field.help">
-                <TooltipTrigger as-child>
-                  <button
-                    type="button"
-                    class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                    :aria-label="`${field.label} help`"
+                  Reset
+                </button>
+              </div>
+              <ul class="flex flex-col gap-1">
+                <li
+                  v-for="(field, index) in fieldList(role.key)"
+                  :key="field"
+                  draggable="true"
+                  class="-mx-1 flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors duration-200 cursor-grab hover:bg-white/5 active:cursor-grabbing in-[.light-mode]:hover:bg-black/4"
+                  :class="[
+                    isDragging(role.key, index) ? 'opacity-40' : '',
+                    isDropTarget(role.key, index) ? 'bg-accent/15' : '',
+                  ]"
+                  @dragstart="onDragStart(role.key, index, $event)"
+                  @dragover.prevent="onDragOver(role.key, index)"
+                  @drop.prevent="onDrop(role.key, index)"
+                  @dragend="resetDrag"
+                >
+                  <IconDrag
+                    class="size-4 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span
+                    class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere"
                   >
-                    <IconInfo class="size-4" aria-hidden="true" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {{ field.help }}
-                </TooltipContent>
-              </Tooltip>
-            </FieldLabel>
-            <FieldContent>
-              <Input
-                :id="templateInputId(field)"
-                :model-value="templateValue(templateInputId(field))"
-                :placeholder="field.builtin"
-                @focus="recordFocus(templateInputId(field))"
-                @update:model-value="
-                  (v) => setTemplate(templateInputId(field), String(v))
-                "
-              />
-            </FieldContent>
-          </Field>
-          <div v-if="templateTokens.length" class="flex flex-wrap gap-1.5 sm:pl-43">
-            <Button
-              v-for="token in templateTokens"
-              :key="token.key"
-              variant="outline"
-              size="sm"
-              type="button"
-              class="font-mono text-[0.8125rem]"
-              :title="token.description"
-              @mousedown.prevent
-              @click="insertToken(token.key)"
-            >
-              {{ token.key }}
-            </Button>
+                    {{ field }}
+                  </span>
+                </li>
+              </ul>
+            </div>
           </div>
-        </FieldGroup>
-      </FieldSet>
+        </AccordionContent>
+      </AccordionItem>
 
-      <FieldSet>
-        <FieldLegend>
-          Title
-        </FieldLegend>
-        <FieldGroup>
-          <FieldGroup data-slot="checkbox-group">
-            <FieldLabel
-              v-for="rule in cleanupRules"
-              :key="rule.key"
-              class="cursor-pointer"
-            >
-              <Checkbox
-                :checked="ruleEnabled(GLOBAL_NAMING_KEY, rule)"
-                @update:checked="
-                  (v: boolean) => setRule(GLOBAL_NAMING_KEY, rule, Boolean(v))
-                "
-              />
-              <span>{{ rule.label }}</span>
-            </FieldLabel>
+      <AccordionItem value="templates">
+        <AccordionTrigger :icon="SETTINGS_SECTION_ICONS.templates">Templates</AccordionTrigger>
+        <AccordionContent>
+          <FieldGroup>
+            <Field v-for="field in TEMPLATE_FIELDS" :key="field.key">
+              <FieldLabel :for="templateInputId(field)" class="items-center gap-1.5">
+                <span>{{ field.label }}</span>
+                <Tooltip v-if="field.help">
+                  <TooltipTrigger as-child>
+                    <button
+                      type="button"
+                      class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      :aria-label="`${field.label} help`"
+                    >
+                      <IconInfo class="size-4" aria-hidden="true" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {{ field.help }}
+                  </TooltipContent>
+                </Tooltip>
+              </FieldLabel>
+              <FieldContent>
+                <Input
+                  :id="templateInputId(field)"
+                  :model-value="templateValue(templateInputId(field))"
+                  :placeholder="field.builtin"
+                  @focus="recordFocus(templateInputId(field))"
+                  @update:model-value="
+                    (v) => setTemplate(templateInputId(field), String(v))
+                  "
+                />
+              </FieldContent>
+            </Field>
+            <div v-if="templateTokens.length" class="flex flex-wrap gap-1.5 sm:pl-43">
+              <Button
+                v-for="token in templateTokens"
+                :key="token.key"
+                variant="outline"
+                size="sm"
+                type="button"
+                class="font-mono text-[0.8125rem]"
+                :title="token.description"
+                @mousedown.prevent
+                @click="insertToken(token.key)"
+              >
+                {{ token.key }}
+              </Button>
+            </div>
           </FieldGroup>
-          <Field
-            v-if="ruleEnabled(GLOBAL_NAMING_KEY, titleLengthRule)"
-          >
-            <FieldLabel for="defaultTitleMaxChars">Maximum length</FieldLabel>
-            <FieldContent class="flex-row items-center gap-2">
-              <Input
-                id="defaultTitleMaxChars"
-                type="number"
-                min="12"
-                :model-value="String(maxChars(GLOBAL_NAMING_KEY))"
-                class="w-24 shrink-0"
-                @update:model-value="
-                  (v: string | number) =>
-                    setMaxChars(GLOBAL_NAMING_KEY, Number(v))
-                "
-              />
-              <span class="text-white/55 in-[.light-mode]:text-black/55">
-                characters
-              </span>
-            </FieldContent>
-          </Field>
-        </FieldGroup>
-      </FieldSet>
+        </AccordionContent>
+      </AccordionItem>
 
-      <FieldSet>
-        <FieldLegend>
-          Filename
-        </FieldLegend>
-        <FieldGroup>
-          <SegmentedControl
-            v-for="choice in namingChoices"
-            :key="choice.key"
-            class="max-w-full overflow-x-auto"
-            :label="choice.label"
-            label-placement="start"
-            :model-value="choiceValue(GLOBAL_NAMING_KEY, choice)"
-            @update:model-value="(v: string | string[]) => onChoice(choice, v)"
-          >
-            <SegmentedControlItem
-              v-for="option in choice.options"
-              :key="option.value"
-              :value="option.value"
-            >
-              {{ option.label }}
-            </SegmentedControlItem>
-          </SegmentedControl>
-          <Field>
-            <FieldLabel for="defaultStemMaxChars">Maximum length</FieldLabel>
-            <FieldContent class="flex-row items-center gap-2">
-              <Input
-                id="defaultStemMaxChars"
-                type="number"
-                min="0"
-                placeholder="Off"
-                :model-value="
-                  stemMaxChars(GLOBAL_NAMING_KEY)
-                    ? String(stemMaxChars(GLOBAL_NAMING_KEY))
-                    : ''
-                "
-                class="w-24 shrink-0"
-                @update:model-value="
-                  (v: string | number) =>
-                    setStemMaxChars(GLOBAL_NAMING_KEY, Number(v || 0))
-                "
-              />
-              <span class="text-white/55 in-[.light-mode]:text-black/55">
-                characters
-              </span>
-            </FieldContent>
-          </Field>
-        </FieldGroup>
-      </FieldSet>
-    </div>
+      <AccordionItem value="naming">
+        <AccordionTrigger :icon="SETTINGS_SECTION_ICONS.naming">Naming</AccordionTrigger>
+        <AccordionContent>
+          <div class="flex flex-col gap-6">
+            <FieldSet>
+              <FieldLegend variant="divider">
+                Title
+              </FieldLegend>
+              <FieldGroup>
+                <FieldGroup data-slot="checkbox-group">
+                  <FieldLabel
+                    v-for="rule in cleanupRules"
+                    :key="rule.key"
+                    class="cursor-pointer"
+                  >
+                    <Checkbox
+                      :checked="ruleEnabled(GLOBAL_NAMING_KEY, rule)"
+                      @update:checked="
+                        (v: boolean) => setRule(GLOBAL_NAMING_KEY, rule, Boolean(v))
+                      "
+                    />
+                    <span>{{ rule.label }}</span>
+                  </FieldLabel>
+                </FieldGroup>
+                <Field
+                  v-if="ruleEnabled(GLOBAL_NAMING_KEY, titleLengthRule)"
+                >
+                  <FieldLabel for="defaultTitleMaxChars">Maximum length</FieldLabel>
+                  <FieldContent class="flex-row items-center gap-2">
+                    <Input
+                      id="defaultTitleMaxChars"
+                      type="number"
+                      min="12"
+                      :model-value="String(maxChars(GLOBAL_NAMING_KEY))"
+                      class="w-24 shrink-0"
+                      @update:model-value="
+                        (v: string | number) =>
+                          setMaxChars(GLOBAL_NAMING_KEY, Number(v))
+                      "
+                    />
+                    <span class="text-white/55 in-[.light-mode]:text-black/55">
+                      characters
+                    </span>
+                  </FieldContent>
+                </Field>
+              </FieldGroup>
+            </FieldSet>
+
+            <FieldSet>
+              <FieldLegend variant="divider">
+                Filename
+              </FieldLegend>
+              <FieldGroup>
+                <SegmentedControl
+                  v-for="choice in namingChoices"
+                  :key="choice.key"
+                  class="max-w-full overflow-x-auto"
+                  :label="choice.label"
+                  label-placement="start"
+                  :model-value="choiceValue(GLOBAL_NAMING_KEY, choice)"
+                  @update:model-value="(v: string | string[]) => onChoice(choice, v)"
+                >
+                  <SegmentedControlItem
+                    v-for="option in choice.options"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </SegmentedControlItem>
+                </SegmentedControl>
+                <Field>
+                  <FieldLabel for="defaultStemMaxChars">Maximum length</FieldLabel>
+                  <FieldContent class="flex-row items-center gap-2">
+                    <Input
+                      id="defaultStemMaxChars"
+                      type="number"
+                      min="0"
+                      placeholder="Off"
+                      :model-value="
+                        stemMaxChars(GLOBAL_NAMING_KEY)
+                          ? String(stemMaxChars(GLOBAL_NAMING_KEY))
+                          : ''
+                      "
+                      class="w-24 shrink-0"
+                      @update:model-value="
+                        (v: string | number) =>
+                          setStemMaxChars(GLOBAL_NAMING_KEY, Number(v || 0))
+                      "
+                    />
+                    <span class="text-white/55 in-[.light-mode]:text-black/55">
+                      characters
+                    </span>
+                  </FieldContent>
+                </Field>
+              </FieldGroup>
+            </FieldSet>
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   </TooltipProvider>
 </template>

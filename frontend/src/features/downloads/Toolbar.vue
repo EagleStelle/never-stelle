@@ -7,16 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import { DialogShell as Dialog } from "@/components/ui/dialog";
 import {
-  FieldGroup,
-  FieldLegend,
-  FieldSeparator,
-  FieldSet,
-} from "@/components/ui/field";
-import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control";
-import PostProcessingFields from "@/features/downloads/PostProcessingFields.vue";
+import DownloadFields from "@/features/downloads/DownloadFields.vue";
 import UrlForm from "@/features/downloads/UrlForm.vue";
 import {
   MEDIA_MODE_ITEMS,
@@ -136,32 +130,15 @@ function setPostProcessing(next: PostProcessingSelection): void {
       title="Advanced Settings"
       content-class="fixed left-1/2 top-1/2 z-70 flex max-h-[85dvh] w-[min(740px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
     >
-      <div class="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 flex flex-col gap-6">
-        <template v-for="group in qualityGroups" :key="group.legend">
-          <FieldSet>
-            <FieldLegend>{{ group.legend }}</FieldLegend>
-            <FieldGroup>
-              <Combobox
-                v-for="field in group.fields"
-                :key="field.key"
-                :model-value="selection[field.key]"
-                :items="field.items"
-                @update:model-value="(val) => setField(field.key, val)"
-                :label="field.label"
-                label-placement="start"
-                :placeholder="field.placeholder"
-                :empty-text="field.emptyText"
-              />
-            </FieldGroup>
-          </FieldSet>
-
-          <FieldSeparator />
-        </template>
-
-        <PostProcessingFields
-          :model-value="postProcessing"
+      <div class="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
+        <DownloadFields
+          :selection="selection"
+          :options="qualityOptions"
+          :post-processing="postProcessing"
           :capabilities="embedCapabilities"
-          @update:model-value="setPostProcessing"
+          @update:mode="setMode"
+          @update:field="setField"
+          @update:post-processing="setPostProcessing"
         />
       </div>
     </Dialog>

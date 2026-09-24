@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { AccordionTriggerProps } from "reka-ui";
-import type { HTMLAttributes } from "vue";
+import type { Component, HTMLAttributes } from "vue";
 import { ChevronDown } from "@lucide/vue";
 import { reactiveOmit } from "@vueuse/core";
 import { AccordionHeader, AccordionTrigger } from "reka-ui";
@@ -9,10 +9,15 @@ import { IconImage } from "@/components/ui/icon-image";
 import { cn } from "@/lib/utils";
 
 const props = defineProps<
-  AccordionTriggerProps & { class?: HTMLAttributes["class"]; image?: string }
+  AccordionTriggerProps & {
+    class?: HTMLAttributes["class"];
+    image?: string;
+    /** A glyph in the image slot, drawn like the settings sidebar icons. */
+    icon?: Component;
+  }
 >();
 
-const delegatedProps = reactiveOmit(props, "class", "image");
+const delegatedProps = reactiveOmit(props, "class", "image", "icon");
 </script>
 
 <template>
@@ -35,6 +40,12 @@ const delegatedProps = reactiveOmit(props, "class", "image");
           <IconSource class="size-5 text-muted-foreground" aria-hidden="true" />
         </IconImage>
       </span>
+      <component
+        :is="props.icon"
+        v-else-if="props.icon"
+        class="size-5 shrink-0 opacity-80"
+        aria-hidden="true"
+      />
       <span class="min-w-0 flex-1 wrap-anywhere">
         <slot />
       </span>
