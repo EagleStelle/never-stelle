@@ -39,7 +39,7 @@ from .naming import (
     strip_numbered_suffix,
     template_literal_pattern,
 )
-from .rename import apply_history_renames, plan_history_renames, recover_interrupted_renames
+from .rename import plan_history_renames, recover_interrupted_renames
 from .store import (
     load_history,
     load_learned_formats,
@@ -865,11 +865,8 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
 def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> dict[str, int]:
     recover_interrupted_renames()
     records = _completed_records()
-    # Before the walk, so the rest of the scan sees the final paths.
-    plans, needs_resolve = plan_history_renames(records, pacer)
-    rename_counts, renamed_rows = apply_history_renames(plans)
-    records.update(renamed_rows)
-    # After the renames: the write above would restore the flag it was loaded with.
+    # Files are only renamed when asked for; this flags the rows the templates cannot name.
+    _plans, needs_resolve = plan_history_renames(records, pacer)
     sync_history_resolve_flags(needs_resolve)
     walked_media: list[tuple[Path, Path, os.stat_result | None, str]] = []
     seen_paths: set[str] = set()
@@ -1043,7 +1040,5 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
         "missing": missing,
         "added": added,
         "unchanged": unchanged,
-        "renamed": rename_counts["renamed"],
-        "rename_failed": rename_counts["failed"],
         "needs_resolve": len(needs_resolve),
     }

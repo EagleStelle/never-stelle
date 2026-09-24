@@ -7,6 +7,8 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from backend.app.domains.settings.templates import TEMPLATE_KEYS
+
 from .constants import (
     CREATOR_FIELDS,
     SAFE_FILENAME_MAX_BYTES,
@@ -629,6 +631,15 @@ def template_tokens(template: str) -> list[str]:
     return [match.group(1).strip().lower() for match in TEMPLATE_RE.finditer(_template_stem(template))]
 
 
+def settings_tokens(template_settings: dict[str, str]) -> list[str]:
+    """The token names the folder, subfolder and filename templates reference, in order."""
+    return list(
+        dict.fromkeys(
+            token for key in TEMPLATE_KEYS for token in template_tokens(str(template_settings.get(key) or ""))
+        )
+    )
+
+
 def stored_filename_template(payload: dict[str, Any]) -> str:
     return str(payload.get("filename_template") or "")
 
@@ -650,14 +661,14 @@ def row_template_fields(payload: dict[str, Any], stored_template: str, old_name:
     return fields
 
 
-def unsatisfied_tokens(filename_template: str, fields: dict[str, str]) -> list[str]:
-    """Tokens the template needs that nothing can supply.
+def unsatisfied_tokens(template_settings: dict[str, str], fields: dict[str, str]) -> list[str]:
+    """Tokens the templates need that nothing can supply.
 
     Rendering anyway would drop the token, or fill a creator token from the other one,
     producing a plausible name built from incomplete data and stamping it as current.
     """
     missing: list[str] = []
-    for token in template_tokens(filename_template):
+    for token in settings_tokens(template_settings):
         if str(fields.get(token) or "").strip():
             continue
         # Quality always answers: no selection and nothing recorded still names itself source.

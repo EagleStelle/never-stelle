@@ -205,15 +205,19 @@ def _with_assigned_scraper_fields(
 def get_effective_fields(source_url: str = "") -> dict[str, list[str]]:
     # Resolved per output item during a download and per file during a scan; the
     # answer only depends on the URL and the saved settings, so cache it per scope.
-    return resolved(f"settings.fields:{source_url}", lambda: _effective_fields(source_url))
-
-
-def _effective_fields(source_url: str = "") -> dict[str, list[str]]:
-    payload = load_saved_settings_file()
     if not source_url:
         return {}
-    profile = get_source_profile_for_url(source_url, payload=payload)
-    key = normalize_source_key(profile.get("key"))
+    return resolved(
+        f"settings.fields:{source_url}",
+        lambda: get_effective_source_fields(
+            get_source_profile_for_url(source_url, payload=load_saved_settings_file()).get("key")
+        ),
+    )
+
+
+def get_effective_source_fields(source_key: Any) -> dict[str, list[str]]:
+    payload = load_saved_settings_file()
+    key = normalize_source_key(source_key)
     configured_defaults = normalize_default_fields(payload.get("default_fields"))
     mapping = saved_fields(payload, configured_defaults)
     saved = mapping.get(key) or {}

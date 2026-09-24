@@ -1591,7 +1591,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     }
   }
 
-  async function saveSettingsDraft(): Promise<void> {
+  // True when settings or formats were written, as either can rename old files.
+  async function saveSettingsDraft(): Promise<boolean> {
     const shouldSaveAccount = hasAccountUnsavedChanges.value;
     const shouldSaveSettings = hasSettingsUnsavedChanges.value;
     const shouldSaveFormats = hasFormatUnsavedChanges.value;
@@ -1602,7 +1603,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       !shouldSaveFormats &&
       !shouldSaveCookies
     ) {
-      return;
+      return false;
     }
 
     if (shouldSaveAccount) {
@@ -1641,6 +1642,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     }
 
     toast("Settings saved.");
+    return shouldSaveSettings || shouldSaveFormats;
   }
 
   function queueCookieUpload(key: string, file: File): void {

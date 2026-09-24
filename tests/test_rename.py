@@ -25,7 +25,9 @@ def _pin_template(monkeypatch: pytest.MonkeyPatch, filename_template: str | dict
 
     monkeypatch.setattr(rename_module, "get_effective_template_settings", settings)
     monkeypatch.setattr(
-        rename_module, "possible_filename_templates", lambda source_key: set(per_source.values()) or {fallback}
+        rename_module,
+        "possible_template_settings",
+        lambda source_key: {url: settings(url) for url in per_source} or {"": settings()},
     )
 
 
@@ -59,6 +61,13 @@ def _rename_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, template: str =
     return media_root, rows, journal
 
 
+def _rename(rows: dict[str, dict]) -> dict[str, int]:
+    """Plan and apply renames for ``rows``, as the rename pass runs them."""
+    plans, needs_resolve = rename_module.plan_history_renames(dict(rows))
+    counts, _applied = rename_module.apply_history_renames(plans)
+    return {**counts, "needs_resolve": len(needs_resolve)}
+
+
 def _row(path: Path, **overrides) -> dict:
     row = {
         "engine": "gallerydl",
@@ -85,7 +94,7 @@ def test_template_change_renames_the_file_and_the_row(tmp_path: Path, monkeypatc
     old_file.write_bytes(b"video")
     rows["gallerydl:1"] = _row(old_file)
 
-    result = scan_module.scan_media_library([media_root])
+    result = _rename(rows)
 
     new_file = media_root / "Clip (Creator) [abc123].mp4"
     assert new_file.exists()
@@ -111,7 +120,7 @@ def test_a_quality_token_renders_what_the_row_has_or_calls_it_source(
     # A history row carries no quality selection, only what its download recorded.
     rows["gallerydl:1"] = _row(old_file, resolved_tokens=recorded)
 
-    result = scan_module.scan_media_library([media_root])
+    result = _rename(rows)
 
     # Reading the absent selection as a selection stamped every row "source"; treating
     # the token as unanswerable left rows flagged for something no probe can supply.
@@ -125,12 +134,25 @@ def test_unchanged_template_renames_nothing(tmp_path: Path, monkeypatch: pytest.
     old_file.write_bytes(b"video")
     rows["gallerydl:1"] = _row(old_file)
 
-    result = scan_module.scan_media_library([media_root])
+    result = _rename(rows)
 
     assert result["renamed"] == 0
     assert result["needs_resolve"] == 0
     assert old_file.exists()
     assert rows["gallerydl:1"]["resolved_full_path"] == str(old_file)
+
+
+def test_a_scan_flags_rows_but_never_renames(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Renames only run when asked for, so a refresh leaves files on their old names.
+    media_root, rows, _journal = _rename_env(tmp_path, monkeypatch)
+    old_file = media_root / "Creator - Clip [abc123].mp4"
+    old_file.write_bytes(b"video")
+    rows["gallerydl:1"] = _row(old_file)
+
+    scan_module.scan_media_library([media_root])
+
+    assert old_file.exists()
+    assert rows["gallerydl:1"]["filename_template"] == OLD_TEMPLATE
 
 
 def test_rename_preserves_the_resolution_signature(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -154,10 +176,10 @@ def test_rename_preserves_the_resolution_signature(tmp_path: Path, monkeypatch: 
         file_size=stat_result.st_size,
     )
 
+    assert _rename(rows)["renamed"] == 1
     result = scan_module.scan_media_library([media_root])
     row = rows["disk:abc123"]
 
-    assert result["renamed"] == 1
     # Carried across the rename, so the walk still recognises the file at its new name.
     assert row["scan_mtime_ns"] == stat_result.st_mtime_ns
     assert row["scan_revision"] == "rev-1"
@@ -176,7 +198,7 @@ def test_rename_avoids_collisions_with_a_numbered_suffix(tmp_path: Path, monkeyp
     rows["gallerydl:2"] = _row(second, media_id="def456", source_url="https://example.com/p/def456")
     _pin_template(monkeypatch, "{{title}} - {{username}}")
 
-    result = scan_module.scan_media_library([media_root])
+    result = _rename(rows)
 
     assert result["renamed"] == 2
     landed = sorted(path.name for path in media_root.iterdir())
@@ -203,7 +225,7 @@ def test_rename_takes_the_name_another_row_vacates(tmp_path: Path, monkeypatch: 
         {"https://example.com/p/a": "{{title}}", "https://example.com/p/b": "{{title}} [{{id}}]"},
     )
 
-    scan_module.scan_media_library([media_root])
+    _rename(rows)
 
     assert sorted(path.name for path in media_root.iterdir()) == ["Clip [def456].mp4", "Clip.mp4"]
     assert (media_root / "Clip.mp4").read_bytes() == b"mover"
@@ -222,7 +244,7 @@ def test_swapped_names_land_without_a_numbered_suffix(tmp_path: Path, monkeypatc
     rows["gallerydl:2"] = _row(second, title="Two", media_id="def456")
     _pin_template(monkeypatch, "{{title}}")
 
-    scan_module.scan_media_library([media_root])
+    _rename(rows)
 
     assert sorted(path.name for path in media_root.iterdir()) == ["One.mp4", "Two.mp4"]
     assert (media_root / "One.mp4").read_bytes() == b"first"
@@ -237,10 +259,12 @@ def test_multiple_possible_templates_still_resolve_per_row(tmp_path: Path, monke
     old_file.write_bytes(b"video")
     rows["gallerydl:1"] = _row(old_file)
     monkeypatch.setattr(
-        rename_module, "possible_filename_templates", lambda source_key: {OLD_TEMPLATE, NEW_TEMPLATE}
+        rename_module,
+        "possible_template_settings",
+        lambda source_key: {"old": {"filename_template": OLD_TEMPLATE}, "new": {"filename_template": NEW_TEMPLATE}},
     )
 
-    result = scan_module.scan_media_library([media_root])
+    result = _rename(rows)
 
     assert result["renamed"] == 1
     assert (media_root / "Clip (Creator) [abc123].mp4").exists()
@@ -259,7 +283,7 @@ def test_rename_keeps_the_numbered_suffix(tmp_path: Path, monkeypatch: pytest.Mo
     rows["gallerydl:2"] = _row(second)
     rows["gallerydl:3"] = _row(third)
 
-    result = scan_module.scan_media_library([media_root])
+    result = _rename(rows)
 
     assert result["renamed"] == 3
     assert sorted(path.name for path in media_root.iterdir()) == [
@@ -280,7 +304,7 @@ def test_missing_token_defers_to_resolve_instead_of_renaming(
     rows["gallerydl:1"] = _row(old_file)
     _pin_template(monkeypatch, "{{uploader}} - {{title}} [{{id}}]")
 
-    result = scan_module.scan_media_library([media_root])
+    result = _rename(rows)
 
     assert result["renamed"] == 0
     assert result["needs_resolve"] == 1
@@ -299,7 +323,7 @@ def test_nickname_falls_back_to_username_without_deferring(
     rows["gallerydl:1"] = _row(old_file)
     _pin_template(monkeypatch, "{{nickname}} - {{title}} [{{id}}]")
 
-    result = scan_module.scan_media_library([media_root])
+    result = _rename(rows)
 
     assert result["needs_resolve"] == 0
     assert (media_root / "Creator - Clip [abc123].mp4").exists()
@@ -318,14 +342,56 @@ def test_failed_rename_leaves_the_row_on_its_old_path(tmp_path: Path, monkeypatc
 
     monkeypatch.setattr(rename_module, "_swap_on_disk", blocked)
 
-    result = scan_module.scan_media_library([media_root])
+    result = _rename(rows)
 
-    assert result["rename_failed"] == 1
+    assert result["failed"] == 1
     assert result["renamed"] == 0
     assert old_file.exists()
     assert rows["gallerydl:1"]["resolved_full_path"] == str(old_file)
     # Nothing may be left behind in the journal for a rename that never happened.
     assert journal == {}
+
+
+def test_a_video_carries_its_sidecars_and_chapter_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media_root, rows, _journal = _rename_env(tmp_path, monkeypatch)
+    old_file = media_root / "Creator - Clip [abc123].mp4"
+    old_file.write_bytes(b"video")
+    for name in ("Creator - Clip [abc123].mp4.json", "Creator - Clip [abc123].en.srt", "Creator - Clip [abc123].jpg"):
+        (media_root / name).write_bytes(b"sidecar")
+    (media_root / "Creator - Clip [abc123]").mkdir()
+    (media_root / "Creator - Clip [abc123]" / "01 - Intro.mp4").write_bytes(b"chapter")
+    # Another file of the same post is media of its own, not a sidecar.
+    (media_root / "Creator - Clip [abc123]_1.mp4").write_bytes(b"sibling")
+    rows["gallerydl:1"] = _row(old_file)
+
+    assert _rename(rows)["renamed"] == 1
+
+    assert sorted(path.name for path in media_root.iterdir()) == [
+        "Clip (Creator) [abc123]",
+        "Clip (Creator) [abc123].en.srt",
+        "Clip (Creator) [abc123].jpg",
+        "Clip (Creator) [abc123].mp4",
+        "Clip (Creator) [abc123].mp4.json",
+        "Creator - Clip [abc123]_1.mp4",
+    ]
+    assert (media_root / "Clip (Creator) [abc123]" / "01 - Intro.mp4").is_file()
+
+
+def test_an_image_moving_folder_takes_its_tags_along(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media_root, rows, _journal = _rename_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(rename_module, "get_effective_source_location", lambda source_url: str(media_root))
+    old_file = media_root / "Loose" / "Creator - Clip [abc123].jpg"
+    old_file.parent.mkdir()
+    old_file.write_bytes(b"image")
+    Path(f"{old_file}.json").write_bytes(b"tags")
+    rows["gallerydl:1"] = _row(old_file)
+
+    assert _rename(rows)["renamed"] == 1
+
+    moved = media_root / "Creator" / "Clip (Creator) [abc123].jpg"
+    assert moved.is_file()
+    assert Path(f"{moved}.json").read_bytes() == b"tags"
+    assert not old_file.parent.exists()
 
 
 def test_interrupted_rename_is_settled_against_whichever_path_exists(
@@ -368,10 +434,9 @@ def test_case_only_rename_lands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     old_file = media_root / "Creator - clip [abc123].mp4"
     old_file.write_bytes(b"video")
     rows["gallerydl:1"] = _row(old_file, title="clip")
-    _pin_template(monkeypatch, "{{username}} - {{title}} [{{id}}] ")
     monkeypatch.setattr(rename_module, "render_template_filename", lambda *a, **k: "Creator - Clip [abc123].mp4")
 
-    scan_module.scan_media_library([media_root])
+    _rename(rows)
 
     landed = [path.name for path in media_root.iterdir()]
     assert landed == ["Creator - Clip [abc123].mp4"]

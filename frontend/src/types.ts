@@ -492,8 +492,6 @@ export interface ScanMediaResponse {
   missing: number;
   added: number;
   unchanged: number;
-  renamed: number;
-  rename_failed: number;
   needs_resolve: number;
 }
 
@@ -508,6 +506,12 @@ export interface ResolveResponse {
   queued: number;
   pass_id: number;
 }
+
+// What a saved naming change touched: the templates, or the field order they read from.
+export type NamingKind = "templates" | "fields";
+
+// Per source, how many files its unresolved changes affect; template changes per format.
+export type RenameCounts = Record<string, { templates: Record<string, number>; fields: number }>;
 
 export interface ResolvePassReport {
   queued: number;

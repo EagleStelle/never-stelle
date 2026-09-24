@@ -1,5 +1,6 @@
 ﻿<script setup lang="ts">
 import { computed, ref, nextTick } from "vue";
+import IconResolve from "~icons/material-symbols/cloud-sync";
 import {
   Accordion,
   AccordionContent,
@@ -34,8 +35,14 @@ import {
   normalizeTokenName,
 } from "@/utils/dashboard";
 
-const { settings, settingsDraft, learnedFormatsDraft, editableSourceProfiles } =
-  useSettingsContext();
+const {
+  settings,
+  settingsDraft,
+  learnedFormatsDraft,
+  editableSourceProfiles,
+  renameCount,
+  openRename,
+} = useSettingsContext();
 
 function formatsFor(key: string): string[] {
   return (
@@ -193,19 +200,52 @@ function insert(siteKey: string, format: string, token: string): void {
         </AccordionTrigger>
 
         <AccordionContent>
-          <Card v-if="!formatsFor(site.key).length" class="px-6">
-            <p class="text-[0.8125rem] text-muted-foreground">
-              Download once from this source to learn its URL format, then customize
-              its templates.
-            </p>
-          </Card>
+          <div class="flex flex-col gap-[0.85rem]">
+            <!-- Links no learned format matches follow the default templates. -->
+            <Card
+              v-if="!formatsFor(site.key).length || renameCount(site.key, 'templates')"
+              class="px-6 flex-row items-center justify-between gap-3"
+            >
+              <p class="text-[0.8125rem] text-muted-foreground">
+                {{
+                  formatsFor(site.key).length
+                    ? "Links outside these formats use the default templates."
+                    : "Download once from this source to learn its URL format, then customize its templates."
+                }}
+              </p>
+              <Button
+                class="shrink-0"
+                variant="primary"
+                type="button"
+                :title="renameCount(site.key, 'templates') ? 'Resolve these files' : 'No template changes'"
+                aria-label="Resolve these files"
+                :disabled="!renameCount(site.key, 'templates')"
+                @click="openRename(site.key, site.label, 'templates')"
+              >
+                <template #icon>
+                  <IconResolve aria-hidden="true" />
+                </template>
+              </Button>
+            </Card>
 
-          <div v-else class="flex flex-col gap-[0.85rem]">
             <Card v-for="template in formatsFor(site.key)" :key="template">
-              <CardHeader>
+              <CardHeader class="flex flex-row items-center justify-between gap-2">
                 <CardTitle class="font-mono text-sm leading-snug">
                   {{ displayUrlTemplate(template) }}
                 </CardTitle>
+                <Button
+                  class="shrink-0"
+                  variant="primary"
+                  type="button"
+                  :title="renameCount(site.key, 'templates', template) ? 'Resolve this format' : 'No template changes'"
+                  aria-label="Resolve this format"
+                  :disabled="!renameCount(site.key, 'templates', template)"
+                  @click="openRename(site.key, site.label, 'templates', template)"
+                >
+                  <template #icon>
+                    <IconResolve aria-hidden="true" />
+                  </template>
+                </Button>
               </CardHeader>
               <CardContent class="flex flex-col gap-3">
                 <Field v-for="field in TEMPLATE_FIELDS" :key="field.key">

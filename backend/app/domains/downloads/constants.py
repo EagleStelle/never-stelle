@@ -134,6 +134,8 @@ def enrichment_job_id(kind: str, task_id: str) -> str:
 # How wide a resolve pass reaches. 'flagged' is the rows the templates cannot name;
 # 'all' is the deliberate full re-probe.
 ResolveScope = Literal["flagged", "all"]
+# What a saved naming change touched: the templates, or the field order they read from.
+NamingKind = Literal["templates", "fields"]
 
 # Video mode caps resolution and prefers codecs the merge container can play.
 # Audio Auto stays native-only; explicit audio/video format choices add ffmpeg

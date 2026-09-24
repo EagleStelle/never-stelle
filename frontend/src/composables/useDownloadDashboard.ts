@@ -446,6 +446,10 @@ export function useDownloadDashboard() {
     settingsState.openSettings(event, section);
   }
 
+  async function saveSettingsDraft(): Promise<void> {
+    if (await settingsState.saveSettingsDraft()) await taskQueue.loadRenameCounts();
+  }
+
   // Scan reconciles the history table, then the paginated query reloads page one.
   async function refreshHistoryPage(): Promise<void> {
     await taskQueue.refreshHistory();
@@ -465,6 +469,9 @@ export function useDownloadDashboard() {
     () => syncRoute(),
     { flush: "post" },
   );
+  watch(settingsState.settingsOpen, (open) => {
+    if (open) void taskQueue.loadRenameCounts();
+  });
   watch(
     sourceProfiles,
     (profiles) => {
@@ -518,6 +525,7 @@ export function useDownloadDashboard() {
     sourceProfiles,
     setSettingsSection,
     openSettings,
+    saveSettingsDraft,
     ...taskQueue,
     ...sonner,
     historySearch,

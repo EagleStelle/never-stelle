@@ -33,6 +33,7 @@ from backend.app.db.repositories import (
     load_history_row_ids,
     load_learned_formats_payload,
     load_learned_redirects_payload,
+    load_naming_snapshots_payload,
     load_task_payload,
     load_task_store_payload,
     merge_learned_formats_payload,
@@ -47,12 +48,10 @@ from backend.app.db.repositories import (
     save_history_row,
     save_history_rows,
     save_learned_formats_payload,
+    save_naming_snapshots_payload,
     tracker_ids_for_download_rows,
     upsert_enrichment_job_payload,
     upsert_enrichment_jobs_payload,
-)
-from backend.app.db.repositories import (
-    clear_history_resolve_flags as clear_history_resolve_flag_rows,
 )
 from backend.app.db.repositories import (
     sync_history_resolve_flags as sync_history_resolve_flag_rows,
@@ -124,10 +123,6 @@ def active_counts_by_source_and_media() -> dict[str, dict[str, dict[str, int]]]:
 
 def sync_history_resolve_flags(task_ids: Any) -> None:
     sync_history_resolve_flag_rows(task_ids)
-
-
-def clear_history_resolve_flags(task_ids: Any) -> None:
-    clear_history_resolve_flag_rows(task_ids)
 
 
 def history_resolve_flagged_ids() -> list[str]:
@@ -217,6 +212,14 @@ def retry_enrichment_job(job_id: str, error: str, *, max_attempts: int = 3) -> b
 def fail_running_task_records(error: str) -> int:
     volatile.forget_all()
     return fail_running_tasks(error)
+
+
+def load_naming_snapshots() -> dict[str, Any]:
+    return load_naming_snapshots_payload()
+
+
+def save_naming_snapshots(payload: dict[str, Any]) -> None:
+    save_naming_snapshots_payload(payload)
 
 
 LEARNED_FORMATS_KEY = "downloads.learned_formats"

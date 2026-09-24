@@ -6,10 +6,12 @@ import {
   addTask as createTask,
   cancelTask as cancelTaskRequest,
   clearPendingTasks,
+  getRenameCounts,
   getResolveScope,
   getTasks,
   probeUrl,
   removeTask as removeTaskRequest,
+  renameHistory as renameHistoryRequest,
   resolveHistory as resolveHistoryRequest,
   retryTask as retryTaskRequest,
   scanMediaLibrary,
@@ -25,9 +27,11 @@ import {
   TASKS_QUERY_KEY,
 } from "@/ui";
 import type {
+  NamingKind,
   PlaylistEntry,
   QualitySelection,
   PostProcessingSelection,
+  RenameCounts,
   ResolvePassReport,
   ResolveScope,
   SavedSettings,
@@ -70,7 +74,7 @@ function reusedMessage(status?: TaskStatus): string {
 const plural = (count: number) => (count === 1 ? "" : "s");
 const pluralVerb = (count: number) => (count === 1 ? "s" : "");
 
-// "Added 2 files, renamed 1 and could not rename 3."
+// "Added 2 files and removed 3 missing files."
 function sentence(parts: string[]): string {
   const summary = parts.join(", ").replace(/, ([^,]*)$/, " and $1");
   return `${summary.charAt(0).toUpperCase()}${summary.slice(1)}.`;
@@ -82,6 +86,15 @@ function resolvedMessage(report: ResolvePassReport): string {
   if (report.skipped > 0) parts.push(`skipped ${report.skipped} item${plural(report.skipped)}`);
   if (report.failed > 0) parts.push(`could not resolve ${report.failed} item${plural(report.failed)}`);
   return parts.length === 0 ? "Nothing changed." : sentence(parts);
+}
+
+// One source's unresolved change, as the Resolve Platform dialog confirms it. A template
+// change is resolved per format, "" being links no format matches.
+interface RenameTarget {
+  key: string;
+  label: string;
+  kind: NamingKind;
+  format: string;
 }
 
 export function useTaskQueue({
@@ -103,6 +116,8 @@ export function useTaskQueue({
   const resolveFlagged = ref(0);
   const resolveTotal = ref(0);
   const pendingResolvePasses = ref<number[]>([]);
+  const renameCounts = ref<RenameCounts>({});
+  const renameTarget = ref<RenameTarget | null>(null);
 
   const tasksQuery = useQuery<TasksResponse>({
     queryKey: TASKS_QUERY_KEY,
@@ -116,6 +131,7 @@ export function useTaskQueue({
   const scanMediaMutation = useMutation({ mutationFn: scanMediaLibrary });
   const resolveScopeMutation = useMutation({ mutationFn: getResolveScope });
   const resolveMutation = useMutation({ mutationFn: resolveHistoryRequest });
+  const renameMutation = useMutation({ mutationFn: renameHistoryRequest });
   const setSourceMutation = useMutation({
     mutationFn: (payload: { taskId: string; sourceKey: string }) =>
       setTaskSourceRequest(payload.taskId, payload.sourceKey),
@@ -136,6 +152,7 @@ export function useTaskQueue({
     () =>
       resolveScopeMutation.isPending.value ||
       resolveMutation.isPending.value ||
+      renameMutation.isPending.value ||
       Number(tasksQuery.data.value?.resolving || 0) > 0,
   );
   const libraryBusy = computed<boolean>(() => historyRefreshing.value || historyResolving.value);
@@ -315,8 +332,6 @@ export function useTaskQueue({
       const parts: string[] = [];
       if (result.added > 0) parts.push(`added ${result.added} file${plural(result.added)}`);
       if (result.missing > 0) parts.push(`removed ${result.missing} missing file${plural(result.missing)}`);
-      if (result.renamed > 0) parts.push(`renamed ${result.renamed} file${plural(result.renamed)}`);
-      if (result.rename_failed > 0) parts.push(`could not rename ${result.rename_failed}`);
 
       const pending =
         result.needs_resolve > 0
@@ -370,6 +385,16 @@ export function useTaskQueue({
     pendingResolvePasses.value = waiting;
   }
 
+  async function trackResolvePass(passId: number): Promise<void> {
+    // The POST only queues, so the poll has to be started here or the spinner would
+    // not appear until whatever tick happened to come next.
+    await loadTasks(true);
+    // Joined only once a poll can see it: an older payload would read as a pass the
+    // server never heard of and be dropped unreported.
+    pendingResolvePasses.value = [...pendingResolvePasses.value, passId];
+    reportSettledResolves();
+  }
+
   async function startResolve(payload: { scope?: ResolveScope; task_ids?: string[] }): Promise<void> {
     try {
       const result = await resolveMutation.mutateAsync(payload);
@@ -377,15 +402,48 @@ export function useTaskQueue({
         toast("Nothing to resolve.");
         return;
       }
-      // The POST only queues, so the poll has to be started here or the spinner would
-      // not appear until whatever tick happened to come next.
-      await loadTasks(true);
-      // Joined only once a poll can see it: an older payload would read as a pass the
-      // server never heard of and be dropped unreported.
-      pendingResolvePasses.value = [...pendingResolvePasses.value, result.pass_id];
-      reportSettledResolves();
+      await trackResolvePass(result.pass_id);
     } catch (error) {
       toast(errorMessage(error, "Could not resolve history."), "error");
+    }
+  }
+
+  // Which platforms have unresolved template or field order changes, kept by the server.
+  async function loadRenameCounts(): Promise<void> {
+    try {
+      renameCounts.value = await getRenameCounts();
+    } catch (error) {
+      toast(errorMessage(error, "Could not read naming changes."), "error");
+    }
+  }
+
+  function renameCount(key: string, kind: NamingKind, format = ""): number {
+    const counts = renameCounts.value[key];
+    return (kind === "templates" ? counts?.templates[format] : counts?.fields) || 0;
+  }
+
+  function openRename(key: string, label: string, kind: NamingKind, format = ""): void {
+    renameTarget.value = { key, label, kind, format };
+  }
+
+  async function confirmRename(): Promise<void> {
+    const target = renameTarget.value;
+    if (!target) return;
+    renameTarget.value = null;
+    try {
+      const result = await renameMutation.mutateAsync({
+        source_key: target.key,
+        kind: target.kind,
+        format_template: target.format,
+      });
+      await loadRenameCounts();
+      if (result.queued === 0) {
+        toast("Nothing to resolve.");
+        return;
+      }
+      await trackResolvePass(result.pass_id);
+    } catch (error) {
+      toast(errorMessage(error, "Could not resolve files."), "error");
     }
   }
 
@@ -437,8 +495,13 @@ export function useTaskQueue({
     playlistEntries,
     playlistOpen,
     playlistTitle,
+    confirmRename,
+    loadRenameCounts,
+    openRename,
     refreshHistory,
     removeTask,
+    renameCount,
+    renameTarget,
     resolveFlagged,
     resolveOpen,
     resolveTask,

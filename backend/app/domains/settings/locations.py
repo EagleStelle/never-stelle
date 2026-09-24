@@ -8,6 +8,8 @@ from backend.app.core.config import source_root
 from backend.app.core.sources import normalize_source_key
 
 from .profiles import get_effective_source_profiles, settings_managed_profiles
+from .storage import load_saved_settings_file
+from .templates import link_format
 
 
 def _learned_templates(source_key: str) -> list[str]:
@@ -73,6 +75,12 @@ def resolve_source_location(locations: Any, source_key: str, format_template: st
     subpath = normalize_subpath(select_for_format(per_source, format_template))
     root = source_root(key)
     return str(root / subpath if subpath else root)
+
+
+def get_effective_source_location(source_url: str) -> str:
+    """The absolute download folder a link resolves to under the saved locations."""
+    key, matched = link_format(source_url)
+    return resolve_source_location(load_saved_settings_file().get("source_locations"), key, matched)
 
 
 def iter_resolved_source_locations(locations: Any) -> Iterable[tuple[str, str, str]]:

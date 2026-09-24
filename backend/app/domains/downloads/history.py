@@ -17,6 +17,7 @@ from .store import (
     load_task_store,
     save_history_entry_row,
 )
+from .templates import template_row_fields
 from .urls import detect_source_key
 
 
@@ -49,8 +50,7 @@ def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
             "resolved_filename": str(task.get("resolved_filename") or ""),
             "resolved_full_path": str(task.get("resolved_full_path") or ""),
             "title": str(task.get("title") or ""),
-            "folder_template": str(task.get("folder_template") or ""),
-            "filename_template": str(task.get("filename_template") or ""),
+            **template_row_fields(task),
             "file_size": _stored_file_size(task),
             "quality": normalize_quality_selection(task.get("quality")),
             "created_at": now,

@@ -23,6 +23,8 @@ const {
   probeFields,
   removeCookies,
   reorderCookies,
+  openRename,
+  renameCount,
   reorderFormatTemplates,
   saveSettingsDraft,
   settings,
@@ -71,6 +73,8 @@ provideSettingsContext({
   reorderCookies,
   saveSettingsDraft,
   copySettingsToDraft,
+  renameCount,
+  openRename,
   close: () => {
     openModel.value = false;
   },

@@ -765,14 +765,6 @@ def sync_history_resolve_flags(task_ids: Any) -> None:
         _write_resolve_flags(connection, flagged - wanted, False)
 
 
-def clear_history_resolve_flags(task_ids: Any) -> None:
-    rows = {str(task_id) for task_id in task_ids}
-    if not rows:
-        return
-    with transaction() as connection:
-        _write_resolve_flags(connection, rows, False)
-
-
 def load_history_resolve_flagged_ids() -> list[str]:
     with transaction() as connection:
         rows = connection.execute(

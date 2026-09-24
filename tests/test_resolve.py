@@ -9,6 +9,7 @@ import backend.app.domains.downloads.resolve as resolve_module
 import backend.app.domains.downloads.scan as scan_module
 import backend.app.domains.downloads.workers.enrichment as enrichment_module
 from backend.app.db.repositories import load_enrichment_jobs_payload as load_enrichment_jobs
+from backend.app.db.repositories import load_naming_snapshots_payload
 from backend.app.domains.downloads.constants import RESOLVE_JOB_KIND
 from backend.app.domains.downloads.serializers import history_to_api, library_activity
 from backend.app.domains.downloads.store import (
@@ -34,14 +35,15 @@ STORED_TEMPLATE = "{{title}} [{{id}}]"
 CURRENT_TEMPLATE = "{{username}} - {{title}} [{{id}}]"
 
 
-def _pin_template(monkeypatch: pytest.MonkeyPatch, filename_template: str = CURRENT_TEMPLATE) -> None:
+def _pin_template(monkeypatch: pytest.MonkeyPatch, filename_template: str = CURRENT_TEMPLATE, **templates: str) -> None:
     def settings(source_url: str = "") -> dict[str, str]:
-        return {"folder_template": "{{username}}", "filename_template": filename_template}
+        return {"folder_template": "{{username}}", "filename_template": filename_template, **templates}
 
     # The planner and the token check read the settings from their own modules.
     monkeypatch.setattr(rename_module, "get_effective_template_settings", settings)
     monkeypatch.setattr(resolve_module, "get_effective_template_settings", settings)
-    monkeypatch.setattr(rename_module, "possible_filename_templates", lambda source_key: {filename_template})
+    monkeypatch.setattr(rename_module, "possible_template_settings", lambda source_key: {"": settings()})
+    monkeypatch.setattr(resolve_module, "possible_template_settings", lambda source_key: {"": settings()})
     monkeypatch.setattr(rename_module, "get_effective_title_cleaning", lambda source_url="": {})
 
 
@@ -64,10 +66,11 @@ def _row(path: Path, **overrides) -> dict:
     return row
 
 
-def _seed(tmp_path: Path, task_id: str = "gallerydl:1", **overrides) -> tuple[Path, dict]:
-    media_root = tmp_path / "media"
-    media_root.mkdir(exist_ok=True)
-    path = media_root / "Clip [abc123].mp4"
+def _seed(
+    tmp_path: Path, task_id: str = "gallerydl:1", name: str = "Clip [abc123].mp4", **overrides
+) -> tuple[Path, dict]:
+    path = tmp_path / "media" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"video")
     row = _row(path, **overrides)
     save_history_entry_row(task_id, row)
@@ -222,7 +225,7 @@ def test_resolve_rechecks_at_probe_time_and_never_probes_a_satisfied_row(
 ):
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
-    _seed(tmp_path)
+    path, _row_payload = _seed(tmp_path)
     _refresh(load_history()["entries"])
     # A download or refresh fills the creator after the flag was written.
     entry = load_history_entry("gallerydl:1")
@@ -230,9 +233,11 @@ def test_resolve_rechecks_at_probe_time_and_never_probes_a_satisfied_row(
     save_history_entry_row("gallerydl:1", entry)
     calls = _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Other"}})
 
-    assert resolve_module.resolve_history_entry("gallerydl:1") is False
+    # Nothing is looked up; the row is only filed by the current templates.
+    assert resolve_module.resolve_history_entry("gallerydl:1") is True
     assert calls == []
     assert len(history_resolve_flagged_ids()) == 0
+    assert path.with_name("Creator - Clip [abc123].mp4").is_file()
 
 
 def test_resolve_probes_anonymously_before_using_cookies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -406,7 +411,7 @@ def test_the_worker_routes_a_resolve_job_to_the_resolver(tmp_path: Path, monkeyp
 def test_a_probed_token_with_no_column_survives_into_the_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch, "{{title}} [{{id}}] {{series}}")
-    path, _row_payload = _seed(tmp_path)
+    path, _row_payload = _seed(tmp_path, creator="Creator")
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"series": "Season 1"}})
 
     assert resolve_module.resolve_history_entry("gallerydl:1") is True
@@ -589,8 +594,11 @@ def test_a_row_that_no_longer_needs_anything_counts_as_skipped(tmp_path: Path, m
     monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     started = resolve_module.start_resolve()
+    # Named by the current template in the meantime, so nothing is left to fill or move.
     entry = load_history_entry("gallerydl:1")
-    entry["creator"] = "Creator"
+    current = Path(entry["resolved_full_path"]).with_name("Creator - Clip [abc123].mp4")
+    Path(entry["resolved_full_path"]).rename(current)
+    entry.update(creator="Creator", resolved_full_path=str(current), filename_template=CURRENT_TEMPLATE)
     save_history_entry_row("gallerydl:1", entry)
     _probe_recorder(monkeypatch, {})
 
@@ -750,3 +758,315 @@ def test_the_enrichment_worker_stands_down_during_a_scan(tmp_path: Path, monkeyp
     with scan_module.history_write_lock():
         assert enrichment_module._library_busy() is True
     assert enrichment_module._library_busy() is False
+
+
+
+def _save_naming(
+    monkeypatch: pytest.MonkeyPatch, template: str = CURRENT_TEMPLATE, fields: dict | None = None, **templates: str
+) -> None:
+    """A settings save that moves the naming to ``template``, ``templates`` and ``fields``."""
+    with resolve_module.watch_naming_changes():
+        _pin_template(monkeypatch, template, **templates)
+        monkeypatch.setattr(resolve_module, "get_effective_source_fields", lambda source_key: dict(fields or {}))
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+
+
+def _pending(kind: str, source_key: str = "example", format_template: str = "") -> int:
+    counts = resolve_module.rename_counts().get(source_key, {})
+    return counts.get("templates", {}).get(format_template, 0) if kind == "templates" else counts.get("fields", 0)
+
+
+def _resolve_platform(kind: str, source_key: str = "example", format_template: str = "") -> dict[str, int]:
+    """Queue one platform's resolve pass and run it, as the background queue would."""
+    result = resolve_module.start_renames(source_key, kind, format_template)
+    _drain(result["queued"] + 1)
+    return _report(result["pass_id"]) if result["queued"] else result
+
+
+def _file_under_media(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Make the media folder the download location, so files may move between its folders."""
+    media_root = tmp_path / "media"
+    monkeypatch.setattr(rename_module, "get_effective_source_location", lambda source_url: str(media_root))
+    return media_root
+
+
+def test_resolve_renames_a_row_on_its_template_when_the_order_picks_another_creator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    path, _row_payload = _seed(
+        tmp_path, name="Old - Clip [abc123].mp4", creator="Old", filename_template=CURRENT_TEMPLATE
+    )
+    _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Old", "channel": "New"}})
+    monkeypatch.setattr(resolve_module, "get_effective_fields", lambda source_url="": {"username": ["channel"]})
+
+    assert resolve_module.resolve_history_entry("gallerydl:1", force=True) is True
+
+    assert load_history_entry("gallerydl:1")["creator"] == "New"
+    assert path.with_name("New - Clip [abc123].mp4").is_file()
+    assert not path.exists()
+
+
+def test_resolve_picks_the_creator_the_download_picks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    metadata = {"uploader": "@handle"}
+    _probe_recorder(monkeypatch, {"https://example.com/p/abc123": metadata})
+
+    resolve_module.resolve_history_entry("gallerydl:1")
+
+    assert load_history_entry("gallerydl:1")["creator"] == resolve_module._configured_role_value(
+        metadata, "username", ["uploader"]
+    )
+
+
+def test_a_new_id_token_renames_without_a_lookup_when_the_row_knows_the_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, "{{title}}")
+    path, _row_payload = _seed(tmp_path, name="Clip.mp4", filename_template="{{title}}", creator="Creator")
+    calls = _probe_recorder(monkeypatch, {})
+    _save_naming(monkeypatch, STORED_TEMPLATE)
+
+    assert _pending("templates") == 1
+    assert _resolve_platform("templates")["resolved"] == 1
+
+    assert path.with_name("Clip [abc123].mp4").is_file()
+    assert calls == []
+    assert _pending("templates") == 0
+
+
+def test_a_new_id_token_is_looked_up_when_the_row_has_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, "{{title}}")
+    _seed(tmp_path, name="Clip.mp4", filename_template="{{title}}", creator="Creator", media_id="")
+    _save_naming(monkeypatch, STORED_TEMPLATE)
+
+    assert resolve_module.start_renames("example", "templates")["queued"] == 1
+
+    # Only the missing token is fetched, so the job is not forced.
+    assert [(job["id"], job["payload"]["force"]) for job in load_enrichment_jobs()] == [("resolve:gallerydl:1", False)]
+
+
+def test_a_new_fields_order_looks_up_only_rows_whose_template_uses_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path, name="Old - Clip [abc123].mp4", creator="Old", filename_template=CURRENT_TEMPLATE)
+    monkeypatch.setattr(resolve_module, "get_effective_source_fields", lambda source_key: {})
+
+    _save_naming(monkeypatch, fields={"nickname": ["channel"]})
+    assert _pending("fields") == 0
+
+    _save_naming(monkeypatch, fields={"nickname": ["channel"], "username": ["channel"]})
+    assert _pending("fields") == 1
+    assert resolve_module.start_renames("example", "fields")["queued"] == 1
+    assert [(job["id"], job["payload"]["force"]) for job in load_enrichment_jobs()] == [("resolve:gallerydl:1", True)]
+
+
+def test_changing_a_template_back_leaves_nothing_to_rename(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, STORED_TEMPLATE)
+    _seed(tmp_path, creator="Creator")
+
+    _save_naming(monkeypatch, CURRENT_TEMPLATE)
+    assert _pending("templates") == 1
+    _save_naming(monkeypatch, STORED_TEMPLATE)
+    assert _pending("templates") == 0
+
+
+def test_a_row_whose_format_kept_its_templates_is_not_renamed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # A source's templates changing for one format leaves rows of its other formats alone,
+    # even when they would render differently.
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, STORED_TEMPLATE)
+    _seed(tmp_path, name="Oddly named.mp4", creator="Creator")
+    formats = ["https://example.com/p/{id}", "https://example.com/v/{id}"]
+    monkeypatch.setattr(resolve_module, "learned_templates_for", lambda learned, key: formats)
+    monkeypatch.setattr(resolve_module, "match_template", lambda learned, key, url: formats[0])
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+
+    base = {"folder_template": "{{username}}", "filename_template": STORED_TEMPLATE}
+    with resolve_module.watch_naming_changes():
+        monkeypatch.setattr(
+            resolve_module,
+            "possible_template_settings",
+            lambda source_key: {"": base, "https://example.com/v/{id}": {**base, "filename_template": "{{id}}"}},
+        )
+
+    assert _pending("templates", format_template=formats[0]) == 0
+    # The changed format is remembered, though no row of it is on disk.
+    assert list(load_naming_snapshots_payload()["example"]["templates"]) == [formats[1]]
+
+
+def test_a_new_folder_template_moves_the_file_and_clears_the_old_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    use_temp_db(tmp_path, monkeypatch)
+    media_root = _file_under_media(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, STORED_TEMPLATE)
+    path, _row_payload = _seed(tmp_path, name="Creator/Clip [abc123].mp4", creator="Creator")
+    _save_naming(monkeypatch, STORED_TEMPLATE, folder_template="Library/{{username}}")
+
+    assert _pending("templates") == 1
+    assert _resolve_platform("templates")["resolved"] == 1
+
+    moved = media_root / "Library" / "Creator" / "Clip [abc123].mp4"
+    assert moved.is_file()
+    assert not path.parent.exists()
+    entry = load_history_entry("gallerydl:1")
+    assert entry["resolved_full_path"] == str(moved)
+    assert entry["folder_template"] == "Library/{{username}}"
+
+
+def test_a_new_subfolder_template_moves_every_file_of_a_post(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    media_root = _file_under_media(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, STORED_TEMPLATE, subfolder_template="{{id}}")
+    for index in (1, 2):
+        _seed(
+            tmp_path,
+            task_id=f"gallerydl:{index}",
+            name=f"Creator/abc123/Clip [abc123]_{index}.mp4",
+            creator="Creator",
+        )
+    _seed(tmp_path, task_id="gallerydl:3", name="Creator/Single [def456].mp4", creator="Creator", media_id="def456")
+    _save_naming(monkeypatch, STORED_TEMPLATE, subfolder_template="post {{id}}")
+
+    # The single-file post has no subfolder, so the change does not reach it.
+    assert _pending("templates") == 2
+    assert _resolve_platform("templates")["resolved"] == 2
+
+    post = media_root / "Creator" / "post abc123"
+    assert sorted(path.name for path in post.iterdir()) == ["Clip [abc123]_1.mp4", "Clip [abc123]_2.mp4"]
+    assert not (media_root / "Creator" / "abc123").exists()
+
+
+def test_a_file_outside_its_download_location_is_only_renamed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(rename_module, "get_effective_source_location", lambda source_url: str(tmp_path / "elsewhere"))
+    _pin_template(monkeypatch, STORED_TEMPLATE)
+    path, _row_payload = _seed(tmp_path, name="Creator/Clip [abc123].mp4", creator="Creator")
+    _save_naming(monkeypatch, "{{title}} ({{id}})", folder_template="Library/{{username}}")
+
+    assert _resolve_platform("templates")["resolved"] == 1
+
+    assert path.with_name("Clip (abc123).mp4").is_file()
+
+
+def test_a_change_to_one_source_renames_only_its_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, STORED_TEMPLATE)
+    changed, _row_payload = _seed(tmp_path, creator="Creator")
+    other, _row_payload = _seed(
+        tmp_path,
+        task_id="gallerydl:2",
+        name="Other [def456].mp4",
+        source_url="https://other.test/p/def456",
+        source_key="other",
+        creator="Creator",
+        title="Other",
+        media_id="def456",
+    )
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+
+    def settings(source_url: str = "") -> dict[str, str]:
+        template = CURRENT_TEMPLATE if "example.com" in source_url else STORED_TEMPLATE
+        return {"folder_template": "{{username}}", "filename_template": template}
+
+    with resolve_module.watch_naming_changes():
+        for module in (rename_module, resolve_module):
+            monkeypatch.setattr(module, "get_effective_template_settings", settings)
+            monkeypatch.setattr(
+                module, "possible_template_settings", lambda source_key: {"": settings(f"https://{source_key}.com")}
+            )
+
+    assert _pending("templates") == 1
+    assert _resolve_platform("templates")["resolved"] == 1
+
+    assert changed.with_name("Creator - Clip [abc123].mp4").is_file()
+    assert other.is_file()
+    assert load_history_entry("gallerydl:2")["filename_template"] == STORED_TEMPLATE
+
+
+def test_a_fields_order_change_to_one_source_looks_up_only_its_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path, name="Creator - Clip [abc123].mp4", creator="Creator", filename_template=CURRENT_TEMPLATE)
+    _seed(
+        tmp_path,
+        task_id="gallerydl:2",
+        name="Creator - Other [def456].mp4",
+        source_url="https://other.test/p/def456",
+        source_key="other",
+        creator="Creator",
+        title="Other",
+        media_id="def456",
+        filename_template=CURRENT_TEMPLATE,
+    )
+    monkeypatch.setattr(resolve_module, "get_effective_source_fields", lambda source_key: {})
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+
+    with resolve_module.watch_naming_changes():
+        monkeypatch.setattr(
+            resolve_module,
+            "get_effective_source_fields",
+            lambda source_key: {"username": ["channel"]} if source_key == "other" else {},
+        )
+
+    assert resolve_module.start_renames("other", "fields")["queued"] == 1
+    assert [job["id"] for job in load_enrichment_jobs()] == ["resolve:gallerydl:2"]
+
+
+def test_an_unresolved_change_is_kept_in_the_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # It outlives a page refresh and a restart, so the button stays until the change is resolved.
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, STORED_TEMPLATE)
+    _seed(tmp_path, creator="Creator")
+    _save_naming(monkeypatch, CURRENT_TEMPLATE)
+
+    stored = load_naming_snapshots_payload()
+    assert stored["example"]["templates"][""]["filename_template"] == STORED_TEMPLATE
+    assert _pending("templates") == 1
+
+    resolve_module.start_renames("example", "templates")
+    assert load_naming_snapshots_payload() == {}
+
+
+def test_resolving_templates_leaves_a_field_order_change_pending(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, STORED_TEMPLATE)
+    _seed(tmp_path, creator="Creator")
+    monkeypatch.setattr(resolve_module, "get_effective_source_fields", lambda source_key: {})
+    _save_naming(monkeypatch, CURRENT_TEMPLATE, fields={"username": ["channel"]})
+
+    assert (_pending("templates"), _pending("fields")) == (1, 1)
+    resolve_module.start_renames("example", "templates")
+    assert (_pending("templates"), _pending("fields")) == (0, 1)
+
+
+def test_resolving_one_format_leaves_the_others_pending(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    formats = ["https://example.com/p/{id}", "https://example.com/v/{id}"]
+    monkeypatch.setattr(resolve_module, "learned_templates_for", lambda learned, key: formats)
+    monkeypatch.setattr(
+        resolve_module, "match_template", lambda learned, key, url: formats[0] if "/p/" in url else formats[1]
+    )
+    _pin_template(monkeypatch, STORED_TEMPLATE)
+    _seed(tmp_path, creator="Creator")
+    _seed(
+        tmp_path,
+        task_id="gallerydl:2",
+        name="Other [def456].mp4",
+        source_url="https://example.com/v/def456",
+        creator="Creator",
+        title="Other",
+        media_id="def456",
+    )
+    _save_naming(monkeypatch, CURRENT_TEMPLATE)
+
+    assert [_pending("templates", format_template=fmt) for fmt in formats] == [1, 1]
+    resolve_module.start_renames("example", "templates", formats[0])
+    assert [_pending("templates", format_template=fmt) for fmt in formats] == [0, 1]

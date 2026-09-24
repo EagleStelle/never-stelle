@@ -8,6 +8,8 @@ import type {
   ProbeFieldsResponse,
   ProbeTabsResponse,
   ProbeResponse,
+  NamingKind,
+  RenameCounts,
   ResolveResponse,
   ResolveScope,
   ResolveScopeResponse,
@@ -312,6 +314,26 @@ export function resolveHistory(payload: { scope?: ResolveScope; task_ids?: strin
       body: JSON.stringify(payload),
     },
     "Could not resolve history.",
+  );
+}
+
+export function getRenameCounts(): Promise<RenameCounts> {
+  return jsonRequest<RenameCounts>("/api/library/rename", {}, "Could not read naming changes.");
+}
+
+export function renameHistory(payload: {
+  source_key: string;
+  kind: NamingKind;
+  format_template: string;
+}): Promise<ResolveResponse> {
+  return jsonRequest<ResolveResponse>(
+    "/api/library/rename",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Could not resolve files.",
   );
 }
 

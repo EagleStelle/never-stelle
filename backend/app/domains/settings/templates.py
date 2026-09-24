@@ -101,30 +101,36 @@ def _source_template_map(cfg: dict[str, Any], payload: dict[str, Any], key: str)
     )
 
 
-def possible_filename_templates(source_key: str) -> set[str]:
-    """Every filename template ``get_effective_template_settings`` could return for a source.
+def possible_template_settings(source_key: str) -> dict[str, dict[str, str]]:
+    """Every template set ``get_effective_template_settings`` could return for a source, by format.
 
-    Settings-only, so it answers without parsing a URL. A single option is conclusive:
-    it is what the resolver would pick.
+    Settings-only, so it answers without parsing a URL. "" is the set for links no format
+    matches; a single distinct option is conclusive, as it is what the resolver would pick.
     """
     payload = load_saved_settings_file()
     per_format = _source_template_map(load_app_config(), payload, normalize_source_key(source_key))
-    return {get_effective_template_settings()["filename_template"]} | {
-        str(templates.get("filename_template") or "") for templates in per_format.values()
-    }
+    return {"": get_effective_template_settings(), **per_format}
+
+
+def template_settings_for(options: dict[str, dict[str, str]], format_template: str) -> dict[str, str]:
+    """The set ``options`` (as ``possible_template_settings`` returns them) holds for one format."""
+    from backend.app.domains.downloads.formats import select_for_format
+
+    matched = select_for_format({fmt: value for fmt, value in options.items() if fmt}, format_template)
+    return normalize_template_settings(matched if matched is not None else options[""])
+
+
+def link_format(source_url: str) -> tuple[str, str]:
+    """The source key and learned format a link resolves to."""
+    from backend.app.domains.downloads.formats import match_template
+    from backend.app.domains.downloads.store import load_learned_formats
+
+    key = get_source_profile_for_url(source_url, load_app_config(), load_saved_settings_file())["key"]
+    return key, match_template(load_learned_formats(), key, source_url)
 
 
 def get_effective_template_settings(source_url: str = "") -> dict[str, str]:
-    cfg = load_app_config()
-    payload = load_saved_settings_file()
-    base = normalize_template_settings(payload.get("template_settings"))
     if not source_url:
-        return base
-
-    from backend.app.domains.downloads.formats import match_template, select_for_format
-    from backend.app.domains.downloads.store import load_learned_formats
-
-    profile = get_source_profile_for_url(source_url, cfg, payload)
-    matched = match_template(load_learned_formats(), profile["key"], source_url)
-    matched_template = select_for_format(_source_template_map(cfg, payload, profile["key"]), matched)
-    return normalize_template_settings(matched_template if matched_template is not None else base)
+        return normalize_template_settings(load_saved_settings_file().get("template_settings"))
+    key, matched = link_format(source_url)
+    return template_settings_for(possible_template_settings(key), matched)

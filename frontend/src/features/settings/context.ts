@@ -3,6 +3,7 @@ import { inject, provide, type ComputedRef, type InjectionKey } from "vue";
 import type {
   CookiesMap,
   LearnedFormats,
+  NamingKind,
   ProbeFieldsResponse,
   RuntimeSettings,
   SettingsDraft,
@@ -30,6 +31,9 @@ export interface SettingsContext {
   reorderFormatTemplates: (sourceKey: string, templates: string[]) => Promise<void>;
   saveSettingsDraft: () => Promise<void>;
   copySettingsToDraft: () => void;
+  // Files a source's saved but unresolved change affects; templates count per format.
+  renameCount: (sourceKey: string, kind: NamingKind, format?: string) => number;
+  openRename: (sourceKey: string, label: string, kind: NamingKind, format?: string) => void;
   close: () => void;
 }
 

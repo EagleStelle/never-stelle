@@ -12,6 +12,8 @@ import DownloadPanel from "@/features/downloads/Panel.vue";
 import PlaylistDialog from "@/features/downloads/PlaylistDialog.vue";
 import ResolveDialog from "@/features/downloads/ResolveDialog.vue";
 import TrackerPanel from "@/features/trackers/Panel.vue";
+import { Button } from "@/components/ui/button";
+import { DialogShell as Dialog } from "@/components/ui/dialog";
 import { Toaster } from "@/components/ui/sonner";
 
 import { provideDashboard } from "@/composables/useDashboard";
@@ -39,6 +41,9 @@ const {
   playlistEntries,
   playlistOpen,
   playlistTitle,
+  confirmRename,
+  renameCount,
+  renameTarget,
   resolveFlagged,
   resolveOpen,
   resolveTotal,
@@ -106,13 +111,37 @@ const { height: statusBarHeight } = useElementSize(
       @confirm="confirmPlaylistSelection"
     />
 
+    <!-- Mounted on open so they stack above the lazily loaded settings dialog. -->
     <ResolveDialog
+      v-if="resolveOpen"
       v-model:open="resolveOpen"
       :flagged="resolveFlagged"
       :total="resolveTotal"
       :pending="historyResolving"
       @confirm="confirmResolve"
     />
+
+    <Dialog
+      v-if="renameTarget"
+      :open="Boolean(renameTarget)"
+      :title="`Resolve ${renameTarget.label}`"
+      :description="
+        renameTarget.kind === 'templates'
+          ? 'Renames and moves the files of this format so they match its new templates.'
+          : 'Looks up each file again so it is named by the new field order.'
+      "
+      content-class="fixed left-1/2 top-1/2 z-70 flex w-[min(460px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
+      @update:open="(open) => !open && (renameTarget = null)"
+    >
+      <div class="flex flex-wrap items-center justify-end gap-2 px-5 pb-5 pt-4 sm:px-6">
+        <Button variant="secondary" type="button" @click="renameTarget = null">
+          Cancel
+        </Button>
+        <Button variant="destructive" type="button" @click="confirmRename">
+          Resolve All ({{ renameCount(renameTarget.key, renameTarget.kind, renameTarget.format).toLocaleString() }})
+        </Button>
+      </div>
+    </Dialog>
 
     <Toaster
       :theme="isLightMode ? 'light' : 'dark'"

@@ -161,8 +161,6 @@ def test_library_scan_returns_ok_when_subtree_scandir_fails(tmp_path, monkeypatc
         "missing": 0,
         "added": 0,
         "unchanged": 0,
-        "renamed": 0,
-        "rename_failed": 0,
         "needs_resolve": 1,
     }
 
@@ -212,6 +210,43 @@ def test_library_resolve_task_ids_override_the_scope(tmp_path, monkeypatch):
     assert response.json()["queued"] == 1
     assert response.json()["pass_id"] > 0
     assert [job["id"] for job in repositories.load_enrichment_jobs_payload()] == ["resolve:disk:abc123"]
+
+
+def test_a_template_saved_through_settings_is_offered_as_a_rename(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    import backend.app.domains.downloads.resolve as resolve_module
+    import backend.app.domains.downloads.workers.enrichment as enrichment_module
+
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    path = tmp_path / "Clip.mp4"
+    path.write_bytes(b"video")
+    repositories.save_history_row(
+        "gallerydl:1",
+        {
+            "source_url": "https://example.test/p/abc123",
+            "source_key": "example",
+            "creator": "Creator",
+            "title": "Clip",
+            "media_id": "abc123",
+            "resolved_full_path": str(path),
+            "filename_template": "{{title}}",
+        },
+    )
+
+    client.put(
+        "/api/settings",
+        json={
+            "template_settings": {"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"},
+            "source_profiles": [{"key": "example", "label": "Example", "hosts": ["example.test"]}],
+        },
+    )
+
+    assert client.get("/api/library/rename").json() == {"example": {"templates": {"": 1}, "fields": 0}}
+    assert client.post("/api/library/rename", json={"source_key": "example", "kind": "templates"}).json()["queued"] == 1
+    assert client.get("/api/library/rename").json() == {}
+    # The renames run on the background queue.
+    enrichment_module._process_enrichment_job(repositories.claim_next_enrichment_job_payload())
+    assert (tmp_path / "Clip [abc123].mp4").is_file()
 
 
 def test_settings_put_accepts_format_keyed_source_templates(tmp_path, monkeypatch):

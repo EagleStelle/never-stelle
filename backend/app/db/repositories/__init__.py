@@ -9,7 +9,6 @@ from backend.app.db.repositories.cookies import (
 from backend.app.db.repositories.downloads import (
     begin_rename_journal_entry,
     claim_next_enrichment_job_payload,
-    clear_history_resolve_flags,
     clear_rename_journal_entries,
     complete_enrichment_job_payload,
     count_active_by_source_and_media,
@@ -60,8 +59,10 @@ from backend.app.db.repositories.redirects import (
     record_redirect_observation,
 )
 from backend.app.db.repositories.settings import (
+    load_naming_snapshots_payload,
     load_settings_payload,
     resolution_settings_revision,
+    save_naming_snapshots_payload,
     save_settings_payload,
 )
 from backend.app.db.repositories.trackers import (
@@ -95,7 +96,6 @@ __all__ = [
     "begin_rename_journal_entry",
     "claim_due_tracker_row",
     "claim_next_enrichment_job_payload",
-    "clear_history_resolve_flags",
     "clear_rename_journal_entries",
     "complete_enrichment_job_payload",
     "count_active_by_source_and_media",
@@ -135,6 +135,7 @@ __all__ = [
     "load_history_row_ids",
     "load_learned_formats_payload",
     "load_learned_redirects_payload",
+    "load_naming_snapshots_payload",
     "load_settings_payload",
     "load_task_payload",
     "load_task_store_payload",
@@ -158,6 +159,7 @@ __all__ = [
     "save_history_row",
     "save_history_rows",
     "save_learned_formats_payload",
+    "save_naming_snapshots_payload",
     "save_settings_payload",
     "source_activity_rows",
     "sync_history_resolve_flags",

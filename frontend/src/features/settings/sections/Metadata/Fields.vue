@@ -1,6 +1,7 @@
 ﻿<script setup lang="ts">
 import { reactive } from "vue";
 import IconDrag from "~icons/material-symbols/drag-indicator";
+import IconResolve from "~icons/material-symbols/cloud-sync";
 import IconSearch from "~icons/material-symbols/search";
 import IconSpinner from "~icons/material-symbols/sync";
 
@@ -36,6 +37,8 @@ const {
   learnedFormatsDraft,
   editableSourceProfiles,
   probeFields,
+  renameCount,
+  openRename,
 } = useSettingsContext();
 const {
   probes,
@@ -223,56 +226,71 @@ function filledRoles(key: string) {
             </TableBody>
           </Table>
 
-          <div
-            v-if="filledRoles(site.key).length"
-            class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3 mt-3"
-          >
+          <!-- The resolve button closes the role row, under the probe's test button. -->
+          <div v-if="filledRoles(site.key).length" class="flex items-start gap-2 mt-3">
             <div
-              v-for="role in filledRoles(site.key)"
-              :key="role.key"
-              class="flex flex-col gap-2"
+              class="grid flex-1 min-w-0 grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3"
             >
-              <div class="flex items-center justify-between gap-2 min-h-6">
-                <Label>{{ role.label }}</Label>
-                <button
-                  v-if="isConfigured(site.key, role.key)"
-                  type="button"
-                  class="text-xs opacity-70 hover:opacity-100 transition-opacity"
-                  title="Restore the default order"
-                  @click="resetRole(site.key, role.key)"
-                >
-                  Reset
-                </button>
-              </div>
-              <ul class="flex flex-col gap-1">
-                <li
-                  v-for="(field, index) in fieldListItems(site.key, role.key)"
-                  :key="field.key"
-                  draggable="true"
-                  class="flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors cursor-grab active:cursor-grabbing"
-                  :class="[
-                    isDragging(site.key, role.key, index) ? 'opacity-40' : '',
-                    isDropTarget(site.key, role.key, index)
-                      ? 'bg-accent/15'
-                      : '',
-                  ]"
-                  @dragstart="onDragStart(site.key, role.key, index, $event)"
-                  @dragover.prevent="onDragOver(site.key, role.key, index)"
-                  @drop.prevent="onDrop(site.key, role.key, index)"
-                  @dragend="resetDrag"
-                >
-                  <IconDrag
-                    class="w-4 h-4 shrink-0 opacity-50"
-                    aria-hidden="true"
-                  />
-                  <span
-                    class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere"
+              <div
+                v-for="role in filledRoles(site.key)"
+                :key="role.key"
+                class="flex flex-col gap-2"
+              >
+                <div class="flex items-center justify-between gap-2 min-h-9">
+                  <Label>{{ role.label }}</Label>
+                  <button
+                    v-if="isConfigured(site.key, role.key)"
+                    type="button"
+                    class="text-xs opacity-70 hover:opacity-100 transition-opacity"
+                    title="Restore the default order"
+                    @click="resetRole(site.key, role.key)"
                   >
-                    {{ field.label }}
-                  </span>
-                </li>
-              </ul>
+                    Reset
+                  </button>
+                </div>
+                <ul class="flex flex-col gap-1">
+                  <li
+                    v-for="(field, index) in fieldListItems(site.key, role.key)"
+                    :key="field.key"
+                    draggable="true"
+                    class="flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors cursor-grab active:cursor-grabbing"
+                    :class="[
+                      isDragging(site.key, role.key, index) ? 'opacity-40' : '',
+                      isDropTarget(site.key, role.key, index)
+                        ? 'bg-accent/15'
+                        : '',
+                    ]"
+                    @dragstart="onDragStart(site.key, role.key, index, $event)"
+                    @dragover.prevent="onDragOver(site.key, role.key, index)"
+                    @drop.prevent="onDrop(site.key, role.key, index)"
+                    @dragend="resetDrag"
+                  >
+                    <IconDrag
+                      class="w-4 h-4 shrink-0 opacity-50"
+                      aria-hidden="true"
+                    />
+                    <span
+                      class="font-mono text-[0.8125rem] flex-1 min-w-0 wrap-anywhere"
+                    >
+                      {{ field.label }}
+                    </span>
+                  </li>
+                </ul>
+              </div>
             </div>
+            <Button
+              class="shrink-0"
+              variant="primary"
+              type="button"
+              :title="renameCount(site.key, 'fields') ? 'Resolve platform' : 'No field changes'"
+              aria-label="Resolve platform"
+              :disabled="!renameCount(site.key, 'fields')"
+              @click="openRename(site.key, site.label, 'fields')"
+            >
+              <template #icon>
+                <IconResolve aria-hidden="true" />
+              </template>
+            </Button>
           </div>
         </div>
       </AccordionContent>

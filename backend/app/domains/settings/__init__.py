@@ -37,6 +37,7 @@ from backend.app.domains.settings.fields import (
     get_effective_field_defaults,
     get_effective_fields,
     get_effective_naming_defaults,
+    get_effective_source_fields,
     get_effective_source_fields_map,
     get_effective_title_cleaning,
     is_scraper_field,
@@ -51,6 +52,7 @@ from backend.app.domains.settings.fields import (
 from backend.app.domains.settings.formats import add_source_and_learn_format, set_learned_format_templates
 from backend.app.domains.settings.icons import queue_icons, stored_icon
 from backend.app.domains.settings.locations import (
+    get_effective_source_location,
     iter_resolved_source_locations,
     normalize_source_location_selection,
     normalize_subpath,
@@ -83,7 +85,8 @@ from backend.app.domains.settings.templates import (
     get_effective_template_settings,
     normalize_source_template_selection,
     normalize_template_settings,
-    possible_filename_templates,
+    possible_template_settings,
+    template_settings_for,
 )
 from backend.app.domains.settings.tokens import (
     get_effective_token_roles,
@@ -129,10 +132,13 @@ __all__ = [
     "get_effective_saved_settings",
     "get_effective_scrape_rules",
     "get_effective_slug_tokens",
+    "get_effective_source_fields",
+    "get_effective_source_location",
     "get_effective_source_fields_map",
     "get_effective_source_profiles",
     "get_effective_template_settings",
-    "possible_filename_templates",
+    "possible_template_settings",
+    "template_settings_for",
     "get_effective_title_cleaning",
     "get_effective_token_roles",
     "get_source_profile_by_key",

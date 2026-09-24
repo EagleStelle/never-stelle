@@ -16,6 +16,7 @@ from backend.app.api.schemas.settings import (
 )
 from backend.app.core.config import load_app_config
 from backend.app.core.sources import normalize_source_key, source_key_from_url
+from backend.app.domains.downloads.resolve import watch_naming_changes
 from backend.app.domains.settings import (
     add_source_and_learn_format,
     build_settings_response,
@@ -52,26 +53,27 @@ def get_settings() -> dict[str, Any]:
 @router.put("")
 def update_settings(payload: SettingsPayload) -> dict[str, Any]:
     cfg = load_app_config()
-    saved = persist_settings(
-        cfg,
-        payload.source_locations,
-        payload.template_settings,
-        payload.source_profiles,
-        payload.source_templates,
-        payload.default_quality,
-        payload.source_scrape_rules,
-        payload.source_token_roles,
-        payload.source_fields,
-        payload.source_title_cleaning,
-        payload.source_slug_tokens,
-        payload.source_cookie_policies,
-        payload.default_cookie_policy,
-        payload.default_fields,
-        payload.default_naming,
-        payload.default_post_processing,
-        payload.tracker_settings,
-        payload.source_tracker_tabs,
-    )
+    with watch_naming_changes():
+        saved = persist_settings(
+            cfg,
+            payload.source_locations,
+            payload.template_settings,
+            payload.source_profiles,
+            payload.source_templates,
+            payload.default_quality,
+            payload.source_scrape_rules,
+            payload.source_token_roles,
+            payload.source_fields,
+            payload.source_title_cleaning,
+            payload.source_slug_tokens,
+            payload.source_cookie_policies,
+            payload.default_cookie_policy,
+            payload.default_fields,
+            payload.default_naming,
+            payload.default_post_processing,
+            payload.tracker_settings,
+            payload.source_tracker_tabs,
+        )
     return build_settings_response(cfg, saved)
 
 
@@ -166,7 +168,8 @@ def learn_format(payload: LearnFormatPayload) -> dict[str, Any]:
 @router.put("/formats/{source_key}")
 def set_format_templates(source_key: str, payload: FormatTemplatesPayload) -> dict[str, Any]:
     try:
-        set_learned_format_templates(source_key, payload.templates)
+        with watch_naming_changes():
+            set_learned_format_templates(source_key, payload.templates)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _settings_response()
