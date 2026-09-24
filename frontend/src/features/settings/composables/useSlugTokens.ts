@@ -56,10 +56,6 @@ export function useSlugTokens(
     return entry;
   }
 
-  function isSelected(key: string, part: string): boolean {
-    return true;
-  }
-
   function tokenForPart(key: string, part: string, segment?: LearnedSegment): string {
     const entry = entryForPart(key, part);
     return entry ? entry.token : segment ? suggestedToken(key, segment) : "";
@@ -96,13 +92,6 @@ export function useSlugTokens(
       return segment.label.replace(/[{}]/g, "");
     }
     return "";
-  }
-
-  // Checkbox label: a live {{token}} chip that reflects the input, sharing the Scraper's
-  // token-label formatting so both panes render tokens identically.
-  function segmentLabel(key: string, segment: LearnedSegment): string {
-    const name = tokenNameFor(key, segment);
-    return name ? tokenLabel(name) : segment.label;
   }
 
   function singleBraceToken(value: string): string {
@@ -178,24 +167,6 @@ export function useSlugTokens(
     return `${origin}${rebuilt}${pairs.length ? `?${pairs.join("&")}` : ""}${hash ? `#${hash}` : ""}`;
   }
 
-  function setSelected(key: string, segment: LearnedSegment, selected: boolean): void {
-    const list = ensureSlugList(key);
-    const index = list.findIndex((entry) => entry.part === segment.part);
-    if (selected) {
-      if (index === -1) {
-        list.push({ part: segment.part, token: suggestedToken(key, segment) });
-        settingsDraft.source_slug_tokens[key] = [...list];
-      }
-      return;
-    }
-    if (index !== -1) {
-      const [removed] = list.splice(index, 1);
-      settingsDraft.source_slug_tokens[key] = [...list];
-      // Drop any role/field connection the removed token owned.
-      if (removed?.token) setTokenRole(key, removed.token, "ignore");
-    }
-  }
-
   function setTokenName(key: string, part: string, name: string, segment?: LearnedSegment): void {
     const entry = ensureEntryForPart(key, part, segment);
     if (entry) {
@@ -227,16 +198,11 @@ export function useSlugTokens(
 
   return {
     learnedFormat,
-    isSelected,
     tokenForPart,
-    setSelected,
     setTokenName,
-    suggestedToken,
-    segmentLabel,
     displayTemplate,
     tokenRole,
     isRoleDisabled,
-    setTokenRole,
     setSegmentRole,
   };
 }

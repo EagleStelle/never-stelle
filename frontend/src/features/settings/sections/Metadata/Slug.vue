@@ -15,7 +15,7 @@ import type { LearnedSegment, TokenRole } from "@/types";
 import { sourceIconUrl, templateParts } from "@/utils/dashboard";
 import { useSlugTokens } from "@/features/settings/composables/useSlugTokens";
 import { useSettingsContext } from "@/features/settings/context";
-import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
+import { Field, FieldContent, FieldLabel, FieldLegend } from "@/components/ui/field";
 
 const ROLE_ITEMS: { key: TokenRole; label: string }[] = [
   { key: "ignore", label: "None" },
@@ -29,7 +29,6 @@ const {
   learnedFormat,
   tokenForPart,
   setTokenName,
-  segmentLabel,
   displayTemplate,
   tokenRole,
   isRoleDisabled,
@@ -99,36 +98,34 @@ function roleDisabled(
           can become tokens.
         </p>
 
-        <div v-else class="flex flex-col divide-y divide-(--glass-border)">
-          <section
-            v-for="template in learnedFormat(site.key)?.templates || []"
-            :key="template"
-            class="flex flex-col gap-3 py-5 first:pt-1 last:pb-0"
-            :aria-label="displayTemplate(site.key, template)"
-          >
-            <p class="min-w-0 font-mono text-[0.8125rem] leading-snug wrap-anywhere text-muted-foreground">
-              <span
-                v-for="(part, index) in templateParts(displayTemplate(site.key, template))"
-                :key="index"
-                :class="part.token && 'text-accent-ink'"
-                >{{ part.text }}</span
-              >
-            </p>
-
-            <div
-              v-for="segment in selectableSegments(site.key)"
-              :key="segment.part"
-              class="flex flex-col gap-3 border-l border-(--glass-border) pl-4"
+        <!-- Tokens belong to the source, so every URL format sits above one set of rows. -->
+        <section v-else class="flex flex-col gap-4" :aria-label="`${site.label} tokens`">
+          <div class="flex flex-col gap-2">
+            <FieldLegend
+              v-for="template in learnedFormat(site.key)?.templates || []"
+              :key="template"
+              as="p"
+              variant="divider"
+              class="mb-0"
             >
-              <span class="min-w-0 font-mono text-sm leading-snug wrap-anywhere text-muted-foreground">
+              <span class="min-w-0 wrap-anywhere">
                 <span
-                  v-for="(part, index) in templateParts(segmentLabel(site.key, segment))"
+                  v-for="(part, index) in templateParts(displayTemplate(site.key, template))"
                   :key="index"
                   :class="part.token && 'text-accent-ink'"
                   >{{ part.text }}</span
                 >
               </span>
+            </FieldLegend>
+          </div>
 
+          <!-- Two columns like Scraper; on phones the right one wraps only when out of room. -->
+          <div
+            v-for="segment in selectableSegments(site.key)"
+            :key="segment.part"
+            class="flex flex-wrap gap-x-6 gap-y-3 sm:grid sm:grid-cols-2 sm:gap-x-8"
+          >
+            <div class="min-w-36 flex-1">
               <Field label-width="sm">
                 <FieldLabel :for="`${site.key}SlugToken${segment.part}`">
                   Token
@@ -144,7 +141,8 @@ function roleDisabled(
                   />
                 </FieldContent>
               </Field>
-
+            </div>
+            <div>
               <SegmentedControl
                 label="Role"
                 label-placement="start"
@@ -164,8 +162,8 @@ function roleDisabled(
                 </SegmentedControlItem>
               </SegmentedControl>
             </div>
-          </section>
-        </div>
+          </div>
+        </section>
       </AccordionContent>
     </AccordionItem>
   </Accordion>

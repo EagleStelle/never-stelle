@@ -32,7 +32,7 @@ import {
 } from "@/utils/dashboard";
 import { useScrapeTests } from "@/features/settings/composables/useScrapeTests";
 import { useSettingsContext } from "@/features/settings/context";
-import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
+import { Field, FieldContent, FieldLabel, FieldLegend } from "@/components/ui/field";
 import {
   Accordion,
   AccordionContent,
@@ -110,7 +110,6 @@ const {
   scrapeTests,
   formatsFor,
   rulesForFormat,
-  platformRules,
   tokenRole,
   isRoleDisabled,
   setTokenRole,
@@ -240,39 +239,38 @@ const {
             scraper rules.
           </p>
 
-          <div
-            v-else
-            class="flex flex-col divide-y divide-(--glass-border) border-t border-(--glass-border)"
-          >
+          <div v-else class="flex flex-col gap-10 pt-2">
             <section
               v-for="template in formatsFor(site.key)"
               :key="template"
-              class="flex flex-col gap-3 py-4 last:pb-0"
+              class="flex flex-col gap-4"
               :aria-label="displayUrlTemplate(template)"
             >
-              <div class="flex min-h-8 items-center justify-between gap-3">
-                <p class="min-w-0 font-mono text-[0.8125rem] leading-snug wrap-anywhere text-muted-foreground">
+              <FieldLegend as="div" variant="divider" class="mb-0">
+                <span class="min-w-0 wrap-anywhere">
                   <span
                     v-for="(part, partIndex) in templateParts(displayUrlTemplate(template))"
                     :key="partIndex"
                     :class="part.token && 'text-accent-ink'"
                     >{{ part.text }}</span
                   >
-                </p>
-                <Button
-                  compact
-                  variant="secondary"
-                  class="shrink-0"
-                  size="sm"
-                  type="button"
-                  @click="addScrapeRule(site.key, template)"
-                >
-                  <template #icon>
-                    <IconAdd aria-hidden="true" />
-                  </template>
-                  Add Rule
-                </Button>
-              </div>
+                </span>
+                <template #end>
+                  <Button
+                    compact
+                    variant="secondary"
+                    class="shrink-0"
+                    size="sm"
+                    type="button"
+                    @click="addScrapeRule(site.key, template)"
+                  >
+                    <template #icon>
+                      <IconAdd aria-hidden="true" />
+                    </template>
+                    Add Rule
+                  </Button>
+                </template>
+              </FieldLegend>
 
               <p
                 v-if="!rulesForFormat(site.key, template).length"
@@ -284,7 +282,7 @@ const {
 
               <div
                 v-if="rulesForFormat(site.key, template).length"
-                class="flex flex-col gap-5"
+                class="flex flex-col gap-6"
               >
                 <!-- One rule: name and role, where to find it, what to read. -->
                 <div
