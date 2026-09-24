@@ -5378,6 +5378,92 @@ def test_scan_media_library_reconstructs_url_part_from_filename_template(
     assert entry["source_url"] == "https://rule34video.com/video/3238394/wsds-minus8"
 
 
+_VIDEO_FORMAT = "https://example.test/video/{id}"
+_PHOTO_FORMAT = "https://example.test/photo/{id}"
+
+
+def _patch_two_format_scan(
+    monkeypatch: pytest.MonkeyPatch, saved: dict[str, dict], entries: dict[str, dict] | None = None
+) -> list[str]:
+    """A source whose video and photo files are named apart; returns the links probed."""
+    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": dict(entries or {})})
+    monkeypatch.setattr(scan_module, "_scan_location_rows", lambda: [])
+    monkeypatch.setattr(
+        scan_module, "load_learned_formats", lambda: {"example": {"templates": [_VIDEO_FORMAT, _PHOTO_FORMAT]}}
+    )
+    base = {"folder_template": "", "filename_template": "{{title}} [{{id}}]"}
+    monkeypatch.setattr(
+        scan_module,
+        "_scan_template_map",
+        lambda: (
+            base,
+            {
+                "example": {
+                    _VIDEO_FORMAT: {**base, "filename_template": "video {{title}} [{{id}}]"},
+                    _PHOTO_FORMAT: {
+                        **base,
+                        "subfolder_template": "post {{id}}",
+                        "filename_template": "photo {{title}} [{{id}}]",
+                    },
+                }
+            },
+        ),
+    )
+    monkeypatch.setattr(scan_module, "_scan_field_roles_map", lambda: {"example": {"username": ["uploader"]}})
+    probed: list[str] = []
+    monkeypatch.setattr(
+        scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: probed.append(url) or {}
+    )
+    monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: saved.update(dict(rows)))
+    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    return probed
+
+
+def test_scan_links_a_file_in_the_format_its_name_matches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    (media_root / "photo Pic [7123456789].jpg").write_bytes(b"image")
+    saved: dict[str, dict] = {}
+    probed = _patch_two_format_scan(monkeypatch, saved)
+
+    scan_module.scan_media_library([media_root])
+
+    entry = saved["disk:7123456789"]
+    assert entry["source_url"] == "https://example.test/photo/7123456789"
+    assert probed[0] == "https://example.test/photo/7123456789"
+    assert entry["subfolder_template"] == "post {{id}}"
+
+
+def test_scan_replaces_a_link_in_another_format_than_the_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    path = media_root / "photo Pic [7123456789].jpg"
+    path.write_bytes(b"image")
+    prior = {
+        "engine": "disk",
+        "source_key": "example",
+        "source_url": "https://example.test/video/7123456789",
+        "creator": "Creator",
+        "title": "Pic",
+        "media_id": "7123456789",
+        "resolved_full_path": str(path),
+        "resolved_folder": str(path.parent),
+        "resolved_filename": path.name,
+        "created_at": "2026-01-01T00:00:00+00:00",
+    }
+    saved: dict[str, dict] = {}
+    probed = _patch_two_format_scan(monkeypatch, saved, {"disk:7123456789": prior})
+
+    scan_module.scan_media_library([media_root])
+
+    entry = saved["disk:7123456789"]
+    assert entry["creator"] == "Creator"
+    assert entry["source_url"] == "https://example.test/photo/7123456789"
+    assert probed == []
+
+
 def _scan_locations(source_key: str, folder: Path, format_template: str = "https://www.youtube.com/watch?v={id}"):
     return [(source_key, format_template, str(folder))]
 

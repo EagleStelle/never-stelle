@@ -1023,3 +1023,9 @@ def match_template(learned: dict[str, Any], source_key: str, source_url: str, me
         if _shape_matches_template(_canonical_shape(template), canonical_shape):
             return template
     return ""
+
+
+def url_in_format(learned: dict[str, Any], source_key: str, source_url: str, format_template: str) -> bool:
+    """Whether a URL belongs to the learned template a saved format key names."""
+    matched = match_template(learned, source_key, source_url)
+    return bool(matched) and format_covers(matched, format_template)

@@ -31,8 +31,8 @@ from .formats import (
     conflicts_with_source,
     guess_sources,
     media_id_from_url,
-    reconstruct_url,
     reconstruct_url_candidates,
+    url_in_format,
 )
 from .naming import (
     clean_template_display_filename,
@@ -50,6 +50,7 @@ from .store import (
     save_history_entry_rows,
     sync_history_resolve_flags,
 )
+from .templates import template_row_fields
 
 _scan_lock = threading.Lock()
 _HISTORY_WRITE_BATCH = 200
@@ -680,6 +681,31 @@ def _probe_metadata_order(order: list[str]) -> list[str]:
     return [field for field in order or [] if not is_scraper_field(field)]
 
 
+def _prefer_format(
+    urls: Iterable[str], learned: dict[str, Any], source_key: str, format_template: str
+) -> list[str]:
+    """``urls`` without blanks, the ones in ``format_template`` first and otherwise in order."""
+    kept = [url for url in urls if url]
+    if not format_template:
+        return kept
+    return sorted(kept, key=lambda url: not url_in_format(learned, source_key, url, format_template))
+
+
+def _file_link(
+    learned: dict[str, Any],
+    source_key: str,
+    media_id: str,
+    format_template: str,
+    *,
+    creator: str,
+    slug_values: dict[str, str],
+    known: str = "",
+) -> str:
+    """``known``, or a link rebuilt from the learned formats, preferring the format the file was named by."""
+    candidates = reconstruct_url_candidates(learned, source_key, media_id, creator=creator, slug_values=slug_values)
+    return next(iter(_prefer_format([known, *candidates], learned, source_key, format_template)), "")
+
+
 def _probe_disk_creator(
     learned: dict[str, Any],
     source_key: str,
@@ -687,27 +713,29 @@ def _probe_disk_creator(
     order: list[str],
     slug_values: dict[str, str],
     disk_creator: str,
+    format_template: str = "",
 ) -> tuple[str, str]:
     """Probe a manually-placed file's reconstructed link and pick its creator.
 
     Walks the configured creator-field order over the probed metadata and
     stops at the first field that carries a value. Reconstructs media_id (+slug) links
     first, only using the disk creator for templates that actually contain ``{creator}``.
+    Links in ``format_template``, the format the file was named by, go first.
     Returns ``(creator, matched_url)``; ``("", "")`` when nothing probes or matches.
     """
     if not order:
         return "", ""
-    probe_candidates: list[tuple[str, str]] = [
-        (url, "")
-        for url in reconstruct_url_candidates(learned, source_key, media_id, creator="", slug_values=slug_values)
-    ]
+    # Each link maps to the creator it was built with.
+    candidates = dict.fromkeys(
+        reconstruct_url_candidates(learned, source_key, media_id, creator="", slug_values=slug_values), ""
+    )
     if disk_creator:
         for url in reconstruct_url_candidates(
             learned, source_key, media_id, creator=disk_creator, slug_values=slug_values
         ):
-            if all(existing_url != url for existing_url, _ in probe_candidates):
-                probe_candidates.append((url, disk_creator))
-    for url, url_creator in probe_candidates[:_MAX_PROBE_CANDIDATES]:
+            candidates.setdefault(url, disk_creator)
+    for url in _prefer_format(candidates, learned, source_key, format_template)[:_MAX_PROBE_CANDIDATES]:
+        url_creator = candidates[url]
         flat = probe_metadata_anonymous_first(url)
         if not flat:
             continue
@@ -768,10 +796,9 @@ class _TemplateResolver:
             )
         return self._cache[source_key][format_template]
 
-    def templates_for_format(self, source_key: str, format_template: str = "") -> tuple[str, str]:
+    def templates_for_format(self, source_key: str, format_template: str = "") -> dict[str, str]:
         templates_dict = self._per_source.get(source_key) or {}
-        settings = templates_dict.get(format_template) or self._base
-        return str(settings.get("folder_template") or ""), str(settings.get("filename_template") or "")
+        return template_row_fields(templates_dict.get(format_template) or self._base)
 
 def _source_location_index(rows: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
     # Only folders owned by exactly one resolved source carry a usable signal; two formats of
@@ -954,14 +981,23 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
         # Recover configured URL parts from the filename so links reconstruct generically.
         slug_values = _slug_values_from_fields(slug_rules, source_roles, slug_names, filename_fields)
         disk_creator = _creator_for_file(root, path, source_folders, compiled)
-        folder_template, filename_template = templates.templates_for_format(source_key, matched_fmt)
+        template_settings = templates.templates_for_format(source_key, matched_fmt)
+        folder_template = template_settings["folder_template"]
+        filename_template = template_settings["filename_template"]
         prior = records.get(task_id) or {}
         prior_creator = str(prior.get("creator") or "").strip()
         if prior_creator:
-            # Already resolved by a past scan or a real download: never re-probe, keep it as-is.
+            # Already resolved by a past scan or a real download: never re-probe, keep it as-is,
+            # unless its link is in another format than the one the file was named by.
             creator = prior_creator
-            source_url = str(prior.get("source_url") or "").strip() or reconstruct_url(
-                learned, source_key, media_id, creator=creator, slug_values=slug_values
+            source_url = _file_link(
+                learned,
+                source_key,
+                media_id,
+                matched_fmt,
+                creator=creator,
+                slug_values=slug_values,
+                known=str(prior.get("source_url") or "").strip(),
             )
         else:
             # Manually-placed file with no resolved creator yet: probe in the configured order.
@@ -981,16 +1017,23 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
             )
             if scraper_backed_role:
                 creator = disk_creator
-                source_url = reconstruct_url(learned, source_key, media_id, creator="", slug_values=slug_values)
+                source_url = _file_link(
+                    learned, source_key, media_id, matched_fmt, creator="", slug_values=slug_values
+                )
             else:
                 probed_creator, probed_url = _probe_disk_creator(
-                    learned, source_key, media_id, _probe_metadata_order(order), slug_values, disk_creator
+                    learned,
+                    source_key,
+                    media_id,
+                    _probe_metadata_order(order),
+                    slug_values,
+                    disk_creator,
+                    matched_fmt,
                 )
                 creator = probed_creator or disk_creator
-                source_url = probed_url or reconstruct_url(
-                    learned, source_key, media_id, creator="", slug_values=slug_values
+                source_url = probed_url or _file_link(
+                    learned, source_key, media_id, matched_fmt, creator="", slug_values=slug_values
                 )
-        template_settings = {"folder_template": folder_template, "filename_template": filename_template}
         display_filename = clean_template_display_filename(
             path.name,
             template_settings,
@@ -1014,8 +1057,7 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
                     "resolved_filename": display_filename,
                     "resolved_full_path": str(path),
                     "title": title,
-                    "folder_template": folder_template,
-                    "filename_template": filename_template,
+                    **template_settings,
                     "creator": creator,
                     "file_size": file_size,
                     "created_at": _history_created_at_from_file(path, stat_result),
