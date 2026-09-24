@@ -24,8 +24,8 @@ const visible = computed(() =>
     class="shrink-0 px-4 glass border-0 border-(--glass-border)"
     :class="
       placement === 'top'
-        ? 'sticky top-0 z-20 pt-4 pb-2 border-b'
-        : 'pt-2 pb-4 border-t'
+        ? 'sticky top-0 z-20 py-4 border-b'
+        : 'py-3 border-t'
     "
   >
     <DownloadsToolbar v-if="activePage === 'downloads' || activePage === 'trackers'" />

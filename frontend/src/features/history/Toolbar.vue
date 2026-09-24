@@ -44,10 +44,6 @@ const { historySearch, submitHistorySearch } = useDashboard();
       </Button>
     </form>
 
-    <div
-      class="flex overflow-x-auto no-scrollbar items-end justify-between lg:justify-end gap-3 w-full py-1"
-    >
-      <TaskFilters class="shrink-0 lg:ml-auto" />
-    </div>
+    <TaskFilters />
   </div>
 </template>

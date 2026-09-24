@@ -22,7 +22,7 @@ function submit(): void {
 
 <template>
   <form
-    class="flex items-center gap-2 w-full"
+    class="flex flex-wrap lg:flex-nowrap items-center gap-x-2 gap-y-3 w-full"
     :aria-label="tracking ? 'Add tracker' : 'Add download'"
     @submit.prevent="submit"
   >
@@ -43,6 +43,14 @@ function submit(): void {
         />
       </template>
     </Input>
+
+    <!-- Link options: own row above the field below lg, inline from lg. -->
+    <div
+      v-if="$slots.default"
+      class="order-first lg:order-0 flex items-center gap-2 w-full lg:w-auto empty:hidden"
+    >
+      <slot />
+    </div>
 
     <Button
       variant="primary"

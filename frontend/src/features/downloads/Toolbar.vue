@@ -19,7 +19,7 @@ import {
   type QualityField,
 } from "@/features/downloads/qualityFields";
 import { useDashboard } from "@/composables/useDashboard";
-import { useIsMobile } from "@/composables/useBreakpoints";
+import { useIsDesktop } from "@/composables/useBreakpoints";
 import type { PostProcessingSelection } from "@/types";
 import { isMediaMode, postProcessingCapabilitiesForQuality } from "@/utils/dashboard";
 
@@ -32,8 +32,14 @@ const {
   setDownloadPostProcessing,
 } = useDashboard();
 
-const isMobile = useIsMobile();
+const isDesktop = useIsDesktop();
 const isAdvancedDialogOpen = ref(false);
+
+// Labels show once the form has room: own row below lg, beside the URL field from lg.
+const MODE_LABEL = "hidden max-lg:@md:inline lg:@4xl:inline";
+const ADVANCED_LABEL = "hidden max-lg:@xl:inline lg:@6xl:inline";
+const ADVANCED_BUTTON =
+  "w-9 px-0 max-lg:@xl:w-auto max-lg:@xl:px-4 lg:@6xl:w-auto lg:@6xl:px-4";
 
 const qualityGroups = computed(() =>
   qualityFieldGroups(selection, qualityOptions.value),
@@ -68,62 +74,54 @@ function setPostProcessing(next: PostProcessingSelection): void {
 <template>
   <!-- Mobile reverses the rows so the URL field sits closest to the keyboard. -->
   <div class="flex flex-col-reverse lg:flex-col gap-3 w-full">
-    <UrlForm />
-
-    <div
-      class="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 w-full py-1"
-    >
-      <div
-        class="flex items-center gap-3 overflow-x-auto no-scrollbar shrink-0 max-w-full"
+    <UrlForm class="@container">
+      <SegmentedControl
+        v-if="qualityOptions.video.length"
+        :model-value="selection.mode"
+        @update:model-value="setMode"
+        aria-label="Mode"
       >
-        <SegmentedControl
-          v-if="qualityOptions.video.length"
-          :model-value="selection.mode"
-          @update:model-value="setMode"
-          aria-label="Mode"
-          class="shrink-0"
+        <SegmentedControlItem
+          v-for="item in MEDIA_MODE_ITEMS"
+          :key="item.value"
+          :value="item.value"
+          :aria-label="item.label"
+          :title="item.title"
         >
-          <SegmentedControlItem
-            v-for="item in MEDIA_MODE_ITEMS"
-            :key="item.value"
-            :value="item.value"
-            :aria-label="item.label"
-            :title="item.title"
-          >
-            <component :is="item.icon" class="w-3.5 h-3.5" aria-hidden="true" />
-            <span class="hidden lg:inline">{{ item.label }}</span>
-          </SegmentedControlItem>
-        </SegmentedControl>
+          <component :is="item.icon" class="w-3.5 h-3.5" aria-hidden="true" />
+          <span :class="MODE_LABEL">{{ item.label }}</span>
+        </SegmentedControlItem>
+      </SegmentedControl>
 
-        <Combobox
-          v-if="quickField"
-          :key="quickField.key"
-          :model-value="selection[quickField.key]"
-          :items="quickField.items"
-          @update:model-value="(val) => quickField && setField(quickField.key, val)"
-          class="shrink-0"
-          :aria-label="quickField.label"
-          :placeholder="quickField.placeholder"
-          :empty-text="quickField.emptyText"
-        />
+      <Combobox
+        v-if="quickField"
+        :key="quickField.key"
+        :model-value="selection[quickField.key]"
+        :items="quickField.items"
+        @update:model-value="(val) => quickField && setField(quickField.key, val)"
+        :layout="isDesktop ? 'fit' : 'fill'"
+        :aria-label="quickField.label"
+        :placeholder="quickField.placeholder"
+        :empty-text="quickField.emptyText"
+      />
 
-        <Button
-          v-if="qualityGroups.length"
-          type="button"
-          variant="outline"
-          aria-label="Advanced settings"
-          title="Advanced settings"
-          @click="isAdvancedDialogOpen = true"
-        >
-          <template #icon>
-            <IconTune aria-hidden="true" />
-          </template>
-          <template v-if="!isMobile">Advanced Settings</template>
-        </Button>
-      </div>
+      <Button
+        v-if="qualityGroups.length"
+        type="button"
+        variant="outline"
+        :class="ADVANCED_BUTTON"
+        aria-label="Advanced settings"
+        title="Advanced settings"
+        @click="isAdvancedDialogOpen = true"
+      >
+        <template #icon>
+          <IconTune aria-hidden="true" />
+        </template>
+        <span :class="ADVANCED_LABEL">Advanced Settings</span>
+      </Button>
+    </UrlForm>
 
-      <TaskFilters class="shrink-0 lg:ml-auto overflow-x-auto no-scrollbar max-w-full" />
-    </div>
+    <TaskFilters />
 
     <Dialog
       v-model:open="isAdvancedDialogOpen"
