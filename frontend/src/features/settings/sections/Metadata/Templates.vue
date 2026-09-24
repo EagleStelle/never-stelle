@@ -8,7 +8,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
+import { Field, FieldContent, FieldLabel, FieldLegend } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useSettingsContext } from "@/features/settings/context";
@@ -197,11 +197,11 @@ function insert(siteKey: string, format: string, token: string): void {
         </AccordionTrigger>
 
         <AccordionContent>
-          <div class="flex flex-col divide-y divide-(--glass-border)">
+          <div class="flex flex-col gap-6">
             <!-- Links no learned format matches follow the default templates. -->
             <div
               v-if="!formatsFor(site.key).length || renameCount(site.key, 'templates')"
-              class="flex flex-wrap items-center justify-between gap-3 pb-4"
+              class="flex flex-wrap items-center justify-between gap-3"
             >
               <p class="flex min-w-0 flex-1 items-start gap-2 text-[0.8125rem] leading-normal text-muted-foreground">
                 <IconInfo class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
@@ -232,108 +232,112 @@ function insert(siteKey: string, format: string, token: string): void {
               </Button>
             </div>
 
-            <section
-              v-for="template in formatsFor(site.key)"
-              :key="template"
-              class="flex flex-col gap-3 py-5 first:pt-1 last:pb-0"
-              :aria-label="displayUrlTemplate(template)"
-            >
-              <div class="flex min-h-8 items-center justify-between gap-3">
-                <p class="min-w-0 font-mono text-[0.8125rem] leading-snug wrap-anywhere text-muted-foreground">
-                  <span
-                    v-for="(part, index) in templateParts(displayUrlTemplate(template))"
-                    :key="index"
-                    :class="part.token && 'text-accent-ink'"
-                    >{{ part.text }}</span
-                  >
-                </p>
-                <Button
-                  compact
-                  variant="secondary"
-                  class="shrink-0"
-                  size="sm"
-                  type="button"
-                  title="Resolve this format"
-                  :disabled="!renameCount(site.key, 'templates', template) || renameRunning(site.key, 'templates', template)"
-                  :aria-busy="renameRunning(site.key, 'templates', template)"
-                  @click="openRename(site.key, site.label, 'templates', template)"
-                >
-                  <template #icon>
-                    <IconResolve
-                      aria-hidden="true"
-                      :class="{ 'animate-spin': renameRunning(site.key, 'templates', template) }"
-                    />
-                  </template>
-                  Resolve History
-                </Button>
-              </div>
-
-              <Field v-for="field in TEMPLATE_FIELDS" :key="field.key">
-                <FieldLabel
-                  :for="inputId(site.key, template, field)"
-                  class="items-center gap-1.5"
-                >
-                  <span>{{ field.label }}</span>
-                  <Tooltip v-if="field.help">
-                    <TooltipTrigger as-child>
-                      <button
-                        type="button"
-                        class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                        :aria-label="`${field.label} help`"
-                      >
-                        <IconInfo class="size-4" aria-hidden="true" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      {{ field.help }}
-                    </TooltipContent>
-                  </Tooltip>
-                </FieldLabel>
-                <FieldContent>
-                  <Input
-                    :id="inputId(site.key, template, field)"
-                    :model-value="getTemplate(site.key, template, field)"
-                    :placeholder="defaultTemplate(field)"
-                    @focus="recordFocus(inputId(site.key, template, field))"
-                    @update:model-value="
-                      (v) => setTemplate(site.key, template, field, String(v))
-                    "
-                  />
-                </FieldContent>
-              </Field>
-
-              <div
-                v-if="baseTokens.length || customTokensFor(site.key).length"
-                class="flex flex-wrap gap-1.5 sm:pl-43"
+            <div v-if="formatsFor(site.key).length" class="flex flex-col gap-10">
+              <section
+                v-for="template in formatsFor(site.key)"
+                :key="template"
+                class="flex flex-col gap-4"
+                :aria-label="displayUrlTemplate(template)"
               >
-                <Button
-                  v-for="token in baseTokens"
-                  :key="token.key"
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  class="font-mono text-[0.8125rem]"
-                  :title="token.description"
-                  @mousedown.prevent
-                  @click="insert(site.key, template, token.key)"
+                <FieldLegend as="div" variant="divider" class="mb-0">
+                  <span class="min-w-0 wrap-anywhere">
+                    <span
+                      v-for="(part, index) in templateParts(displayUrlTemplate(template))"
+                      :key="index"
+                      :class="part.token && 'text-accent-ink'"
+                      >{{ part.text }}</span
+                    >
+                  </span>
+                  <template #end>
+                    <Button
+                      compact
+                      variant="secondary"
+                      class="shrink-0"
+                      size="sm"
+                      type="button"
+                      title="Resolve this format"
+                      :disabled="!renameCount(site.key, 'templates', template) || renameRunning(site.key, 'templates', template)"
+                      :aria-busy="renameRunning(site.key, 'templates', template)"
+                      @click="openRename(site.key, site.label, 'templates', template)"
+                    >
+                      <template #icon>
+                        <IconResolve
+                          aria-hidden="true"
+                          :class="{ 'animate-spin': renameRunning(site.key, 'templates', template) }"
+                        />
+                      </template>
+                      Resolve History
+                    </Button>
+                  </template>
+                </FieldLegend>
+
+                <Field v-for="field in TEMPLATE_FIELDS" :key="field.key">
+                  <FieldLabel
+                    :for="inputId(site.key, template, field)"
+                    class="items-center gap-1.5"
+                  >
+                    <span>{{ field.label }}</span>
+                    <Tooltip v-if="field.help">
+                      <TooltipTrigger as-child>
+                        <button
+                          type="button"
+                          class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                          :aria-label="`${field.label} help`"
+                        >
+                          <IconInfo class="size-4" aria-hidden="true" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {{ field.help }}
+                      </TooltipContent>
+                    </Tooltip>
+                  </FieldLabel>
+                  <FieldContent>
+                    <Input
+                      :id="inputId(site.key, template, field)"
+                      :model-value="getTemplate(site.key, template, field)"
+                      :placeholder="defaultTemplate(field)"
+                      @focus="recordFocus(inputId(site.key, template, field))"
+                      @update:model-value="
+                        (v) => setTemplate(site.key, template, field, String(v))
+                      "
+                    />
+                  </FieldContent>
+                </Field>
+
+                <div
+                  v-if="baseTokens.length || customTokensFor(site.key).length"
+                  class="flex flex-wrap gap-1.5 sm:pl-43"
                 >
-                  {{ token.key }}
-                </Button>
-                <Button
-                  v-for="token in customTokensFor(site.key)"
-                  :key="token"
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  class="font-mono text-[0.8125rem]"
-                  title="Custom token"
-                  @mousedown.prevent
-                  @click="insert(site.key, template, token)"
-                >
-                  {{ token }}
-                </Button>
-              </div>
-            </section>
+                  <Button
+                    v-for="token in baseTokens"
+                    :key="token.key"
+                    variant="outline"
+                    size="sm"
+                    type="button"
+                    class="font-mono text-[0.8125rem]"
+                    :title="token.description"
+                    @mousedown.prevent
+                    @click="insert(site.key, template, token.key)"
+                  >
+                    {{ token.key }}
+                  </Button>
+                  <Button
+                    v-for="token in customTokensFor(site.key)"
+                    :key="token"
+                    variant="outline"
+                    size="sm"
+                    type="button"
+                    class="font-mono text-[0.8125rem]"
+                    title="Custom token"
+                    @mousedown.prevent
+                    @click="insert(site.key, template, token)"
+                  >
+                    {{ token }}
+                  </Button>
+                </div>
+              </section>
+            </div>
           </div>
         </AccordionContent>
       </AccordionItem>
