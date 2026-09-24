@@ -130,7 +130,7 @@ watch(
 </script>
 
 <template>
-  <div class="relative" :class="isCollapsed ? 'flex justify-center' : 'w-full'">
+  <div class="relative w-full">
     <button
       v-if="isBottom"
       ref="trigger"
@@ -148,15 +148,17 @@ watch(
       v-else
       ref="trigger"
       type="button"
-      class="group/account flex min-w-0 items-center gap-3 rounded-lg bg-transparent text-left text-white/80 transition-all duration-300 ease-glass hover:bg-white/10 hover:text-white active:scale-[0.98] in-[.light-mode]:text-black/80 in-[.light-mode]:hover:bg-black/5 in-[.light-mode]:hover:text-black"
-      :class="isCollapsed ? 'h-10 w-10 justify-center px-0' : 'h-12 w-full px-2.5'"
+      class="group/account flex h-10 w-full min-w-0 items-center gap-3 overflow-hidden rounded-lg bg-transparent px-2.5 text-left text-white/80 transition-all duration-300 ease-glass hover:bg-white/10 hover:text-white active:scale-[0.98] in-[.light-mode]:text-black/80 in-[.light-mode]:hover:bg-black/5 in-[.light-mode]:hover:text-black"
       :aria-expanded="open"
       aria-haspopup="menu"
       :title="isCollapsed ? displayUsername : undefined"
       @click="toggleMenu"
     >
       <IconAccount class="shrink-0 h-5 w-5" aria-hidden="true" />
-      <span v-show="isSidebar" class="min-w-0 flex-1">
+      <span
+        class="min-w-0 flex-1 transition-opacity duration-300 ease-glass"
+        :class="isSidebar ? 'opacity-100' : 'opacity-0'"
+      >
         <span class="block truncate text-sm font-semibold leading-tight">
           {{ displayUsername }}
         </span>
@@ -167,9 +169,8 @@ watch(
         </span>
       </span>
       <IconChevronUp
-        v-show="isSidebar"
-        class="h-5 w-5 shrink-0 text-white/50 transition-transform duration-300 in-[.light-mode]:text-black/50"
-        :class="{ 'rotate-180': open }"
+        class="h-5 w-5 shrink-0 text-white/50 transition duration-300 ease-glass in-[.light-mode]:text-black/50"
+        :class="[isSidebar ? 'opacity-100' : 'opacity-0', { 'rotate-180': open }]"
         aria-hidden="true"
       />
     </button>

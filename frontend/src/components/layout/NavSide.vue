@@ -22,35 +22,38 @@ const isExpanded = ref(true);
 
 <template>
   <Sidebar
-    class="hidden lg:flex sticky top-0 h-dvh min-w-0 glass-border-right py-3 px-2.5 transition-all duration-300"
-    :class="isExpanded ? 'w-64' : 'w-16 items-center'"
+    class="hidden lg:flex sticky top-0 h-dvh min-w-0 glass-border-right py-3 px-3 transition-[width] duration-300 ease-glass motion-reduce:transition-none"
+    :class="isExpanded ? 'w-64' : 'w-[calc(4rem+1px)]'"
     aria-label="App navigation"
   >
     <SidebarHeader
-      class="w-full mb-3 h-10 flex-row items-center relative group/header"
-      :class="isExpanded ? 'px-1.5 justify-between' : 'justify-center'"
+      class="w-full mb-3 h-10 px-1 flex-row items-center relative group/header"
     >
       <a
         href="/"
         class="inline-flex items-center min-w-0 gap-3 text-white in-[.light-mode]:text-black hover:text-white in-[.light-mode]:hover:text-black leading-none no-underline transition-opacity duration-300"
-        :class="!isExpanded ? 'group-hover/header:opacity-0' : ''"
+        :class="
+          !isExpanded
+            ? 'group-hover/header:opacity-0 group-has-[button:focus-visible]/header:opacity-0'
+            : ''
+        "
         aria-label="Never Stelle Home"
       >
         <img src="/assets/logo.png" alt="" class="w-8 h-8 shrink-0" />
         <span
-          v-show="isExpanded"
-          class="whitespace-nowrap overflow-hidden font-sans font-bold text-white in-[.light-mode]:text-black text-xl tracking-tight"
+          class="whitespace-nowrap overflow-hidden font-sans font-bold text-white in-[.light-mode]:text-black text-xl tracking-tight transition-opacity duration-300 ease-glass"
+          :class="isExpanded ? 'opacity-100' : 'opacity-0'"
           >Never Stelle</span
         >
       </a>
 
       <button
         @click="isExpanded = !isExpanded"
-        class="flex items-center justify-center text-white/65 in-[.light-mode]:text-black/65 hover:text-white in-[.light-mode]:hover:text-black hover:bg-white/10 in-[.light-mode]:hover:bg-black/5 transition-all duration-300 ease-glass"
+        class="absolute right-0 top-0 w-10 h-10 rounded-lg flex items-center justify-center text-white/65 in-[.light-mode]:text-black/65 hover:text-white in-[.light-mode]:hover:text-black hover:bg-white/10 in-[.light-mode]:hover:bg-black/5 transition-all duration-300 ease-glass"
         :class="
-          isExpanded
-            ? 'w-8 h-8 rounded-lg shrink-0'
-            : 'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-lg opacity-0 group-hover/header:opacity-100'
+          !isExpanded
+            ? 'opacity-0 group-hover/header:opacity-100 focus-visible:opacity-100'
+            : ''
         "
         :aria-label="isExpanded ? 'Collapse sidebar' : 'Expand sidebar'"
       >
@@ -59,17 +62,14 @@ const isExpanded = ref(true);
       </button>
     </SidebarHeader>
 
-    <SidebarContent
-      :class="isExpanded ? 'w-full' : 'items-center w-full'"
-      aria-label="App navigation"
-    >
+    <SidebarContent class="w-full" aria-label="App navigation">
       <SidebarMenu>
         <SidebarMenuItem v-for="item in pageItems" :key="item.key">
           <SidebarMenuButton
             @click="setActivePage(item.key)"
             :aria-pressed="activePage === item.key"
             :title="!isExpanded ? item.label : undefined"
-            :class="!isExpanded ? 'w-10 px-0 justify-center' : ''"
+            class="px-2.5!"
           >
             <component
               :is="item.icon"
@@ -77,8 +77,8 @@ const isExpanded = ref(true);
               aria-hidden="true"
             />
             <span
-              v-show="isExpanded"
-              class="whitespace-nowrap overflow-hidden font-medium"
+              class="whitespace-nowrap overflow-hidden font-medium transition-opacity duration-300 ease-glass"
+              :class="isExpanded ? 'opacity-100' : 'opacity-0'"
               >{{ item.label }}</span
             >
           </SidebarMenuButton>
@@ -86,9 +86,7 @@ const isExpanded = ref(true);
       </SidebarMenu>
     </SidebarContent>
 
-    <SidebarFooter
-      :class="isExpanded ? 'w-full' : 'items-center w-full'"
-    >
+    <SidebarFooter class="w-full">
       <AccountMenu :variant="isExpanded ? 'sidebar' : 'sidebar-collapsed'" />
     </SidebarFooter>
   </Sidebar>
