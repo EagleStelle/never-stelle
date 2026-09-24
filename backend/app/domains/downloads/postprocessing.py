@@ -34,7 +34,7 @@ from backend.app.domains.downloads.constants import (
     post_processing_requested,
     video_audio_codec_supported_by_container,
 )
-from backend.app.domains.downloads.files import chapter_folder
+from backend.app.domains.downloads.files import chapter_folder, prune_empty_parents
 from backend.app.domains.downloads.naming import (
     detect_ffmpeg_location,
     named_title,
@@ -1353,36 +1353,13 @@ def _embed_image_metadata(path: Path, tags: dict[str, str]) -> bool:
         return False
 
 
-def _prune_empty_sidecar_directories(sidecars: list[Path], output_root: Path | None) -> None:
-    if output_root is None:
-        return
-    try:
-        root = output_root.resolve(strict=False)
-    except OSError:
-        return
-    for sidecar in sidecars:
-        parent = sidecar.parent
-        while True:
-            try:
-                resolved = parent.resolve(strict=False)
-            except OSError:
-                break
-            if resolved == root or root not in resolved.parents:
-                break
-            try:
-                parent.rmdir()
-            except OSError:
-                break
-            parent = parent.parent
-
-
 def _remove_source_sidecars(source_sidecars: list[Path], output_root: Path | None, *, keep: set[Path]) -> None:
     for sidecar in source_sidecars:
         if sidecar in keep:
             continue
         with suppress(OSError):
             sidecar.unlink(missing_ok=True)
-    _prune_empty_sidecar_directories(source_sidecars, output_root)
+    prune_empty_parents(source_sidecars, output_root)
 
 
 def _ordered_subtitle_languages(

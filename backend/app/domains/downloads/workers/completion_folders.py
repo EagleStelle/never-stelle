@@ -14,7 +14,7 @@ from typing import Any
 
 from backend.app.core.paths import path_key as _path_key
 from backend.app.domains.downloads.constants import CREATOR_FIELDS, TEMPLATE_RE, quality_label
-from backend.app.domains.downloads.files import find_numbered_media_siblings
+from backend.app.domains.downloads.files import find_numbered_media_siblings, prune_empty_parents
 from backend.app.domains.downloads.naming import sanitize_path_literal
 from backend.app.domains.downloads.workers.completion_values import (
     _clean_creator_candidate,
@@ -80,6 +80,16 @@ class _FolderRenderer:
         segments = [sanitize_path_literal(part) for part in _PATH_SEPARATOR_RE.split(rendered)]
         return [segment for segment in segments if segment and segment not in _NON_SEGMENTS]
 
+    def has_folder(self, template_settings: dict[str, str] | None) -> bool:
+        return bool(self.segments(_template(template_settings, "folder_template")))
+
+    def folder(self, base: Path, template_settings: dict[str, str] | None, grouped: bool) -> Path:
+        """``base`` plus the rendered folder, and the subfolder for a multi-file post."""
+        segments = self.segments(_template(template_settings, "folder_template"))
+        if grouped:
+            segments += self.segments(_template(template_settings, "subfolder_template"))
+        return base.joinpath(*segments)
+
 
 def _render_template_folder(
     output_root: Path,
@@ -91,10 +101,14 @@ def _render_template_folder(
     cleaning: dict[str, Any] | None = None,
     quality: dict[str, str] | None = None,
     title: str = "",
+    *,
+    grouped: bool = False,
 ) -> Path | None:
+    """The folder the templates file a download in, or None when the folder renders empty."""
     renderer = _FolderRenderer(creator, media_id, nickname, extra_tokens, cleaning, quality, title)
-    segments = renderer.segments(_template(template_settings, "folder_template"))
-    return output_root.joinpath(*segments) if segments else None
+    if not renderer.has_folder(template_settings):
+        return None
+    return renderer.folder(output_root, template_settings, grouped)
 
 
 def _placeholder_creator_escape(selected_path: Path, output_root: Path) -> Path | None:
@@ -124,19 +138,17 @@ def _move_group_to_template_folder(
     group_paths: list[Path] | None = None,
 ) -> Path:
     renderer = _FolderRenderer(creator, media_id, nickname, extra_tokens, cleaning, quality, title)
-    segments = renderer.segments(_template(template_settings, "folder_template"))
-    target_dir = (
-        output_root.joinpath(*segments)
-        if segments
+    base = (
+        output_root
+        if renderer.has_folder(template_settings)
         else _placeholder_creator_escape(selected_path, output_root)
     )
-    if target_dir is None:
+    if base is None:
         return selected_path
 
     # Membership decides the subfolder, so it is settled before the target is compared.
     paths = group_paths if group_paths else find_numbered_media_siblings(selected_path) or [selected_path]
-    if len(paths) > 1:
-        target_dir = target_dir.joinpath(*renderer.segments(_template(template_settings, "subfolder_template")))
+    target_dir = renderer.folder(base, template_settings, len(paths) > 1)
     if _path_key(selected_path.parent) == _path_key(target_dir):
         return selected_path
     try:
@@ -144,7 +156,6 @@ def _move_group_to_template_folder(
     except OSError:
         return selected_path
 
-    source_parent = selected_path.parent
     selected = selected_path
     selected_key = _path_key(selected_path)
     for index, path in enumerate(paths):
@@ -160,10 +171,5 @@ def _move_group_to_template_folder(
         paths[index] = moved
         if _path_key(path) == selected_key:
             selected = moved
-    if _path_key(source_parent) != _path_key(output_root):
-        try:
-            if source_parent.exists() and not any(source_parent.iterdir()):
-                source_parent.rmdir()
-        except OSError:
-            pass
+    prune_empty_parents([selected_path], output_root)
     return selected

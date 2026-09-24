@@ -98,6 +98,30 @@ def find_numbered_media_siblings(path: Path) -> list[Path]:
     return sorted(candidates, key=lambda candidate: (_numbered_suffix_value(candidate.stem), candidate.name))
 
 
+def prune_empty_parents(paths: list[Path], root: Path | None) -> None:
+    """Remove the directories left empty above ``paths``, up to but not including ``root``."""
+    if root is None:
+        return
+    try:
+        resolved_root = root.resolve(strict=False)
+    except OSError:
+        return
+    for path in paths:
+        parent = path.parent
+        while True:
+            try:
+                resolved = parent.resolve(strict=False)
+            except OSError:
+                break
+            if resolved == resolved_root or resolved_root not in resolved.parents:
+                break
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent
+
+
 def recover_task_path(task_id: str, task: dict[str, Any], *, persist: bool = True) -> tuple[str, str, str]:
     resolved_full_path = str(task.get("resolved_full_path") or "").strip()
     if resolved_full_path:
