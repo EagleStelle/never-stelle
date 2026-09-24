@@ -38,6 +38,7 @@ const {
   editableSourceProfiles,
   probeFields,
   renameCount,
+  renameRunning,
   openRename,
 } = useSettingsContext();
 const {
@@ -282,13 +283,23 @@ function filledRoles(key: string) {
               class="shrink-0"
               variant="primary"
               type="button"
-              :title="renameCount(site.key, 'fields') ? 'Resolve platform' : 'No field changes'"
+              :title="
+                renameRunning(site.key, 'fields')
+                  ? 'Resolving'
+                  : renameCount(site.key, 'fields')
+                    ? 'Resolve platform'
+                    : 'No field changes'
+              "
               aria-label="Resolve platform"
-              :disabled="!renameCount(site.key, 'fields')"
+              :disabled="!renameCount(site.key, 'fields') || renameRunning(site.key, 'fields')"
+              :aria-busy="renameRunning(site.key, 'fields')"
               @click="openRename(site.key, site.label, 'fields')"
             >
               <template #icon>
-                <IconResolve aria-hidden="true" />
+                <IconResolve
+                  aria-hidden="true"
+                  :class="{ 'animate-spin': renameRunning(site.key, 'fields') }"
+                />
               </template>
             </Button>
           </div>

@@ -23,8 +23,14 @@ from backend.app.domains.settings import (
 from backend.app.domains.settings.fields import FIELD_ROLES
 
 from .constants import CREATOR_FIELDS, RESOLVE_JOB_KIND, NamingKind, ResolveScope, enrichment_job_id
-from .files import payload_path_string
-from .formats import learned_templates_for, match_template, reconstruct_url_candidates
+from .files import is_media_file, payload_path_string
+from .formats import (
+    format_covers,
+    learned_templates_for,
+    match_template,
+    reconstruct_url_candidates,
+    select_for_format,
+)
 from .naming import (
     numbered_suffix_of,
     row_template_fields,
@@ -52,8 +58,9 @@ from .store import (
     save_history_entry_row,
     save_naming_snapshots,
     spent_enrichment_job_ids,
-    unfinished_enrichment_job_count,
+    unfinished_enrichment_jobs,
 )
+from .templates import template_row_fields
 from .urls import detect_source_key
 from .workers.completion_metadata import _configured_role_value
 from .workers.enrichment import ensure_enrichment_worker
@@ -286,24 +293,43 @@ def resolve_scope_counts() -> dict[str, int]:
     return {"flagged": len(_flagged_worklist()), "total": history_entry_count()}
 
 
-def resolve_in_progress() -> int:
-    return unfinished_enrichment_job_count(RESOLVE_JOB_KIND)
+def resolve_activity() -> dict[str, Any]:
+    """How many resolve jobs are unfinished, and per source the naming changes among them.
+
+    ``renaming`` has the shape of ``rename_counts``. It is read from the queue, so it
+    outlives a reload and a restart until the jobs are done.
+    """
+    jobs = unfinished_enrichment_jobs(RESOLVE_JOB_KIND)
+    renaming: dict[str, dict[str, Any]] = {}
+    for job in jobs:
+        naming = job.get("naming")
+        if not isinstance(naming, dict):
+            continue
+        kinds = renaming.setdefault(str(naming.get("source_key") or ""), {"templates": {}, "fields": 0})
+        if naming.get("kind") == "templates":
+            fmt = str(naming.get("format") or "")
+            kinds["templates"][fmt] = kinds["templates"].get(fmt, 0) + 1
+        else:
+            kinds["fields"] += 1
+    return {"resolving": len(jobs), "renaming": renaming}
 
 
-def enqueue_resolve(jobs: dict[str, bool]) -> dict[str, int]:
+def enqueue_resolve(jobs: dict[str, bool], naming: dict[str, str] | None = None) -> dict[str, int]:
     """Queue one pass of ``{task_id: force}`` and return ``{queued, pass_id}``.
 
     Forcing re-probes every token rather than only the missing ones. Each call is its own
     pass: a click that lands while another is running gets its own count, instead of
-    being told the running total of everything queued before it.
+    being told the running total of everything queued before it. ``naming`` marks the
+    jobs with the naming change they resolve.
     """
     pass_id = _open_pass()
+    extra = {"naming": naming} if naming else {}
     queued = enqueue_enrichment_jobs(
         RESOLVE_JOB_KIND,
         [
             (
                 enrichment_job_id(RESOLVE_JOB_KIND, task_id),
-                {"task_id": task_id, "force": force, "pass": pass_id},
+                {"task_id": task_id, "force": force, "pass": pass_id, **extra},
             )
             for task_id, force in jobs.items()
         ],
@@ -345,7 +371,7 @@ def _naming_now() -> dict[str, dict[str, Any]]:
 
 @contextmanager
 def watch_naming_changes() -> Iterator[None]:
-    """Remember what each source's files were named with when a settings write changes it.
+    """Remember what each source was named with when a settings write changes it.
 
     Templates are kept per format and the field order per source, each until it is
     resolved or a later write puts it back.
@@ -359,11 +385,11 @@ def watch_naming_changes() -> Iterator[None]:
         for key, now in after.items():
             then, kept = before.get(key, now), snapshots.get(key, {})
             kept_formats = kept.get("templates", {})
-            formats = {
-                fmt: named_by
-                for fmt, value in now["templates"].items()
-                if (named_by := kept_formats.get(fmt, then["templates"].get(fmt, value))) != value
-            }
+            formats = {}
+            for fmt, value in now["templates"].items():
+                named_by = select_for_format(kept_formats, fmt) or then["templates"].get(fmt, value)
+                if named_by != value:
+                    formats[fmt] = named_by
             fields = kept.get("fields", then["fields"])
             entry = {
                 **({"templates": formats} if formats else {}),
@@ -386,33 +412,50 @@ def _filed_differently(old: dict[str, str], new: dict[str, str], path: Path) -> 
 def _pending_renames() -> dict[str, dict[str, Any]]:
     """Per source, the rows an unresolved naming change affects.
 
-    Template changes group their rows by format; a row is affected when its format now
-    files it differently. A field order change affects rows whose templates use a
-    reordered role, and those are looked up again, as a row only kept the value that
-    won. Rows map to whether they need that lookup. Reads only the rows and settings.
+    A template change is kept per format, and it affects the rows whose link matches
+    that format and whose names its current templates would change. A field order
+    change affects rows whose templates use a reordered role, and those are looked up
+    again, as a row only kept the value that won. Rows map to whether they need that
+    lookup. Reads only the rows and settings.
     """
     snapshots = load_naming_snapshots()
     if not snapshots:
         return {}
     learned = load_learned_formats()
-    pending: dict[str, dict[str, Any]] = {key: {"templates": {}, "fields": {}} for key in snapshots}
+    pending: dict[str, dict[str, Any]] = {}
     with resolution_scope():
-        current = {key: (possible_template_settings(key), get_effective_source_fields(key)) for key in snapshots}
+        current: dict[str, tuple[dict[str, dict[str, str]], list[dict[str, str]], dict[str, Any]]] = {}
+        for key, named_by in snapshots.items():
+            options = possible_template_settings(key)
+            changed = [template_settings_for(options, fmt) for fmt in named_by.get("templates", {})]
+            current[key] = (options, changed, get_effective_source_fields(key))
         for task_id, row in (load_history().get("entries") or {}).items():
             key = normalize_source_key(row.get("source_key"))
             path_value = payload_path_string(row)
             if key not in snapshots or not path_value:
                 continue
-            named_by, (options, fields) = snapshots[key], current[key]
+            named_by, (options, changed, fields) = snapshots[key], current[key]
+            path, stored = Path(path_value), template_row_fields(row)
+            # A row no changed format would rename needs no parse of its link.
+            if "fields" not in named_by and not any(_filed_differently(stored, now, path) for now in changed):
+                continue
             fmt = match_template(learned, key, str(row.get("source_url") or ""))
             templates = template_settings_for(options, fmt)
-            old = named_by.get("templates", {}).get(fmt)
-            if old and _filed_differently(old, templates, Path(path_value)):
-                pending[key]["templates"].setdefault(fmt, {})[str(task_id)] = False
-            if "fields" in named_by:
-                reordered = {role for role in FIELD_ROLES if named_by["fields"].get(role) != fields.get(role)}
-                if reordered & set(settings_tokens(templates)):
-                    pending[key]["fields"][str(task_id)] = True
+            renamed = select_for_format(named_by.get("templates"), fmt) is not None and _filed_differently(
+                stored, templates, path
+            )
+            looked_up = "fields" in named_by and bool(
+                {role for role in FIELD_ROLES if named_by["fields"].get(role) != fields.get(role)}
+                & set(settings_tokens(templates))
+            )
+            # Only an affected row touches the disk: the rename skips what is no media file.
+            if not (renamed or looked_up) or not is_media_file(path):
+                continue
+            kinds = pending.setdefault(key, {"templates": {}, "fields": {}})
+            if renamed:
+                kinds["templates"].setdefault(fmt, {})[str(task_id)] = False
+            if looked_up:
+                kinds["fields"][str(task_id)] = True
     return pending
 
 
@@ -435,13 +478,18 @@ def start_renames(source_key: str, kind: NamingKind, format_template: str = "") 
     """
     key = normalize_source_key(source_key)
     pending = _pending_renames().get(key, {"templates": {}, "fields": {}})
-    jobs = pending["templates"].get(format_template, {}) if kind == "templates" else pending["fields"]
+    if kind == "templates":
+        jobs = pending["templates"].get(format_template, {})
+    else:
+        format_template, jobs = "", pending["fields"]
     with _naming_lock:
         snapshots = load_naming_snapshots()
         entry = snapshots.get(key, {})
         if kind == "templates":
             formats = entry.get("templates", {})
-            formats.pop(format_template, None)
+            # Keys saved before the format generalized name it too.
+            for saved in [saved for saved in formats if format_covers(format_template, saved)]:
+                del formats[saved]
             if not formats:
                 entry.pop("templates", None)
         else:
@@ -449,4 +497,4 @@ def start_renames(source_key: str, kind: NamingKind, format_template: str = "") 
         if not entry:
             snapshots.pop(key, None)
         save_naming_snapshots(snapshots)
-    return enqueue_resolve(jobs)
+    return enqueue_resolve(jobs, {"source_key": key, "kind": kind, "format": format_template})

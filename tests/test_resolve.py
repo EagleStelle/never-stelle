@@ -546,17 +546,17 @@ def test_activity_reports_queued_resolves_until_they_finish(tmp_path: Path, monk
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
 
-    assert resolve_module.resolve_in_progress() == 0
+    assert resolve_module.resolve_activity()["resolving"] == 0
     resolve_module.start_resolve()
     # Queued but not run: the client that reloads still has to see the pass.
-    assert resolve_module.resolve_in_progress() == 1
+    assert resolve_module.resolve_activity()["resolving"] == 1
 
     job = claim_next_enrichment_job()
     assert job is not None
-    assert resolve_module.resolve_in_progress() == 1
+    assert resolve_module.resolve_activity()["resolving"] == 1
     enrichment_module._process_enrichment_job(job)
 
-    assert resolve_module.resolve_in_progress() == 0
+    assert resolve_module.resolve_activity()["resolving"] == 0
 
 
 def _report(pass_id: int) -> dict[str, int]:
@@ -584,7 +584,7 @@ def test_the_pass_report_counts_a_filled_row(tmp_path: Path, monkeypatch: pytest
 
     assert _report(started["pass_id"]) == {"queued": 1, "resolved": 1, "skipped": 0, "failed": 0}
     # The count lands before the job row clears, so a client seeing 0 running reads a settled pass.
-    assert resolve_module.resolve_in_progress() == 0
+    assert resolve_module.resolve_activity()["resolving"] == 0
 
 
 def test_a_row_that_no_longer_needs_anything_counts_as_skipped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -703,7 +703,7 @@ def test_a_spent_resolve_is_not_reported_as_still_running(tmp_path: Path, monkey
     _spend_the_retries()
 
     # Failed rows stay in the table; counting them would spin the UI forever.
-    assert resolve_module.resolve_in_progress() == 0
+    assert resolve_module.resolve_activity()["resolving"] == 0
 
 
 def test_resolve_holds_the_history_lock_while_it_rewrites_the_row(
@@ -893,12 +893,22 @@ def test_a_row_whose_format_kept_its_templates_is_not_renamed(tmp_path: Path, mo
         monkeypatch.setattr(
             resolve_module,
             "possible_template_settings",
-            lambda source_key: {"": base, "https://example.com/v/{id}": {**base, "filename_template": "{{id}}"}},
+            lambda source_key: {"": base, formats[1]: {**base, "filename_template": "{{id}}"}},
         )
 
     assert _pending("templates", format_template=formats[0]) == 0
     # The changed format is remembered, though no row of it is on disk.
     assert list(load_naming_snapshots_payload()["example"]["templates"]) == [formats[1]]
+
+
+def test_a_row_named_differently_is_not_offered_without_a_template_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, CURRENT_TEMPLATE)
+    _seed(tmp_path, creator="Creator")
+
+    assert _pending("templates") == 0
 
 
 def test_a_new_folder_template_moves_the_file_and_clears_the_old_folder(
@@ -1020,8 +1030,22 @@ def test_a_fields_order_change_to_one_source_looks_up_only_its_files(tmp_path: P
     assert [job["id"] for job in load_enrichment_jobs()] == ["resolve:gallerydl:2"]
 
 
-def test_an_unresolved_change_is_kept_in_the_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_an_unresolved_field_order_change_is_kept_in_the_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # It outlives a page refresh and a restart, so the button stays until the change is resolved.
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path, name="Old - Clip [abc123].mp4", creator="Old", filename_template=CURRENT_TEMPLATE)
+    monkeypatch.setattr(resolve_module, "get_effective_source_fields", lambda source_key: {})
+    _save_naming(monkeypatch, fields={"username": ["channel"]})
+
+    assert load_naming_snapshots_payload() == {"example": {"fields": {}}}
+    assert _pending("fields") == 1
+
+    resolve_module.start_renames("example", "fields")
+    assert load_naming_snapshots_payload() == {}
+
+
+def test_an_unresolved_template_change_is_kept_in_the_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch, STORED_TEMPLATE)
     _seed(tmp_path, creator="Creator")
@@ -1033,6 +1057,7 @@ def test_an_unresolved_change_is_kept_in_the_database(tmp_path: Path, monkeypatc
 
     resolve_module.start_renames("example", "templates")
     assert load_naming_snapshots_payload() == {}
+    assert _pending("templates") == 0
 
 
 def test_resolving_templates_leaves_a_field_order_change_pending(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -1043,7 +1068,7 @@ def test_resolving_templates_leaves_a_field_order_change_pending(tmp_path: Path,
     _save_naming(monkeypatch, CURRENT_TEMPLATE, fields={"username": ["channel"]})
 
     assert (_pending("templates"), _pending("fields")) == (1, 1)
-    resolve_module.start_renames("example", "templates")
+    _resolve_platform("templates")
     assert (_pending("templates"), _pending("fields")) == (0, 1)
 
 
@@ -1068,5 +1093,26 @@ def test_resolving_one_format_leaves_the_others_pending(tmp_path: Path, monkeypa
     _save_naming(monkeypatch, CURRENT_TEMPLATE)
 
     assert [_pending("templates", format_template=fmt) for fmt in formats] == [1, 1]
-    resolve_module.start_renames("example", "templates", formats[0])
+    _resolve_platform("templates", format_template=formats[0])
     assert [_pending("templates", format_template=fmt) for fmt in formats] == [0, 1]
+
+
+def test_a_running_rename_is_reported_until_its_files_are_filed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Read from the queue, so a reload keeps the button spinning while the pass runs.
+    use_temp_db(tmp_path, monkeypatch)
+    formats = ["https://example.com/p/{id}", "https://example.com/v/{id}"]
+    monkeypatch.setattr(resolve_module, "learned_templates_for", lambda learned, key: formats)
+    monkeypatch.setattr(resolve_module, "match_template", lambda learned, key, url: formats[0])
+    _pin_template(monkeypatch, STORED_TEMPLATE)
+    _seed(tmp_path, creator="Creator")
+    monkeypatch.setattr(resolve_module, "get_effective_source_fields", lambda source_key: {})
+    _save_naming(monkeypatch, CURRENT_TEMPLATE, fields={"username": ["channel"]})
+
+    result = resolve_module.start_renames("example", "templates", formats[0])
+    assert library_activity()["renaming"] == {"example": {"templates": {formats[0]: 1}, "fields": 0}}
+
+    _drain(result["queued"] + 1)
+    assert library_activity()["renaming"] == {}
+
+    resolve_module.start_renames("example", "fields")
+    assert library_activity()["renaming"] == {"example": {"templates": {}, "fields": 1}}

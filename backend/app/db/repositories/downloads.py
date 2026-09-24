@@ -445,22 +445,27 @@ def count_active_download_tasks() -> int:
     return int(row[0] or 0)
 
 
-def count_enrichment_jobs_payload(statuses: tuple[str, ...], kind: str = "") -> int:
-    """Jobs in the given states, optionally of one kind.
+def count_enrichment_jobs_payload(statuses: tuple[str, ...]) -> int:
+    """Jobs in the given states.
 
     A finished job is deleted and a spent one is 'failed', so neither is ever counted.
     """
-    clauses = [f"status IN ({', '.join('?' for _ in statuses)})"]
-    params: list[str] = list(statuses)
-    if kind:
-        clauses.append("kind = ?")
-        params.append(str(kind))
     with transaction() as connection:
         row = connection.execute(
-            f"SELECT COUNT(*) FROM download_enrichment_jobs WHERE {' AND '.join(clauses)}",
-            tuple(params),
+            f"SELECT COUNT(*) FROM download_enrichment_jobs WHERE status IN ({', '.join('?' for _ in statuses)})",
+            tuple(statuses),
         ).fetchone()
     return int(row[0] or 0)
+
+
+def load_unfinished_enrichment_jobs_payload(kind: str) -> list[dict[str, Any]]:
+    """The payloads of one kind's pending and running jobs."""
+    with transaction() as connection:
+        rows = connection.execute(
+            "SELECT payload FROM download_enrichment_jobs WHERE kind = ? AND status IN ('pending', 'running')",
+            (str(kind),),
+        ).fetchall()
+    return [_json_dict(row["payload"]) for row in rows]
 
 
 def requeue_running_enrichment_jobs_payload() -> int:

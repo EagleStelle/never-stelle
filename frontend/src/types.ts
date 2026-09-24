@@ -448,6 +448,8 @@ export interface TasksResponse {
   tasks: TaskItem[];
   scanning?: number;
   resolving?: number;
+  // Per platform, the queued files of a naming change resolve still running.
+  renaming?: RenameCounts;
   resolve_passes?: Record<string, ResolvePassReport>;
   counts?: TaskCounts;
   counts_by_menu?: Partial<Record<string, TaskCounts>>;

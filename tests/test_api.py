@@ -243,10 +243,10 @@ def test_a_template_saved_through_settings_is_offered_as_a_rename(tmp_path, monk
 
     assert client.get("/api/library/rename").json() == {"example": {"templates": {"": 1}, "fields": 0}}
     assert client.post("/api/library/rename", json={"source_key": "example", "kind": "templates"}).json()["queued"] == 1
-    assert client.get("/api/library/rename").json() == {}
-    # The renames run on the background queue.
+    # The renames run on the background queue, and the file counts until it is renamed.
     enrichment_module._process_enrichment_job(repositories.claim_next_enrichment_job_payload())
     assert (tmp_path / "Clip [abc123].mp4").is_file()
+    assert client.get("/api/library/rename").json() == {}
 
 
 def test_settings_put_accepts_format_keyed_source_templates(tmp_path, monkeypatch):

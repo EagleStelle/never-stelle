@@ -31,8 +31,10 @@ export interface SettingsContext {
   reorderFormatTemplates: (sourceKey: string, templates: string[]) => Promise<void>;
   saveSettingsDraft: () => Promise<void>;
   copySettingsToDraft: () => void;
-  // Files a source's saved but unresolved change affects; templates count per format.
+  // Files the current naming would file differently; templates count per format.
   renameCount: (sourceKey: string, kind: NamingKind, format?: string) => number;
+  // Whether a resolve of that change is still running on the server.
+  renameRunning: (sourceKey: string, kind: NamingKind, format?: string) => boolean;
   openRename: (sourceKey: string, label: string, kind: NamingKind, format?: string) => void;
   close: () => void;
 }

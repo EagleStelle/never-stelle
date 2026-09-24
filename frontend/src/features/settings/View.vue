@@ -25,6 +25,7 @@ const {
   reorderCookies,
   openRename,
   renameCount,
+  renameRunning,
   reorderFormatTemplates,
   saveSettingsDraft,
   settings,
@@ -74,6 +75,7 @@ provideSettingsContext({
   saveSettingsDraft,
   copySettingsToDraft,
   renameCount,
+  renameRunning,
   openRename,
   close: () => {
     openModel.value = false;

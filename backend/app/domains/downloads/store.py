@@ -36,6 +36,7 @@ from backend.app.db.repositories import (
     load_naming_snapshots_payload,
     load_task_payload,
     load_task_store_payload,
+    load_unfinished_enrichment_jobs_payload,
     merge_learned_formats_payload,
     merge_task_payload,
     next_pending_task_payload,
@@ -189,8 +190,9 @@ def spent_enrichment_job_ids() -> set[str]:
     return load_failed_enrichment_job_ids()
 
 
-def unfinished_enrichment_job_count(kind: str) -> int:
-    return count_enrichment_jobs_payload(("pending", "running"), kind)
+def unfinished_enrichment_jobs(kind: str) -> list[dict[str, Any]]:
+    """The payloads of one kind's jobs still queued or running."""
+    return load_unfinished_enrichment_jobs_payload(kind)
 
 
 def requeue_running_enrichment_jobs() -> int:

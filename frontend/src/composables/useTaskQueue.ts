@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, ref, watch, type Ref } from "vue";
 import { useMutation, useQuery } from "@tanstack/vue-query";
-import { useEventListener, useIntervalFn } from "@vueuse/core";
+import { useEventListener, useIntervalFn, useSessionStorage } from "@vueuse/core";
 
 import {
   addTask as createTask,
@@ -115,9 +115,12 @@ export function useTaskQueue({
   const resolveOpen = ref(false);
   const resolveFlagged = ref(0);
   const resolveTotal = ref(0);
-  const pendingResolvePasses = ref<number[]>([]);
+  // Kept per tab, so a reload still reports the passes this tab started.
+  const pendingResolvePasses = useSessionStorage<number[]>("neverstelle.resolvePasses", []);
   const renameCounts = ref<RenameCounts>({});
   const renameTarget = ref<RenameTarget | null>(null);
+  // Covers the gap between the click and the first poll that sees the queued jobs.
+  const renameStarting = ref<RenameTarget | null>(null);
 
   const tasksQuery = useQuery<TasksResponse>({
     queryKey: TASKS_QUERY_KEY,
@@ -368,6 +371,7 @@ export function useTaskQueue({
     const reports = tasksQuery.data.value?.resolve_passes || {};
     const idle = !historyResolving.value;
     const waiting: number[] = [];
+    let settled = false;
     for (const passId of pendingResolvePasses.value) {
       const report = reports[String(passId)];
       // Gone with the process that ran it, so there is nothing left to report.
@@ -381,8 +385,11 @@ export function useTaskQueue({
         continue;
       }
       toast(resolvedMessage(report));
+      settled = true;
     }
     pendingResolvePasses.value = waiting;
+    // Files that moved no longer count against their format.
+    if (settled) void loadRenameCounts();
   }
 
   async function trackResolvePass(passId: number): Promise<void> {
@@ -408,7 +415,7 @@ export function useTaskQueue({
     }
   }
 
-  // Which platforms have unresolved template or field order changes, kept by the server.
+  // Per platform, the files its current templates or field order would file differently.
   async function loadRenameCounts(): Promise<void> {
     try {
       renameCounts.value = await getRenameCounts();
@@ -417,9 +424,20 @@ export function useTaskQueue({
     }
   }
 
+  function namingCount(counts: RenameCounts | undefined, key: string, kind: NamingKind, format: string): number {
+    const entry = counts?.[key];
+    return (kind === "templates" ? entry?.templates[format] : entry?.fields) || 0;
+  }
+
   function renameCount(key: string, kind: NamingKind, format = ""): number {
-    const counts = renameCounts.value[key];
-    return (kind === "templates" ? counts?.templates[format] : counts?.fields) || 0;
+    return namingCount(renameCounts.value, key, kind, format);
+  }
+
+  // Read from the task poll, so a reload keeps spinning until the queued files are filed.
+  function renameRunning(key: string, kind: NamingKind, format = ""): boolean {
+    const starting = renameStarting.value;
+    if (starting?.key === key && starting.kind === kind && starting.format === format) return true;
+    return namingCount(tasksQuery.data.value?.renaming, key, kind, format) > 0;
   }
 
   function openRename(key: string, label: string, kind: NamingKind, format = ""): void {
@@ -430,6 +448,7 @@ export function useTaskQueue({
     const target = renameTarget.value;
     if (!target) return;
     renameTarget.value = null;
+    renameStarting.value = target;
     try {
       const result = await renameMutation.mutateAsync({
         source_key: target.key,
@@ -444,6 +463,8 @@ export function useTaskQueue({
       await trackResolvePass(result.pass_id);
     } catch (error) {
       toast(errorMessage(error, "Could not resolve files."), "error");
+    } finally {
+      renameStarting.value = null;
     }
   }
 
@@ -501,6 +522,7 @@ export function useTaskQueue({
     refreshHistory,
     removeTask,
     renameCount,
+    renameRunning,
     renameTarget,
     resolveFlagged,
     resolveOpen,

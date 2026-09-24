@@ -41,6 +41,7 @@ const {
   learnedFormatsDraft,
   editableSourceProfiles,
   renameCount,
+  renameRunning,
   openRename,
 } = useSettingsContext();
 
@@ -217,13 +218,23 @@ function insert(siteKey: string, format: string, token: string): void {
                 class="shrink-0"
                 variant="primary"
                 type="button"
-                :title="renameCount(site.key, 'templates') ? 'Resolve these files' : 'No template changes'"
+                :title="
+                  renameRunning(site.key, 'templates')
+                    ? 'Resolving'
+                    : renameCount(site.key, 'templates')
+                      ? 'Resolve these files'
+                      : 'No template changes'
+                "
                 aria-label="Resolve these files"
-                :disabled="!renameCount(site.key, 'templates')"
+                :disabled="!renameCount(site.key, 'templates') || renameRunning(site.key, 'templates')"
+                :aria-busy="renameRunning(site.key, 'templates')"
                 @click="openRename(site.key, site.label, 'templates')"
               >
                 <template #icon>
-                  <IconResolve aria-hidden="true" />
+                  <IconResolve
+                    aria-hidden="true"
+                    :class="{ 'animate-spin': renameRunning(site.key, 'templates') }"
+                  />
                 </template>
               </Button>
             </Card>
@@ -237,13 +248,26 @@ function insert(siteKey: string, format: string, token: string): void {
                   class="shrink-0"
                   variant="primary"
                   type="button"
-                  :title="renameCount(site.key, 'templates', template) ? 'Resolve this format' : 'No template changes'"
+                  :title="
+                    renameRunning(site.key, 'templates', template)
+                      ? 'Resolving'
+                      : renameCount(site.key, 'templates', template)
+                        ? 'Resolve this format'
+                        : 'No template changes'
+                  "
                   aria-label="Resolve this format"
-                  :disabled="!renameCount(site.key, 'templates', template)"
+                  :disabled="
+                    !renameCount(site.key, 'templates', template) ||
+                    renameRunning(site.key, 'templates', template)
+                  "
+                  :aria-busy="renameRunning(site.key, 'templates', template)"
                   @click="openRename(site.key, site.label, 'templates', template)"
                 >
                   <template #icon>
-                    <IconResolve aria-hidden="true" />
+                    <IconResolve
+                      aria-hidden="true"
+                      :class="{ 'animate-spin': renameRunning(site.key, 'templates', template) }"
+                    />
                   </template>
                 </Button>
               </CardHeader>
