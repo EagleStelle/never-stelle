@@ -10,7 +10,7 @@ export type TaskStatus =
 export type TaskFilter = "all" | "active" | "done";
 export type MediaFilter = "all" | "image" | "video";
 export type ViewMode = "grid" | "table";
-export type MediaMode = "video" | "audio";
+export type MediaMode = "merged" | "video" | "audio";
 export type SettingsSection =
   | "account"
   | "defaults"
@@ -177,9 +177,9 @@ export interface QualityPreset {
   key: string;
   label: string;
   icon?: Component;
-  // Container presets carry codecs they can play back; codec pickers filter on them.
+  // Container presets carry the codecs and audio formats they can hold; pickers filter on them.
   codecs?: string[];
-  audio_codecs?: string[];
+  audio_formats?: string[];
   embed_capabilities?: Array<
     "metadata" | "subtitles" | "automatic_subtitles" | "chapters" | "thumbnail"
   >;
@@ -190,16 +190,17 @@ export interface QualitySelection {
   video_quality: string;
   video_container: string;
   video_codec: string;
-  video_audio_codec: string;
   audio_format: string;
   audio_bitrate: string;
 }
+
+// The mode new downloads start in, plus the selection remembered for each mode.
+export type QualityDefaults = { mode: MediaMode } & Record<MediaMode, QualitySelection>;
 
 export interface QualityOptions {
   video: QualityPreset[];
   video_containers: QualityPreset[];
   video_codecs: QualityPreset[];
-  video_audio_codecs: QualityPreset[];
   audio_formats: QualityPreset[];
   audio_bitrates: QualityPreset[];
 }
@@ -264,7 +265,7 @@ export interface SavedSettings {
   source_locations: SourceLocations;
   template_settings: TemplateSettings;
   source_templates: SourceTemplates;
-  default_quality: QualitySelection;
+  default_quality: QualityDefaults;
   default_post_processing: PostProcessingSelection;
   source_scrape_rules: SourceScrapeRules;
   source_token_roles: SourceTokenRoles;
@@ -356,7 +357,7 @@ export interface UiConfigResponse {
   default_naming?: NamingDefaults;
   tracker_settings?: Partial<TrackerSettings>;
   source_tracker_tabs?: SourceTrackerTabs;
-  default_quality?: Partial<QualitySelection>;
+  default_quality?: Partial<QualityDefaults>;
   default_post_processing?: Partial<PostProcessingSelection>;
   quality_options?: Partial<QualityOptions>;
   template_tokens?: TemplateToken[];

@@ -137,14 +137,15 @@ ResolveScope = Literal["flagged", "all"]
 # What a saved naming change touched: the templates, or the field order they read from.
 NamingKind = Literal["templates", "fields"]
 
-# Video mode caps resolution and prefers codecs the merge container can play.
+# Video modes cap resolution and prefer codecs the container can play.
 # Audio Auto stays native-only; explicit audio/video format choices add ffmpeg
 # postprocessing so the requested output can be produced when absent upstream.
-DEFAULT_MEDIA_MODE = "video"
+# Merged is video with audio, Video is video without audio.
+MEDIA_MODES = ("merged", "video", "audio")
+DEFAULT_MEDIA_MODE = "merged"
 DEFAULT_VIDEO_QUALITY = "best"
 DEFAULT_VIDEO_CONTAINER = "auto"
 DEFAULT_VIDEO_CODEC = "auto"
-DEFAULT_VIDEO_AUDIO_CODEC = "auto"
 DEFAULT_AUDIO_FORMAT = "auto"
 DEFAULT_AUDIO_BITRATE = "best"
 
@@ -206,42 +207,6 @@ VIDEO_CODEC_ENCODERS: dict[str, dict[str, str]] = {
 }
 _ALL_VIDEO_CODECS = frozenset(key for key in VIDEO_CODEC_PRESETS if key != "auto")
 
-# Embedded audio codec for video downloads. This is separate from audio-only
-# `audio_format`: an explicit choice transcodes the audio stream inside the
-# final video file.
-VIDEO_AUDIO_CODEC_PRESETS: dict[str, dict[str, str]] = {
-    "auto": {"label": "Auto"},
-    "aac": {"label": "AAC"},
-    "opus": {"label": "Opus"},
-    "mp3": {"label": "MP3"},
-    "flac": {"label": "FLAC"},
-}
-VIDEO_AUDIO_CODEC_FOURCC: dict[str, tuple[str, ...]] = {
-    "aac": ("mp4a", "aac"),
-    "opus": ("opus",),
-    "mp3": ("mp3", "mpga"),
-    "flac": ("flac",),
-}
-VIDEO_AUDIO_CODEC_ENCODERS: dict[str, str] = {
-    "aac": "aac",
-    "opus": "libopus",
-    "mp3": "libmp3lame",
-    "flac": "flac",
-}
-VIDEO_AUDIO_CODEC_TARGET_CONTAINERS: dict[str, str] = {
-    "aac": "mp4",
-    "mp3": "mp4",
-    "opus": "webm",
-    "flac": "mkv",
-}
-VIDEO_CONTAINER_AUDIO_CODECS: dict[str, tuple[str, ...]] = {
-    "auto": tuple(codec for codec in VIDEO_AUDIO_CODEC_PRESETS if codec != "auto"),
-    "mp4": ("aac", "mp3"),
-    "webm": ("opus",),
-    "mkv": tuple(codec for codec in VIDEO_AUDIO_CODEC_PRESETS if codec != "auto"),
-}
-_ALL_VIDEO_AUDIO_CODECS = frozenset(key for key in VIDEO_AUDIO_CODEC_PRESETS if key != "auto")
-
 
 def container_vcodec_filter(container: Any) -> str:
     codecs = VIDEO_CONTAINER_PRESETS.get(str(container or "").strip().lower(), {}).get("codecs") or []
@@ -252,10 +217,10 @@ def container_vcodec_filter(container: Any) -> str:
 
 
 def container_acodec_filter(container: Any) -> str:
-    codecs = VIDEO_CONTAINER_AUDIO_CODECS.get(str(container or "").strip().lower(), ())
-    if _ALL_VIDEO_AUDIO_CODECS.issubset(codecs):
+    formats = VIDEO_CONTAINER_AUDIO_FORMATS.get(str(container or "").strip().lower(), ())
+    if _ALL_AUDIO_FORMATS.issubset(formats):
         return ""
-    prefixes = [fourcc for codec in codecs for fourcc in VIDEO_AUDIO_CODEC_FOURCC.get(codec, ())]
+    prefixes = dict.fromkeys(fourcc for key in formats for fourcc in AUDIO_FORMAT_FOURCC.get(key, ()))
     return f"[acodec~='^({'|'.join(prefixes)})']" if prefixes else ""
 
 
@@ -293,9 +258,8 @@ def video_codec_filter(codec: Any) -> str:
     return f"[vcodec~='^({'|'.join(prefixes)})']" if prefixes else ""
 
 
-def video_audio_codec_filter(codec: Any) -> str:
-    codec_key = str(codec or "").strip().lower()
-    prefixes = VIDEO_AUDIO_CODEC_FOURCC.get(codec_key, ())
+def audio_format_acodec_filter(audio_format: Any) -> str:
+    prefixes = AUDIO_FORMAT_FOURCC.get(str(audio_format or "").strip().lower(), ())
     return f"[acodec~='^({'|'.join(prefixes)})']" if prefixes else ""
 
 
@@ -303,19 +267,27 @@ def video_format_selector(
     video_quality: Any,
     container: Any,
     codec: Any = DEFAULT_VIDEO_CODEC,
-    video_audio_codec: Any = DEFAULT_VIDEO_AUDIO_CODEC,
+    audio_format: Any = DEFAULT_AUDIO_FORMAT,
+    audio_bitrate: Any = DEFAULT_AUDIO_BITRATE,
+    *,
+    with_audio: bool = True,
 ) -> str:
     # Separate video+audio leads every rung: a muxed `best` is capped far below the source
     # (YouTube tops out at 720p there), so trying it first silently downgrades. Constraints
     # then relax rung by rung, ending on bare `best` for extractors that expose no
     # height/vcodec/acodec fields and would otherwise reject a plain media URL.
+    # Without audio, a muxed `best` still serves sites that never split the streams.
     preset = VIDEO_QUALITY_PRESETS.get(str(video_quality or "").strip(), VIDEO_QUALITY_PRESETS[DEFAULT_VIDEO_QUALITY])
     height_filter = f"[height<={preset['height']}]" if preset["height"] else ""
     fps_filter = f"[fps>={preset['fps']}]" if preset["fps"] else ""
-    selected_vcodec = video_codec_filter(codec)
-    selected_acodec = video_audio_codec_filter(video_audio_codec)
-    vcodec = selected_vcodec or container_vcodec_filter(container)
-    acodec = selected_acodec or container_acodec_filter(container)
+    vcodec = video_codec_filter(codec) or container_vcodec_filter(container)
+    if with_audio:
+        video, audio = "bestvideo*", "+bestaudio"
+        acodec = audio_format_acodec_filter(audio_format) or container_acodec_filter(container)
+        kbps = AUDIO_BITRATE_PRESETS.get(str(audio_bitrate or "").strip(), {}).get("kbps")
+        bitrate_filter = f"[abr<={kbps}]" if kbps else ""
+    else:
+        video, audio, acodec, bitrate_filter = "bestvideo", "", "", ""
     container_key = str(container or "").strip().lower()
     # `[height<=N]` already walks down to the best rendition at or below N; dropping the
     # fps demand first keeps 1080p60 on a 30fps source at 1080p instead of uncapped.
@@ -323,15 +295,15 @@ def video_format_selector(
     branches = [
         branch
         for cap in caps
-        for branch in (f"bestvideo*{cap}{vcodec}+bestaudio{acodec}", f"best{cap}{vcodec}{acodec}")
+        for branch in (f"{video}{cap}{vcodec}{audio}{acodec}{bitrate_filter}", f"best{cap}{vcodec}{acodec}")
     ]
-    if height_filter or fps_filter or vcodec or acodec:
+    if height_filter or fps_filter or vcodec or acodec or bitrate_filter:
         for cap in caps:
-            branches.append(f"bestvideo*{cap}+bestaudio")
+            branches.append(f"{video}{cap}{audio}")
             if container_key in VIDEO_CONTAINER_PRESETS and container_key != "auto":
                 branches.append(f"best{cap}[ext={container_key}]")
             branches.append(f"best{cap}")
-        branches.extend(["bestvideo*+bestaudio", "best"])
+        branches.extend([f"{video}{audio}", "best"])
     return "/".join(dict.fromkeys(branches))
 
 
@@ -384,18 +356,50 @@ AUDIO_OUTPUT_EXTENSIONS: dict[str, str] = {
     "flac": ".flac",
     "wav": ".wav",
 }
+# How each audio format travels inside a video file: its stream fourcc, encoder,
+# and the container that fits it best. M4A and AAC are both an AAC stream.
+AUDIO_FORMAT_FOURCC: dict[str, tuple[str, ...]] = {
+    "mp3": ("mp3", "mpga"),
+    "m4a": ("mp4a", "aac"),
+    "opus": ("opus",),
+    "aac": ("mp4a", "aac"),
+    "flac": ("flac",),
+    "wav": ("pcm",),
+}
+AUDIO_FORMAT_ENCODERS: dict[str, str] = {
+    "mp3": "libmp3lame",
+    "m4a": "aac",
+    "opus": "libopus",
+    "aac": "aac",
+    "flac": "flac",
+    "wav": "pcm_s16le",
+}
+AUDIO_FORMAT_TARGET_CONTAINERS: dict[str, str] = {
+    "mp3": "mp4",
+    "m4a": "mp4",
+    "opus": "webm",
+    "aac": "mp4",
+    "flac": "mkv",
+    "wav": "mkv",
+}
+_ALL_AUDIO_FORMATS = frozenset(key for key in AUDIO_FORMAT_PRESETS if key != "auto")
+VIDEO_CONTAINER_AUDIO_FORMATS: dict[str, tuple[str, ...]] = {
+    "auto": tuple(key for key in AUDIO_FORMAT_PRESETS if key != "auto"),
+    "mp4": ("aac", "m4a", "mp3"),
+    "webm": ("opus",),
+    "mkv": tuple(key for key in AUDIO_FORMAT_PRESETS if key != "auto"),
+}
 
 
 def is_lossless_audio(audio_format: Any) -> bool:
     return str(audio_format or "").strip().lower() in LOSSLESS_AUDIO_FORMATS
 
 
-def video_audio_codec_supported_by_container(codec: Any, container: Any) -> bool:
-    codec_key = str(codec or "").strip().lower()
-    if codec_key in ("", "auto"):
+def audio_format_supported_by_container(audio_format: Any, container: Any) -> bool:
+    format_key = str(audio_format or "").strip().lower()
+    if format_key in ("", "auto"):
         return True
-    codecs = VIDEO_CONTAINER_AUDIO_CODECS.get(str(container or "").strip().lower(), ())
-    return codec_key in codecs
+    return format_key in VIDEO_CONTAINER_AUDIO_FORMATS.get(str(container or "").strip().lower(), ())
 
 
 def audio_postprocess_format(selection: dict[str, str] | None) -> str:
@@ -418,34 +422,54 @@ def audio_postprocess_quality(selection: dict[str, str] | None) -> str:
     return AUDIO_BITRATE_PRESETS[selection["audio_bitrate"]]["ytdlp"]
 
 
-def _container_supports_video_audio(container: str, video_codec: str, audio_codec: str) -> bool:
-    return codec_supported_by_container(video_codec, container) and video_audio_codec_supported_by_container(
-        audio_codec, container
+def merged_audio_track(selection: dict[str, str] | None) -> tuple[str, str]:
+    """The audio format and bitrate a Merged download's audio follows; Auto elsewhere."""
+    selection = normalize_quality_selection(selection)
+    if selection["mode"] != "merged":
+        return DEFAULT_AUDIO_FORMAT, DEFAULT_AUDIO_BITRATE
+    format_key = selection["audio_format"]
+    return format_key, DEFAULT_AUDIO_BITRATE if is_lossless_audio(format_key) else selection["audio_bitrate"]
+
+
+def _container_supports_video_audio(container: str, video_codec: str, audio_format: str) -> bool:
+    return codec_supported_by_container(video_codec, container) and audio_format_supported_by_container(
+        audio_format, container
     )
 
 
-def _video_auto_recode_container(video_codec: str, audio_codec: str) -> str:
+def _video_auto_recode_container(video_codec: str, audio_format: str) -> str:
     if video_codec != "auto":
         preferred = VIDEO_CODEC_ENCODERS.get(video_codec, {}).get("container", "")
-        if preferred and _container_supports_video_audio(preferred, video_codec, audio_codec):
+        if preferred and _container_supports_video_audio(preferred, video_codec, audio_format):
             return preferred
-    if audio_codec != "auto":
-        preferred = VIDEO_AUDIO_CODEC_TARGET_CONTAINERS.get(audio_codec, "")
-        if preferred and _container_supports_video_audio(preferred, video_codec, audio_codec):
+    if audio_format != "auto":
+        preferred = AUDIO_FORMAT_TARGET_CONTAINERS.get(audio_format, "")
+        if preferred and _container_supports_video_audio(preferred, video_codec, audio_format):
             return preferred
     return MERGE_FALLBACK_CONTAINER
+
+
+def video_remux_format(selection: dict[str, str] | None) -> str:
+    """Video only changes an explicit container by remux when no codec is chosen."""
+    selection = normalize_quality_selection(selection)
+    if selection["mode"] != "video" or selection["video_codec"] != "auto":
+        return ""
+    container_key = selection["video_container"]
+    return "" if container_key == "auto" else container_key
 
 
 def video_recode_format(selection: dict[str, str] | None) -> str:
     selection = normalize_quality_selection(selection)
     container_key = selection["video_container"]
     codec_key = selection["video_codec"]
-    audio_codec_key = selection["video_audio_codec"]
+    audio_format, _ = merged_audio_track(selection)
+    if selection["mode"] == "video" and codec_key == "auto":
+        return ""
     if container_key != "auto":
         return container_key
     if codec_key != "auto":
-        return _video_auto_recode_container(codec_key, audio_codec_key)
-    if audio_codec_key != "auto":
+        return _video_auto_recode_container(codec_key, audio_format)
+    if audio_format != "auto":
         return MERGE_FALLBACK_CONTAINER
     return ""
 
@@ -458,25 +482,21 @@ def video_recode_encoder(selection: dict[str, str] | None) -> str:
     return VIDEO_CODEC_ENCODERS.get(codec_key, {}).get("ffmpeg", "")
 
 
-def video_audio_recode_encoder(selection: dict[str, str] | None) -> str:
-    selection = normalize_quality_selection(selection)
-    codec_key = selection["video_audio_codec"]
-    if codec_key == "auto":
-        return ""
-    return VIDEO_AUDIO_CODEC_ENCODERS.get(codec_key, "")
-
-
 def video_recode_args(selection: dict[str, str] | None) -> list[str]:
     selection = normalize_quality_selection(selection)
     args: list[str] = []
     video_encoder = video_recode_encoder(selection)
     if video_encoder:
         args.extend(["-c:v", video_encoder])
-    audio_encoder = video_audio_recode_encoder(selection)
+    audio_format, audio_bitrate = merged_audio_track(selection)
+    audio_encoder = AUDIO_FORMAT_ENCODERS.get(audio_format, "")
     if audio_encoder:
         if not video_encoder and selection["video_container"] == "auto":
             args.extend(["-c:v", "copy"])
         args.extend(["-c:a", audio_encoder])
+        kbps = AUDIO_BITRATE_PRESETS[audio_bitrate]["kbps"]
+        if kbps:
+            args.extend(["-b:a", f"{kbps}k"])
     return args
 
 
@@ -522,6 +542,21 @@ def audio_format_selector(audio_format: Any, audio_bitrate: Any) -> str:
     return "/".join(dict.fromkeys(branches))
 
 
+def quality_format_selector(selection: dict[str, str] | None) -> str:
+    selection = normalize_quality_selection(selection)
+    if selection["mode"] == "audio":
+        return audio_format_selector(selection["audio_format"], selection["audio_bitrate"])
+    audio_format, audio_bitrate = merged_audio_track(selection)
+    return video_format_selector(
+        selection["video_quality"],
+        selection["video_container"],
+        selection["video_codec"],
+        audio_format,
+        audio_bitrate,
+        with_audio=selection["mode"] == "merged",
+    )
+
+
 def normalize_quality_selection(raw: Any) -> dict[str, str]:
     data = raw if isinstance(raw, dict) else {}
 
@@ -530,36 +565,40 @@ def normalize_quality_selection(raw: Any) -> dict[str, str]:
         return key if key in table else fallback
 
     mode = str(data.get("mode") or "").strip().lower()
+    if mode not in MEDIA_MODES:
+        mode = DEFAULT_MEDIA_MODE
     video_container = pick(
         str(data.get("video_container") or "").lower(), VIDEO_CONTAINER_PRESETS, DEFAULT_VIDEO_CONTAINER
     )
     video_codec = pick(str(data.get("video_codec") or "").lower(), VIDEO_CODEC_PRESETS, DEFAULT_VIDEO_CODEC)
-    video_audio_codec = pick(
-        str(data.get("video_audio_codec") or "").lower(),
-        VIDEO_AUDIO_CODEC_PRESETS,
-        DEFAULT_VIDEO_AUDIO_CODEC,
-    )
     audio_format = pick(str(data.get("audio_format") or "").lower(), AUDIO_FORMAT_PRESETS, DEFAULT_AUDIO_FORMAT)
     # An explicit codec the container can't play back (e.g. VP9 in MP4) would mux an
     # unplayable video stream, so fall back to Auto and let the format filter pick a
     # container-compatible codec instead.
     if not codec_supported_by_container(video_codec, video_container):
         video_codec = DEFAULT_VIDEO_CODEC
-    if not video_audio_codec_supported_by_container(video_audio_codec, video_container):
-        video_audio_codec = DEFAULT_VIDEO_AUDIO_CODEC
+    # Same for the audio track Merged puts in that container.
+    if mode == "merged" and not audio_format_supported_by_container(audio_format, video_container):
+        audio_format = DEFAULT_AUDIO_FORMAT
     return {
-        "mode": mode if mode in {"video", "audio"} else DEFAULT_MEDIA_MODE,
+        "mode": mode,
         "video_quality": pick(data.get("video_quality"), VIDEO_QUALITY_PRESETS, DEFAULT_VIDEO_QUALITY),
         "video_container": video_container,
         "video_codec": video_codec,
-        "video_audio_codec": video_audio_codec,
         "audio_format": audio_format,
         "audio_bitrate": pick(data.get("audio_bitrate"), AUDIO_BITRATE_PRESETS, DEFAULT_AUDIO_BITRATE),
     }
 
 
-def default_quality_selection() -> dict[str, str]:
-    return normalize_quality_selection({})
+def normalize_quality_defaults(raw: Any) -> dict[str, Any]:
+    """The mode new downloads start in, plus the selection remembered for each mode."""
+    data = raw if isinstance(raw, dict) else {}
+    mode = str(data.get("mode") or "").strip().lower()
+    defaults: dict[str, Any] = {"mode": mode if mode in MEDIA_MODES else DEFAULT_MEDIA_MODE}
+    for key in MEDIA_MODES:
+        entry = data.get(key)
+        defaults[key] = normalize_quality_selection({**(entry if isinstance(entry, dict) else {}), "mode": key})
+    return defaults
 
 
 # Extractor clients exposing artwork a site's default client omits. Downloaders
@@ -600,20 +639,19 @@ def _options(table: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
 def quality_options() -> dict[str, list[dict[str, Any]]]:
     return {
         "video": _options(VIDEO_QUALITY_PRESETS),
-        # Compatibility lists let the UI offer only container-compatible codecs
-        # (Auto always fits).
+        # Compatibility lists let the UI offer only container-compatible codecs and
+        # audio formats (Auto always fits).
         "video_containers": [
             {
                 "key": key,
                 "label": preset["label"],
                 "codecs": list(preset.get("codecs") or []),
-                "audio_codecs": list(VIDEO_CONTAINER_AUDIO_CODECS.get(key) or []),
+                "audio_formats": list(VIDEO_CONTAINER_AUDIO_FORMATS.get(key) or []),
                 "embed_capabilities": list(preset.get("embed_capabilities") or []),
             }
             for key, preset in VIDEO_CONTAINER_PRESETS.items()
         ],
         "video_codecs": _options(VIDEO_CODEC_PRESETS),
-        "video_audio_codecs": _options(VIDEO_AUDIO_CODEC_PRESETS),
         "audio_formats": [
             {
                 "key": key,

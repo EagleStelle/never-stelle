@@ -131,7 +131,7 @@ export function useDownloadDashboard() {
       if (!downloadQualityTouched.value)
         Object.assign(
           downloadSelection,
-          createQualitySelection(value, qualityOptions.value),
+          createQualitySelection(value[value.mode], qualityOptions.value),
         );
     },
     { deep: true, immediate: true },

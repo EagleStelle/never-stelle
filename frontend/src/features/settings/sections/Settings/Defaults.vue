@@ -31,14 +31,16 @@ import {
 } from "@/components/ui/tooltip";
 import type { CookiePolicyField, NamingChoice } from "@/types";
 import {
-  isAudioCodecCompatibleWithVideoContainer,
-  isCodecCompatibleWithContainer,
-  isLosslessAudioFormat,
+  createQualitySelection,
+  isMediaMode,
   postProcessingCapabilitiesForDefaults,
-  videoAudioCodecOptionsForContainer,
-  videoCodecOptionsForContainer,
 } from "@/utils/dashboard";
 import PostProcessingFields from "@/features/downloads/PostProcessingFields.vue";
+import {
+  MEDIA_MODE_ITEMS,
+  qualityFieldGroups,
+  type QualityField,
+} from "@/features/downloads/qualityFields";
 import { COOKIE_POLICY_FIELDS } from "@/features/settings/cookiePolicy";
 import { useSettingsContext } from "@/features/settings/context";
 import {
@@ -70,19 +72,27 @@ const {
   setChoice,
 } = useNamingSettings(settingsDraft, settings);
 
-// Only codecs the chosen container can play back (Auto always fits); prevents VP9-in-MP4.
-const videoCodecItems = computed(() =>
-  videoCodecOptionsForContainer(
-    settings.quality_options,
-    settingsDraft.default_quality.video_container,
-  ),
+// Each mode remembers its own selection; the fields edit the active mode's.
+const defaultSelection = computed(
+  () => settingsDraft.default_quality[settingsDraft.default_quality.mode],
 );
-const videoAudioCodecItems = computed(() =>
-  videoAudioCodecOptionsForContainer(
-    settings.quality_options,
-    settingsDraft.default_quality.video_container,
-  ),
+const qualityGroups = computed(() =>
+  qualityFieldGroups(defaultSelection.value, settings.quality_options),
 );
+
+function setDefaultMode(value: string | string[]): void {
+  if (isMediaMode(value)) settingsDraft.default_quality.mode = value;
+}
+
+function setDefaultField(key: QualityField["key"], value: string): void {
+  Object.assign(
+    defaultSelection.value,
+    createQualitySelection(
+      { ...defaultSelection.value, [key]: value },
+      settings.quality_options,
+    ),
+  );
+}
 
 const defaultEmbedCapabilities = computed(() =>
   postProcessingCapabilitiesForDefaults(
@@ -96,29 +106,6 @@ function setDefaultPostProcessing(next: typeof settingsDraft.default_post_proces
   // video choice merely because the currently configured audio format cannot
   // carry it; the download toolbar filters only the task being submitted.
   Object.assign(settingsDraft.default_post_processing, next);
-}
-
-function updateContainer(container: string): void {
-  settingsDraft.default_quality.video_container = container;
-  // A codec the new container can't play back would force an unplayable stream; reset to Auto.
-  if (
-    !isCodecCompatibleWithContainer(
-      settingsDraft.default_quality.video_codec,
-      container,
-      settings.quality_options.video_containers,
-    )
-  ) {
-    settingsDraft.default_quality.video_codec = "auto";
-  }
-  if (
-    !isAudioCodecCompatibleWithVideoContainer(
-      settingsDraft.default_quality.video_audio_codec,
-      container,
-      settings.quality_options.video_containers,
-    )
-  ) {
-    settingsDraft.default_quality.video_audio_codec = "auto";
-  }
 }
 
 const policyEdits = reactive<Partial<Record<CookiePolicyField, string>>>({});
@@ -291,79 +278,39 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
   <TooltipProvider>
     <div class="flex flex-col gap-10">
       <FieldSet>
-        <FieldLegend>Video</FieldLegend>
-        <FieldGroup>
-          <Combobox
-            :model-value="settingsDraft.default_quality.video_quality"
-            :items="settings.quality_options.video"
-            @update:model-value="
-              (val) => (settingsDraft.default_quality.video_quality = val)
-            "
-            label="Quality"
-            label-placement="start"
-            placeholder="Choose a quality"
-            empty-text="No presets."
-          />
-          <Combobox
-            :model-value="settingsDraft.default_quality.video_container"
-            :items="settings.quality_options.video_containers"
-            @update:model-value="(val) => updateContainer(val)"
-            label="Container"
-            label-placement="start"
-            placeholder="Choose a container"
-            empty-text="No containers."
-          />
-          <Combobox
-            :model-value="settingsDraft.default_quality.video_codec"
-            :items="videoCodecItems"
-            @update:model-value="
-              (val) => (settingsDraft.default_quality.video_codec = val)
-            "
-            label="Video codec"
-            label-placement="start"
-            placeholder="Video codec..."
-            empty-text="No codecs."
-          />
-          <Combobox
-            :model-value="settingsDraft.default_quality.video_audio_codec"
-            :items="videoAudioCodecItems"
-            @update:model-value="
-              (val) => (settingsDraft.default_quality.video_audio_codec = val)
-            "
-            label="Audio codec"
-            label-placement="start"
-            placeholder="Choose an audio codec"
-            empty-text="No audio codecs."
-          />
-        </FieldGroup>
+        <FieldLegend>Mode</FieldLegend>
+        <SegmentedControl
+          :model-value="settingsDraft.default_quality.mode"
+          aria-label="Mode"
+          class="self-start"
+          @update:model-value="setDefaultMode"
+        >
+          <SegmentedControlItem
+            v-for="item in MEDIA_MODE_ITEMS"
+            :key="item.value"
+            :value="item.value"
+            :aria-label="item.label"
+            :title="item.title"
+          >
+            <component :is="item.icon" class="w-3.5 h-3.5" aria-hidden="true" />
+            <span>{{ item.label }}</span>
+          </SegmentedControlItem>
+        </SegmentedControl>
       </FieldSet>
 
-      <FieldSet>
-        <FieldLegend>Audio</FieldLegend>
+      <FieldSet v-for="group in qualityGroups" :key="group.legend">
+        <FieldLegend>{{ group.legend }}</FieldLegend>
         <FieldGroup>
-          <!-- Bitrate leads, the way video quality does; format takes the container slot. -->
           <Combobox
-            v-if="!isLosslessAudioFormat(settingsDraft.default_quality.audio_format)"
-            :model-value="settingsDraft.default_quality.audio_bitrate"
-            :items="settings.quality_options.audio_bitrates"
-            @update:model-value="
-              (val) => (settingsDraft.default_quality.audio_bitrate = val)
-            "
-            label="Bitrate"
+            v-for="field in group.fields"
+            :key="field.key"
+            :model-value="defaultSelection[field.key]"
+            :items="field.items"
+            @update:model-value="(val) => setDefaultField(field.key, val)"
+            :label="field.label"
             label-placement="start"
-            placeholder="Choose a bitrate"
-            empty-text="No bitrates."
-          />
-          <Combobox
-            :model-value="settingsDraft.default_quality.audio_format"
-            :items="settings.quality_options.audio_formats"
-            @update:model-value="
-              (val) => (settingsDraft.default_quality.audio_format = val)
-            "
-            label="Format"
-            label-placement="start"
-            placeholder="Choose a format"
-            empty-text="No formats."
+            :placeholder="field.placeholder"
+            :empty-text="field.emptyText"
           />
         </FieldGroup>
       </FieldSet>

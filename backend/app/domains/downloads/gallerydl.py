@@ -16,18 +16,18 @@ from .constants import (
     TITLE_MAX_CHARS_DEFAULT,
     VIDEO_CODEC_PRESETS,
     artwork_extractor_args,
-    audio_format_selector,
     audio_postprocess_format,
     audio_postprocess_quality,
     normalize_post_processing,
     normalize_quality_selection,
     normalize_title_cleaning,
     post_processing_requested,
-    video_format_selector,
+    quality_format_selector,
     video_merge_output_format,
     video_merger_args,
     video_recode_args,
     video_recode_format,
+    video_remux_format,
 )
 from .formats import (
     derived_token_value,
@@ -132,22 +132,11 @@ def _ytdl_downloader_options(
 ) -> list[str]:
     selection = normalize_quality_selection(quality)
     processing = normalize_post_processing(post_processing)
-    audio_mode = selection["mode"] == "audio"
-    format_string = (
-        audio_format_selector(selection["audio_format"], selection["audio_bitrate"])
-        if audio_mode
-        else video_format_selector(
-            selection["video_quality"],
-            selection["video_container"],
-            selection["video_codec"],
-            selection["video_audio_codec"],
-        )
-    )
     options = [
         *_ytdl_options("module", "yt_dlp"),
         "-o",
         _YTDL_EXTRACTOR_ENABLED_OPTION,
-        *_ytdl_options("format", format_string),
+        *_ytdl_options("format", quality_format_selector(selection)),
         *_ytdl_options("raw-options.js_runtimes", _YTDL_JS_RUNTIMES),
         *_ytdl_options("raw-options.remote_components", _YTDL_REMOTE_COMPONENTS),
         *_ytdl_options("raw-options.trim_file_names", str(trim_length)),
@@ -159,7 +148,7 @@ def _ytdl_downloader_options(
         )
     postprocessors: list[dict[str, str]] = []
     postprocessor_args: dict[str, list[str]] = {}
-    if audio_mode:
+    if selection["mode"] == "audio":
         target_format = audio_postprocess_format(selection)
         if target_format:
             processor = {"key": "FFmpegExtractAudio", "preferredcodec": target_format}
@@ -170,22 +159,27 @@ def _ytdl_downloader_options(
         ffmpeg_location = detect_ffmpeg_location() if postprocessors else ""
     else:
         recode_format = video_recode_format(selection)
-        # Prefer native merge containers in Auto mode; codec-changing merge steps and
-        # recodes use MKV as the universal intermediate.
-        merge_format = video_merge_output_format(selection)
-        options.extend(_ytdl_options("raw-options.merge_output_format", merge_format))
+        if selection["mode"] == "merged":
+            # Prefer native merge containers in Auto mode; codec-changing merge steps and
+            # recodes use MKV as the universal intermediate.
+            merge_format = video_merge_output_format(selection)
+            options.extend(_ytdl_options("raw-options.merge_output_format", merge_format))
         codec_sort = VIDEO_CODEC_PRESETS[selection["video_codec"]]["sort"]
         if codec_sort:
             # Soft preference; the format filter enforces container compatibility.
             options.extend(_ytdl_options("raw-options.format_sort", f"vcodec:{codec_sort}"))
+        remux_format = video_remux_format(selection)
+        if remux_format:
+            postprocessors.append({"key": "FFmpegVideoRemuxer", "preferedformat": remux_format})
         if recode_format:
             postprocessors.append({"key": "FFmpegVideoConvertor", "preferedformat": recode_format})
             recode_args = video_recode_args(selection)
             if recode_args:
                 postprocessor_args["VideoConvertor+ffmpeg_o"] = recode_args
-        merger_args = video_merger_args(selection)
-        if merger_args:
-            postprocessor_args["Merger+ffmpeg_o"] = merger_args
+        if selection["mode"] == "merged":
+            merger_args = video_merger_args(selection)
+            if merger_args:
+                postprocessor_args["Merger+ffmpeg_o"] = merger_args
         ffmpeg_location = detect_ffmpeg_location()
     if (
         processing["subtitles"] != "off"

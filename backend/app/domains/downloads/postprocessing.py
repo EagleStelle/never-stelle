@@ -17,22 +17,23 @@ from urllib.parse import urlparse
 from xml.sax.saxutils import escape
 
 from backend.app.domains.downloads.constants import (
+    AUDIO_FORMAT_ENCODERS,
+    AUDIO_FORMAT_FOURCC,
     IMAGE_EXTENSIONS,
     MEDIA_ONLY_POST_PROCESSING_FEATURES,
     POST_PROCESSING_FEATURES,
     SUBTITLE_LANGUAGES_ALL,
-    VIDEO_AUDIO_CODEC_ENCODERS,
-    VIDEO_AUDIO_CODEC_FOURCC,
     VIDEO_CODEC_ENCODERS,
     VIDEO_CODEC_FOURCC,
-    VIDEO_CONTAINER_AUDIO_CODECS,
+    VIDEO_CONTAINER_AUDIO_FORMATS,
     VIDEO_CONTAINER_PRESETS,
+    audio_format_supported_by_container,
     codec_supported_by_container,
+    merged_audio_track,
     normalize_post_processing,
     normalize_quality_selection,
     post_processing_modes,
     post_processing_requested,
-    video_audio_codec_supported_by_container,
 )
 from backend.app.domains.downloads.files import chapter_folder, prune_empty_parents
 from backend.app.domains.downloads.naming import (
@@ -894,8 +895,8 @@ def _incompatible_output_streams(
         elif codec_type == "audio":
             ordinal = audio_ordinal
             audio_ordinal += 1
-            codec = _stream_codec_key(stream, VIDEO_AUDIO_CODEC_FOURCC)
-            if codec and not video_audio_codec_supported_by_container(codec, container):
+            codec = _stream_codec_key(stream, AUDIO_FORMAT_FOURCC)
+            if codec and not audio_format_supported_by_container(codec, container):
                 incompatible_audio.append(ordinal)
     return incompatible_video, incompatible_audio
 
@@ -995,8 +996,8 @@ def _repair_container_codecs(ffmpeg: str, path: Path, container: str) -> bool:
         _PORTABLE_VIDEO_CODEC_ORDER,
     )
     audio_codec = _preferred_codec(
-        list(VIDEO_CONTAINER_AUDIO_CODECS.get(container) or []),
-        VIDEO_AUDIO_CODEC_ENCODERS,
+        list(VIDEO_CONTAINER_AUDIO_FORMATS.get(container) or []),
+        AUDIO_FORMAT_ENCODERS,
         _PORTABLE_AUDIO_CODEC_ORDER,
     )
     if (video_streams and not video_codec) or (audio_streams and not audio_codec):
@@ -1009,7 +1010,7 @@ def _repair_container_codecs(ffmpeg: str, path: Path, container: str) -> bool:
             for ordinal in video_streams:
                 cmd.extend([f"-c:v:{ordinal}", VIDEO_CODEC_ENCODERS[video_codec]["ffmpeg"]])
             for ordinal in audio_streams:
-                cmd.extend([f"-c:a:{ordinal}", VIDEO_AUDIO_CODEC_ENCODERS[audio_codec]])
+                cmd.extend([f"-c:a:{ordinal}", AUDIO_FORMAT_ENCODERS[audio_codec]])
             cmd.append(str(output_path))
             produced, detail = _run_ffmpeg(cmd, output_path)
             if not produced:
@@ -1024,6 +1025,24 @@ def _repair_container_codecs(ffmpeg: str, path: Path, container: str) -> bool:
             return True
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("Codec compatibility repair skipped for %s: %s", path, exc)
+        return False
+
+
+def _strip_audio_streams(ffmpeg: str, path: Path) -> bool:
+    """Drop the audio a muxed-only source left in a Video only download."""
+    if not any(str(stream.get("codec_type") or "").lower() == "audio" for stream in _ffprobe_streams(ffmpeg, path)):
+        return False
+    try:
+        with staging_file(path, prefix="nvs-strip-audio-") as output_path:
+            cmd = [*_stream_copy_command(ffmpeg, str(path)), "-map", "-0:a", str(output_path)]
+            produced, detail = _run_ffmpeg(cmd, output_path)
+            if not produced:
+                logger.warning("Audio strip skipped for %s: %s", path, detail)
+                return False
+            publish_staged_file(output_path, path, cancel_check=raise_if_cancelled)
+            return True
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Audio strip skipped for %s: %s", path, exc)
         return False
 
 
@@ -1061,7 +1080,7 @@ def ensure_container_codec_compatibility(
     """Repair known codec/container mismatches in any extractor's final outputs."""
 
     selection = normalize_quality_selection(quality)
-    if selection["mode"] != "video":
+    if selection["mode"] == "audio":
         return False
     candidates = [
         (path, container)
@@ -1077,15 +1096,19 @@ def ensure_container_codec_compatibility(
     native_auto = (
         selection["video_container"] == "auto"
         and selection["video_codec"] == "auto"
-        and selection["video_audio_codec"] == "auto"
+        and merged_audio_track(selection)[0] == "auto"
     )
     updates = path_updates if path_updates is not None else {}
+    changed = False
+    if selection["mode"] == "video":
+        for path, _container in candidates:
+            raise_if_cancelled()
+            changed = _strip_audio_streams(ffmpeg, path) or changed
     empty_vpcc = {
         path: offsets
         for path, container in candidates
         if container == "mp4" and (offsets := _empty_vpcc_type_offsets(path))
     }
-    changed = False
     for path, offsets in empty_vpcc.items():
         raise_if_cancelled()
         changed = _repair_empty_vpcc(
@@ -1901,7 +1924,7 @@ def apply_finalized_post_processing(
     modes = {feature: post_processing_modes(processing, feature) for feature in POST_PROCESSING_FEATURES}
     wanted = {feature for feature, selected in modes.items() if selected}
     selection = normalize_quality_selection(quality)
-    auto_output = selection["video_container" if selection["mode"] == "video" else "audio_format"] == "auto"
+    auto_output = selection["audio_format" if selection["mode"] == "audio" else "video_container"] == "auto"
 
     thumbnail: tuple[bytes, str] = (b"", "")
     subtitles: list[dict[str, Any]] = []

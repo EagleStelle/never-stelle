@@ -371,16 +371,17 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     monkeypatch.setattr(operations_module, "resolve_task_settings", lambda *a, **k: resolved)
     monkeypatch.setattr(operations_module, "is_allowed_location", lambda location: True)
     saved_default = {
-        "mode": "video",
+        "mode": "merged",
         "video_quality": "1080p",
         "video_container": "mp4",
         "video_codec": "auto",
-        "video_audio_codec": "auto",
         "audio_format": "mp3",
         "audio_bitrate": "best",
     }
+    # A request without quality takes the default mode's remembered selection.
+    saved_defaults = {"mode": "merged", "merged": saved_default, "audio": {"mode": "audio", "audio_format": "flac"}}
     monkeypatch.setattr(
-        operations_module, "get_effective_saved_settings", lambda cfg: {"default_quality": saved_default}
+        operations_module, "get_effective_saved_settings", lambda cfg: {"default_quality": saved_defaults}
     )
     monkeypatch.setattr(operations_module, "task_to_api", lambda task_id, task: task)
 
@@ -401,7 +402,6 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
         "video_quality": "best",
         "video_container": "auto",
         "video_codec": "auto",
-        "video_audio_codec": "auto",
         "audio_format": "opus",
         "audio_bitrate": "320",
     }
@@ -419,7 +419,7 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
     operations_module.queue_task(
         "https://example.test/watch?v=metadata",
         quality={
-            "mode": "video",
+            "mode": "merged",
             "_post_processing": {"metadata": "both", "subtitle_languages": ["en"]},
         },
     )
@@ -439,7 +439,7 @@ def test_queue_task_stores_quality_and_falls_back_to_saved_default(tmp_path: Pat
 
     operations_module.queue_task(
         "https://example.test/watch?v=3",
-        quality={"mode": "video", "video_container": "webm", "video_codec": "vp9"},
+        quality={"mode": "merged", "video_container": "webm", "video_codec": "vp9"},
     )
     assert captured["task"]["quality"]["video_container"] == "webm"
     assert captured["task"]["quality"]["video_codec"] == "vp9"
@@ -529,7 +529,7 @@ def test_user_metadata_sidecar_uses_the_final_settings_pipeline_values(tmp_path:
         postprocessing_module.extractor_payload_from_sidecars(sidecars, {"description": "Description"}),
         _finalized_for(final),
         post_processing={"metadata": "sidecar"},
-        quality={"mode": "video", "video_container": "mp4"},
+        quality={"mode": "merged", "video_container": "mp4"},
         sidecars=sidecars,
         output_root=tmp_path,
     )
@@ -577,7 +577,7 @@ def test_embedded_metadata_uses_the_final_settings_pipeline_values(
         postprocessing_module.extractor_payload_from_sidecars([raw_sidecar], {}),
         _finalized_for(media),
         post_processing={"metadata": "embed"},
-        quality={"mode": "video", "video_container": "mkv"},
+        quality={"mode": "merged", "video_container": "mkv"},
         sidecars=[raw_sidecar],
     )
 
@@ -786,7 +786,7 @@ def test_thumbnail_sidecar_uses_the_final_media_name(tmp_path: Path, monkeypatch
         postprocessing_module.extractor_payload_from_sidecars([extractor_sidecar], {}),
         _finalized_for(media),
         post_processing={"thumbnail": "sidecar"},
-        quality={"mode": "video", "video_container": "mp4"},
+        quality={"mode": "merged", "video_container": "mp4"},
         sidecars=[extractor_sidecar],
         output_root=tmp_path,
     )
@@ -959,7 +959,7 @@ def test_manual_and_auto_subtitle_sidecars_are_separate_and_use_final_name(tmp_p
         postprocessing_module.extractor_payload_from_sidecars([extractor_sidecar], {}),
         _finalized_for(media),
         post_processing={"subtitles": "sidecar", "automatic_subtitles": "sidecar"},
-        quality={"mode": "video", "video_container": "mp4"},
+        quality={"mode": "merged", "video_container": "mp4"},
         sidecars=[extractor_sidecar],
         output_root=tmp_path,
     )
@@ -1123,7 +1123,7 @@ def test_chapter_sidecar_uses_final_name_and_normalizes_boundaries(tmp_path: Pat
         postprocessing_module.extractor_payload_from_sidecars([extractor_sidecar], {}),
         _finalized_for(media),
         post_processing={"chapters": "sidecar"},
-        quality={"mode": "video", "video_container": "mp4"},
+        quality={"mode": "merged", "video_container": "mp4"},
         sidecars=[extractor_sidecar],
         output_root=tmp_path,
     )
@@ -1168,7 +1168,7 @@ def test_chapters_embed_from_the_same_normalized_payload(
         },
         _finalized_for(media),
         post_processing={"chapters": "embed"},
-        quality={"mode": "video", "video_container": "mkv"},
+        quality={"mode": "merged", "video_container": "mkv"},
     )
 
     assert media.read_bytes() == b"embedded"
@@ -1214,7 +1214,7 @@ def test_every_sidecar_mode_writes_from_one_payload(
             "automatic_subtitles": "sidecar",
             "chapters": "sidecar",
         },
-        quality={"mode": "video", "video_container": "mp4"},
+        quality={"mode": "merged", "video_container": "mp4"},
         sidecars=[extractor_sidecar],
         output_root=tmp_path,
     )
@@ -1426,7 +1426,7 @@ def test_unsupported_metadata_embed_does_not_fail_the_download(
         {},
         _finalized_for(media),
         post_processing={"metadata": "embed"},
-        quality={"mode": "video", "video_container": "mkv"},
+        quality={"mode": "merged", "video_container": "mkv"},
     )
 
     assert media.read_bytes() == b"original"
@@ -1595,7 +1595,7 @@ def test_finished_video_repairs_codec_mismatches_from_any_extractor(
     monkeypatch.setattr(postprocessing_module, "run_task_subprocess", fake_run)
 
     assert postprocessing_module.ensure_container_codec_compatibility(
-        [media], {"mode": "video", "video_container": "mp4"}
+        [media], {"mode": "merged", "video_container": "mp4"}
     )
     assert media.read_bytes() == b"portable-output"
     assert "libx264" in commands[0]
@@ -1624,11 +1624,10 @@ def test_finished_video_auto_mode_never_runs_compatibility_transcode(
     assert not postprocessing_module.ensure_container_codec_compatibility(
         [media],
         {
-            "mode": "video",
+            "mode": "merged",
             "video_quality": "best",
             "video_container": "auto",
             "video_codec": "auto",
-            "video_audio_codec": "auto",
         },
     )
 
@@ -1669,11 +1668,10 @@ def test_finished_video_losslessly_repairs_empty_vpcc_in_auto_mode(
     assert postprocessing_module.ensure_container_codec_compatibility(
         paths,
         {
-            "mode": "video",
+            "mode": "merged",
             "video_quality": "best",
             "video_container": "auto",
             "video_codec": "auto",
-            "video_audio_codec": "auto",
         },
         path_updates=updates,
     )
@@ -1712,11 +1710,10 @@ def test_finished_video_auto_remuxes_vp9_mp4_to_webm_without_encoding(
     assert postprocessing_module.ensure_container_codec_compatibility(
         paths,
         {
-            "mode": "video",
+            "mode": "merged",
             "video_quality": "best",
             "video_container": "auto",
             "video_codec": "auto",
-            "video_audio_codec": "auto",
         },
         path_updates=updates,
     )
@@ -1725,6 +1722,44 @@ def test_finished_video_auto_remuxes_vp9_mp4_to_webm_without_encoding(
     assert not media.exists()
     assert commands[0][commands[0].index("-c") + 1] == "copy"
     assert all("libvpx" not in argument and "libx" not in argument for argument in commands[0])
+
+
+def test_finished_video_only_strips_audio_only_when_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    muxed = tmp_path / "muxed.mp4"
+    muxed.write_bytes(b"\x00\x00\x00\x18ftypisom-muxed")
+    silent = tmp_path / "silent.mp4"
+    silent.write_bytes(b"\x00\x00\x00\x18ftypisom-silent")
+    commands: list[list[str]] = []
+
+    def fake_streams(_ffmpeg, path):
+        streams = [{"codec_type": "video", "codec_name": "h264", "codec_tag_string": "avc1"}]
+        if Path(path) == muxed:
+            streams.append({"codec_type": "audio", "codec_name": "aac", "codec_tag_string": "mp4a"})
+        return streams
+
+    def fake_run(cmd, **kwargs):
+        commands.append(cmd)
+        Path(cmd[-1]).write_bytes(b"video-stream-copy")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(postprocessing_module, "_ffprobe_streams", fake_streams)
+    monkeypatch.setattr(postprocessing_module, "run_task_subprocess", fake_run)
+
+    # Merged keeps its audio.
+    assert not postprocessing_module.ensure_container_codec_compatibility([muxed, silent], {"mode": "merged"})
+    assert not commands
+
+    assert postprocessing_module.ensure_container_codec_compatibility([muxed, silent], {"mode": "video"})
+    # Only the file that carried audio costs an ffmpeg pass, and it copies streams.
+    assert len(commands) == 1
+    assert commands[0][commands[0].index("-i") + 1] == str(muxed)
+    assert commands[0][commands[0].index("-0:a") - 1] == "-map"
+    assert commands[0][commands[0].index("-c") + 1] == "copy"
+    assert muxed.read_bytes() == b"video-stream-copy"
+    assert silent.read_bytes() == b"\x00\x00\x00\x18ftypisom-silent"
 
 
 def test_retry_task_rebuilds_with_selected_engine(monkeypatch: pytest.MonkeyPatch):
@@ -2035,7 +2070,7 @@ def test_render_template_folder_renders_selected_quality():
         {"folder_template": "{{quality}}/{{username}}"},
         creator="artist",
         media_id="4483553",
-        quality={"mode": "video", "video_quality": "1080p"},
+        quality={"mode": "merged", "video_quality": "1080p"},
     )
 
     assert folder == Path("/media/rule34video/1080p/artist")
@@ -2373,7 +2408,7 @@ def test_clean_template_filename_renders_selected_quality_when_rebuilding():
         "Clip [4483553].mp4",
         "{{quality}} - {{title}} [{{id}}]",
         media_id="4483553",
-        quality={"mode": "video", "video_quality": "1080p"},
+        quality={"mode": "merged", "video_quality": "1080p"},
     )
 
     assert result == "1080p - [4483553].mp4"
@@ -2433,7 +2468,7 @@ def test_clean_resolved_filename_rerenders_selected_quality(tmp_path: Path):
         "rule34video",
         creator_hint="Artist",
         media_id_hint="4483553",
-        quality={"mode": "video", "video_quality": "1080p"},
+        quality={"mode": "merged", "video_quality": "1080p"},
     )
 
     expected = tmp_path / "1080p - [4483553].mp4"
@@ -2925,7 +2960,7 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
         "gallerydl:abc123",
         metadata={"id": "abc123", "username": "creator"},
         template_settings={"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"},
-        quality={"mode": "video", "video_quality": "720p"},
+        quality={"mode": "merged", "video_quality": "720p"},
         output_root=str(tmp_path),
         extra_tokens={"artist": "creator"},
         token_roles={"example": {"artist": "username"}},
@@ -2944,11 +2979,10 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
             "filename_template": "{{title}} [{{id}}]",
         },
         "quality": {
-            "mode": "video",
+            "mode": "merged",
             "video_quality": "720p",
             "video_container": "auto",
             "video_codec": "auto",
-            "video_audio_codec": "auto",
             "audio_format": "auto",
             "audio_bitrate": "best",
         },
@@ -4787,8 +4821,8 @@ def test_a_setting_saved_on_a_format_follows_it_once_generalized():
 def test_convert_template_quality_uses_selected_label_best_reads_source():
     tmpl = "{{id}}_{{quality}}"
     url = "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/"
-    assert convert_template_to_ytdlp(tmpl, url, {"mode": "video", "video_quality": "best"}).endswith("_source")
-    assert convert_template_to_ytdlp(tmpl, url, {"mode": "video", "video_quality": "1080p"}).endswith("_1080p")
+    assert convert_template_to_ytdlp(tmpl, url, {"mode": "merged", "video_quality": "best"}).endswith("_source")
+    assert convert_template_to_ytdlp(tmpl, url, {"mode": "merged", "video_quality": "1080p"}).endswith("_1080p")
 
 
 def test_convert_template_quality_without_selection_keeps_metadata_specifier():

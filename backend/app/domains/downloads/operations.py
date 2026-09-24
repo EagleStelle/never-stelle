@@ -78,7 +78,8 @@ def queue_task(
         if isinstance(quality, dict)
         else {}
     )
-    raw_quality = requested_quality or saved_settings.get("default_quality")
+    defaults = saved_settings["default_quality"]
+    raw_quality = requested_quality or defaults[defaults["mode"]]
     post_processing = normalize_post_processing(
         requested_post_processing
         if requested_post_processing is not None

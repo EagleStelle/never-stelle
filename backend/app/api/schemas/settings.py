@@ -10,7 +10,7 @@ class SettingsPayload(BaseModel):
     template_settings: dict[str, str] = Field(default_factory=dict)
     source_profiles: list[dict[str, Any]] | dict[str, Any] = Field(default_factory=list)
     source_templates: dict[str, Any] = Field(default_factory=dict)
-    default_quality: dict[str, str] = Field(default_factory=dict)
+    default_quality: dict[str, Any] = Field(default_factory=dict)
     default_post_processing: dict[str, Any] = Field(default_factory=dict)
     source_scrape_rules: dict[str, Any] = Field(default_factory=dict)
     source_token_roles: dict[str, Any] = Field(default_factory=dict)

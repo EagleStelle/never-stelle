@@ -9,6 +9,7 @@ import type {
   ProbeTabsResponse,
   ProbeResponse,
   NamingKind,
+  QualitySelection,
   RenameCounts,
   ResolveResponse,
   ResolveScope,
@@ -241,7 +242,7 @@ export function addTask(payload: {
   template_settings?: SavedSettings["template_settings"];
   source_profiles?: SavedSettings["source_profiles"];
   source_templates?: SavedSettings["source_templates"];
-  quality?: SavedSettings["default_quality"];
+  quality?: QualitySelection;
   post_processing?: SavedSettings["default_post_processing"];
 }): Promise<AddTaskResponse> {
   return jsonRequest<AddTaskResponse>(

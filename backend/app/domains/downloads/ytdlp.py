@@ -14,18 +14,18 @@ from .constants import (
     TITLE_MAX_CHARS_DEFAULT,
     VIDEO_CODEC_PRESETS,
     artwork_extractor_args,
-    audio_format_selector,
     audio_postprocess_format,
     audio_postprocess_quality,
     normalize_post_processing,
     normalize_quality_selection,
     normalize_title_cleaning,
     post_processing_requested,
-    video_format_selector,
+    quality_format_selector,
     video_merge_output_format,
     video_merger_args,
     video_recode_args,
     video_recode_format,
+    video_remux_format,
 )
 from .formats import (
     derived_token_value,
@@ -223,17 +223,6 @@ def build_ytdlp_command(
     trim_length = min(stem_max, SAFE_PREDOWNLOAD_TRIM_CHARS) if stem_max > 0 else SAFE_PREDOWNLOAD_TRIM_CHARS
     selection = normalize_quality_selection(quality)
     processing = normalize_post_processing(post_processing)
-    audio_mode = selection["mode"] == "audio"
-    selected_format = (
-        audio_format_selector(selection["audio_format"], selection["audio_bitrate"])
-        if audio_mode
-        else video_format_selector(
-            selection["video_quality"],
-            selection["video_container"],
-            selection["video_codec"],
-            selection["video_audio_codec"],
-        )
-    )
     cmd = [
         "yt-dlp",
         "--newline",
@@ -252,7 +241,7 @@ def build_ytdlp_command(
         # every download without adding anything the failure tail does not already
         # carry, and the cost lands hardest on the long transfers.
         "--format",
-        selected_format,
+        quality_format_selector(selection),
     ]
     task_scratch = Path(metadata_sidecar).parent if metadata_sidecar else SCRATCH_DIR
     extractor_directory = str(task_scratch / "extractor").replace("\\", "/")
@@ -267,7 +256,7 @@ def build_ytdlp_command(
             cmd.extend(["--paths", f"home:{output_dir}"])
             if part_directory:
                 cmd.extend(["--paths", f"temp:{Path(part_directory).as_posix()}"])
-    if audio_mode:
+    if selection["mode"] == "audio":
         target_format = audio_postprocess_format(selection)
         if target_format:
             if ffmpeg_location:
@@ -279,14 +268,18 @@ def build_ytdlp_command(
     else:
         recode_format = video_recode_format(selection)
         cmd.extend(["--ffmpeg-location", ffmpeg_location])
-        cmd.extend(["--merge-output-format", video_merge_output_format(selection)])
         codec_sort = VIDEO_CODEC_PRESETS[selection["video_codec"]]["sort"]
         if codec_sort:
             # Soft preference; the --format filter enforces container compatibility.
             cmd.extend(["-S", f"vcodec:{codec_sort}"])
-        merger_args = video_merger_args(selection)
-        if merger_args:
-            cmd.extend(["--postprocessor-args", f"Merger+ffmpeg_o:{' '.join(merger_args)}"])
+        if selection["mode"] == "merged":
+            cmd.extend(["--merge-output-format", video_merge_output_format(selection)])
+            merger_args = video_merger_args(selection)
+            if merger_args:
+                cmd.extend(["--postprocessor-args", f"Merger+ffmpeg_o:{' '.join(merger_args)}"])
+        remux_format = video_remux_format(selection)
+        if remux_format:
+            cmd.extend(["--remux-video", remux_format])
         if recode_format:
             cmd.extend(["--recode-video", recode_format])
             recode_args = video_recode_args(selection)

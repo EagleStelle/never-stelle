@@ -808,6 +808,106 @@ def test_stored_cookie_jars_gain_an_empty_browser(tmp_path, monkeypatch):
     assert (row["id"], row["user_agent"]) == ("jar1", "")
 
 
+_OLD_VIDEO_QUALITY = {
+    "mode": "video",
+    "video_quality": "1080p",
+    "video_container": "mp4",
+    "video_codec": "h264",
+    "video_audio_codec": "aac",
+    "audio_format": "mp3",
+    "audio_bitrate": "128",
+}
+
+
+def _seed_media_modes(path) -> None:
+    from backend.app.db.migrations import m0008_trackers
+
+    connection = sqlite3.connect(str(path))
+    try:
+        connection.executescript(SCHEMA)
+        m0008_trackers.upgrade(connection)
+        connection.execute(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES ('app', ?, '')",
+            (json.dumps({"default_quality": _OLD_VIDEO_QUALITY}),),
+        )
+        connection.execute(
+            "INSERT INTO download_tasks (id, created_at, updated_at, encoding) VALUES ('task-1', '', '', ?)",
+            (json.dumps({"quality": _OLD_VIDEO_QUALITY}),),
+        )
+        connection.execute(
+            "INSERT INTO download_history (id, created_at, updated_at, encoding) VALUES ('history-1', '', '', ?)",
+            (json.dumps({"quality": {"mode": "audio", "audio_format": "opus", "video_audio_codec": "auto"}}),),
+        )
+        connection.execute(
+            "INSERT INTO download_enrichment_jobs (id, payload, created_at, updated_at)"
+            " VALUES ('completion:task-1', ?, '', '')",
+            (json.dumps({"quality": {"mode": "video"}}),),
+        )
+        connection.execute(
+            "INSERT INTO trackers (id, quality, created_at, updated_at) VALUES ('tracker-1', ?, '', '')",
+            (json.dumps({"mode": "video", "video_audio_codec": "opus"}),),
+        )
+        connection.execute("PRAGMA user_version = 12")
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def test_old_video_mode_becomes_merged_with_its_audio_codec(tmp_path, monkeypatch):
+    _seed_media_modes(tmp_path / "never-stelle.sqlite3")
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        task = json.loads(connection.execute("SELECT encoding FROM download_tasks").fetchone()["encoding"])
+        history = json.loads(connection.execute("SELECT encoding FROM download_history").fetchone()["encoding"])
+        job = json.loads(connection.execute("SELECT payload FROM download_enrichment_jobs").fetchone()["payload"])
+        tracker = json.loads(connection.execute("SELECT quality FROM trackers").fetchone()["quality"])
+
+    # The codec becomes the Merged format and the bitrate stays uncapped, so a re-run
+    # keeps the audio it had; the leftover Audio only format no longer applies.
+    assert task["quality"] == {
+        "mode": "merged",
+        "video_quality": "1080p",
+        "video_container": "mp4",
+        "video_codec": "h264",
+        "audio_format": "aac",
+        "audio_bitrate": "best",
+    }
+    assert history["quality"] == {"mode": "audio", "audio_format": "opus"}
+    assert job["quality"] == {"mode": "merged", "audio_format": "auto", "audio_bitrate": "best"}
+    assert tracker == {"mode": "merged", "audio_format": "opus", "audio_bitrate": "best"}
+    assert _stored_payload()["default_quality"] == {
+        "mode": "merged",
+        "merged": {
+            "video_quality": "1080p",
+            "video_container": "mp4",
+            "video_codec": "h264",
+            "audio_format": "aac",
+            "audio_bitrate": "best",
+        },
+        "video": {"video_quality": "1080p", "video_container": "mp4", "video_codec": "h264"},
+        "audio": {"audio_format": "mp3", "audio_bitrate": "128"},
+    }
+
+
+def test_media_mode_migration_leaves_new_shapes_alone(tmp_path, monkeypatch):
+    _seed_media_modes(tmp_path / "never-stelle.sqlite3")
+    use_temp_db(tmp_path, monkeypatch)
+    database_module.initialize_database()
+
+    from backend.app.db.migrations import m0013_media_modes as migration
+
+    with database_module.transaction() as connection:
+        before = connection.execute("SELECT encoding FROM download_tasks").fetchone()["encoding"]
+        migration.upgrade(connection)
+        after = connection.execute("SELECT encoding FROM download_tasks").fetchone()["encoding"]
+
+    assert after == before
+    assert _stored_payload()["default_quality"]["merged"]["audio_format"] == "aac"
+
+
 def test_tracker_tables_arrive_without_touching_the_download_tables(tmp_path, monkeypatch):
     database_path = tmp_path / "never-stelle.sqlite3"
     _seed_pre_migration_db(database_path, None, version=6)

@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 
-import IconMovie from "~icons/material-symbols/movie";
-import IconMusic from "~icons/material-symbols/music-note";
 import IconTune from "~icons/material-symbols/tune";
 import TaskFilters from "@/components/task/Filters.vue";
 import { Button } from "@/components/ui/button";
@@ -20,16 +18,22 @@ import {
 } from "@/components/ui/segmented-control";
 import PostProcessingFields from "@/features/downloads/PostProcessingFields.vue";
 import UrlForm from "@/features/downloads/UrlForm.vue";
-import { qualityFieldsFor, type QualityField } from "@/features/downloads/qualityFields";
+import {
+  MEDIA_MODE_ITEMS,
+  quickQualityField,
+  qualityFieldGroups,
+  type QualityField,
+} from "@/features/downloads/qualityFields";
 import { useDashboard } from "@/composables/useDashboard";
 import { useIsMobile } from "@/composables/useBreakpoints";
-import type { PostProcessingSelection, QualitySelection } from "@/types";
-import { postProcessingCapabilitiesForQuality } from "@/utils/dashboard";
+import type { PostProcessingSelection } from "@/types";
+import { isMediaMode, postProcessingCapabilitiesForQuality } from "@/utils/dashboard";
 
 const {
   downloadSelection: selection,
   downloadPostProcessing: postProcessing,
   qualityOptions,
+  settings,
   setDownloadQuality,
   setDownloadPostProcessing,
 } = useDashboard();
@@ -37,34 +41,25 @@ const {
 const isMobile = useIsMobile();
 const isAdvancedDialogOpen = ref(false);
 
-const qualityFields = computed(() =>
-  qualityFieldsFor(selection, qualityOptions.value),
+const qualityGroups = computed(() =>
+  qualityFieldGroups(selection, qualityOptions.value),
 );
 
-const visibleQualityFields = computed(() =>
-  qualityFields.value.filter((field) => !field.isAdvanced),
+const quickField = computed(() =>
+  quickQualityField(qualityGroups.value, selection.mode),
 );
-
-const advancedQualityFields = computed(() =>
-  qualityFields.value.filter((field) => field.isAdvanced),
-);
-
-const hasAdvancedFields = computed(() => advancedQualityFields.value.length > 0);
 
 const embedCapabilities = computed(() =>
   postProcessingCapabilitiesForQuality(selection, qualityOptions.value),
 );
 
-function update(patch: Partial<QualitySelection>): void {
-  setDownloadQuality({ ...selection, ...patch });
-}
-
 function setField(key: QualityField["key"], value: string): void {
-  update({ [key]: value } as Partial<QualitySelection>);
+  setDownloadQuality({ ...selection, [key]: value });
 }
 
+// A mode starts from its own defaults; toolbar edits are not kept per mode.
 function setMode(value: string | string[]): void {
-  if (value === "video" || value === "audio") update({ mode: value });
+  if (isMediaMode(value)) setDownloadQuality(settings.default_quality[value]);
 }
 
 function setPostProcessing(next: PostProcessingSelection): void {
@@ -94,30 +89,32 @@ function setPostProcessing(next: PostProcessingSelection): void {
           aria-label="Mode"
           class="shrink-0"
         >
-          <SegmentedControlItem value="video" aria-label="Video" title="Video">
-            <IconMovie class="w-3.5 h-3.5" aria-hidden="true" />
-            <span class="hidden lg:inline">Video</span>
-          </SegmentedControlItem>
-          <SegmentedControlItem value="audio" aria-label="Audio" title="Audio">
-            <IconMusic class="w-3.5 h-3.5" aria-hidden="true" />
-            <span class="hidden lg:inline">Audio</span>
+          <SegmentedControlItem
+            v-for="item in MEDIA_MODE_ITEMS"
+            :key="item.value"
+            :value="item.value"
+            :aria-label="item.label"
+            :title="item.title"
+          >
+            <component :is="item.icon" class="w-3.5 h-3.5" aria-hidden="true" />
+            <span class="hidden lg:inline">{{ item.label }}</span>
           </SegmentedControlItem>
         </SegmentedControl>
 
         <Combobox
-          v-for="field in visibleQualityFields"
-          :key="field.key"
-          :model-value="selection[field.key]"
-          :items="field.items"
-          @update:model-value="(val) => setField(field.key, val)"
+          v-if="quickField"
+          :key="quickField.key"
+          :model-value="selection[quickField.key]"
+          :items="quickField.items"
+          @update:model-value="(val) => quickField && setField(quickField.key, val)"
           class="shrink-0"
-          :aria-label="field.label"
-          :placeholder="field.placeholder"
-          :empty-text="field.emptyText"
+          :aria-label="quickField.label"
+          :placeholder="quickField.placeholder"
+          :empty-text="quickField.emptyText"
         />
 
         <Button
-          v-if="hasAdvancedFields"
+          v-if="qualityGroups.length"
           type="button"
           variant="outline"
           aria-label="Advanced settings"
@@ -140,24 +137,26 @@ function setPostProcessing(next: PostProcessingSelection): void {
       content-class="fixed left-1/2 top-1/2 z-70 flex max-h-[85dvh] w-[min(740px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
     >
       <div class="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 flex flex-col gap-6">
-        <FieldSet v-if="advancedQualityFields.length">
-          <FieldLegend>{{ selection.mode === "audio" ? "Audio" : "Video" }}</FieldLegend>
-          <FieldGroup>
-            <Combobox
-              v-for="field in advancedQualityFields"
-              :key="field.key"
-              :model-value="selection[field.key]"
-              :items="field.items"
-              @update:model-value="(val) => setField(field.key, val)"
-              :label="field.label"
-              label-placement="start"
-              :placeholder="field.placeholder"
-              :empty-text="field.emptyText"
-            />
-          </FieldGroup>
-        </FieldSet>
+        <template v-for="group in qualityGroups" :key="group.legend">
+          <FieldSet>
+            <FieldLegend>{{ group.legend }}</FieldLegend>
+            <FieldGroup>
+              <Combobox
+                v-for="field in group.fields"
+                :key="field.key"
+                :model-value="selection[field.key]"
+                :items="field.items"
+                @update:model-value="(val) => setField(field.key, val)"
+                :label="field.label"
+                label-placement="start"
+                :placeholder="field.placeholder"
+                :empty-text="field.emptyText"
+              />
+            </FieldGroup>
+          </FieldSet>
 
-        <FieldSeparator v-if="advancedQualityFields.length" />
+          <FieldSeparator />
+        </template>
 
         <PostProcessingFields
           :model-value="postProcessing"

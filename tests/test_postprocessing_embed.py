@@ -89,7 +89,7 @@ def embed_harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             {},
             _finalized(media),
             post_processing=post_processing,
-            quality={"mode": "video", "video_container": "mkv"},
+            quality={"mode": "merged", "video_container": "mkv"},
             output_root=tmp_path,
         )
 
@@ -256,7 +256,7 @@ def _run_real(media: Path, payload: dict, post_processing: dict) -> None:
         payload,
         _finalized(media),
         post_processing=post_processing,
-        quality={"mode": "video", "video_container": "auto"},
+        quality={"mode": "merged", "video_container": "auto"},
         output_root=media.parent,
     )
 

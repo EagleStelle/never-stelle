@@ -2,8 +2,6 @@
 import { computed, reactive, ref, useTemplateRef, watch } from "vue";
 import IconDelete from "~icons/material-symbols/delete";
 import { Link as IconLink } from "@lucide/vue";
-import IconMovie from "~icons/material-symbols/movie";
-import IconMusic from "~icons/material-symbols/music-note";
 import IconPause from "~icons/material-symbols/pause";
 import IconResume from "~icons/material-symbols/play-arrow";
 import IconSeen from "~icons/material-symbols/visibility";
@@ -27,7 +25,7 @@ import { IconImage } from "@/components/ui/icon-image";
 import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import PostProcessingFields from "@/features/downloads/PostProcessingFields.vue";
-import { qualityFieldsFor, type QualityField } from "@/features/downloads/qualityFields";
+import { MEDIA_MODE_ITEMS, qualityFieldGroups, type QualityField } from "@/features/downloads/qualityFields";
 import { useDashboard } from "@/composables/useDashboard";
 import { COUNT_ICONS, TRACKER_INTERVALS } from "@/ui";
 import type { Component } from "vue";
@@ -36,6 +34,7 @@ import {
   createPostProcessingSelection,
   createQualitySelection,
   constrainPostProcessingSelection,
+  isMediaMode,
   postProcessingCapabilitiesForQuality,
   sourceIconUrl,
 } from "@/utils/dashboard";
@@ -105,7 +104,7 @@ function toggleTracker(tracker: Tracker): void {
 const draftSelection = reactive<QualitySelection>(createQualitySelection());
 const draftPostProcessing = reactive<PostProcessingSelection>(createPostProcessingSelection());
 const draftInterval = ref("");
-const draftQualityFields = computed(() => qualityFieldsFor(draftSelection, qualityOptions.value));
+const draftQualityGroups = computed(() => qualityFieldGroups(draftSelection, qualityOptions.value));
 const draftCapabilities = computed(() => postProcessingCapabilitiesForQuality(draftSelection, qualityOptions.value));
 
 // A new link starts from the toolbar and tracker settings.
@@ -137,9 +136,10 @@ function setDraftField(key: QualityField["key"], value: string | string[]): void
   }
 }
 
+// A mode starts from its own defaults; draft edits are not kept per mode.
 function setDraftMode(value: string | string[]): void {
-  if (value === "video" || value === "audio") {
-    Object.assign(draftSelection, createQualitySelection({ ...draftSelection, mode: value }, qualityOptions.value));
+  if (isMediaMode(value)) {
+    Object.assign(draftSelection, createQualitySelection(settings.default_quality[value], qualityOptions.value));
   }
 }
 
@@ -440,27 +440,32 @@ async function confirmDelete(): Promise<void> {
         </header>
 
         <div class="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 flex flex-col gap-6">
-          <FieldSet>
-            <FieldLegend>{{ draftSelection.mode === "audio" ? "Audio" : "Video" }}</FieldLegend>
+          <FieldSet v-if="qualityOptions.video.length">
+            <FieldLegend>Mode</FieldLegend>
             <SegmentedControl
-              v-if="qualityOptions.video.length"
               :model-value="draftSelection.mode"
               aria-label="Mode"
               class="self-start"
               @update:model-value="setDraftMode"
             >
-              <SegmentedControlItem value="video" aria-label="Video" title="Video">
-                <IconMovie class="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Video</span>
-              </SegmentedControlItem>
-              <SegmentedControlItem value="audio" aria-label="Audio" title="Audio">
-                <IconMusic class="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Audio</span>
+              <SegmentedControlItem
+                v-for="item in MEDIA_MODE_ITEMS"
+                :key="item.value"
+                :value="item.value"
+                :aria-label="item.label"
+                :title="item.title"
+              >
+                <component :is="item.icon" class="w-3.5 h-3.5" aria-hidden="true" />
+                <span>{{ item.label }}</span>
               </SegmentedControlItem>
             </SegmentedControl>
+          </FieldSet>
+
+          <FieldSet v-for="group in draftQualityGroups" :key="group.legend">
+            <FieldLegend>{{ group.legend }}</FieldLegend>
             <FieldGroup>
               <Combobox
-                v-for="field in draftQualityFields"
+                v-for="field in group.fields"
                 :key="field.key"
                 :model-value="draftSelection[field.key]"
                 :items="field.items"

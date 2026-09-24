@@ -14,9 +14,10 @@ from backend.app.domains.downloads.constants import (
     audio_format_selector,
     container_acodec_filter,
     container_vcodec_filter,
-    default_quality_selection,
     merge_output_format,
+    merged_audio_track,
     normalize_post_processing,
+    normalize_quality_defaults,
     normalize_quality_selection,
     post_processing_requested,
     quality_options,
@@ -52,19 +53,18 @@ def _gallerydl_raw_option(cmd: list[str], key: str) -> object:
 
 
 def test_normalize_quality_selection_defaults_and_validates():
-    assert default_quality_selection() == {
-        "mode": "video",
+    default = {
+        "mode": "merged",
         "video_quality": "best",
         "video_container": "auto",
         "video_codec": "auto",
-        "video_audio_codec": "auto",
         "audio_format": "auto",
         "audio_bitrate": "best",
     }
-    assert normalize_quality_selection(None) == default_quality_selection()
+    assert normalize_quality_selection(None) == default
     assert normalize_quality_selection(
         {"mode": "bogus", "video_quality": "bogus", "video_container": "iso", "video_codec": "xyz"}
-    ) == default_quality_selection()
+    ) == default
     selection = normalize_quality_selection(
         {
             "mode": "audio",
@@ -73,6 +73,7 @@ def test_normalize_quality_selection_defaults_and_validates():
             "video_quality": "720p",
             "video_container": "MKV",
             "video_codec": "AV1",
+            # Retired key: dropped rather than carried along.
             "video_audio_codec": "OPUS",
         }
     )
@@ -81,23 +82,62 @@ def test_normalize_quality_selection_defaults_and_validates():
         "video_quality": "720p",
         "video_container": "mkv",
         "video_codec": "av1",
-        "video_audio_codec": "opus",
         "audio_format": "opus",
         "audio_bitrate": "192",
     }
+    assert normalize_quality_selection({"mode": "video"})["mode"] == "video"
     # A container-compatible codec is kept; an incompatible one (VP9 can't play in MP4)
     # falls back to Auto so it never muxes an unplayable stream.
     assert normalize_quality_selection({"video_container": "mkv", "video_codec": "vp9"})["video_codec"] == "vp9"
     assert normalize_quality_selection({"video_container": "mp4", "video_codec": "vp9"})["video_codec"] == "auto"
     assert normalize_quality_selection({"video_container": "webm", "video_codec": "h264"})["video_codec"] == "auto"
-    assert (
-        normalize_quality_selection({"video_container": "mkv", "video_audio_codec": "opus"})["video_audio_codec"]
-        == "opus"
+
+
+def test_merged_format_must_fit_the_container():
+    def audio(mode: str, container: str, audio_format: str) -> dict[str, str]:
+        return normalize_quality_selection(
+            {"mode": mode, "video_container": container, "audio_format": audio_format, "audio_bitrate": "128"}
+        )
+
+    assert audio("merged", "mkv", "flac")["audio_format"] == "flac"
+    # FLAC can't ride in MP4, so Merged falls back to the native track; the bitrate stays.
+    assert audio("merged", "mp4", "flac")["audio_format"] == "auto"
+    assert audio("merged", "mp4", "flac")["audio_bitrate"] == "128"
+    assert audio("merged", "mp4", "m4a")["audio_format"] == "m4a"
+    assert audio("merged", "webm", "aac")["audio_format"] == "auto"
+    # Audio only has no container to fit.
+    assert audio("audio", "mp4", "flac")["audio_format"] == "flac"
+
+
+def test_quality_defaults_remember_each_mode():
+    defaults = normalize_quality_defaults(
+        {
+            "mode": "audio",
+            "merged": {"mode": "audio", "video_container": "mp4", "audio_format": "aac"},
+            "video": {"video_quality": "1080p"},
+            "audio": {"audio_format": "flac"},
+        }
     )
-    assert (
-        normalize_quality_selection({"video_container": "mp4", "video_audio_codec": "opus"})["video_audio_codec"]
-        == "auto"
-    )
+
+    assert defaults["mode"] == "audio"
+    # Each entry is a full selection pinned to its own mode.
+    assert [defaults[mode]["mode"] for mode in ("merged", "video", "audio")] == ["merged", "video", "audio"]
+    assert defaults["merged"]["audio_format"] == "aac"
+    assert defaults["video"]["video_quality"] == "1080p"
+    assert defaults["audio"]["audio_format"] == "flac"
+    assert normalize_quality_defaults(None) == {
+        "mode": "merged",
+        **{mode: normalize_quality_selection({"mode": mode}) for mode in ("merged", "video", "audio")},
+    }
+
+
+def test_merged_audio_track_follows_format_and_bitrate():
+    assert merged_audio_track({"mode": "merged", "audio_format": "aac", "audio_bitrate": "128"}) == ("aac", "128")
+    # Lossless ignores a bitrate target.
+    assert merged_audio_track({"mode": "merged", "audio_format": "flac", "audio_bitrate": "128"}) == ("flac", "best")
+    # Only Merged carries an audio track the settings shape.
+    assert merged_audio_track({"mode": "video", "audio_format": "aac", "audio_bitrate": "128"}) == ("auto", "best")
+    assert merged_audio_track({"mode": "audio", "audio_format": "aac", "audio_bitrate": "128"}) == ("auto", "best")
 
 
 def test_normalize_post_processing_defaults_and_validates():
@@ -371,12 +411,13 @@ def test_quality_options_expose_all_pickers():
     assert aac["embed_capabilities"] == []
     mp3 = next(o for o in options["audio_formats"] if o["key"] == "mp3")
     assert set(mp3["embed_capabilities"]) == {"metadata", "chapters", "thumbnail"}
-    assert "aac" in mp4["audio_codecs"] and "opus" not in mp4["audio_codecs"]
+    # Containers expose the audio formats Merged can put in them.
+    assert set(mp4["audio_formats"]) == {"aac", "m4a", "mp3"}
+    assert webm["audio_formats"] == ["opus"]
     assert {o["key"] for o in options["video_codecs"]} == {"auto", "av1", "vp9", "h264", "h265"}
-    assert {o["key"] for o in options["video_audio_codecs"]} == {"auto", "aac", "opus", "mp3", "flac"}
     assert {o["key"] for o in options["audio_formats"]} == {"auto", "mp3", "m4a", "opus", "aac", "flac", "wav"}
     assert all("codecs" not in o for o in options["audio_formats"])
-    assert "audio_codecs" not in options
+    assert "video_audio_codecs" not in options
     assert {o["key"] for o in options["audio_bitrates"]} == {"best", "320", "192", "128"}
 
 
@@ -484,7 +525,7 @@ def test_ytdlp_command_filters_format_to_container_codecs():
         "https://www.youtube.com/watch?v=x",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
-        quality={"mode": "video", "video_container": "webm", "video_codec": "vp9"},
+        quality={"mode": "merged", "video_container": "webm", "video_codec": "vp9"},
     )
 
     assert cmd[cmd.index("--merge-output-format") + 1] == "mkv"
@@ -494,24 +535,91 @@ def test_ytdlp_command_filters_format_to_container_codecs():
     assert cmd[cmd.index("--postprocessor-args") + 1] == "VideoConvertor+ffmpeg_o:-c:v libvpx-vp9"
 
 
-def test_ytdlp_command_transcodes_video_file_audio_codec():
+def _postprocessor_args(cmd: list[str]) -> list[str]:
+    return [right for left, right in zip(cmd, cmd[1:], strict=False) if left == "--postprocessor-args"]
+
+
+def test_ytdlp_command_transcodes_merged_audio_format():
     cmd = ytdlp.build_ytdlp_command(
-        "https://www.youtube.com/watch?v=x",
+        "https://example.test/watch/1",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
-        quality={"mode": "video", "video_audio_codec": "opus"},
+        quality={"mode": "merged", "audio_format": "opus"},
     )
 
     assert cmd[cmd.index("--merge-output-format") + 1] == "mkv"
     assert cmd[cmd.index("--format") + 1] == video_format_selector("best", "auto", "auto", "opus")
     assert cmd[cmd.index("--recode-video") + 1] == "mkv"
-    postprocessor_args = [
-        right
-        for left, right in zip(cmd, cmd[1:], strict=False)
-        if left == "--postprocessor-args"
-    ]
+    postprocessor_args = _postprocessor_args(cmd)
     assert "Merger+ffmpeg_o:-c:v copy -c:a libopus" in postprocessor_args
     assert "VideoConvertor+ffmpeg_o:-c:v copy -c:a libopus" in postprocessor_args
+
+
+def test_ytdlp_command_caps_merged_audio_bitrate():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://example.test/watch/1",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        quality={"mode": "merged", "video_container": "mp4", "audio_format": "aac", "audio_bitrate": "128"},
+    )
+
+    selector = cmd[cmd.index("--format") + 1]
+    # The cap rides on the separate audio stream only, never on a muxed `best`.
+    assert selector.startswith(
+        f"bestvideo*{container_vcodec_filter('mp4')}+bestaudio[acodec~='^(mp4a|aac)'][abr<=128]/"
+    )
+    assert all("+bestaudio" in branch for branch in selector.split("/") if "abr<=" in branch)
+    assert "VideoConvertor+ffmpeg_o:-c:a aac -b:a 128k" in _postprocessor_args(cmd)
+
+
+def test_ytdlp_command_keeps_lossless_merged_audio_uncapped():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://example.test/watch/1",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        quality={"mode": "merged", "video_container": "mkv", "audio_format": "flac", "audio_bitrate": "128"},
+    )
+
+    assert "abr<=" not in cmd[cmd.index("--format") + 1]
+    assert not any("-b:a" in args for args in _postprocessor_args(cmd))
+
+
+def test_video_only_selector_never_asks_for_audio():
+    assert video_format_selector("best", "auto", with_audio=False) == "bestvideo/best"
+    fmt = video_format_selector("720p", "mp4", "h264", "aac", "128", with_audio=False)
+    assert "bestaudio" not in fmt and "acodec" not in fmt and "abr" not in fmt
+    assert fmt.startswith("bestvideo[height<=720][vcodec~='^(avc1|h264)']/best[height<=720][vcodec~='^(avc1|h264)']/")
+    assert fmt.endswith("/bestvideo/best")
+
+
+def test_ytdlp_video_only_remuxes_a_container_change():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://example.test/watch/1",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        quality={"mode": "video", "video_container": "mp4"},
+    )
+
+    assert cmd[cmd.index("--format") + 1] == video_format_selector("best", "mp4", with_audio=False)
+    assert cmd[cmd.index("--remux-video") + 1] == "mp4"
+    assert "--merge-output-format" not in cmd
+    assert "--recode-video" not in cmd
+    assert not _postprocessor_args(cmd)
+
+
+def test_ytdlp_video_only_recodes_a_codec_change():
+    cmd = ytdlp.build_ytdlp_command(
+        "https://example.test/watch/1",
+        "/usr/bin/ffmpeg",
+        "/media/out.%(ext)s",
+        quality={"mode": "video", "video_codec": "h265", "audio_format": "opus"},
+    )
+
+    assert "--merge-output-format" not in cmd
+    assert "--remux-video" not in cmd
+    assert cmd[cmd.index("--recode-video") + 1] == "mp4"
+    # No audio track, so nothing to encode for it.
+    assert _postprocessor_args(cmd) == ["VideoConvertor+ffmpeg_o:-c:v libx265"]
 
 
 def test_ytdlp_command_drops_codec_incompatible_with_container():
@@ -521,7 +629,7 @@ def test_ytdlp_command_drops_codec_incompatible_with_container():
         "https://www.youtube.com/watch?v=x",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
-        quality={"mode": "video", "video_container": "mp4", "video_codec": "vp9"},
+        quality={"mode": "merged", "video_container": "mp4", "video_codec": "vp9"},
     )
 
     # Explicit MP4 is the requested final format; MKV is only the safe intermediate.
@@ -1084,7 +1192,7 @@ def test_ytdlp_command_caps_resolution():
         "https://www.youtube.com/watch?v=x",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
-        quality={"mode": "video", "video_quality": "720p"},
+        quality={"mode": "merged", "video_quality": "720p"},
     )
 
     assert cmd[cmd.index("--format") + 1] == video_format_selector("720p", "auto")
@@ -1097,7 +1205,7 @@ def test_ytdlp_command_sets_container_and_codec_preference():
         "https://www.youtube.com/watch?v=x",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
-        quality={"mode": "video", "video_quality": "best", "video_container": "mkv", "video_codec": "av1"},
+        quality={"mode": "merged", "video_quality": "best", "video_container": "mkv", "video_codec": "av1"},
     )
 
     assert cmd[cmd.index("--merge-output-format") + 1] == "mkv"
@@ -1117,7 +1225,7 @@ def test_ytdlp_command_auto_codec_omits_sort():
         "https://www.youtube.com/watch?v=x",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
-        quality={"mode": "video", "video_codec": "auto", "video_container": "webm"},
+        quality={"mode": "merged", "video_codec": "auto", "video_container": "webm"},
     )
 
     assert cmd[cmd.index("--merge-output-format") + 1] == "mkv"
@@ -1190,7 +1298,7 @@ def test_gallerydl_command_applies_capped_quality_to_ytdl_downloader(monkeypatch
         "https://twitter.com/DohaVT/status/1",
         "/media/twitter",
         f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
-        quality={"mode": "video", "video_quality": "480p"},
+        quality={"mode": "merged", "video_quality": "480p"},
     )
 
     assert _has_cli_pair(cmd, "-o", f"downloader.ytdl.format={video_format_selector('480p', 'auto')}")
@@ -1205,7 +1313,7 @@ def test_gallerydl_command_honors_video_container(monkeypatch):
         "https://twitter.com/DohaVT/status/1",
         "/media/twitter",
         f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
-        quality={"mode": "video", "video_quality": "best", "video_container": "mkv"},
+        quality={"mode": "merged", "video_quality": "best", "video_container": "mkv"},
     )
 
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.merge_output_format=mkv")
@@ -1228,7 +1336,7 @@ def test_gallerydl_command_honors_video_codec(monkeypatch):
         "https://twitter.com/DohaVT/status/1",
         "/media/twitter",
         f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
-        quality={"mode": "video", "video_container": "mkv", "video_codec": "vp9"},
+        quality={"mode": "merged", "video_container": "mkv", "video_codec": "vp9"},
     )
 
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.format_sort=vcodec:vp09")
@@ -1245,13 +1353,13 @@ def test_gallerydl_command_honors_video_codec(monkeypatch):
     )
 
 
-def test_gallerydl_command_honors_video_audio_codec(monkeypatch):
+def test_gallerydl_command_honors_merged_audio_format(monkeypatch):
     monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "")
     cmd = gallerydl.build_gallerydl_command(
-        "https://twitter.com/DohaVT/status/1",
-        "/media/twitter",
-        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
-        quality={"mode": "video", "video_audio_codec": "aac"},
+        "https://example.test/status/1",
+        "/media/example",
+        f"creator{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        quality={"mode": "merged", "audio_format": "aac"},
     )
 
     assert _has_cli_pair(
@@ -1272,6 +1380,28 @@ def test_gallerydl_command_honors_video_audio_codec(monkeypatch):
     )
 
 
+def test_gallerydl_video_only_remuxes_without_merging(monkeypatch):
+    monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "")
+    cmd = gallerydl.build_gallerydl_command(
+        "https://example.test/status/1",
+        "/media/example",
+        f"creator{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        quality={"mode": "video", "video_container": "webm"},
+    )
+
+    assert _has_cli_pair(
+        cmd,
+        "-o",
+        f"downloader.ytdl.format={video_format_selector('best', 'webm', with_audio=False)}",
+    )
+    assert not any("merge_output_format" in str(arg) or "postprocessor_args" in str(arg) for arg in cmd)
+    assert _has_cli_pair(
+        cmd,
+        "-o",
+        'downloader.ytdl.raw-options.postprocessors=[{"key":"FFmpegVideoRemuxer","preferedformat":"webm"}]',
+    )
+
+
 def test_gallerydl_command_drops_codec_incompatible_with_container(monkeypatch):
     # VP9 can't play in MP4: no format_sort is forwarded to the ytdl sub-downloader,
     # so gallery-dl never muxes an unplayable VP9 stream into an MP4 container.
@@ -1280,7 +1410,7 @@ def test_gallerydl_command_drops_codec_incompatible_with_container(monkeypatch):
         "https://twitter.com/DohaVT/status/1",
         "/media/twitter",
         f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
-        quality={"mode": "video", "video_container": "mp4", "video_codec": "vp9"},
+        quality={"mode": "merged", "video_container": "mp4", "video_codec": "vp9"},
     )
 
     assert not any("format_sort" in str(arg) for arg in cmd)

@@ -54,7 +54,7 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
 
 
 def _effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
-    from backend.app.domains.downloads.constants import normalize_post_processing, normalize_quality_selection
+    from backend.app.domains.downloads.constants import normalize_post_processing, normalize_quality_defaults
 
     cfg = cfg or load_app_config()
     payload = load_saved_settings_file()
@@ -77,7 +77,7 @@ def _effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, An
             source_profiles,
             token_roles,
         ),
-        "default_quality": normalize_quality_selection(payload.get("default_quality")),
+        "default_quality": normalize_quality_defaults(payload.get("default_quality")),
         "default_post_processing": normalize_post_processing(payload.get("default_post_processing")),
         "ytdlp_cookies": get_ytdlp_cookies_status(source_profiles),
         "source_scrape_rules": get_effective_scrape_rules(payload),
@@ -117,7 +117,7 @@ def persist_settings(
     raw_tracker_settings: Any = None,
     raw_tracker_tabs: Any = None,
 ) -> dict[str, Any]:
-    from backend.app.domains.downloads.constants import normalize_post_processing, normalize_quality_selection
+    from backend.app.domains.downloads.constants import normalize_post_processing, normalize_quality_defaults
 
     existing = load_saved_settings_file()
     source_profiles = get_effective_source_profiles(
@@ -176,7 +176,7 @@ def persist_settings(
                 managed_profiles,
                 normalized_token_roles,
             ),
-            "default_quality": normalize_quality_selection(
+            "default_quality": normalize_quality_defaults(
                 raw_default_quality if raw_default_quality is not None else existing.get("default_quality")
             ),
             "default_post_processing": normalize_post_processing(
@@ -219,9 +219,9 @@ def build_settings_response(
     from backend.app.domains.auth import auth_public_payload
     from backend.app.domains.downloads.constants import (
         default_post_processing,
-        default_quality_selection,
         field_defaults,
         naming_choices,
+        normalize_quality_defaults,
         quality_options,
         template_tokens,
         title_cleaning_rules,
@@ -240,7 +240,7 @@ def build_settings_response(
         ),
         "template_settings": saved.get("template_settings", normalize_template_settings({})),
         "source_templates": saved.get("source_templates", {}),
-        "default_quality": saved.get("default_quality", default_quality_selection()),
+        "default_quality": saved.get("default_quality", normalize_quality_defaults({})),
         "default_post_processing": saved.get("default_post_processing", default_post_processing()),
         "quality_options": quality_options(),
         "template_tokens": template_tokens(),

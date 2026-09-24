@@ -25,6 +25,7 @@ import {
   type PageKey,
   type PostProcessingSelection,
   type PostProcessingMode,
+  type QualityDefaults,
   type QualityOptions,
   type QualityPreset,
   type QualitySelection,
@@ -299,28 +300,28 @@ const DEFAULT_QUALITY_OPTIONS: QualityOptions = {
       label: "Auto",
       icon: IconAutoAwesome,
       codecs: ["av1", "vp9", "h264", "h265"],
-      audio_codecs: ["aac", "opus", "mp3", "flac"],
+      audio_formats: ["mp3", "m4a", "opus", "aac", "flac", "wav"],
     },
     {
       key: "mp4",
       label: "MP4",
       icon: IconVideoFile,
       codecs: ["av1", "h264", "h265"],
-      audio_codecs: ["aac", "mp3"],
+      audio_formats: ["aac", "m4a", "mp3"],
     },
     {
       key: "mkv",
       label: "MKV",
       icon: IconVideoFile,
       codecs: ["av1", "vp9", "h264", "h265"],
-      audio_codecs: ["aac", "opus", "mp3", "flac"],
+      audio_formats: ["mp3", "m4a", "opus", "aac", "flac", "wav"],
     },
     {
       key: "webm",
       label: "WebM",
       icon: IconVideoFile,
       codecs: ["av1", "vp9"],
-      audio_codecs: ["opus"],
+      audio_formats: ["opus"],
     },
   ],
   video_codecs: [
@@ -329,13 +330,6 @@ const DEFAULT_QUALITY_OPTIONS: QualityOptions = {
     { key: "vp9", label: "VP9", icon: IconMemory },
     { key: "h264", label: "H.264", icon: IconMemory },
     { key: "h265", label: "H.265", icon: IconMemory },
-  ],
-  video_audio_codecs: [
-    { key: "auto", label: "Auto", icon: IconAutoAwesome },
-    { key: "aac", label: "AAC", icon: IconAudioFile },
-    { key: "opus", label: "Opus", icon: IconAudioFile },
-    { key: "mp3", label: "MP3", icon: IconAudioFile },
-    { key: "flac", label: "FLAC", icon: IconAudioFile },
   ],
   audio_formats: [
     { key: "auto", label: "Auto", icon: IconAutoAwesome },
@@ -368,9 +362,9 @@ function createQualityPreset(source: Partial<QualityPreset>): QualityPreset {
       .map((codec) => String(codec || "").trim().toLowerCase())
       .filter(Boolean);
   }
-  if (Array.isArray(source.audio_codecs)) {
-    preset.audio_codecs = source.audio_codecs
-      .map((codec) => String(codec || "").trim().toLowerCase())
+  if (Array.isArray(source.audio_formats)) {
+    preset.audio_formats = source.audio_formats
+      .map((format) => String(format || "").trim().toLowerCase())
       .filter(Boolean);
   }
   if (Array.isArray(source.embed_capabilities)) {
@@ -409,10 +403,6 @@ export function createQualityOptions(
     video_codecs: createQualityPresetList(
       source.video_codecs,
       DEFAULT_QUALITY_OPTIONS.video_codecs,
-    ),
-    video_audio_codecs: createQualityPresetList(
-      source.video_audio_codecs,
-      DEFAULT_QUALITY_OPTIONS.video_audio_codecs,
     ),
     audio_formats: createQualityPresetList(
       source.audio_formats,
@@ -460,29 +450,33 @@ export function videoCodecOptionsForContainer(
   );
 }
 
-export function isAudioCodecCompatibleWithVideoContainer(
-  codec: string,
+export function isAudioFormatCompatibleWithContainer(
+  format: string,
   container: string,
   containers: QualityPreset[],
 ): boolean {
-  const codecKey = String(codec || "").trim().toLowerCase();
-  if (!codecKey || codecKey === "auto") return true;
+  const formatKey = String(format || "").trim().toLowerCase();
+  if (!formatKey || formatKey === "auto") return true;
   const preset = containers.find((item) => item.key === container);
-  if (!preset || !Array.isArray(preset.audio_codecs)) return true;
-  return preset.audio_codecs.includes(codecKey);
+  if (!preset || !Array.isArray(preset.audio_formats)) return true;
+  return preset.audio_formats.includes(formatKey);
 }
 
-export function videoAudioCodecOptionsForContainer(
+// The Merged format picker for a container: Auto plus the formats that container can hold.
+export function audioFormatOptionsForContainer(
   options: QualityOptions,
   container: string,
 ): QualityPreset[] {
-  return options.video_audio_codecs.filter((codec) =>
-    isAudioCodecCompatibleWithVideoContainer(
-      codec.key,
-      container,
-      options.video_containers,
-    ),
+  return options.audio_formats.filter((format) =>
+    isAudioFormatCompatibleWithContainer(format.key, container, options.video_containers),
   );
+}
+
+// Merged is video with audio, Video is video without audio.
+export const MEDIA_MODES: MediaMode[] = ["merged", "video", "audio"];
+
+export function isMediaMode(value: unknown): value is MediaMode {
+  return MEDIA_MODES.includes(value as MediaMode);
 }
 
 export function createQualitySelection(
@@ -490,14 +484,9 @@ export function createQualitySelection(
   qualityOptions: Partial<QualityOptions> = {},
 ): QualitySelection {
   const options = createQualityOptions(qualityOptions);
-  const mode: MediaMode = source.mode === "audio" ? "audio" : "video";
+  const mode: MediaMode = isMediaMode(source.mode) ? source.mode : "merged";
   const videoContainer = optionKey(source.video_container, options.video_containers, "auto");
   const videoCodec = optionKey(source.video_codec, options.video_codecs, "auto");
-  const videoAudioCodec = optionKey(
-    source.video_audio_codec,
-    options.video_audio_codecs,
-    "auto",
-  );
   const audioFormat = optionKey(source.audio_format, options.audio_formats, "auto");
   return {
     mode,
@@ -508,19 +497,31 @@ export function createQualitySelection(
     video_codec: isCodecCompatibleWithContainer(videoCodec, videoContainer, options.video_containers)
       ? videoCodec
       : "auto",
-    video_audio_codec: isAudioCodecCompatibleWithVideoContainer(
-      videoAudioCodec,
-      videoContainer,
-      options.video_containers,
-    )
-      ? videoAudioCodec
-      : "auto",
-    audio_format: audioFormat,
+    // Same for the audio track Merged puts in that container.
+    audio_format:
+      mode !== "merged" ||
+      isAudioFormatCompatibleWithContainer(audioFormat, videoContainer, options.video_containers)
+        ? audioFormat
+        : "auto",
     audio_bitrate: optionKey(
       source.audio_bitrate,
       options.audio_bitrates,
       "best",
     ),
+  };
+}
+
+export function createQualityDefaults(
+  source: Partial<QualityDefaults> = {},
+  qualityOptions: Partial<QualityOptions> = {},
+): QualityDefaults {
+  const entry = (mode: MediaMode) =>
+    createQualitySelection({ ...source[mode], mode }, qualityOptions);
+  return {
+    mode: isMediaMode(source.mode) ? source.mode : "merged",
+    merged: entry("merged"),
+    video: entry("video"),
+    audio: entry("audio"),
   };
 }
 
@@ -621,19 +622,18 @@ export function postProcessingCapabilitiesForQuality(
 }
 
 export function postProcessingCapabilitiesForDefaults(
-  quality: QualitySelection,
+  defaults: QualityDefaults,
   options: QualityOptions,
 ): PostProcessingCapabilities {
-  const video = embedCapabilitiesForPreset(options.video_containers, quality.video_container);
-  const audio = embedCapabilitiesForPreset(options.audio_formats, quality.audio_format);
+  // Post-processing defaults are shared by every mode. A feature remains
+  // selectable when any mode's configured output can carry it.
+  const modes = MEDIA_MODES.map((mode) => postProcessingCapabilitiesForQuality(defaults[mode], options));
   return {
-    // Defaults are shared by the independent video and audio modes. A feature
-    // remains selectable when either configured output can carry it.
-    metadata: video.metadata || audio.metadata,
-    subtitles: video.subtitles || audio.subtitles,
-    automatic_subtitles: video.automatic_subtitles || audio.automatic_subtitles,
-    chapters: video.chapters || audio.chapters,
-    thumbnail: video.thumbnail || audio.thumbnail,
+    metadata: modes.some((mode) => mode.metadata),
+    subtitles: modes.some((mode) => mode.subtitles),
+    automatic_subtitles: modes.some((mode) => mode.automatic_subtitles),
+    chapters: modes.some((mode) => mode.chapters),
+    thumbnail: modes.some((mode) => mode.thumbnail),
   };
 }
 

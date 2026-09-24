@@ -49,7 +49,7 @@ import {
   createSourceTrackerTabs,
   createQualityOptions,
   createFieldRoles,
-  createQualitySelection,
+  createQualityDefaults,
   createSourceFields,
   createSourceLocationOptions,
   createSourceLocations,
@@ -385,7 +385,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_locations: createSourceLocations(),
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
-    default_quality: createQualitySelection(),
+    default_quality: createQualityDefaults(),
     default_post_processing: createPostProcessingSelection(),
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
@@ -405,7 +405,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_locations: createSourceLocations(),
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
-    default_quality: createQualitySelection(),
+    default_quality: createQualityDefaults(),
     default_post_processing: createPostProcessingSelection(),
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
@@ -440,7 +440,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_locations: createSourceLocations(),
     template_settings: createTemplateSettings(),
     source_templates: createSourceTemplates(),
-    default_quality: createQualitySelection(),
+    default_quality: createQualityDefaults(),
     default_post_processing: createPostProcessingSelection(),
     source_scrape_rules: createSourceScrapeRules(),
     source_token_roles: createSourceTokenRoles(),
@@ -548,7 +548,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         profiles,
         templateSettings,
       ),
-      default_quality: createQualitySelection(
+      default_quality: createQualityDefaults(
         source.default_quality,
         settings.quality_options,
       ),
@@ -634,7 +634,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         profiles,
         templateSettings,
       ),
-      default_quality: createQualitySelection(
+      default_quality: createQualityDefaults(
         {
           ...defaults.default_quality,
           ...settings.default_quality,
@@ -980,7 +980,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     const qualityOptions = createQualityOptions(data.quality_options || {});
     settings.quality_options = qualityOptions;
 
-    const defaultQuality = createQualitySelection(
+    const defaultQuality = createQualityDefaults(
       data.default_quality || {},
       qualityOptions,
     );
