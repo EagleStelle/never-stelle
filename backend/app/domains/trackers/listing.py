@@ -101,9 +101,7 @@ _PAGE_ESCAPES = ((r"\/", "/"), (r"\u0025", "%"), (r"\u0026", "&"), ("&amp;", "&"
 @dataclass(frozen=True)
 class Entry:
     url: str
-    title: str = ""
-    creator: str = ""
-    # Name of the collection the entry was listed from, when the engine reports one.
+    # Name the source's Fields give the entry's creator.
     collection: str = ""
     # Keys of the items this entry downloads with it, as a post holds its photos.
     members: tuple[str, ...] = ()
@@ -451,7 +449,6 @@ class _Resolver:
         defaults = get_effective_field_defaults()
         self.username_fields = roles.get("username") or defaults["username"]
         self.nickname_fields = roles.get("nickname") or defaults["nickname"]
-        self.title_fields = roles.get("title") or defaults["title"]
         self.role_words = _role_words()
         self.catalog_tried: set[tuple[str, str]] = set()
         self.placeholders: dict[str, str] | None = None
@@ -644,14 +641,8 @@ class _Resolver:
 
     def named(self, url: str, flat: dict[str, str], owned: bool) -> Entry:
         """An entry named by the Fields order; its collection is its nickname, else its username."""
-        username = _field_value(flat, self.username_fields)
-        return Entry(
-            url=url,
-            title=_field_value(flat, self.title_fields),
-            creator=username,
-            collection=_field_value(flat, self.nickname_fields) or username,
-            owned=owned,
-        )
+        name = _field_value(flat, self.nickname_fields) or _field_value(flat, self.username_fields)
+        return Entry(url=url, collection=name, owned=owned)
 
     def owns(self, link: str, flat: dict[str, str]) -> bool:
         """Whether the link names the creator or its metadata carries a name or id the creator's own files do."""
@@ -777,10 +768,7 @@ def _ytdlp_entries(
             sub_collections.append(url)
             continue
         flat = _flatten_metadata(info)
-        entry = resolver.named(url, flat, not judged or resolver.owns(url, flat))
-        # The playlist the entry was listed from, as yt-dlp reports it.
-        playlist = info.get("playlist_uploader") or info.get("playlist_channel") or info.get("playlist_title")
-        yield replace(entry, collection=str(playlist or entry.collection))
+        yield resolver.named(url, flat, not judged or resolver.owns(url, flat))
 
 
 def _gallerydl_command(access: AccessIdentity) -> list[str]:

@@ -6,14 +6,9 @@ from datetime import datetime
 
 from backend.app.core.config import tracker_concurrency
 from backend.app.core.time import utc_now, utc_now_datetime
-from backend.app.db.repositories import (
-    claim_due_tracker_row,
-    due_tracker_count,
-    next_due_tracker_at,
-    reset_checking_trackers,
-)
+from backend.app.db.repositories import due_tracker_count, next_due_tracker_at, reset_checking_trackers
 
-from .service import run_check
+from .service import claim_check, run_check
 
 # Upper bound on one idle wait, so a changed clock is noticed within the hour.
 _MAX_WAIT_SECONDS = 3600.0
@@ -61,7 +56,7 @@ def _check_loop() -> None:
     try:
         while True:
             try:
-                tracker = claim_due_tracker_row(utc_now())
+                tracker = claim_check()
                 if tracker:
                     with _condition:
                         _spawn_locked()

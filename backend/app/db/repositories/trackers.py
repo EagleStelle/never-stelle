@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Any
 
 from backend.app.core.coercion import safe_int
@@ -121,13 +122,14 @@ def delete_tracker_rows(tracker_id: str) -> None:
         connection.execute("DELETE FROM trackers WHERE id = ?", (str(tracker_id),))
 
 
-def claim_due_tracker_row(now: str) -> dict[str, Any]:
-    """Atomically mark the most overdue enabled tracker as checking and return it."""
+def claim_due_tracker_row(now: str, first: Collection[str] = ()) -> dict[str, Any]:
+    """Atomically mark the most overdue enabled tracker as checking and return it; due ones in ``first`` lead."""
+    lead = f"id IN ({', '.join('?' for _ in first)}) DESC, " if first else ""
     with transaction() as connection:
         row = connection.execute(
             "SELECT id FROM trackers WHERE enabled = 1 AND checking_at = '' AND next_check_at <= ?"
-            " ORDER BY next_check_at, id LIMIT 1",
-            (now,),
+            f" ORDER BY {lead}next_check_at, id LIMIT 1",
+            (now, *first),
         ).fetchone()
         if not row:
             return {}

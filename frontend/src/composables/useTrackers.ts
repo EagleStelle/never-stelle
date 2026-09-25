@@ -30,19 +30,16 @@ interface UseTrackersOptions {
 // Browsers fire a longer timer at once, so a wait past this would poll without pause.
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
-// Checking now, or due and waiting for the server to pick it up.
-type Schedule = Pick<Tracker, "checking" | "enabled" | "next_check_at">;
+type Schedule = Pick<Tracker, "checking" | "queued" | "enabled" | "next_check_at">;
 
-function isBusy(tracker: Schedule): boolean {
-  return (
-    tracker.checking ||
-    (tracker.enabled && Boolean(tracker.next_check_at) && Date.parse(tracker.next_check_at) <= Date.now())
-  );
+// Checking now, or due and waiting for a free check slot.
+export function hasCheck(tracker: Pick<Tracker, "checking" | "queued">): boolean {
+  return tracker.checking || tracker.queued;
 }
 
 // Fast while a check runs, so its seen count moves live; otherwise wake when the next one falls due.
 function pollDelay(trackers: Schedule[]): number | false {
-  if (trackers.some(isBusy)) return POLL_RUNNING_MS;
+  if (trackers.some(hasCheck)) return POLL_RUNNING_MS;
   const due = trackers
     .filter((tracker) => tracker.enabled && tracker.next_check_at)
     .map((tracker) => Date.parse(tracker.next_check_at))
@@ -96,7 +93,7 @@ export function useTrackers({ enabled, tasks, toast, url }: UseTrackersOptions) 
     if (data && openTrackerId.value && !openTracker.value) openTrackerId.value = "";
   });
 
-  // A tracker row leaving the queue finished or was removed: only then can downloaded change.
+  // A tracker row leaving the queue finished or was removed: only then can done change.
   watch(
     () => new Set(tasks.value.filter((task) => task.tracker_id).map((task) => task.vid)),
     (next, previous) => {
@@ -175,14 +172,15 @@ export function useTrackers({ enabled, tasks, toast, url }: UseTrackersOptions) 
     }
   }
 
-  // Reports once the check is done, not when it is asked for. A check already running is stopped instead.
+  // Reports once the check is done, not when it is asked for. A check running or waiting is stopped instead.
   async function checkTracker(trackerId: string): Promise<void> {
     const tracker = trackers.value.find((item) => item.id === trackerId);
-    if (tracker?.checking) {
+    if (tracker && hasCheck(tracker)) {
       requestedChecks.delete(trackerId);
       try {
         await stopTrackerCheck(trackerId);
-        toast(`${tracker.name}: check stopped.`);
+        // A queued check never ran; its row already shows it left the queue.
+        if (tracker.checking) toast(`${tracker.name}: check stopped.`);
         await refreshTrackers();
       } catch (error) {
         toast(errorMessage(error, "Could not stop the check."), "error");

@@ -27,6 +27,7 @@ import DownloadFields from "@/features/downloads/DownloadFields.vue";
 import type { QualityField } from "@/features/downloads/qualityFields";
 import HistoryToolbar from "@/features/history/Toolbar.vue";
 import { useDashboard } from "@/composables/useDashboard";
+import { hasCheck } from "@/composables/useTrackers";
 import { COUNT_ICONS, TRACKER_INTERVALS } from "@/ui";
 import type { Component } from "vue";
 import type { MediaMode, PostProcessingSelection, QualitySelection, Tracker } from "@/types";
@@ -77,17 +78,18 @@ const listKey = computed(() => `${openTrackerId.value}|${activeMenu.value}|${med
 
 function trackerStatus(tracker: Tracker): string {
   if (tracker.checking) return "Checking";
+  if (tracker.queued) return "Queued";
   return tracker.enabled ? "" : "Paused";
 }
 
-// The check button stops a check already running.
+// The check button stops a check already running or waiting.
 function checkLabel(tracker: Tracker): string {
-  return tracker.checking ? "Stop check" : "Check now";
+  return hasCheck(tracker) ? "Stop check" : "Check now";
 }
 
 const TRACKER_STATS: { label: string; icon: Component; count: (counts: Tracker["counts"]) => number }[] = [
   { label: "Seen", icon: IconSeen, count: (counts) => counts.seen },
-  { label: "Downloaded", icon: COUNT_ICONS.completed, count: (counts) => counts.completed },
+  { label: "Done", icon: COUNT_ICONS.completed, count: (counts) => counts.completed },
   { label: "Queued", icon: COUNT_ICONS.queued, count: (counts) => counts.queued + counts.running },
   { label: "Failed", icon: COUNT_ICONS.failed, count: (counts) => counts.failed },
 ];

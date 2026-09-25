@@ -51,6 +51,7 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(listing_module, "probe_metadata", lambda urls, **options: {})
     monkeypatch.setattr(listing_module, "BrowserSession", _Browser().open)
     monkeypatch.setattr(service_module, "resolve_redirect_url", lambda url: url)
+    monkeypatch.setattr(service_module, "_asked", set())
     yield tmp_path
     database_module.close_database()
 
@@ -143,7 +144,6 @@ def test_gallerydl_file_resolves_to_a_same_site_post_link(temp_db, monkeypatch):
         "author": {"name": "alice"},
         "file_url": "https://cdn.other.test/x/99999999.jpg",
         "permalink": "https://www.example.test/post/55555555",
-        "title": "Sunset",
     }
     messages = [
         [2, kwdict],
@@ -154,7 +154,6 @@ def test_gallerydl_file_resolves_to_a_same_site_post_link(temp_db, monkeypatch):
     entries = list(listing_module._gallerydl_entries(iter(messages), _resolver(), ListingStats(), []))
 
     assert [entry.url for entry in entries] == ["https://www.example.test/post/55555555"] * 2
-    assert entries[0].title == "Sunset"
 
 
 @pytest.mark.parametrize(
@@ -204,7 +203,7 @@ def test_gallerydl_file_reconstructs_a_link_from_the_learned_format(temp_db, mon
     )
 
     # The creator's own id matches the signature too, but names the person, not the post.
-    assert entries == [Entry(url=post, creator="alice", collection="alice")]
+    assert entries == [Entry(url=post, collection="alice")]
     assert probed == [post]
     assert stats.unresolved == 0
 
@@ -501,14 +500,14 @@ def test_ytdlp_extractor_answer_decides_item_or_collection(temp_db, monkeypatch)
 def test_ytdlp_lines_become_entries(temp_db):
     subs: list[str] = []
     lines = [
-        {"url": "https://example.test/post/12345678", "title": "One", "playlist_uploader": "Alice"},
+        {"url": "https://example.test/post/12345678", "playlist_uploader": "Alice"},
         {"url": "https://example.test/u/alice/shorts", "_type": "url"},
         {"id": "no-link"},
     ]
 
     entries = list(listing_module._ytdlp_entries(iter(lines), _resolver(), subs))
 
-    assert entries == [Entry(url="https://example.test/post/12345678", title="One", collection="Alice")]
+    assert entries == [Entry(url="https://example.test/post/12345678", collection="Alice")]
     assert subs == ["https://example.test/u/alice/shorts"]
 
 
@@ -516,23 +515,20 @@ def test_listed_entries_are_named_by_the_fields_order(temp_db):
     from backend.app.domains.settings import load_saved_settings_file, save_saved_settings_file
 
     payload = load_saved_settings_file()
-    payload["source_fields"] = {
-        "example": {"username": ["author[handle]", "uploader"], "title": ["description", "title"]}
-    }
+    payload["source_fields"] = {"example": {"nickname": ["author[name]"]}}
     save_saved_settings_file(payload)
     lines = [
         {
             "url": "https://example.test/post/12345678",
-            "title": "One",
-            "description": "Caption",
             "uploader": "Alice Example",
-            "author": {"handle": "alice"},
+            "playlist_uploader": "Alice Channel",
+            "author": {"name": "Alice Films"},
         }
     ]
 
     entries = list(listing_module._ytdlp_entries(iter(lines), _resolver(), []))
 
-    assert (entries[0].creator, entries[0].title) == ("alice", "Caption")
+    assert entries[0].collection == "Alice Films"
 
 
 def test_trackers_take_their_source_from_their_link(temp_db):
@@ -1535,8 +1531,8 @@ def test_first_check_of_a_single_item_link_explains_why_and_stays_first(temp_db,
     assert tracker["last_success_at"] == ""
 
 
-def test_first_check_names_the_tracker_after_its_collection(temp_db, monkeypatch):
-    _insert_tracker(name=service_module._fallback_name(TRACKER_URL))
+def test_every_check_names_the_tracker_after_its_collection(temp_db, monkeypatch):
+    _insert_tracker(name="Old Name")
 
     tracker = _check(monkeypatch, [Entry(url=_entry(1).url, collection="Alice Films")], _Queue())
 
@@ -1813,6 +1809,20 @@ def test_seen_rises_while_a_check_runs(temp_db, monkeypatch):
     assert seen == [0, 1, 2, 3]
 
 
+def test_name_shows_while_a_check_runs(temp_db, monkeypatch):
+    _insert_tracker(name=service_module._fallback_name(TRACKER_URL))
+    names: list[str] = []
+
+    def listing():
+        yield Entry(url=_entry(1).url, collection="Alice Films")
+        names.append(repositories.load_tracker_row("t1")["name"])
+        yield _entry(2)
+
+    _check_while(monkeypatch, listing)
+
+    assert names == ["Alice Films"]
+
+
 def test_a_tracker_deleted_mid_check_keeps_no_entries(temp_db, monkeypatch):
     _insert_tracker()
 
@@ -2050,6 +2060,37 @@ def test_check_now_makes_the_tracker_due(temp_db):
     service_module.update_tracker("t1", {"enabled": False})
     with pytest.raises(PermissionError):
         service_module.check_tracker_now("t1")
+
+
+def test_checks_asked_for_by_hand_run_before_overdue_ones(temp_db):
+    _insert_tracker(next_check_at="2000-01-01T00:00:00+00:00")
+    _insert_tracker(id="t2", source_url="https://example.test/u/bob", next_check_at="2999-01-01T00:00:00+00:00")
+
+    service_module.check_tracker_now("t2")
+
+    assert [service_module.claim_check()["id"], service_module.claim_check()["id"]] == ["t2", "t1"]
+
+
+def test_check_now_on_a_queued_tracker_keeps_its_place(temp_db):
+    _insert_tracker(next_check_at="2000-01-01T00:00:00+00:00")
+
+    service_module.check_tracker_now("t1")
+
+    assert repositories.load_tracker_row("t1")["next_check_at"] == "2000-01-01T00:00:00+00:00"
+
+
+def test_stopping_a_queued_check_moves_it_to_the_next_interval(temp_db):
+    _insert_tracker(next_check_at="2000-01-01T00:00:00+00:00")
+    service_module.check_tracker_now("t1")
+    assert service_module.tracker_to_api(repositories.load_tracker_row("t1"))["queued"]
+    before = utc_now_datetime()
+
+    service_module.stop_check("t1")
+
+    tracker = repositories.load_tracker_row("t1")
+    assert not service_module.tracker_to_api(tracker)["queued"]
+    assert datetime.fromisoformat(tracker["next_check_at"]) >= before + timedelta(seconds=3600 * 0.9)
+    assert "t1" not in service_module._asked
 
 
 def test_checks_run_in_parallel_up_to_the_concurrency_limit(temp_db, monkeypatch):

@@ -426,6 +426,8 @@ export interface Tracker {
   last_success_at: string;
   last_error: string;
   checking: boolean;
+  // Due and waiting for a free check slot.
+  queued: boolean;
   created_at: string;
   counts: TrackerCounts;
 }

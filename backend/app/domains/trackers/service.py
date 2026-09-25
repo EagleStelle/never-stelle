@@ -16,6 +16,7 @@ from backend.app.core.sources import host_from_url, source_key_from_url
 from backend.app.core.time import utc_now, utc_now_datetime
 from backend.app.db.repositories import (
     add_tracker_backlog_rows,
+    claim_due_tracker_row,
     count_tracker_items,
     delete_tracker_rows,
     fail_tracker_backlog_row,
@@ -94,6 +95,11 @@ def _source_key(tracker: dict[str, Any], profiles: list[dict[str, Any]] | None =
     return source_key_from_url(tracker["source_url"], profiles or get_effective_source_profiles())
 
 
+def _queued(tracker: dict[str, Any]) -> bool:
+    # Due and waiting for a free check slot.
+    return bool(tracker["enabled"]) and not tracker["checking_at"] and tracker["next_check_at"] <= utc_now()
+
+
 def tracker_to_api(tracker: dict[str, Any], counts: dict[str, int] | None = None) -> dict[str, Any]:
     counts = counts or {}
     return {
@@ -110,6 +116,7 @@ def tracker_to_api(tracker: dict[str, Any], counts: dict[str, int] | None = None
         "last_success_at": tracker["last_success_at"],
         "last_error": tracker["last_error"],
         "checking": bool(tracker["checking_at"]),
+        "queued": _queued(tracker),
         "created_at": tracker["created_at"],
         "counts": {"completed": counts.get("completed", 0), "seen": counts.get("seen", 0)},
     }
@@ -188,7 +195,14 @@ def check_tracker_now(tracker_id: str) -> None:
     if not tracker["enabled"]:
         raise PermissionError("Resume the tracker to check it.")
     _asked.add(tracker_id)
-    update_tracker_row(tracker_id, {"next_check_at": utc_now()})
+    # A check already waiting for a slot keeps its place.
+    if not _queued(tracker):
+        update_tracker_row(tracker_id, {"next_check_at": utc_now()})
+
+
+def claim_check() -> dict[str, Any]:
+    """Claim the next due tracker; checks asked for by hand go first, in the order they were asked."""
+    return claim_due_tracker_row(utc_now(), first=list(_asked))
 
 
 def _check_task_id(tracker_id: str) -> str:
@@ -196,9 +210,12 @@ def _check_task_id(tracker_id: str) -> str:
 
 
 def stop_check(tracker_id: str, *, wait: bool = False) -> None:
-    """Stop the tracker's running check at once; what it recorded stays, and the next check comes at the interval.
-    With ``wait``, returns once the check ended, so it queues nothing after."""
-    get_tracker(tracker_id)
+    """Stop the tracker's check at once, running or waiting for a slot; what it recorded stays, and the next check
+    comes at the interval. With ``wait``, returns once the check ended, so it queues nothing after."""
+    tracker = get_tracker(tracker_id)
+    _asked.discard(tracker_id)
+    if _queued(tracker):
+        update_tracker_row(tracker_id, {"next_check_at": _next_check_at(tracker["interval_seconds"])})
     task_id = _check_task_id(tracker_id)
     request_cancel(task_id)
     deadline = time.monotonic() + _STOP_WAIT_SECONDS
@@ -368,8 +385,11 @@ def _run_check(tracker: dict[str, Any]) -> None:
                     if key in listed:
                         continue
                     listed.update((key, *entry.members))
-                    if entry.owned:
-                        detected_name = detected_name or entry.collection or entry.creator
+                    if entry.owned and not detected_name:
+                        detected_name = entry.collection
+                        # Shown while the check runs, not only once its batch ends.
+                        if detected_name and detected_name != tracker["name"]:
+                            update_tracker_row(tracker_id, {"name": detected_name})
                     if has_tracker_entry(tracker_id, key):
                         continue
                     if counted + len(failures) >= settings["page_size"]:
@@ -408,9 +428,6 @@ def _run_check(tracker: dict[str, Any]) -> None:
             if stats.unread
             else ""
         )
-        # A tracker starts out named after its link; the listing knows the collection's own name.
-        if detected_name and tracker["name"] == _fallback_name(tracker["source_url"]):
-            updates["name"] = detected_name
     except Exception as exc:
         updates["last_error"] = str(exc) or "Check failed."
     finally:
