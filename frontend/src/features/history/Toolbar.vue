@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDashboard } from "@/composables/useDashboard";
 
+defineProps<{ hidePlatform?: boolean }>();
+
 const { historySearch, submitHistorySearch } = useDashboard();
 </script>
 
@@ -44,6 +46,6 @@ const { historySearch, submitHistorySearch } = useDashboard();
       </Button>
     </form>
 
-    <TaskFilters />
+    <TaskFilters :hide-platform="hidePlatform" />
   </div>
 </template>

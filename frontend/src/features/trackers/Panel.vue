@@ -25,6 +25,7 @@ import { IconImage } from "@/components/ui/icon-image";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import DownloadFields from "@/features/downloads/DownloadFields.vue";
 import type { QualityField } from "@/features/downloads/qualityFields";
+import HistoryToolbar from "@/features/history/Toolbar.vue";
 import { useDashboard } from "@/composables/useDashboard";
 import { COUNT_ICONS, TRACKER_INTERVALS } from "@/ui";
 import type { Component } from "vue";
@@ -448,6 +449,7 @@ async function confirmDelete(): Promise<void> {
 
           <FieldSet v-if="openTracker">
             <FieldLegend variant="divider">Items</FieldLegend>
+            <HistoryToolbar hide-platform />
             <TaskCollection
               :tasks="trackerTasks"
               :view-mode="viewMode"

@@ -11,7 +11,9 @@ import { useDashboard } from "@/composables/useDashboard";
 import { useIsDesktop } from "@/composables/useBreakpoints";
 import type { MediaFilter, MenuKey, ViewMode } from "@/types";
 
-// Downloads and history narrow the same task list, so both toolbars mount this.
+// Downloads, history and the tracker dialog narrow the same task list, so each mounts this.
+defineProps<{ hidePlatform?: boolean }>();
+
 const {
   activeMenu,
   mediaFilter,
@@ -36,6 +38,7 @@ function selectViewMode(value: string | string[]): void {
     class="@container flex items-center gap-2 lg:gap-3 -m-1 p-1 overflow-x-auto no-scrollbar *:last:ml-auto"
   >
     <Combobox
+      v-if="!hidePlatform"
       :model-value="activeMenu"
       :items="navigationItems"
       @update:model-value="(val) => setActiveMenu(val as MenuKey)"

@@ -209,7 +209,7 @@ export function useDownloadDashboard() {
   });
   const trackerHistory = useHistory({
     sourceKey: ref(""),
-    search: ref(""),
+    search: historySearchQuery,
     trackerId: trackerState.openTrackerId,
     enabled: computed(() => trackersPage.value && Boolean(trackerState.openTrackerId.value)),
   });
@@ -301,9 +301,9 @@ export function useDownloadDashboard() {
       ? trackerState.trackers.value
       : trackerState.trackers.value.filter((tracker) => tracker.source_key === activeMenu.value),
   );
-  // Queue rows first, then its history page; the media filter narrows both.
+  // Queue rows first, then its history page; the media filter narrows both, a search shows history only.
   const trackerTasks = computed(() => {
-    const queued = mediaTasks.value.filter(
+    const queued = historySearchQuery.value.trim() ? [] : mediaTasks.value.filter(
       (task) =>
         task.tracker_id === trackerState.openTrackerId.value &&
         ["pending", "running", "failed"].includes(task.status),
