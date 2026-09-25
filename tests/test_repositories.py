@@ -107,9 +107,9 @@ def test_learned_formats_persist_to_learned_formats_table(tmp_path, monkeypatch)
 
     payload = learn_download(
         {},
-        "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489?lang=en&q=fzyahoo&t=1781279478413",
-        "7493558766131039489",
-        {"uploader": "fzyahoo.com"},
+        "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001?lang=en&q=fakeacc&t=1781279478413",
+        "7100000000000000001",
+        {"uploader": "fakeacc.com"},
     )
     repositories.save_learned_formats_payload(payload)
 
@@ -129,8 +129,8 @@ def test_learned_formats_persist_to_learned_formats_table(tmp_path, monkeypatch)
 def test_learned_formats_persist_multiple_templates(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
 
-    payload = learn_download({}, "https://www.tiktok.com/@a/video/7493558766131039489", "7493558766131039489")
-    payload = learn_download(payload, "https://www.tiktok.com/@a/photo/7420705673542978833", "7420705673542978833")
+    payload = learn_download({}, "https://www.tiktok.com/@a/video/7100000000000000001", "7100000000000000001")
+    payload = learn_download(payload, "https://www.tiktok.com/@a/photo/7100000000000000002", "7100000000000000002")
     repositories.save_learned_formats_payload(payload)
 
     loaded = repositories.load_learned_formats_payload()
@@ -199,9 +199,9 @@ def _seed_history(monkeypatch, tmp_path):
             {
                 "source_url": "https://youtube.com/watch?v=1",
                 "source_key": "youtube",
-                "creator": "Hoshimachi Suisei",
-                "resolved_filename": "Comet [1].mp4",
-                "resolved_folder": "Hoshimachi",
+                "creator": "Starlit Demo",
+                "resolved_filename": "Orbit [1].mp4",
+                "resolved_folder": "Starlit",
                 "media_id": "1",
                 "created_at": "2026-07-10T00:00:00+00:00",
             },
@@ -211,9 +211,9 @@ def _seed_history(monkeypatch, tmp_path):
             {
                 "source_url": "https://tiktok.com/@a/video/2",
                 "source_key": "tiktok",
-                "creator": "Gawr Gura",
-                "resolved_filename": "Shark Dance [2].mp4",
-                "resolved_folder": "Gura",
+                "creator": "Deep Demo",
+                "resolved_filename": "Whale Song [2].mp4",
+                "resolved_folder": "Deep",
                 "media_id": "2",
                 "created_at": "2026-07-09T00:00:00+00:00",
             },
@@ -225,14 +225,14 @@ def _seed_history(monkeypatch, tmp_path):
 
 def test_load_history_page_search_matches_creator(tmp_path, monkeypatch):
     _seed_history(monkeypatch, tmp_path)
-    rows = repositories.load_history_page(30, search="hoshi")
+    rows = repositories.load_history_page(30, search="starl")
     assert len(rows) == 1
     assert [task_id for task_id, *_ in rows] == ["t1"]
 
 
 def test_load_history_page_search_matches_filename_and_url(tmp_path, monkeypatch):
     _seed_history(monkeypatch, tmp_path)
-    assert len(repositories.load_history_page(30, search="shark")) == 1
+    assert len(repositories.load_history_page(30, search="whale")) == 1
     assert len(repositories.load_history_page(30, search="tiktok.com")) == 1
 
 
@@ -263,8 +263,8 @@ def test_load_history_page_search_treats_like_wildcards_literally(tmp_path, monk
 
 def test_load_history_page_search_combines_with_source_key(tmp_path, monkeypatch):
     _seed_history(monkeypatch, tmp_path)
-    assert len(repositories.load_history_page(30, source_key="youtube", search="gura")) == 0
-    assert len(repositories.load_history_page(30, source_key="youtube", search="comet")) == 1
+    assert len(repositories.load_history_page(30, source_key="youtube", search="deep")) == 0
+    assert len(repositories.load_history_page(30, source_key="youtube", search="orbit")) == 1
 
 
 def test_load_history_page_empty_search_returns_all(tmp_path, monkeypatch):

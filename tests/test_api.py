@@ -382,7 +382,7 @@ def test_add_task_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
     response = client.post(
         "/api/downloads",
         json={
-            "url": "https://twitter.com/DohaVT/status/2073635724684054528",
+            "url": "https://twitter.com/DemoVT/status/2000000000000000001",
             "source_locations": {},
             "template_settings": {"folder_template": "{{username}}", "filename_template": "{{title}}"},
             "source_profiles": [{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
@@ -410,8 +410,8 @@ def test_probe_fields_saves_field_roles_without_url_priority_hint(tmp_path, monk
         lambda url, source_key: {
             "source_key": "tiktok",
             "fields": [
-                {"field": "uploader", "value": "fzyahoo.com"},
-                {"field": "uploader_id", "value": "6673617364291994625"},
+                {"field": "uploader", "value": "fakeacc.com"},
+                {"field": "uploader_id", "value": "6600000000000000001"},
             ],
             "field_roles": {"username": ["uploader", "uploader_id"]},
         },
@@ -420,7 +420,7 @@ def test_probe_fields_saves_field_roles_without_url_priority_hint(tmp_path, monk
     response = client.post(
         "/api/settings/probe-fields",
         json={
-            "url": "https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913",
+            "url": "https://www.tiktok.com/@fakeacc.com/video/7100000000000000003",
             "source_key": "tiktok",
         },
     )

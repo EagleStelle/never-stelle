@@ -45,7 +45,7 @@ _SURFACE_NOUN_RE = (
 _ATTRIBUTION_RE = re.compile(
     rf"(?i)(?:^|{_LEAD_SEPARATORS}){_MEDIA_KIND_RE}\s+by\s+[^|:｜()\[\]\n]{{1,80}}$"
 )
-# Auto-generated placeholder captions like "Photos from Charess's post" carry no real title.
+# Auto-generated placeholder captions like "Photos from Name's post" carry no real title.
 _GENERIC_DESCRIPTION_RE = re.compile(
     rf"(?i)^{_MEDIA_KIND_RE}\s+(?:from|by|of)\s+.+['’]s\s+{_SURFACE_NOUN_RE}$"
 )

@@ -208,18 +208,18 @@ def test_gallerydl_tiktok_photo_author_fields_are_creator_candidates(monkeypatch
     _stub_engines(
         monkeypatch,
         gallerydl=lambda url, **kwargs: {
-            "id": "7420705673542978833",
+            "id": "7100000000000000002",
             "author": {
-                "id": "6673617364291994625",
-                "nickname": "FZ Yahoo",
-                "secUid": "MS4wLjABAAAAC0QSwXXGjf1xr3FVnQxnr33V3X5v-QJrnH8KaGbJ5tQQlt8cyC_9OrrBOdb_NMhe",
-                "uniqueId": "fzyahoo.com",
+                "id": "6600000000000000001",
+                "nickname": "Clip Demo",
+                "secUid": "MS4wLjABAAAADemoSecUidDemoSecUidDemoSecUidDemoSecUidDemoSecUidDemoSecUidDemo",
+                "uniqueId": "fakeacc.com",
             },
         },
     )
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "tiktok")
 
-    result = probe_fields("https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833")
+    result = probe_fields("https://www.tiktok.com/@fakeacc.com/photo/7100000000000000002")
 
     assert [field["field"] for field in result["fields"]] == ["author[uniqueId]", "author[nickname]"]
     assert result["field_roles"] == {
@@ -653,9 +653,9 @@ def test_probe_fields_keeps_bare_facebook_reel_uploader(monkeypatch):
         monkeypatch,
         ytdlp=lambda url, **kwargs: (
             {
-                "id": "849162654788919",
-                "uploader": "Tomet Fonn",
-                "uploader_id": "100035730073475",
+                "id": "800000000000003",
+                "uploader": "Demo Poster",
+                "uploader_id": "100000000000002",
             },
             "",
         ),
@@ -663,7 +663,7 @@ def test_probe_fields_keeps_bare_facebook_reel_uploader(monkeypatch):
     _stub_engines(monkeypatch, gallerydl=lambda url, **kwargs: None)
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "facebook")
 
-    result = probe_fields("https://www.facebook.com/reel/849162654788919")
+    result = probe_fields("https://www.facebook.com/reel/800000000000003")
 
     assert [field["field"] for field in result["fields"]] == ["uploader_id", "uploader"]
     assert result["field_roles"]["username"] == ["uploader_id", "uploader"]
@@ -675,9 +675,9 @@ def test_probe_fields_keeps_facebook_share_post_uploader(monkeypatch):
         monkeypatch,
         ytdlp=lambda url, **kwargs: (
             {
-                "id": "194bUYA419",
-                "uploader": "Tomet Fonn",
-                "uploader_id": "100035730073475",
+                "id": "1cDemoCc3d",
+                "uploader": "Demo Poster",
+                "uploader_id": "100000000000002",
             },
             "",
         ),
@@ -685,7 +685,7 @@ def test_probe_fields_keeps_facebook_share_post_uploader(monkeypatch):
     _stub_engines(monkeypatch, gallerydl=lambda url, **kwargs: None)
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "facebook")
 
-    result = probe_fields("https://www.facebook.com/share/p/194bUYA419/")
+    result = probe_fields("https://www.facebook.com/share/p/1cDemoCc3d/")
 
     assert [field["field"] for field in result["fields"]] == ["uploader_id", "uploader"]
     assert result["field_roles"]["username"] == ["uploader_id", "uploader"]
@@ -697,9 +697,9 @@ def test_probe_fields_keeps_live_fields_without_url_owner_filter(monkeypatch):
         monkeypatch,
         ytdlp=lambda url, **kwargs: (
             {
-                "id": "7487436336081734913",
+                "id": "7100000000000000003",
                 "uploader": "wrong-owner",
-                "uploader_id": "100035730073475",
+                "uploader_id": "100000000000002",
             },
             "",
         ),
@@ -707,7 +707,7 @@ def test_probe_fields_keeps_live_fields_without_url_owner_filter(monkeypatch):
     _stub_engines(monkeypatch, gallerydl=lambda url, **kwargs: None)
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "tiktok")
 
-    result = probe_fields("https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913")
+    result = probe_fields("https://www.tiktok.com/@fakeacc.com/video/7100000000000000003")
 
     assert [field["field"] for field in result["fields"]] == ["uploader_id", "uploader"]
     assert result["field_roles"]["username"] == ["uploader_id", "uploader"]
@@ -719,11 +719,11 @@ def test_probe_fields_promotes_exact_url_creator_match(monkeypatch):
         monkeypatch,
         ytdlp=lambda url, **kwargs: (
             {
-                "id": "7487436336081734913",
-                "uploader_id": "6673617364291994625",
-                "uploader": "fzyahoo.com",
+                "id": "7100000000000000003",
+                "uploader_id": "6600000000000000001",
+                "uploader": "fakeacc.com",
                 "channel": "❤️",
-                "channel_id": "MS4wLjABAAAAC0QSwXXGjf1xr3FVnQxnr33V3X5v-QJrnH8KaGbJ5tQQlt8cyC_9OrrBOdb_NMhe",
+                "channel_id": "MS4wLjABAAAADemoSecUidDemoSecUidDemoSecUidDemoSecUidDemoSecUidDemoSecUidDemo",
                 "artist": "spidey",
             },
             "",
@@ -732,7 +732,7 @@ def test_probe_fields_promotes_exact_url_creator_match(monkeypatch):
     _stub_engines(monkeypatch, gallerydl=lambda url, **kwargs: None)
     monkeypatch.setattr(probe_module, "source_key_from_url", lambda url: "tiktok")
 
-    result = probe_fields("https://www.tiktok.com/@fzyahoo.com/video/7487436336081734913")
+    result = probe_fields("https://www.tiktok.com/@fakeacc.com/video/7100000000000000003")
 
     assert [field["field"] for field in result["fields"]][:2] == ["uploader_id", "uploader"]
     assert result["field_roles"]["username"][:2] == ["uploader", "uploader_id"]

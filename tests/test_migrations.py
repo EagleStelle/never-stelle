@@ -528,11 +528,11 @@ def _seed_v1_db(path, settings: dict | None = None) -> None:
                         "task_id": "ytdlp:abc",
                         # Defaulted by 1.0 for every row older than the field, so the id decides.
                         "task_type": "gallerydl",
-                        "creator": "richamu",
+                        "creator": "demochan",
                         "media_id": "abc",
-                        "resolved_folder": "/media/youtube/richamu",
-                        "resolved_filename": "richamu - clip [abc].mp4",
-                        "resolved_full_path": "/media/youtube/richamu/richamu - clip [abc].mp4",
+                        "resolved_folder": "/media/youtube/demochan",
+                        "resolved_filename": "demochan - clip [abc].mp4",
+                        "resolved_full_path": "/media/youtube/demochan/demochan - clip [abc].mp4",
                         "file_size": 42,
                         "quality": {"mode": "audio"},
                         "completed_at": "2026-07-12T20:33:07+00:00",
@@ -628,7 +628,7 @@ def test_v1_history_payloads_become_columns(tmp_path, monkeypatch):
 
     # The id names the engine that produced the row; the payload's task_type does not.
     assert downloaded["engine"] == "ytdlp"
-    assert (downloaded["creator"], downloaded["media_id"], downloaded["file_size"]) == ("richamu", "abc", 42)
+    assert (downloaded["creator"], downloaded["media_id"], downloaded["file_size"]) == ("demochan", "abc", 42)
     assert downloaded["resolved_path_key"]
     # One 1.0 timestamp feeds both, and the row's own updated_at wins where it has one.
     assert downloaded["created_at"] == "2026-07-12T20:33:07+00:00"

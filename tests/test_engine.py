@@ -284,7 +284,7 @@ def test_audio_metadata_and_thumbnail_request_youtube_music_cover_metadata():
     processing = {"metadata": "embed", "thumbnail": "embed"}
     quality = {"mode": "audio", "audio_format": "mp3"}
     both = ytdlp.build_ytdlp_command(
-        "https://www.youtube.com/watch?v=Yb9FzUPpk0Y",
+        "https://www.youtube.com/watch?v=YtDemoVid01",
         "/usr/bin/ffmpeg",
         "/media/%(id)s.%(ext)s",
         quality=quality,
@@ -293,7 +293,7 @@ def test_audio_metadata_and_thumbnail_request_youtube_music_cover_metadata():
     assert both[both.index("--extractor-args") + 1] == "youtube:player_client=default,web_music"
 
     delegated = gallerydl.build_gallerydl_command(
-        "https://www.youtube.com/watch?v=Yb9FzUPpk0Y",
+        "https://www.youtube.com/watch?v=YtDemoVid01",
         "/media",
         "\x1f{id}.{extension}",
         metadata_sidecar="/scratch/task/downloads.jsonl",
@@ -311,7 +311,7 @@ def test_audio_metadata_and_thumbnail_request_youtube_music_cover_metadata():
     assert _gallerydl_postprocessors(delegated)[-1]["private"] is True
 
     thumbnail_only = ytdlp.build_ytdlp_command(
-        "https://www.youtube.com/watch?v=Yb9FzUPpk0Y",
+        "https://www.youtube.com/watch?v=YtDemoVid01",
         "/usr/bin/ffmpeg",
         "/media/%(id)s.%(ext)s",
         quality={"mode": "audio", "audio_format": "mp3"},
@@ -935,12 +935,12 @@ def test_gallerydl_engine_progress_and_path_parsing():
 def test_convert_template_to_gallerydl_maps_fields_and_resolves_creator():
     result = gallerydl.convert_template_to_gallerydl(
         "{{username}} - {{title}} [{{id}}]",
-        "https://twitter.com/DohaVT/status/2073635724684054528",
+        "https://twitter.com/DemoVT/status/2000000000000000001",
     )
     gallery_username = '{username|author[uniqueId]|user[name]|user[username]|user[uniqueId]|account|author|"unknown"}'
     assert result.startswith(f"{gallery_username} - ")
     assert '{title|content|"untitled"}' in result
-    assert "[2073635724684054528]" in result
+    assert "[2000000000000000001]" in result
 
 
 def test_convert_template_to_gallerydl_falls_back_to_metadata_creator():
@@ -957,7 +957,7 @@ def test_engine_progress_style_flags():
 def test_gallerydl_counts_a_media_url_as_one_item_without_a_second_pass():
     engine = engine_by_name("gallerydl")
     # A link naming one item is the common case, and the bar can track its bytes exactly.
-    assert engine.count_items("https://www.tiktok.com/@someone/video/7493558766131039489") == 1
+    assert engine.count_items("https://www.tiktok.com/@someone/video/7100000000000000001") == 1
     # A profile could be any number of items, so the unknown-total curve still applies.
     assert engine.count_items("https://www.tiktok.com/@someone") == 0
 
@@ -1072,7 +1072,7 @@ def test_engines_build_output_templates_from_same_settings_snapshot():
         "folder_template": "{{username}}/{{id}}",
         "filename_template": "{{username}} - {{title}} [{{id}}]",
     }
-    url = "https://twitter.com/DohaVT/status/2073635724684054528"
+    url = "https://twitter.com/DemoVT/status/2000000000000000001"
 
     ytdlp_template = engine_by_name("ytdlp").build_output_template(url, "/media/twitter", settings)
     gallery_template = engine_by_name("gallerydl").build_output_template(url, "/media/twitter", settings)
@@ -1081,9 +1081,9 @@ def test_engines_build_output_templates_from_same_settings_snapshot():
 
     assert "%(uploader_id,playlist_uploader_id,uploader,channel,creator,channel_id|Unknown)s" in ytdlp_template
     assert "%(id|NA)s" in ytdlp_template
-    assert gallery_folder == f"{gallery_username}/2073635724684054528"
+    assert gallery_folder == f"{gallery_username}/2000000000000000001"
     assert gallery_filename.startswith(
-        f'{gallery_username} - {{title|content|"untitled"}} [2073635724684054528]'
+        f'{gallery_username} - {{title|content|"untitled"}} [2000000000000000001]'
     )
 
 
@@ -1130,9 +1130,9 @@ def test_build_gallerydl_command_can_write_metadata_sidecar():
 def test_build_gallerydl_command_routes_streams_through_ytdlp(monkeypatch):
     monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
     cmd = gallerydl.build_gallerydl_command(
-        "https://twitter.com/DohaVT/status/1",
+        "https://twitter.com/DemoVT/status/1",
         "/media/twitter",
-        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        f"DemoVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
     )
 
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.module=yt_dlp")
@@ -1153,9 +1153,9 @@ def test_build_gallerydl_command_routes_streams_through_ytdlp(monkeypatch):
 def test_build_gallerydl_command_omits_ffmpeg_option_when_absent(monkeypatch):
     monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "")
     cmd = gallerydl.build_gallerydl_command(
-        "https://twitter.com/DohaVT/status/1",
+        "https://twitter.com/DemoVT/status/1",
         "/media/twitter",
-        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        f"DemoVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
     )
 
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.module=yt_dlp")
@@ -1166,9 +1166,9 @@ def test_build_gallerydl_command_omits_ffmpeg_option_when_absent(monkeypatch):
 def test_build_gallerydl_command_normalizes_windows_ffmpeg_path(monkeypatch):
     monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: r"C:\tools\ffmpeg\ffmpeg.exe")
     cmd = gallerydl.build_gallerydl_command(
-        "https://twitter.com/DohaVT/status/1",
+        "https://twitter.com/DemoVT/status/1",
         "/media/twitter",
-        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        f"DemoVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
     )
 
     assert _has_cli_pair(cmd, "-o", "downloader.ytdl.raw-options.ffmpeg_location=C:/tools/ffmpeg/ffmpeg.exe")
@@ -1295,9 +1295,9 @@ def test_ytdlp_command_audio_mode_best_bitrate_omits_bitrate_filter():
 def test_gallerydl_command_applies_capped_quality_to_ytdl_downloader(monkeypatch):
     monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
     cmd = gallerydl.build_gallerydl_command(
-        "https://twitter.com/DohaVT/status/1",
+        "https://twitter.com/DemoVT/status/1",
         "/media/twitter",
-        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        f"DemoVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
         quality={"mode": "merged", "video_quality": "480p"},
     )
 
@@ -1310,9 +1310,9 @@ def test_gallerydl_command_applies_capped_quality_to_ytdl_downloader(monkeypatch
 def test_gallerydl_command_honors_video_container(monkeypatch):
     monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "")
     cmd = gallerydl.build_gallerydl_command(
-        "https://twitter.com/DohaVT/status/1",
+        "https://twitter.com/DemoVT/status/1",
         "/media/twitter",
-        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        f"DemoVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
         quality={"mode": "merged", "video_quality": "best", "video_container": "mkv"},
     )
 
@@ -1333,9 +1333,9 @@ def test_gallerydl_command_honors_video_container(monkeypatch):
 def test_gallerydl_command_honors_video_codec(monkeypatch):
     monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "")
     cmd = gallerydl.build_gallerydl_command(
-        "https://twitter.com/DohaVT/status/1",
+        "https://twitter.com/DemoVT/status/1",
         "/media/twitter",
-        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        f"DemoVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
         quality={"mode": "merged", "video_container": "mkv", "video_codec": "vp9"},
     )
 
@@ -1407,9 +1407,9 @@ def test_gallerydl_command_drops_codec_incompatible_with_container(monkeypatch):
     # so gallery-dl never muxes an unplayable VP9 stream into an MP4 container.
     monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "")
     cmd = gallerydl.build_gallerydl_command(
-        "https://twitter.com/DohaVT/status/1",
+        "https://twitter.com/DemoVT/status/1",
         "/media/twitter",
-        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        f"DemoVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
         quality={"mode": "merged", "video_container": "mp4", "video_codec": "vp9"},
     )
 
@@ -1426,9 +1426,9 @@ def test_gallerydl_audio_auto_mode_stays_native(monkeypatch):
 
     monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", fake_detect_ffmpeg_location)
     cmd = gallerydl.build_gallerydl_command(
-        "https://twitter.com/DohaVT/status/1",
+        "https://twitter.com/DemoVT/status/1",
         "/media/twitter",
-        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        f"DemoVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
         quality={"mode": "audio", "audio_format": "auto", "audio_bitrate": "320"},
     )
 
@@ -1443,9 +1443,9 @@ def test_gallerydl_audio_auto_mode_stays_native(monkeypatch):
 def test_gallerydl_audio_mode_transcodes_explicit_format_and_bitrate(monkeypatch):
     monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "/usr/bin/ffmpeg")
     cmd = gallerydl.build_gallerydl_command(
-        "https://twitter.com/DohaVT/status/1",
+        "https://twitter.com/DemoVT/status/1",
         "/media/twitter",
-        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        f"DemoVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
         quality={"mode": "audio", "audio_format": "mp3", "audio_bitrate": "320"},
     )
 
@@ -1462,9 +1462,9 @@ def test_gallerydl_audio_mode_transcodes_explicit_format_and_bitrate(monkeypatch
 def test_gallerydl_audio_mode_lossless_omits_bitrate_filter(monkeypatch):
     monkeypatch.setattr(gallerydl, "detect_ffmpeg_location", lambda: "")
     cmd = gallerydl.build_gallerydl_command(
-        "https://twitter.com/DohaVT/status/1",
+        "https://twitter.com/DemoVT/status/1",
         "/media/twitter",
-        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        f"DemoVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
         quality={"mode": "audio", "audio_format": "flac", "audio_bitrate": "320"},
     )
 
@@ -1480,7 +1480,7 @@ def test_gallerydl_audio_mode_lossless_omits_bitrate_filter(monkeypatch):
 
 def test_ytdlp_command_enables_youtube_js_solver():
     cmd = ytdlp.build_ytdlp_command(
-        "https://www.youtube.com/watch?v=Rh8dLAeeEsQ",
+        "https://www.youtube.com/watch?v=YtDemoVid03",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
     )
@@ -1491,7 +1491,7 @@ def test_ytdlp_command_enables_youtube_js_solver():
 
 def test_ytdlp_command_includes_js_runtimes_universally():
     cmd = ytdlp.build_ytdlp_command(
-        "https://twitter.com/DohaVT/status/1",
+        "https://twitter.com/DemoVT/status/1",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
     )
@@ -1518,15 +1518,15 @@ def _cmdline(*flags: str) -> str:
 
 def test_downloader_commands_use_the_leased_cookie_file():
     ytdlp_cmd = ytdlp.build_ytdlp_command(
-        "https://twitter.com/DohaVT/status/1",
+        "https://twitter.com/DemoVT/status/1",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
         access=AccessIdentity(lease=_lease("/cookies/twitter-2.txt")),
     )
     gallery_cmd = gallerydl.build_gallerydl_command(
-        "https://twitter.com/DohaVT/status/1",
+        "https://twitter.com/DemoVT/status/1",
         "/media/twitter",
-        f"DohaVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
+        f"DemoVT{gallerydl._TEMPLATE_SEP}clip.{{extension}}",
         access=AccessIdentity(lease=_lease("/cookies/twitter-2.txt")),
     )
 

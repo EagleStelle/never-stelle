@@ -46,7 +46,7 @@ def test_build_ytdlp_command_adds_creator_sidecar_print():
 def test_build_ytdlp_command_creator_sidecar_uses_display_name_field_for_non_youtube():
     # Consolidated: the sidecar records the display name (nickname field) everywhere.
     cmd = build_ytdlp_command(
-        "https://x.com/DohaVT/status/2073635724684054528",
+        "https://x.com/DemoVT/status/2000000000000000001",
         "/usr/bin/ffmpeg",
         "/media/out.%(ext)s",
         creator_sidecar="/tmp/creator.txt",

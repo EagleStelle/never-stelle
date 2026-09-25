@@ -100,8 +100,8 @@ def _patch_worker_task_store(monkeypatch: pytest.MonkeyPatch, store: dict, updat
         ("https://tiktok.com/@x/video/1", "https://tiktok.com/@x/video/1"),
         ("https://youtube.com/watch?v=1", "https://youtube.com/watch?v=1"),
         (
-            "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489?lang=en&q=fzyahoo&t=1781279478413",
-            "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
+            "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001?lang=en&q=fakeacc&t=1781279478413",
+            "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001",
         ),
         ("https://youtube.com/watch?v=1&feature=share", "https://youtube.com/watch?v=1"),
     ],
@@ -125,20 +125,20 @@ def _patch_head(monkeypatch, final_url=None, exc=None):
 
 
 def test_resolve_redirect_expands_share_link(monkeypatch):
-    _patch_head(monkeypatch, "https://www.facebook.com/charechii/posts/pfbid02xDjH4VegXXU7epxAJJVz6vJnaRnWScxmggX1iSB4GhoBexQB926QQg9NQdAvByPEl")
-    resolved = urls_module.resolve_redirect_url("https://www.facebook.com/share/p/17tZcAG16f/")
-    assert resolved.endswith("pfbid02xDjH4VegXXU7epxAJJVz6vJnaRnWScxmggX1iSB4GhoBexQB926QQg9NQdAvByPEl")
+    _patch_head(monkeypatch, "https://www.facebook.com/demopage/posts/pfbid02DemoPostAaDemoPostDemoPostDemoPostDemoPostDemoPostDemoPostDemoPos")
+    resolved = urls_module.resolve_redirect_url("https://www.facebook.com/share/p/1aDemoAa1b/")
+    assert resolved.endswith("pfbid02DemoPostAaDemoPostDemoPostDemoPostDemoPostDemoPostDemoPostDemoPos")
 
 
 def test_resolve_redirect_keeps_original_when_target_loses_id(monkeypatch):
     _patch_head(monkeypatch, "https://www.instagram.com/accounts/login/")
-    original = "https://www.instagram.com/reel/DWyrvI9Ef3z/"
+    original = "https://www.instagram.com/reel/DDemoReel01/"
     assert urls_module.resolve_redirect_url(original) == original
 
 
 def test_resolve_redirect_survives_network_error(monkeypatch):
     _patch_head(monkeypatch, exc=RuntimeError("boom"))
-    original = "https://www.facebook.com/share/p/17tZcAG16f/"
+    original = "https://www.facebook.com/share/p/1aDemoAa1b/"
     assert urls_module.resolve_redirect_url(original) == original
 
 
@@ -158,13 +158,13 @@ def _count_head(monkeypatch, final_url=None):
     "url,expected",
     [
         # The id is blanked, so one answer covers every post on the route.
-        ("https://www.instagram.com/reel/DWyrvI9Ef3z/", "www.instagram.com/reel/{}"),
+        ("https://www.instagram.com/reel/DDemoReel01/", "www.instagram.com/reel/{}"),
         # The creator too, or every new account would re-probe a known route.
-        ("https://www.tiktok.com/@someone/video/7493558766131039489", "www.tiktok.com/{}/video/{}"),
-        ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "www.youtube.com/watch?v={}"),
+        ("https://www.tiktok.com/@someone/video/7100000000000000001", "www.tiktok.com/{}/video/{}"),
+        ("https://www.youtube.com/watch?v=YtDemoVid04", "www.youtube.com/watch?v={}"),
         # A short host must not fold into its apex: they redirect differently.
-        ("https://vt.tiktok.com/ZSSKrM8Wm/", "vt.tiktok.com/{}"),
-        ("https://www.facebook.com/share/p/17tZcAG16f/", "www.facebook.com/share/p/{}"),
+        ("https://vt.tiktok.com/ZSDemo01A/", "vt.tiktok.com/{}"),
+        ("https://www.facebook.com/share/p/1aDemoAa1b/", "www.facebook.com/share/p/{}"),
         # Nothing to blank: recording it would store a row nothing can match twice.
         ("https://www.instagram.com/somebody/", ""),
     ],
@@ -176,16 +176,16 @@ def test_redirect_shape_generalizes_route(url, expected):
 def test_resolve_redirect_stops_probing_a_route_that_never_redirects(monkeypatch):
     calls = _count_head(monkeypatch)
     # Same route, different posts: the second must answer from what the first learned.
-    for media_id in ("DWyrvI9Ef3z", "CXabc123defg", "DZ9zzQQ11aa", "DYzz99QQ1bb"):
+    for media_id in ("DDemoReel01", "CXabc123defg", "DZ9zzQQ11aa", "DYzz99QQ1bb"):
         url = f"https://www.instagram.com/reel/{media_id}/"
         assert urls_module.resolve_redirect_url(url) == url
     assert len(calls) == urls_module._DIRECT_CONFIRMATIONS
 
 
 def test_resolve_redirect_keeps_following_a_route_known_to_redirect(monkeypatch):
-    target = "https://www.facebook.com/charechii/posts/pfbid02xDjH4VegXXU7epxAJJVz6vJnaRnWScxmggX1iSB4GhoBexQB926QQg9NQdAvByPEl"
+    target = "https://www.facebook.com/demopage/posts/pfbid02DemoPostAaDemoPostDemoPostDemoPostDemoPostDemoPostDemoPostDemoPos"
     calls = _count_head(monkeypatch, target)
-    for token in ("17tZcAG16f", "9zQQQaaBB1", "5xYYbbCC22"):
+    for token in ("1aDemoAa1b", "9zQQQaaBB1", "5xYYbbCC22"):
         assert urls_module.resolve_redirect_url(f"https://www.facebook.com/share/p/{token}/") == target
     # A share link hides a different target every time, so the answer is never reusable.
     assert len(calls) == 3
@@ -193,7 +193,7 @@ def test_resolve_redirect_keeps_following_a_route_known_to_redirect(monkeypatch)
 
 def test_resolve_redirect_does_not_learn_from_a_wall(monkeypatch):
     calls = _count_head(monkeypatch, "https://www.instagram.com/accounts/login/")
-    for media_id in ("DWyrvI9Ef3z", "CXabc123defg", "DZ9zzQQ11aa"):
+    for media_id in ("DDemoReel01", "CXabc123defg", "DZ9zzQQ11aa"):
         url = f"https://www.instagram.com/reel/{media_id}/"
         assert urls_module.resolve_redirect_url(url) == url
     # A consent/login wall says nothing about the route, so it must not settle the answer.
@@ -203,7 +203,7 @@ def test_resolve_redirect_does_not_learn_from_a_wall(monkeypatch):
 
 def test_resolve_redirect_rechecks_a_route_it_has_not_probed_in_a_month(monkeypatch):
     calls = _count_head(monkeypatch)
-    url = "https://www.instagram.com/reel/DWyrvI9Ef3z/"
+    url = "https://www.instagram.com/reel/DDemoReel01/"
     for _ in range(urls_module._DIRECT_CONFIRMATIONS + 1):
         urls_module.resolve_redirect_url(url)
     assert len(calls) == urls_module._DIRECT_CONFIRMATIONS
@@ -252,48 +252,48 @@ def test_convert_template_unknown_placeholder_falls_back():
 def test_convert_template_username_uses_metadata_field_even_when_url_has_handle():
     result = convert_template_to_ytdlp(
         "{{username}} - {{title}} [{{id}}]",
-        "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
+        "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001",
     )
 
     assert result.startswith(f"{YTDLP_USERNAME_FIELD} - ")
-    assert "fzyahoo.com" not in result
+    assert "fakeacc.com" not in result
 
 
 def test_convert_template_can_keep_explicit_creator_at_sign():
-    url = "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489"
+    url = "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001"
 
     ytdlp_result = convert_template_to_ytdlp(
         "{{username}}",
         url,
-        extra_tokens={"username": "@fzyahoo.com"},
+        extra_tokens={"username": "@fakeacc.com"},
         cleaning={"strip_handle_at": False},
     )
     gallerydl_result = gallerydl_module.convert_template_to_gallerydl(
         "{{username}}",
         url,
-        extra_tokens={"username": "@fzyahoo.com"},
+        extra_tokens={"username": "@fakeacc.com"},
         cleaning={"strip_handle_at": False},
     )
 
-    assert ytdlp_result == "@fzyahoo.com"
-    assert gallerydl_result == "@fzyahoo.com"
+    assert ytdlp_result == "@fakeacc.com"
+    assert gallerydl_result == "@fakeacc.com"
 
 
 def test_convert_template_username_without_url_handle_uses_handle_field():
     # With no handle in the URL, fall back to the handle-first metadata field.
     result = convert_template_to_ytdlp(
         "{{username}} - {{title}} [{{id}}]",
-        "https://video.example/channel/UC-wNqHVYS82PF4mkaQb0Alg",
+        "https://video.example/channel/UC-DemoChannel0000000001",
     )
 
     assert result.startswith(YTDLP_USERNAME_FIELD)
-    assert "UC-wNqHVYS82PF4mkaQb0Alg" not in result
+    assert "UC-DemoChannel0000000001" not in result
 
 
 def test_convert_template_nickname_uses_display_name_field():
     result = convert_template_to_ytdlp(
         "{{nickname}}",
-        "https://video.example/channel/UC-wNqHVYS82PF4mkaQb0Alg",
+        "https://video.example/channel/UC-DemoChannel0000000001",
     )
 
     assert result == YTDLP_NICKNAME_FIELD
@@ -644,10 +644,10 @@ def test_metadata_date_preserves_calendar_precision_without_time(
 def test_song_metadata_uses_real_track_numbers_and_portable_music_fields(tmp_path: Path):
     media = tmp_path / "song.mp3"
     finalized = FinalizedCompletionOutput(
-        source_url="https://www.youtube.com/watch?v=Yb9FzUPpk0Y",
+        source_url="https://www.youtube.com/watch?v=YtDemoVid01",
         source_key="youtube",
         creator="Uploader channel",
-        media_id="Yb9FzUPpk0Y",
+        media_id="YtDemoVid01",
         final_path=media,
         display_filename=media.name,
         title="Video title",
@@ -755,7 +755,7 @@ def test_youtube_generated_song_description_supplies_portable_credits(tmp_path: 
 
 def test_music_cover_art_precedes_scraped_thumbnail_and_has_a_fallback():
     cover = "https://yt3.googleusercontent.com/music-cover=w544-h544-l90-rj"
-    scraped = "https://i.ytimg.com/vi/Yb9FzUPpk0Y/maxresdefault.jpg"
+    scraped = "https://i.ytimg.com/vi/YtDemoVid01/maxresdefault.jpg"
     payload = {
         "track": "Song",
         "album": "Album",
@@ -1862,58 +1862,58 @@ def test_parse_filename_media_id_rejects_unrecoverable_names():
 
 def test_clean_social_title_removes_engagement_and_attribution_junk():
     assert clean_social_title("Soft Light 1.5M views · 62K reactions") == "Soft Light"
-    assert clean_social_title("Soft Light ｜ NJ Tony on Reels") == "Soft Light"
-    assert clean_social_title("NJ Tony - Video by NJ Tony", "NJ Tony") == "NJ Tony"
-    assert clean_social_title("Video by NJ Tony", "NJ Tony") == ""
-    assert clean_social_title("Photo by NJ Tony - 12K likes", "NJ Tony") == ""
+    assert clean_social_title("Soft Light ｜ AB Demo on Reels") == "Soft Light"
+    assert clean_social_title("AB Demo - Video by AB Demo", "AB Demo") == "AB Demo"
+    assert clean_social_title("Video by AB Demo", "AB Demo") == ""
+    assert clean_social_title("Photo by AB Demo - 12K likes", "AB Demo") == ""
 
 
 def test_clean_filename_title_removes_duplicate_social_display_name():
     title = (
-        "ININIinNINI - "
-        "\u6c99\u96e8 \u30a4\u30cb \u2726\u2726 - "
-        "Photoshop\u3067\u3064\u304f\u308b\u3001 \u590f\u30b5\u30e0\u30cd\u30a4\u30eb"
+        "DEMOinARTIST - "
+        "\u5c71\u7530 \u30c7\u30e2 \u2726\u2726 - "
+        "Blender\u3067\u3064\u304f\u308b\u3001 \u79cb\u30a4\u30e9\u30b9\u30c8"
         "\u306e\u30e1\u30a4\u30ad\u30f3\u30b0\u898b\u3066\u2026\uff01\uff01"
     )
 
-    assert clean_filename_title(title, "ININIinNINI") == (
-        "ININIinNINI - "
-        "Photoshop\u3067\u3064\u304f\u308b\u3001 \u590f\u30b5\u30e0\u30cd\u30a4\u30eb"
+    assert clean_filename_title(title, "DEMOinARTIST") == (
+        "DEMOinARTIST - "
+        "Blender\u3067\u3064\u304f\u308b\u3001 \u79cb\u30a4\u30e9\u30b9\u30c8"
         "\u306e\u30e1\u30a4\u30ad\u30f3\u30b0\u898b\u3066\u2026\uff01\uff01"
     )
 
 
 def test_clean_filename_title_keeps_content_like_leading_segment():
-    title = "ININIinNINI - Part 1 - Photoshop summer thumbnail process"
+    title = "DEMOinARTIST - Part 1 - Blender autumn sketch process"
 
-    assert clean_filename_title(title, "ININIinNINI") == title
+    assert clean_filename_title(title, "DEMOinARTIST") == title
 
 
 def test_clean_social_title_strips_trailing_creator_byline():
-    raw = "6.9M views · 66K reactions | Bakit kadiri pag ako? | Charess"
-    assert clean_social_title(raw, "charechii", ("Charess",)) == "Bakit kadiri pag ako?"
+    raw = "6.9M views · 66K reactions | Is this real life? | Pagename"
+    assert clean_social_title(raw, "demopage", ("Pagename",)) == "Is this real life?"
     # A plain-space trailing name is left intact; only strong separators mark a byline.
-    assert clean_social_title("A letter to Charess", "charechii", ("Charess",)) == "A letter to Charess"
+    assert clean_social_title("A letter to Pagename", "demopage", ("Pagename",)) == "A letter to Pagename"
 
 
 def test_clean_social_title_drops_generic_post_caption():
-    assert clean_social_title("Photos from Charess's post", "charechii") == ""
-    assert clean_social_title("Video from Charess’s timeline", "charechii") == ""
+    assert clean_social_title("Photos from Pagename's post", "demopage") == ""
+    assert clean_social_title("Video from Pagename’s timeline", "demopage") == ""
     # Real captions that merely start with a media word survive.
-    assert clean_social_title("Photos from my trip to Japan", "charechii") == "Photos from my trip to Japan"
+    assert clean_social_title("Photos from my trip to Japan", "demopage") == "Photos from my trip to Japan"
 
 
 def test_clean_template_filename_redacts_duplicate_display_name():
-    name = "Charess - Bakit kadiri pag ako？ ｜ Charess [891576008993182].mp4"
+    name = "Pagename - Is this real life？ ｜ Pagename [800000000000001].mp4"
     template = "{{username}} - {{title}} [{{id}}]"
     result = clean_template_filename(
         name,
         template,
-        creator="charechii",
+        creator="demopage",
         title=filename_template_title(name, template),
-        media_id="891576008993182",
+        media_id="800000000000001",
     )
-    assert result == "charechii - Bakit kadiri pag ako？ [891576008993182].mp4"
+    assert result == "demopage - Is this real life？ [800000000000001].mp4"
 
 
 def test_clean_template_filename_keeps_username_and_nickname_distinct():
@@ -2109,12 +2109,12 @@ def test_filename_nickname_recovers_display_name_from_gallerydl_folder():
 
 def test_filename_nickname_skips_username_value_and_uses_display_metadata():
     root = Path("/media/tiktok")
-    path = root / "fzyahoo.com" / "fzyahoo.com - Clip [7493558766131039489].mp4"
+    path = root / "fakeacc.com" / "fakeacc.com - Clip [7100000000000000001].mp4"
     metadata = {
-        "webpage_url": "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
-        "channel": "FZ Yahoo",
-        "uploader": "fzyahoo.com",
-        "uploader_url": "https://www.tiktok.com/@fzyahoo.com",
+        "webpage_url": "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001",
+        "channel": "Clip Demo",
+        "uploader": "fakeacc.com",
+        "uploader_url": "https://www.tiktok.com/@fakeacc.com",
     }
 
     nickname = completion_module._filename_nickname(
@@ -2123,27 +2123,27 @@ def test_filename_nickname_skips_username_value_and_uses_display_metadata():
         "{{username}}",
         completion_module._template_folder_text(root, path),
         metadata,
-        "fzyahoo.com",
+        "fakeacc.com",
     )
 
-    assert nickname == "FZ Yahoo"
+    assert nickname == "Clip Demo"
 
 
 def test_username_folder_and_nickname_filename_stay_distinct_for_handle_metadata(tmp_path: Path):
-    media_id = "7493558766131039489"
-    source_url = f"https://www.tiktok.com/@fzyahoo.com/video/{media_id}"
+    media_id = "7100000000000000001"
+    source_url = f"https://www.tiktok.com/@fakeacc.com/video/{media_id}"
     template_settings = {
         "folder_template": "{{username}}",
         "filename_template": "{{nickname}} - {{title}} [{{id}}]",
     }
-    raw_path = tmp_path / "fzyahoo.com" / f"fzyahoo.com - Clip [{media_id}].mp4"
+    raw_path = tmp_path / "fakeacc.com" / f"fakeacc.com - Clip [{media_id}].mp4"
     raw_path.parent.mkdir()
     raw_path.write_bytes(b"video")
     metadata = {
         "webpage_url": source_url,
-        "channel": "FZ Yahoo",
-        "uploader": "fzyahoo.com",
-        "uploader_url": "https://www.tiktok.com/@fzyahoo.com",
+        "channel": "Clip Demo",
+        "uploader": "fakeacc.com",
+        "uploader_url": "https://www.tiktok.com/@fakeacc.com",
     }
 
     creator = completion_module._filename_creator(
@@ -2180,9 +2180,9 @@ def test_username_folder_and_nickname_filename_stay_distinct_for_handle_metadata
         nickname,
     )
 
-    expected = tmp_path / "fzyahoo.com" / f"FZ Yahoo - Clip [{media_id}].mp4"
-    assert creator == "fzyahoo.com"
-    assert nickname == "FZ Yahoo"
+    expected = tmp_path / "fakeacc.com" / f"Clip Demo - Clip [{media_id}].mp4"
+    assert creator == "fakeacc.com"
+    assert nickname == "Clip Demo"
     assert final_path == expected
     assert display_filename == expected.name
     assert expected.is_file()
@@ -2191,120 +2191,120 @@ def test_username_folder_and_nickname_filename_stay_distinct_for_handle_metadata
 
 def test_clean_template_filename_drops_generic_post_caption():
     result = clean_template_filename(
-        "charechii - Photos from Charess's post [pfbid02xDjH4VegXX]_1.jpg",
+        "demopage - Photos from Pagename's post [pfbid02DemoPostAa]_1.jpg",
         "{{username}} - {{title}} [{{id}}]",
-        creator="charechii",
-        media_id="pfbid02xDjH4VegXX",
+        creator="demopage",
+        media_id="pfbid02DemoPostAa",
     )
-    assert result == "charechii - [pfbid02xDjH4VegXX]_1.jpg"
+    assert result == "demopage - [pfbid02DemoPostAa]_1.jpg"
 
 
 def test_resolve_creator_handle_extracts_vanity_without_network(monkeypatch):
     _patch_head(monkeypatch, exc=RuntimeError("should not be called"))
-    assert urls_module.resolve_creator_handle("https://www.facebook.com/charechii") == "charechii"
-    assert urls_module.resolve_creator_handle("https://www.tiktok.com/@fzyahoo.com") == "fzyahoo.com"
+    assert urls_module.resolve_creator_handle("https://www.facebook.com/demopage") == "demopage"
+    assert urls_module.resolve_creator_handle("https://www.tiktok.com/@fakeacc.com") == "fakeacc.com"
 
 
 def test_resolve_creator_handle_follows_numeric_id_redirect(monkeypatch):
-    _patch_head(monkeypatch, "https://www.facebook.com/charechii")
-    assert urls_module.resolve_creator_handle("https://www.facebook.com/100044174692204") == "charechii"
+    _patch_head(monkeypatch, "https://www.facebook.com/demopage")
+    assert urls_module.resolve_creator_handle("https://www.facebook.com/100000000000001") == "demopage"
 
 
 def test_resolve_creator_handle_rejects_media_and_walls(monkeypatch):
     # Media URLs are rejected pre-network (multi-segment); auth walls redirect with a query string.
-    _patch_head(monkeypatch, "https://www.facebook.com/login/?next=https%3A%2F%2Fwww.facebook.com%2F100044174692204")
-    assert urls_module.resolve_creator_handle("https://www.facebook.com/reel/891576008993182") == ""
-    assert urls_module.resolve_creator_handle("https://www.facebook.com/100044174692204") == ""
+    _patch_head(monkeypatch, "https://www.facebook.com/login/?next=https%3A%2F%2Fwww.facebook.com%2F100000000000001")
+    assert urls_module.resolve_creator_handle("https://www.facebook.com/reel/800000000000001") == ""
+    assert urls_module.resolve_creator_handle("https://www.facebook.com/100000000000001") == ""
 
 
 def test_resolve_creator_handle_rejects_cross_host_redirect(monkeypatch):
     # An off-site consent/login host must never supply a handle for the source's creator.
-    _patch_head(monkeypatch, "https://login.example.com/charechii")
-    assert urls_module.resolve_creator_handle("https://www.facebook.com/100044174692204") == ""
+    _patch_head(monkeypatch, "https://login.example.com/demopage")
+    assert urls_module.resolve_creator_handle("https://www.facebook.com/100000000000001") == ""
 
 
 def test_metadata_creator_prefers_resolved_handle_over_display_name(monkeypatch):
-    _patch_head(monkeypatch, "https://www.facebook.com/charechii")
+    _patch_head(monkeypatch, "https://www.facebook.com/demopage")
     metadata = {
-        "uploader": "Charess",
-        "channel": "Charess",
-        "uploader_id": "100044174692204",
-        "original_url": "https://www.facebook.com/reel/891576008993182",
+        "uploader": "Pagename",
+        "channel": "Pagename",
+        "uploader_id": "100000000000001",
+        "original_url": "https://www.facebook.com/reel/800000000000001",
     }
-    assert completion_module._metadata_creator(metadata, "891576008993182") == "charechii"
+    assert completion_module._metadata_creator(metadata, "800000000000001") == "demopage"
 
 
 def test_metadata_creator_skips_mobile_host_wall(monkeypatch):
     # yt-dlp's webpage_url is often a mobile host that walls a bare-id fetch; the apex/www host must win.
     def fake_head(url, **kwargs):
-        target = "https://m.facebook.com/login/?next=x" if "m.facebook.com" in url else "https://www.facebook.com/charechii"
+        target = "https://m.facebook.com/login/?next=x" if "m.facebook.com" in url else "https://www.facebook.com/demopage"
         return type("Resp", (), {"url": target})()
 
     monkeypatch.setattr(urls_module.httpx, "head", fake_head)
     metadata = {
-        "uploader": "Charess",
-        "uploader_id": "100044174692204",
-        "webpage_url": "https://m.facebook.com/watch/?v=1727302008412891",
-        "original_url": "https://www.facebook.com/reel/1727302008412891",
+        "uploader": "Pagename",
+        "uploader_id": "100000000000001",
+        "webpage_url": "https://m.facebook.com/watch/?v=1000000000000001",
+        "original_url": "https://www.facebook.com/reel/1000000000000001",
     }
-    assert completion_module._metadata_creator(metadata, "1727302008412891") == "charechii"
+    assert completion_module._metadata_creator(metadata, "1000000000000001") == "demopage"
 
 
 def test_metadata_creator_prefers_at_handle_metadata():
     metadata = {
-        "channel": "Mili",
-        "uploader": "Mili",
-        "creator": "Mili",
-        "uploader_id": "@mili",
-        "channel_id": "UC-wNqHVYS82PF4mkaQb0Alg",
-        "webpage_url": "https://video.example/watch?v=In5Du5x6MZM",
+        "channel": "Mock",
+        "uploader": "Mock",
+        "creator": "Mock",
+        "uploader_id": "@mock",
+        "channel_id": "UC-DemoChannel0000000001",
+        "webpage_url": "https://video.example/watch?v=YtDemoVid05",
     }
 
-    assert completion_module._metadata_creator(metadata, "In5Du5x6MZM") == "mili"
+    assert completion_module._metadata_creator(metadata, "YtDemoVid05") == "mock"
 
 
 def test_metadata_creator_rejects_opaque_id_metadata():
     metadata = {
-        "channel": "UC-wNqHVYS82PF4mkaQb0Alg",
+        "channel": "UC-DemoChannel0000000001",
         "uploader": "",
-        "channel_id": "UC-wNqHVYS82PF4mkaQb0Alg",
-        "webpage_url": "https://video.example/watch?v=In5Du5x6MZM",
+        "channel_id": "UC-DemoChannel0000000001",
+        "webpage_url": "https://video.example/watch?v=YtDemoVid05",
     }
 
-    assert completion_module._metadata_creator(metadata, "In5Du5x6MZM") == ""
+    assert completion_module._metadata_creator(metadata, "YtDemoVid05") == ""
 
 
 def test_filename_creator_uses_handle_metadata_without_at():
     metadata = {
-        "channel": "Mili",
-        "uploader": "Mili",
-        "creator": "Mili",
-        "uploader_id": "@mili",
-        "channel_id": "UC-wNqHVYS82PF4mkaQb0Alg",
-        "webpage_url": "https://video.example/watch?v=In5Du5x6MZM",
+        "channel": "Mock",
+        "uploader": "Mock",
+        "creator": "Mock",
+        "uploader_id": "@mock",
+        "channel_id": "UC-DemoChannel0000000001",
+        "webpage_url": "https://video.example/watch?v=YtDemoVid05",
     }
 
     creator = completion_module._filename_creator(
-        Path("@mili - Iron Lotus [In5Du5x6MZM].mp4"),
+        Path("@mock - Glass Garden [YtDemoVid05].mp4"),
         "{{username}} - {{title}} [{{id}}]",
         metadata,
-        "https://video.example/watch?v=In5Du5x6MZM",
-        "In5Du5x6MZM",
+        "https://video.example/watch?v=YtDemoVid05",
+        "YtDemoVid05",
     )
 
-    assert creator == "mili"
+    assert creator == "mock"
 
 
 def test_filename_creator_strips_at_from_filename_username():
     creator = completion_module._filename_creator(
-        Path("@mili - Iron Lotus [In5Du5x6MZM].mp4"),
+        Path("@mock - Glass Garden [YtDemoVid05].mp4"),
         "{{username}} - {{title}} [{{id}}]",
         {},
-        "https://video.example/watch?v=In5Du5x6MZM",
-        "In5Du5x6MZM",
+        "https://video.example/watch?v=YtDemoVid05",
+        "YtDemoVid05",
     )
 
-    assert creator == "mili"
+    assert creator == "mock"
 
 
 def test_role_creator_uses_scraped_token_role():
@@ -2438,8 +2438,8 @@ def test_clean_template_filename_repairs_none_creator_and_duplicate_id_title():
 
 
 def test_clean_resolved_filename_renames_real_file_using_settings_template(tmp_path: Path):
-    source_url = "https://twitter.com/DohaVT/status/2073635724684054528"
-    media_file = tmp_path / "DohaVT - 2073635724684054528 - Video by DohaVT.mp4"
+    source_url = "https://twitter.com/DemoVT/status/2000000000000000001"
+    media_file = tmp_path / "DemoVT - 2000000000000000001 - Video by DemoVT.mp4"
     media_file.write_bytes(b"video")
 
     final_path, display_filename = completion_module._clean_resolved_filename(
@@ -2449,7 +2449,7 @@ def test_clean_resolved_filename_renames_real_file_using_settings_template(tmp_p
         "twitter",
     )
 
-    expected = tmp_path / "DohaVT - 2073635724684054528.mp4"
+    expected = tmp_path / "DemoVT - 2000000000000000001.mp4"
     assert final_path == expected
     assert display_filename == expected.name
     assert expected.is_file()
@@ -2732,8 +2732,8 @@ def test_clean_resolved_filename_keeps_the_number_of_a_file_beside_its_post_sibl
 
 
 def test_clean_resolved_filename_title_only_template_falls_back_to_media_id(tmp_path: Path):
-    source_url = "https://twitter.com/DohaVT/status/2073635724684054528"
-    media_file = tmp_path / "Video by DohaVT.mp4"
+    source_url = "https://twitter.com/DemoVT/status/2000000000000000001"
+    media_file = tmp_path / "Video by DemoVT.mp4"
     media_file.write_bytes(b"video")
 
     final_path, display_filename = completion_module._clean_resolved_filename(
@@ -2743,7 +2743,7 @@ def test_clean_resolved_filename_title_only_template_falls_back_to_media_id(tmp_
         "twitter",
     )
 
-    expected = tmp_path / "2073635724684054528.mp4"
+    expected = tmp_path / "2000000000000000001.mp4"
     assert final_path == expected
     assert display_filename == expected.name
     assert expected.is_file()
@@ -2751,8 +2751,8 @@ def test_clean_resolved_filename_title_only_template_falls_back_to_media_id(tmp_
 
 
 def test_clean_resolved_filename_strips_at_from_username(tmp_path: Path):
-    source_url = "https://video.example/watch?v=In5Du5x6MZM"
-    media_file = tmp_path / "@mili - Iron Lotus [In5Du5x6MZM].mp4"
+    source_url = "https://video.example/watch?v=YtDemoVid05"
+    media_file = tmp_path / "@mock - Glass Garden [YtDemoVid05].mp4"
     media_file.write_bytes(b"video")
 
     final_path, display_filename = completion_module._clean_resolved_filename(
@@ -2760,13 +2760,13 @@ def test_clean_resolved_filename_strips_at_from_username(tmp_path: Path):
         media_file,
         {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
         "",
-        creator_hint="mili",
-        media_id_hint="In5Du5x6MZM",
-        nickname_hint="Mili",
-        title_hint="Iron Lotus",
+        creator_hint="mock",
+        media_id_hint="YtDemoVid05",
+        nickname_hint="Mock",
+        title_hint="Glass Garden",
     )
 
-    expected = tmp_path / "mili - Iron Lotus [In5Du5x6MZM].mp4"
+    expected = tmp_path / "mock - Glass Garden [YtDemoVid05].mp4"
     assert final_path == expected
     assert display_filename == expected.name
     assert expected.is_file()
@@ -2777,27 +2777,27 @@ def test_configured_field_value_honors_opaque_id_in_priority_order():
     # channel_id first in the configured order must win, even though the handle
     # heuristics reject it as an opaque identifier.
     metadata = {
-        "uploader": "Mili",
-        "channel": "Mili",
-        "channel_id": "UC-wNqHVYS82PF4mkaQb0Alg",
+        "uploader": "Mock",
+        "channel": "Mock",
+        "channel_id": "UC-DemoChannel0000000001",
     }
 
     assert (
         completion_module._configured_field_value(metadata, ["channel_id", "uploader"])
-        == "UC-wNqHVYS82PF4mkaQb0Alg"
+        == "UC-DemoChannel0000000001"
     )
 
 
 def test_configured_field_value_empty_order_defers_to_heuristics():
-    metadata = {"channel_id": "UC-wNqHVYS82PF4mkaQb0Alg", "uploader": "Mili"}
+    metadata = {"channel_id": "UC-DemoChannel0000000001", "uploader": "Mock"}
 
     assert completion_module._configured_field_value(metadata, []) == ""
 
 
 def test_clean_resolved_filename_keeps_authoritative_creator_over_url_handle(tmp_path: Path):
     # An authoritative (configured) creator must not be clobbered by a URL-derived handle.
-    source_url = "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489"
-    media_file = tmp_path / "UC1234567890 - Clip [7493558766131039489].mp4"
+    source_url = "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001"
+    media_file = tmp_path / "UC1234567890 - Clip [7100000000000000001].mp4"
     media_file.write_bytes(b"video")
 
     final_path, display_filename = completion_module._clean_resolved_filename(
@@ -2806,12 +2806,12 @@ def test_clean_resolved_filename_keeps_authoritative_creator_over_url_handle(tmp
         {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
         "tiktok",
         creator_hint="UC1234567890",
-        media_id_hint="7493558766131039489",
+        media_id_hint="7100000000000000001",
         title_hint="Clip",
         creator_authoritative=True,
     )
 
-    expected = tmp_path / "UC1234567890 - Clip [7493558766131039489].mp4"
+    expected = tmp_path / "UC1234567890 - Clip [7100000000000000001].mp4"
     assert final_path == expected
     assert display_filename == expected.name
 
@@ -3266,7 +3266,7 @@ def test_gallerydl_same_source_assets_share_one_row_and_source_id(
     second = tmp_path / "Poster - Image [childB]_2.jpg"
     first.write_bytes(b"first")
     second.write_bytes(b"second")
-    source_url = "https://www.example.test/post/DWyrvI9Ef3z"
+    source_url = "https://www.example.test/post/DDemoReel01"
     task_id = "ytdlp:gallery-post"
     store = {
         "tasks": {
@@ -3300,7 +3300,7 @@ def test_gallerydl_same_source_assets_share_one_row_and_source_id(
 
     def fake_popen(cmd, *args, **kwargs):
         if cmd[0] == "yt-dlp":
-            return FakeProcess(["ERROR: [Example] DWyrvI9Ef3z: No video formats found!\n"], 1)
+            return FakeProcess(["ERROR: [Example] DDemoReel01: No video formats found!\n"], 1)
         return FakeProcess([f"{first}\n", f"{second}\n"], 0)
 
     def fake_update_task(task_id: str, **updates):
@@ -3316,8 +3316,8 @@ def test_gallerydl_same_source_assets_share_one_row_and_source_id(
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
 
-    first_clean = tmp_path / "Poster - Image [DWyrvI9Ef3z]_1.jpg"
-    second_clean = tmp_path / "Poster - Image [DWyrvI9Ef3z]_2.jpg"
+    first_clean = tmp_path / "Poster - Image [DDemoReel01]_1.jpg"
+    second_clean = tmp_path / "Poster - Image [DDemoReel01]_2.jpg"
     completed = store["tasks"][task_id]
     assert set(saved) == {task_id}
     assert first_clean.is_file()
@@ -3326,12 +3326,12 @@ def test_gallerydl_same_source_assets_share_one_row_and_source_id(
     assert not second.exists()
     assert completed["status"] == "completed"
     assert completed["engine"] == "gallerydl"
-    assert completed["media_id"] == "DWyrvI9Ef3z"
+    assert completed["media_id"] == "DDemoReel01"
     assert completed["source_url"] == source_url
     assert completed["resolved_full_path"] == str(first_clean)
-    assert completed["resolved_filename"] == "Poster - Image [DWyrvI9Ef3z].jpg"
-    assert saved[task_id]["media_id"] == "DWyrvI9Ef3z"
-    assert saved[task_id]["resolved_filename"] == "Poster - Image [DWyrvI9Ef3z].jpg"
+    assert completed["resolved_filename"] == "Poster - Image [DDemoReel01].jpg"
+    assert saved[task_id]["media_id"] == "DDemoReel01"
+    assert saved[task_id]["resolved_filename"] == "Poster - Image [DDemoReel01].jpg"
 
 
 def test_gallerydl_distinct_metadata_urls_split_rows_dynamically(tmp_path: Path):
@@ -3859,15 +3859,15 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    ytdlp_video = tmp_path / "love.rizzzz - Video by Riz [DOS-dVRkUK3].mp4"
-    gallery_video = tmp_path / "love.rizzzz - Video by Riz [DOS-dVRkUK3]_1.mp4"
-    gallery_image = tmp_path / "love.rizzzz - None [DOS-dVRkUK3]_2.jpg"
-    stale_wrong_video = tmp_path / "Riz" / "Riz - [DOS-dVRkUK3].mp4"
+    ytdlp_video = tmp_path / "demo.reelzz - Video by Zed [DEM-oPost04].mp4"
+    gallery_video = tmp_path / "demo.reelzz - Video by Zed [DEM-oPost04]_1.mp4"
+    gallery_image = tmp_path / "demo.reelzz - None [DEM-oPost04]_2.jpg"
+    stale_wrong_video = tmp_path / "Zed" / "Zed - [DEM-oPost04].mp4"
     stale_wrong_video.parent.mkdir()
     for path in (ytdlp_video, gallery_video, gallery_image):
         path.write_bytes(b"media")
     stale_wrong_video.write_bytes(b"duplicate")
-    source_url = "https://www.example.test/post/DOS-dVRkUK3"
+    source_url = "https://www.example.test/post/DEM-oPost04"
     task_id = "ytdlp:mixed-post"
     store = {
         "tasks": {
@@ -3926,8 +3926,8 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
 
-    clean_video = tmp_path / "love.rizzzz - [DOS-dVRkUK3]_1.mp4"
-    clean_image = tmp_path / "love.rizzzz - [DOS-dVRkUK3]_2.jpg"
+    clean_video = tmp_path / "demo.reelzz - [DEM-oPost04]_1.mp4"
+    clean_image = tmp_path / "demo.reelzz - [DEM-oPost04]_2.jpg"
     completed = store["tasks"][task_id]
     assert [cmd[0] for cmd in commands] == ["gallery-dl"]
     assert "--filter" not in commands[0]
@@ -3940,20 +3940,20 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
     assert stale_wrong_video.exists()
     assert completed["status"] == "completed"
     assert completed["engine"] == "gallerydl"
-    assert completed["creator"] == "love.rizzzz"
+    assert completed["creator"] == "demo.reelzz"
     assert completed["source_url"] == source_url
     assert completed["resolved_full_path"] == str(clean_video)
-    assert completed["resolved_filename"] == "love.rizzzz - [DOS-dVRkUK3].mp4"
+    assert completed["resolved_filename"] == "demo.reelzz - [DEM-oPost04].mp4"
 
 
 def test_worker_renames_display_creator_to_handle_and_template_folder(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    raw_video = tmp_path / "Riz" / "Riz - [DOS-dVRkUK3].mp4"
+    raw_video = tmp_path / "Zed" / "Zed - [DEM-oPost04].mp4"
     raw_video.parent.mkdir()
     raw_video.write_bytes(b"video")
-    source_url = "https://www.example.test/post/DOS-dVRkUK3"
+    source_url = "https://www.example.test/post/DEM-oPost04"
     task_id = "ytdlp:display-name"
     store = {
         "tasks": {
@@ -3992,13 +3992,13 @@ def test_worker_renames_display_creator_to_handle_and_template_folder(
             if "filepath" in template:
                 sidecar.write_text(
                     json.dumps(
-                        {"filepath": str(raw_video), "id": "DOS-dVRkUK3", "channel": "love.rizzzz", "uploader": "Riz"}
+                        {"filepath": str(raw_video), "id": "DEM-oPost04", "channel": "demo.reelzz", "uploader": "Zed"}
                     )
                     + "\n",
                     encoding="utf-8",
                 )
             else:
-                sidecar.write_text("Riz\n", encoding="utf-8")
+                sidecar.write_text("Zed\n", encoding="utf-8")
         return FakeProcess()
 
     def fake_update_task(task_id: str, **updates):
@@ -4015,15 +4015,15 @@ def test_worker_renames_display_creator_to_handle_and_template_folder(
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
 
-    clean_video = tmp_path / "love.rizzzz" / "love.rizzzz - [DOS-dVRkUK3].mp4"
+    clean_video = tmp_path / "demo.reelzz" / "demo.reelzz - [DEM-oPost04].mp4"
     completed = store["tasks"][task_id]
     assert clean_video.is_file()
     assert not raw_video.exists()
     assert completed["status"] == "completed"
-    assert completed["creator"] == "love.rizzzz"
+    assert completed["creator"] == "demo.reelzz"
     assert completed["resolved_folder"] == str(clean_video.parent)
     assert completed["resolved_full_path"] == str(clean_video)
-    assert completed["resolved_filename"] == "love.rizzzz - [DOS-dVRkUK3].mp4"
+    assert completed["resolved_filename"] == "demo.reelzz - [DEM-oPost04].mp4"
     assert saved[task_id]["resolved_full_path"] == str(clean_video)
 
 
@@ -4031,12 +4031,12 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    first = tmp_path / "love.rizzzz - Video by love.rizzzz [DanBhNzkY9_].mp4"
-    second = tmp_path / "love.rizzzz - [DapLPfHEQz5].mp4"
-    third = tmp_path / "love.rizzzz - Video by love.rizzzz [DapIP3mDqE2].mp4"
+    first = tmp_path / "demo.reelzz - Video by demo.reelzz [DDemoStry3_].mp4"
+    second = tmp_path / "demo.reelzz - [DDemoStry02].mp4"
+    third = tmp_path / "demo.reelzz - Video by demo.reelzz [DDemoStry05].mp4"
     for path in (first, second, third):
         path.write_bytes(b"video")
-    source_url = "https://www.instagram.com/stories/love.rizzzz/3938715623970742582/"
+    source_url = "https://www.instagram.com/stories/demo.reelzz/3900000000000000001/"
     task_id = "ytdlp:story"
     store = {
         "tasks": {
@@ -4094,33 +4094,33 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
     # Every output teaches the format in one write, only once all of them were saved.
     assert len(learned) == 1
     assert len(learned[0][0]) == 3
-    assert learned[0][1] == {task_id, f"{task_id}:DapLPfHEQz5", f"{task_id}:DapIP3mDqE2"}
+    assert learned[0][1] == {task_id, f"{task_id}:DDemoStry02", f"{task_id}:DDemoStry05"}
 
-    first_clean = tmp_path / "love.rizzzz - [DanBhNzkY9_].mp4"
-    second_clean = tmp_path / "love.rizzzz - [DapLPfHEQz5].mp4"
-    third_clean = tmp_path / "love.rizzzz - [DapIP3mDqE2].mp4"
+    first_clean = tmp_path / "demo.reelzz - [DDemoStry3_].mp4"
+    second_clean = tmp_path / "demo.reelzz - [DDemoStry02].mp4"
+    third_clean = tmp_path / "demo.reelzz - [DDemoStry05].mp4"
     assert first_clean.is_file()
     assert second_clean.is_file()
     assert third_clean.is_file()
     assert not first.exists()
     assert not third.exists()
-    assert set(saved) == {task_id, f"{task_id}:DapLPfHEQz5", f"{task_id}:DapIP3mDqE2"}
+    assert set(saved) == {task_id, f"{task_id}:DDemoStry02", f"{task_id}:DDemoStry05"}
     assert saved[task_id]["resolved_filename"] == first_clean.name
-    assert saved[f"{task_id}:DapLPfHEQz5"]["resolved_filename"] == second_clean.name
-    assert saved[f"{task_id}:DapIP3mDqE2"]["resolved_filename"] == third_clean.name
+    assert saved[f"{task_id}:DDemoStry02"]["resolved_filename"] == second_clean.name
+    assert saved[f"{task_id}:DDemoStry05"]["resolved_filename"] == third_clean.name
     assert {Path(path).name for path in dropped_cache_paths} == {
         first_clean.name,
         second_clean.name,
         third_clean.name,
     }
-    assert saved[task_id]["source_url"] == "https://www.instagram.com/stories/love.rizzzz/DanBhNzkY9_"
-    assert saved[f"{task_id}:DapLPfHEQz5"]["source_url"] == (
-        "https://www.instagram.com/stories/love.rizzzz/DapLPfHEQz5"
+    assert saved[task_id]["source_url"] == "https://www.instagram.com/stories/demo.reelzz/DDemoStry3_"
+    assert saved[f"{task_id}:DDemoStry02"]["source_url"] == (
+        "https://www.instagram.com/stories/demo.reelzz/DDemoStry02"
     )
 
 
 def test_task_to_api_leaves_raw_gallerydl_filename_without_template(tmp_path: Path):
-    media_file = tmp_path / "fzyahoo.com - TikTok photo #7420705673542978833 [7420705673542978833]_1.jpg"
+    media_file = tmp_path / "fakeacc.com - TikTok photo #7100000000000000002 [7100000000000000002]_1.jpg"
     media_file.write_bytes(b"image")
 
     api_task = task_to_api(
@@ -4128,7 +4128,7 @@ def test_task_to_api_leaves_raw_gallerydl_filename_without_template(tmp_path: Pa
         {
             "engine": "gallerydl",
             "status": "completed",
-            "source_url": "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833",
+            "source_url": "https://www.tiktok.com/@fakeacc.com/photo/7100000000000000002",
             "resolved_full_path": str(media_file),
             "resolved_filename": media_file.name,
         },
@@ -4233,7 +4233,7 @@ def test_resolve_task_file_prefers_saved_template_for_gallerydl_download_name(
 
 
 def test_task_to_api_keeps_stored_creator_over_url_creator(tmp_path: Path):
-    media_file = tmp_path / "fzyahoo.com - Clip [7420705673542978833].mp4"
+    media_file = tmp_path / "fakeacc.com - Clip [7100000000000000002].mp4"
     media_file.write_bytes(b"video")
 
     api_task = task_to_api(
@@ -4242,7 +4242,7 @@ def test_task_to_api_keeps_stored_creator_over_url_creator(tmp_path: Path):
             "engine": "ytdlp",
             "status": "completed",
             "creator": "Some Display Name",
-            "source_url": "https://www.tiktok.com/@fzyahoo.com/video/7420705673542978833",
+            "source_url": "https://www.tiktok.com/@fakeacc.com/video/7100000000000000002",
             "resolved_full_path": str(media_file),
             "resolved_filename": media_file.name,
         },
@@ -4285,8 +4285,8 @@ def test_worker_resolved_task_creator_uses_engine_sidecar_not_url_creator(tmp_pa
     creator = completion_module._resolved_task_creator(
         FakeEngine(),
         str(sidecar),
-        "https://www.tiktok.com/@fzyahoo.com/video/7420705673542978833",
-        "fzyahoo.com - Clip [7420705673542978833].mp4",
+        "https://www.tiktok.com/@fakeacc.com/video/7100000000000000002",
+        "fakeacc.com - Clip [7100000000000000002].mp4",
     )
 
     assert creator == "Some Display Name"
@@ -4337,9 +4337,9 @@ def test_scan_media_library_infers_source_from_named_source_folder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     media_root = tmp_path / "media"
-    tiktok_dir = media_root / "tiktok" / "fzyahoo.com"
+    tiktok_dir = media_root / "tiktok" / "fakeacc.com"
     tiktok_dir.mkdir(parents=True)
-    media_file = tiktok_dir / "fzyahoo.com - [7420705673542978833]_1.jpg"
+    media_file = tiktok_dir / "fakeacc.com - [7100000000000000002]_1.jpg"
     media_file.write_bytes(b"image")
 
     saved: dict[str, dict] = {}
@@ -4358,10 +4358,10 @@ def test_scan_media_library_infers_source_from_named_source_folder(
 
     scan_module.scan_media_library([media_root])
 
-    entry = saved["disk:7420705673542978833"]
+    entry = saved["disk:7100000000000000002"]
     assert entry["source_key"] == "tiktok"
     assert entry["source_pending"] is False
-    assert entry["resolved_filename"] == "fzyahoo.com - [7420705673542978833].jpg"
+    assert entry["resolved_filename"] == "fakeacc.com - [7100000000000000002].jpg"
 
 
 def test_scan_media_library_uses_learned_tiktok_photo_template(
@@ -4369,12 +4369,12 @@ def test_scan_media_library_uses_learned_tiktok_photo_template(
 ):
     learned = learn_download(
         {},
-        "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833",
-        "7420705673542978833",
+        "https://www.tiktok.com/@fakeacc.com/photo/7100000000000000002",
+        "7100000000000000002",
     )
     media_root = tmp_path / "media"
     media_root.mkdir()
-    media_file = media_root / "fzyahoo.com - [7420705673542978833]_1.jpg"
+    media_file = media_root / "fakeacc.com - [7100000000000000002]_1.jpg"
     media_file.write_bytes(b"image")
 
     saved: dict[str, dict] = {}
@@ -4386,7 +4386,7 @@ def test_scan_media_library_uses_learned_tiktok_photo_template(
     monkeypatch.setattr(
         scan_module,
         "_scan_probe_metadata",
-        lambda url, *, with_cookies=False: {"uploader": "fzyahoo.com"},
+        lambda url, *, with_cookies=False: {"uploader": "fakeacc.com"},
     )
     monkeypatch.setattr(
         scan_module,
@@ -4398,18 +4398,18 @@ def test_scan_media_library_uses_learned_tiktok_photo_template(
 
     scan_module.scan_media_library([media_root])
 
-    entry = saved["disk:7420705673542978833"]
+    entry = saved["disk:7100000000000000002"]
     assert entry["source_key"] == "tiktok"
     assert entry["source_pending"] is False
-    assert entry["resolved_filename"] == "fzyahoo.com - [7420705673542978833].jpg"
+    assert entry["resolved_filename"] == "fakeacc.com - [7100000000000000002].jpg"
     assert entry["resolved_full_path"] == str(media_file)
-    assert entry["source_url"] == "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833"
+    assert entry["source_url"] == "https://www.tiktok.com/@fakeacc.com/photo/7100000000000000002"
 
 
 def _learned_youtube_twitter() -> dict:
-    learned = learn_download({}, "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ")
-    learned = learn_download(learned, "https://www.youtube.com/watch?v=Tz-E6i7Mylc", "Tz-E6i7Mylc")
-    return learn_download(learned, "https://twitter.com/DohaVT/status/2073635724684054528", "2073635724684054528")
+    learned = learn_download({}, "https://www.youtube.com/watch?v=YtDemoVid04", "YtDemoVid04")
+    learned = learn_download(learned, "https://www.youtube.com/watch?v=Yt-DemoVid2", "Yt-DemoVid2")
+    return learn_download(learned, "https://twitter.com/DemoVT/status/2000000000000000001", "2000000000000000001")
 
 
 def test_learn_download_derives_url_template():
@@ -4417,7 +4417,7 @@ def test_learn_download_derives_url_template():
 
 
 def test_learn_download_generalizes_repeated_format_handle_to_var():
-    learned = learn_download({}, "https://twitter.com/DohaVT/status/2073635724684054528", "2073635724684054528")
+    learned = learn_download({}, "https://twitter.com/DemoVT/status/2000000000000000001", "2000000000000000001")
     learned = learn_download(learned, "https://twitter.com/Other/status/1111111111111111111", "1111111111111111111")
     assert learned["twitter"]["templates"][0] == "https://twitter.com/{var}/status/{id}"
 
@@ -4425,9 +4425,9 @@ def test_learn_download_generalizes_repeated_format_handle_to_var():
 def test_learn_download_marks_metadata_proven_creator_segment():
     learned = learn_download(
         {},
-        "https://twitter.com/DohaVT/status/2073635724684054528",
-        "2073635724684054528",
-        {"uploader": "DohaVT"},
+        "https://twitter.com/DemoVT/status/2000000000000000001",
+        "2000000000000000001",
+        {"uploader": "DemoVT"},
     )
 
     assert learned["twitter"]["templates"][0] == "https://twitter.com/{creator}/status/{id}"
@@ -4436,15 +4436,15 @@ def test_learn_download_marks_metadata_proven_creator_segment():
 def test_learn_download_marks_exact_username_or_nickname_segment():
     username = learn_download(
         {},
-        "https://www.facebook.com/IvanaAlawi/posts/pfbid02QfbMYiPzVyCsQNawcfTYAc3C5vjA54whJwt4kfBSRxNuVZX7QV6e5rS2m7qokJy1l",
-        "pfbid02QfbMYiPzVyCsQNawcfTYAc3C5vjA54whJwt4kfBSRxNuVZX7QV6e5rS2m7qokJy1l",
-        {"uploader_id": "IvanaAlawi"},
+        "https://www.facebook.com/DemoPerson/posts/pfbid02MockPostMockPostMockPostMockPostMockPostMockPostMockPostMockPostM",
+        "pfbid02MockPostMockPostMockPostMockPostMockPostMockPostMockPostMockPostM",
+        {"uploader_id": "DemoPerson"},
     )
     nickname = learn_download(
         {},
-        "https://www.facebook.com/IvanaAlawi/posts/pfbid02QfbMYiPzVyCsQNawcfTYAc3C5vjA54whJwt4kfBSRxNuVZX7QV6e5rS2m7qokJy1l",
-        "pfbid02QfbMYiPzVyCsQNawcfTYAc3C5vjA54whJwt4kfBSRxNuVZX7QV6e5rS2m7qokJy1l",
-        {"display_name": "IvanaAlawi"},
+        "https://www.facebook.com/DemoPerson/posts/pfbid02MockPostMockPostMockPostMockPostMockPostMockPostMockPostMockPostM",
+        "pfbid02MockPostMockPostMockPostMockPostMockPostMockPostMockPostMockPostM",
+        {"display_name": "DemoPerson"},
     )
 
     assert username["facebook"]["templates"][0] == "https://www.facebook.com/{username}/posts/{id}"
@@ -4454,42 +4454,42 @@ def test_learn_download_marks_exact_username_or_nickname_segment():
 def test_learn_download_trims_seo_query_and_keeps_handle_literal_without_metadata():
     learned = learn_download(
         {},
-        "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489?lang=en&q=fzyahoo&t=1781279478413",
-        "7493558766131039489",
+        "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001?lang=en&q=fakeacc&t=1781279478413",
+        "7100000000000000001",
     )
 
-    assert learned["tiktok"]["templates"][0] == "https://www.tiktok.com/@fzyahoo.com/video/{id}"
+    assert learned["tiktok"]["templates"][0] == "https://www.tiktok.com/@fakeacc.com/video/{id}"
     assert (
-        reconstruct_url(learned, "tiktok", "7493558766131039489")
-        == "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489"
+        reconstruct_url(learned, "tiktok", "7100000000000000001")
+        == "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001"
     )
 
 
 def test_learn_download_keeps_multiple_templates_per_source():
     learned = learn_download(
         {},
-        "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
-        "7493558766131039489",
+        "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001",
+        "7100000000000000001",
     )
     learned = learn_download(
         learned,
-        "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833",
-        "7420705673542978833",
+        "https://www.tiktok.com/@fakeacc.com/photo/7100000000000000002",
+        "7100000000000000002",
     )
 
-    assert learned["tiktok"]["templates"][0] == "https://www.tiktok.com/@fzyahoo.com/video/{id}"
+    assert learned["tiktok"]["templates"][0] == "https://www.tiktok.com/@fakeacc.com/video/{id}"
     assert set(learned["tiktok"]["templates"]) == {
-        "https://www.tiktok.com/@fzyahoo.com/video/{id}",
-        "https://www.tiktok.com/@fzyahoo.com/photo/{id}",
+        "https://www.tiktok.com/@fakeacc.com/video/{id}",
+        "https://www.tiktok.com/@fakeacc.com/photo/{id}",
     }
 
 
 def test_describe_learned_segments_keeps_shared_url_creator_generic():
     learned = learn_download(
         {},
-        "https://www.tiktok.com/@moli0n/video/7645876413593128210",
-        "7645876413593128210",
-        {"uploader": "moli0n"},
+        "https://www.tiktok.com/@demo0n/video/7100000000000000005",
+        "7100000000000000005",
+        {"uploader": "demo0n"},
     )
 
     described = describe_learned_segments(learned["tiktok"])
@@ -4503,35 +4503,35 @@ def test_reconstruct_url_candidates_returns_every_learned_route():
     # Both routes come out as concrete candidates; a probe (not a heuristic) picks the real one.
     learned = learn_download(
         {},
-        "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489",
-        "7493558766131039489",
+        "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001",
+        "7100000000000000001",
     )
     learned = learn_download(
         learned,
-        "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833",
-        "7420705673542978833",
+        "https://www.tiktok.com/@fakeacc.com/photo/7100000000000000002",
+        "7100000000000000002",
     )
 
-    candidates = reconstruct_url_candidates(learned, "tiktok", "7420705673542978833", creator="fzyahoo.com")
+    candidates = reconstruct_url_candidates(learned, "tiktok", "7100000000000000002", creator="fakeacc.com")
     assert set(candidates) == {
-        "https://www.tiktok.com/@fzyahoo.com/video/7420705673542978833",
-        "https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833",
+        "https://www.tiktok.com/@fakeacc.com/video/7100000000000000002",
+        "https://www.tiktok.com/@fakeacc.com/photo/7100000000000000002",
     }
 
 
 def test_format_sample_reads_the_id_from_the_filename():
-    url = "https://example.test/@alice/photo/7420705673542978833"
+    url = "https://example.test/@alice/photo/7100000000000000002"
 
-    assert completion_learning_module._format_sample(url, "alice - [7420705673542978833].jpg") == (
+    assert completion_learning_module._format_sample(url, "alice - [7100000000000000002].jpg") == (
         url,
-        "7420705673542978833",
+        "7100000000000000002",
         None,
     )
 
 
 def test_learn_formats_reports_only_a_new_template():
     # Only a new format is worth a deferred field probe.
-    assert learn_formats([("https://example.test/@alice/video/7420705673542978833", "7420705673542978833", None)])
+    assert learn_formats([("https://example.test/@alice/video/7100000000000000002", "7100000000000000002", None)])
     assert not learn_formats(
         [("https://example.test/@alice/video/7420705673542978834", "7420705673542978834", None)]
     )
@@ -4572,26 +4572,26 @@ def test_reconstruct_url_replaces_literal_segment_with_configured_url_part_value
 
 
 def test_reconstruct_url_candidates_needs_url_part_value_for_generalized_var():
-    learned = learn_download({}, "https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489", "7493558766131039489")
-    learned = learn_download(learned, "https://www.tiktok.com/@other/video/7420705673542978833", "7420705673542978833")
+    learned = learn_download({}, "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001", "7100000000000000001")
+    learned = learn_download(learned, "https://www.tiktok.com/@other/video/7100000000000000002", "7100000000000000002")
     assert reconstruct_url_candidates(learned, "tiktok", "123") == []
     assert reconstruct_url_candidates(learned, "tiktok", "") == []
     assert reconstruct_url_candidates(
         learned,
         "tiktok",
         "123",
-        slug_values={"path:0": "fzyahoo.com"},
-    ) == ["https://www.tiktok.com/@fzyahoo.com/video/123"]
+        slug_values={"path:0": "fakeacc.com"},
+    ) == ["https://www.tiktok.com/@fakeacc.com/video/123"]
 
 
 def test_creator_from_url_uses_handle_segment_without_at_sign():
-    assert creator_from_url("https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489") == "fzyahoo.com"
+    assert creator_from_url("https://www.tiktok.com/@fakeacc.com/video/7100000000000000001") == "fakeacc.com"
     assert (
-        creator_from_url("https://www.tiktok.com/@fzyahoo.com/video/7493558766131039489", strip_at=False)
-        == "@fzyahoo.com"
+        creator_from_url("https://www.tiktok.com/@fakeacc.com/video/7100000000000000001", strip_at=False)
+        == "@fakeacc.com"
     )
-    assert creator_from_url("https://x.com/ININIinNINI/status/2073390288501166083") == "ININIinNINI"
-    assert creator_from_url("https://www.facebook.com/share/p/1cvLxqzgHA/") == ""
+    assert creator_from_url("https://x.com/DEMOinARTIST/status/2000000000000000002") == "DEMOinARTIST"
+    assert creator_from_url("https://www.facebook.com/share/p/1bDemoBb2c/") == ""
 
 
 def test_extract_url_part_reads_configured_path_segment():
@@ -4604,7 +4604,7 @@ def test_extract_url_part_reads_configured_path_segment():
 
 
 def test_extract_url_part_reads_query_value():
-    url = "https://example.com/watch?v=dQw4w9WgXcQ&list=PL123"
+    url = "https://example.com/watch?v=YtDemoVid04&list=PL123"
     assert extract_url_part(url, "query:list") == "PL123"
     assert extract_url_part(url, "query:missing") == ""
 
@@ -4675,14 +4675,14 @@ def test_learn_download_keeps_distinct_route_words_unmerged():
     # templates survive for reconstruction instead of collapsing to {var}.
     learned = learn_download(
         {},
-        "https://www.tiktok.com/@a/video/7493558766131039489",
-        "7493558766131039489",
+        "https://www.tiktok.com/@a/video/7100000000000000001",
+        "7100000000000000001",
         {"uploader": "a"},
     )
     learned = learn_download(
         learned,
-        "https://www.tiktok.com/@a/photo/7420705673542978833",
-        "7420705673542978833",
+        "https://www.tiktok.com/@a/photo/7100000000000000002",
+        "7100000000000000002",
         {"uploader": "a"},
     )
     assert set(learned["tiktok"]["templates"]) == {
@@ -4836,14 +4836,14 @@ def test_learn_download_ignores_unknown_host():
 
 def test_url_dedup_key_ignores_route_so_reposts_dedup():
     # The reported bug: a video reconsolidated to /photo must still dedup its /video link.
-    photo = url_dedup_key("https://www.tiktok.com/@fzyahoo.com/photo/7615077542189337873")
-    video = url_dedup_key("https://www.tiktok.com/@fzyahoo.com/video/7615077542189337873")
-    assert photo == video == "tiktok#7615077542189337873"
+    photo = url_dedup_key("https://www.tiktok.com/@fakeacc.com/photo/7100000000000000004")
+    video = url_dedup_key("https://www.tiktok.com/@fakeacc.com/video/7100000000000000004")
+    assert photo == video == "tiktok#7100000000000000004"
 
 
 def test_url_dedup_key_separates_different_posts():
-    a = url_dedup_key("https://www.tiktok.com/@fzyahoo.com/photo/7615077542189337873")
-    b = url_dedup_key("https://www.tiktok.com/@fzyahoo.com/photo/7420705673542978833")
+    a = url_dedup_key("https://www.tiktok.com/@fakeacc.com/photo/7100000000000000004")
+    b = url_dedup_key("https://www.tiktok.com/@fakeacc.com/photo/7100000000000000002")
     assert a != b
 
 
@@ -4862,26 +4862,26 @@ def test_url_dedup_key_reads_the_first_named_id_not_its_owner_or_a_comment():
     assert (first, second) == ("example#pfbid0abc123XYZ", "example#pfbid0def456UVW")
     commented = url_dedup_key("https://example.test/photo/?fbid=111111111111111&set=a.2222&comment_id=3333333333333333")
     assert commented == "example#111111111111111"
-    assert url_dedup_key("https://example.test/watch?list=PL0123456789abcdefghijklmnop&v=dQw4w9WgXcQ") == (
-        "example#dQw4w9WgXcQ"
+    assert url_dedup_key("https://example.test/watch?list=PL0123456789abcdefghijklmnop&v=YtDemoVid04") == (
+        "example#YtDemoVid04"
     )
 
 
 def test_media_id_from_url_reads_id_without_prior_knowledge():
-    assert media_id_from_url("https://www.tiktok.com/@a/video/7615077542189337873") == "7615077542189337873"
-    assert media_id_from_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+    assert media_id_from_url("https://www.tiktok.com/@a/video/7100000000000000004") == "7100000000000000004"
+    assert media_id_from_url("https://www.youtube.com/watch?v=YtDemoVid04") == "YtDemoVid04"
 
 
 def test_correct_reconstructed_url_adopts_pasted_link_for_disk_entry(monkeypatch):
     saved: dict[str, dict] = {}
     monkeypatch.setattr(operations_module, "save_history_entry_row", lambda tid, p: saved.update({tid: p}))
-    entry = {"engine": "disk", "source_url": "https://www.tiktok.com/@a/photo/7615077542189337873"}
-    real_url = "https://www.tiktok.com/@a/video/7615077542189337873"
+    entry = {"engine": "disk", "source_url": "https://www.tiktok.com/@a/photo/7100000000000000004"}
+    real_url = "https://www.tiktok.com/@a/video/7100000000000000004"
 
-    out = operations_module._correct_reconstructed_url("disk:7615077542189337873", entry, real_url)
+    out = operations_module._correct_reconstructed_url("disk:7100000000000000004", entry, real_url)
 
     assert out["source_url"] == real_url
-    assert saved["disk:7615077542189337873"]["source_url"] == real_url
+    assert saved["disk:7100000000000000004"]["source_url"] == real_url
 
 
 def test_history_source_lookup_matches_filename_media_id_without_stored_url(monkeypatch):
@@ -4908,10 +4908,10 @@ def test_history_source_lookup_matches_filename_media_id_without_stored_url(monk
 def test_correct_reconstructed_url_leaves_real_download_untouched(monkeypatch):
     saved: dict[str, dict] = {}
     monkeypatch.setattr(operations_module, "save_history_entry_row", lambda tid, p: saved.update({tid: p}))
-    real_url = "https://www.tiktok.com/@a/video/7615077542189337873"
+    real_url = "https://www.tiktok.com/@a/video/7100000000000000004"
     entry = {"engine": "ytdlp", "source_url": real_url}
 
-    out = operations_module._correct_reconstructed_url("ytdlp:abc", entry, "https://www.tiktok.com/@a/photo/7615077542189337873")
+    out = operations_module._correct_reconstructed_url("ytdlp:abc", entry, "https://www.tiktok.com/@a/photo/7100000000000000004")
 
     assert out["source_url"] == real_url  # a real download's link is authoritative; never overwritten
     assert saved == {}
@@ -4921,32 +4921,32 @@ def test_prune_disk_shadows_drops_disk_duplicate_of_real_download(monkeypatch):
     removed: list[str] = []
     monkeypatch.setattr(scan_module, "remove_history_record", lambda tid: removed.append(tid))
     records = {
-        "ytdlp:abc": {"source_url": "https://www.tiktok.com/@a/video/7615077542189337873", "media_id": ""},
-        "disk:7615077542189337873": {
+        "ytdlp:abc": {"source_url": "https://www.tiktok.com/@a/video/7100000000000000004", "media_id": ""},
+        "disk:7100000000000000004": {
             "engine": "disk",
-            "media_id": "7615077542189337873",
-            "source_url": "https://www.tiktok.com/@a/photo/7615077542189337873",
+            "media_id": "7100000000000000004",
+            "source_url": "https://www.tiktok.com/@a/photo/7100000000000000004",
         },
     }
     real = scan_module._real_download_media_ids(records)
 
     scan_module._prune_disk_shadows(records, real)
 
-    assert removed == ["disk:7615077542189337873"]
-    assert "disk:7615077542189337873" not in records
+    assert removed == ["disk:7100000000000000004"]
+    assert "disk:7100000000000000004" not in records
 
 
 def test_guess_sources_uses_learned_signatures():
     learned = _learned_youtube_twitter()
     assert guess_sources(learned, "kZ0vN9pLm-Q") == ["youtube"]
-    assert guess_sources(learned, "2073635724684054528") == ["twitter"]
+    assert guess_sources(learned, "2000000000000000001") == ["twitter"]
 
 
 @pytest.mark.parametrize(
     "media_id,source_key,expected",
     [
-        ("2073635724684054528", "youtube", True),
-        ("2073635724684054528", "twitter", False),
+        ("2000000000000000001", "youtube", True),
+        ("2000000000000000001", "twitter", False),
         ("kZ0vN9pLm-Q", "youtube", False),
         ("kZ0vN9pLm-Q", "twitter", True),
         ("anything", "unlearnedsite", False),
@@ -4971,14 +4971,14 @@ def test_reconstruct_url_from_learned(source_key, media_id, expected):
 def test_infer_disk_source_vetoes_folder_then_uses_learned_guess(tmp_path: Path):
     folder = tmp_path / "yt"
     folder.mkdir()
-    media_file = folder / "DOHA - DOHA - Squishy cheeks [2073635724684054528].mp4"
+    media_file = folder / "DEMO - DEMO - Sample clip [2000000000000000001].mp4"
     media_file.write_bytes(b"video")
     index = scan_module._source_location_index(
         [("youtube", "https://www.youtube.com/watch?v={id}", str(folder))]
     )
 
     source_key, pending, _, format_template = scan_module.infer_disk_source(
-        media_file, "2073635724684054528", index, _learned_youtube_twitter()
+        media_file, "2000000000000000001", index, _learned_youtube_twitter()
     )
 
     assert source_key == "twitter"
@@ -4989,27 +4989,27 @@ def test_infer_disk_source_vetoes_folder_then_uses_learned_guess(tmp_path: Path)
 
 def test_guess_sources_tolerates_base64url_separators():
     # Learned only from ids without "-"/"_"; new youtube ids carrying them must still match.
-    learned = learn_download({}, "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ")
+    learned = learn_download({}, "https://www.youtube.com/watch?v=YtDemoVid04", "YtDemoVid04")
     assert guess_sources(learned, "K1-BVtsHrOY") == ["youtube"]
     assert guess_sources(learned, "_F5vcIlr9bs") == ["youtube"]
 
 
 def test_learn_media_id_seeds_shape_for_confirmed_source():
-    learned = learn_media_id({}, "youtube", "dQw4w9WgXcQ")
+    learned = learn_media_id({}, "youtube", "YtDemoVid04")
     assert learned["youtube"]["id_min"] == 11
     assert learned["youtube"]["id_max"] == 11
     assert guess_sources(learned, "_F5vcIlr9bs") == ["youtube"]
 
 
 def test_learn_media_id_ignores_removed_and_empty_source():
-    assert learn_media_id({}, "others", "dQw4w9WgXcQ") == {}
+    assert learn_media_id({}, "others", "YtDemoVid04") == {}
     assert learn_media_id({}, "youtube", "") == {}
 
 
 def test_infer_disk_source_ambiguous_when_multiple_learned_match(tmp_path: Path):
     media_file = tmp_path / "Clip [1111111111111111111].mp4"
     media_file.write_bytes(b"video")
-    learned = learn_download({}, "https://twitter.com/A/status/2073635724684054528", "2073635724684054528")
+    learned = learn_download({}, "https://twitter.com/A/status/2000000000000000001", "2000000000000000001")
     learned = learn_download(learned, "https://www.tiktok.com/@a/video/7123456789012345678", "7123456789012345678")
 
     source_key, pending, candidates, _ = scan_module.infer_disk_source(
@@ -5024,14 +5024,14 @@ def test_infer_disk_source_ambiguous_when_multiple_learned_match(tmp_path: Path)
 def test_infer_disk_source_prefers_configured_folder(tmp_path: Path):
     folder = tmp_path / "yt"
     folder.mkdir()
-    media_file = folder / "Clip [dQw4w9WgXcQ].mp4"
+    media_file = folder / "Clip [YtDemoVid04].mp4"
     media_file.write_bytes(b"video")
     index = scan_module._source_location_index(
         [("youtube", "https://www.youtube.com/watch?v={id}", str(folder))]
     )
 
     source_key, pending, candidates, _ = scan_module.infer_disk_source(
-        media_file, "dQw4w9WgXcQ", index, _learned_youtube_twitter()
+        media_file, "YtDemoVid04", index, _learned_youtube_twitter()
     )
 
     assert source_key == "youtube"
@@ -5042,7 +5042,7 @@ def test_infer_disk_source_prefers_configured_folder(tmp_path: Path):
 def test_infer_disk_source_reports_the_folder_format(tmp_path: Path):
     shorts = tmp_path / "yt-shorts"
     shorts.mkdir()
-    media_file = shorts / "Clip [dQw4w9WgXcQ].mp4"
+    media_file = shorts / "Clip [YtDemoVid04].mp4"
     media_file.write_bytes(b"video")
     index = scan_module._source_location_index(
         [
@@ -5052,7 +5052,7 @@ def test_infer_disk_source_reports_the_folder_format(tmp_path: Path):
     )
 
     source_key, _, _, format_template = scan_module.infer_disk_source(
-        media_file, "dQw4w9WgXcQ", index, _learned_youtube_twitter()
+        media_file, "YtDemoVid04", index, _learned_youtube_twitter()
     )
 
     assert source_key == "youtube"
@@ -5327,10 +5327,10 @@ def test_scan_media_library_flags_ambiguous_source_pending(tmp_path: Path, monke
 
 
 def test_scan_media_library_reconstructs_link_from_learned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    learned = learn_download({}, "https://www.bilibili.com/video/BV1xx411c7mD", "BV1xx411c7mD")
+    learned = learn_download({}, "https://www.bilibili.com/video/BV1Ab4y1C7De", "BV1Ab4y1C7De")
     media_root = tmp_path / "media"
     media_root.mkdir()
-    media_file = media_root / "Clip [BV1xx411c7mD].mp4"
+    media_file = media_root / "Clip [BV1Ab4y1C7De].mp4"
     media_file.write_bytes(b"video")
 
     saved: dict[str, dict] = {}
@@ -5348,10 +5348,10 @@ def test_scan_media_library_reconstructs_link_from_learned(tmp_path: Path, monke
 
     scan_module.scan_media_library([media_root])
 
-    entry = saved["disk:BV1xx411c7mD"]
+    entry = saved["disk:BV1Ab4y1C7De"]
     assert entry["source_key"] == "bilibili"
     assert entry["source_pending"] is False
-    assert entry["source_url"] == "https://www.bilibili.com/video/BV1xx411c7mD"
+    assert entry["source_url"] == "https://www.bilibili.com/video/BV1Ab4y1C7De"
 
 
 def test_scan_media_library_reconstructs_url_part_from_filename_template(
@@ -5542,7 +5542,7 @@ def test_scan_probes_manual_file_in_configured_username_order(tmp_path: Path, mo
     monkeypatch.setattr(
         scan_module,
         "_scan_probe_metadata",
-        lambda url, *, with_cookies=False: probed.append(url) or {"uploader": "Mili", "channel_id": "UCopaque123"},
+        lambda url, *, with_cookies=False: probed.append(url) or {"uploader": "Mock", "channel_id": "UCopaque123"},
     )
 
     scan_module.scan_media_library([media_root])
@@ -5555,16 +5555,16 @@ def test_scan_probes_manual_file_in_configured_username_order(tmp_path: Path, mo
 def test_scan_reconstructs_creator_route_when_probe_matches_url_creator(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    media_id = "7645876413593128210"
+    media_id = "7100000000000000005"
     learned = learn_download(
         {},
-        f"https://www.tiktok.com/@moli0n/video/{media_id}",
+        f"https://www.tiktok.com/@demo0n/video/{media_id}",
         media_id,
-        {"uploader": "moli0n"},
+        {"uploader": "demo0n"},
     )
     media_root = tmp_path / "media"
     platform_dir = media_root / "tiktok"
-    creator_dir = platform_dir / "moli0n"
+    creator_dir = platform_dir / "demo0n"
     creator_dir.mkdir(parents=True)
     (creator_dir / f"Soft Light [{media_id}].mp4").write_bytes(b"video")
 
@@ -5584,7 +5584,7 @@ def test_scan_reconstructs_creator_route_when_probe_matches_url_creator(
         lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
     )
     monkeypatch.setattr(scan_module, "_scan_field_roles_map", lambda: {"tiktok": {"username": ["uploader"]}})
-    monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: {"uploader": "moli0n"})
+    monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: {"uploader": "demo0n"})
     monkeypatch.setattr(
         scan_module,
         "save_history_entry_rows",
@@ -5595,19 +5595,19 @@ def test_scan_reconstructs_creator_route_when_probe_matches_url_creator(
 
     scan_module.scan_media_library([media_root])
 
-    assert saved[f"disk:{media_id}"]["creator"] == "moli0n"
-    assert saved[f"disk:{media_id}"]["source_url"] == f"https://www.tiktok.com/@moli0n/video/{media_id}"
+    assert saved[f"disk:{media_id}"]["creator"] == "demo0n"
+    assert saved[f"disk:{media_id}"]["source_url"] == f"https://www.tiktok.com/@demo0n/video/{media_id}"
 
 
 def test_scan_skips_creator_route_when_probe_field_mismatches_url_creator(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    media_id = "7645876413593128210"
+    media_id = "7100000000000000005"
     learned = learn_download(
         {},
-        f"https://www.tiktok.com/@moli0n/video/{media_id}",
+        f"https://www.tiktok.com/@demo0n/video/{media_id}",
         media_id,
-        {"uploader": "moli0n"},
+        {"uploader": "demo0n"},
     )
     media_root = tmp_path / "media"
     platform_dir = media_root / "tiktok"
@@ -5631,7 +5631,7 @@ def test_scan_skips_creator_route_when_probe_field_mismatches_url_creator(
         lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
     )
     monkeypatch.setattr(scan_module, "_scan_field_roles_map", lambda: {"tiktok": {"username": ["uploader"]}})
-    monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: {"uploader": "moli0n"})
+    monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: {"uploader": "demo0n"})
     monkeypatch.setattr(
         scan_module,
         "save_history_entry_rows",
@@ -5673,12 +5673,12 @@ def test_scan_probe_uses_nickname_order_when_folder_token_is_nickname(
     monkeypatch.setattr(
         scan_module,
         "_scan_probe_metadata",
-        lambda url, *, with_cookies=False: {"channel_id": "UCopaque123", "uploader": "Mili Display", "channel": "Mili"},
+        lambda url, *, with_cookies=False: {"channel_id": "UCopaque123", "uploader": "Mock Display", "channel": "Mock"},
     )
 
     scan_module.scan_media_library([media_root])
 
-    assert saved["disk:abc123"]["creator"] == "Mili Display"
+    assert saved["disk:abc123"]["creator"] == "Mock Display"
 
 
 def test_scan_skips_creator_probe_for_scraper_backed_template_role(

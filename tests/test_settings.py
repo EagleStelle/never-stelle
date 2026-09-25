@@ -448,7 +448,7 @@ def test_get_effective_fields_ignores_learned_url_creator_defaults(monkeypatch):
     monkeypatch.setattr(fields_module, "load_saved_settings_file", lambda: {})
     monkeypatch.setattr(fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
 
-    assert get_effective_fields("https://www.tiktok.com/@moli0n/video/1") == {}
+    assert get_effective_fields("https://www.tiktok.com/@demo0n/video/1") == {}
 
 
 def test_learned_url_creator_defaults_do_not_promote_saved_field_roles(monkeypatch):
@@ -459,7 +459,7 @@ def test_learned_url_creator_defaults_do_not_promote_saved_field_roles(monkeypat
     )
     monkeypatch.setattr(fields_module, "get_source_profile_for_url", lambda url, **kw: {"key": "tiktok"})
 
-    assert get_effective_fields("https://www.tiktok.com/@moli0n/video/1") == {
+    assert get_effective_fields("https://www.tiktok.com/@demo0n/video/1") == {
         "username": ["uploader_id", "channel", "uploader"]
     }
 
@@ -480,11 +480,11 @@ def test_add_source_and_learn_format_returns_matched_template(tmp_path, monkeypa
     monkeypatch.setattr(learning_mod, "probe_link_fields", lambda *args, **kwargs: {})
 
     result = settings_formats_module.add_source_and_learn_format(
-        "https://www.facebook.com/reel/898199989283474"
+        "https://www.facebook.com/reel/800000000000002"
     )
 
     assert result["source_key"] == "facebook"
-    assert result["media_id"] == "898199989283474"
+    assert result["media_id"] == "800000000000002"
     assert result["format_template"] == "https://www.facebook.com/reel/{id}"
 
 
@@ -651,7 +651,7 @@ def test_format_field_probe_does_not_touch_existing_fields_when_all_present(monk
         },
     )
 
-    assert learn_missing_fields_for_format("https://www.tiktok.com/@fzyahoo.com/photo/1", "tiktok") == existing
+    assert learn_missing_fields_for_format("https://www.tiktok.com/@fakeacc.com/photo/1", "tiktok") == existing
 
 
 def test_format_field_probe_writes_no_format(tmp_path, monkeypatch):
@@ -804,7 +804,7 @@ def test_get_effective_template_settings_uses_format_keyed_source_template(monke
         lambda: {"twitter": {"templates": [format_template], "segments": []}},
     )
 
-    result = get_effective_template_settings("https://twitter.com/DohaVT/status/2073635724684054528")
+    result = get_effective_template_settings("https://twitter.com/DemoVT/status/2000000000000000001")
 
     assert result == {
         "folder_template": "{{username}}/clips",
@@ -962,8 +962,8 @@ def test_resolve_task_settings_uses_the_matched_format_location(monkeypatch):
             cfg={},
         )
 
-    status = resolve("https://twitter.com/DohaVT/status/2073635724684054528")
-    photo = resolve("https://twitter.com/DohaVT/status/2073635724684054528/photo/1")
+    status = resolve("https://twitter.com/DemoVT/status/2000000000000000001")
+    photo = resolve("https://twitter.com/DemoVT/status/2000000000000000001/photo/1")
 
     # Neither is the source root, so both came from the matched format.
     assert status.output_dir == str(_TWITTER_ROOT / "status")
@@ -987,7 +987,7 @@ def test_resolve_task_settings_defaults_when_no_format_matches(monkeypatch):
     _learn_twitter_formats(monkeypatch, _STATUS_FORMAT)
 
     resolved = planning_module.resolve_task_settings(
-        "https://twitter.com/i/broadcasts/1yNGaNzYqRPGj",
+        "https://twitter.com/i/broadcasts/1DemoCastAbCd",
         source_locations={"twitter": {_STATUS_FORMAT: "status"}},
         source_profiles=_TWITTER_PROFILE,
         cfg={},
@@ -1024,7 +1024,7 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
     )
 
     resolved = planning_module.resolve_task_settings(
-        "https://twitter.com/DohaVT/status/2073635724684054528",
+        "https://twitter.com/DemoVT/status/2000000000000000001",
         source_locations={"twitter": {"https://twitter.com/{creator}/status/{id}": ""}},
         template_settings={"folder_template": "{{username}}", "filename_template": "{{title}}"},
         source_profiles=[{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
@@ -1076,7 +1076,7 @@ def test_resolve_task_settings_matches_format(monkeypatch):
     )
 
     resolved = planning_module.resolve_task_settings(
-        "https://twitter.com/DohaVT/status/2073635724684054528",
+        "https://twitter.com/DemoVT/status/2000000000000000001",
         source_locations={"twitter": {"https://twitter.com/{creator}/status/{id}": ""}},
         template_settings={"folder_template": "{{username}}", "filename_template": "{{title}}"},
         source_profiles=[{"key": "twitter", "label": "Twitter", "hosts": ["twitter.com"]}],
