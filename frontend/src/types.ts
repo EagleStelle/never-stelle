@@ -17,7 +17,6 @@ export type SettingsSection =
   | "locations"
   | "cookies"
   | "trackers"
-  | "scrolling"
   | "format"
   | "fields"
   | "scraper"
@@ -279,6 +278,7 @@ export interface SavedSettings {
   default_fields: FieldRoles;
   default_naming: NamingDefaults;
   tracker_settings: TrackerSettings;
+  source_tracker_settings: SourceTrackerSettings;
   source_tracker_tabs: SourceTrackerTabs;
 }
 
@@ -290,6 +290,9 @@ export interface TrackerSettings {
   // What a new tracker starts with.
   interval_seconds: number;
 }
+// Only the fields a source overrides; the rest follow tracker_settings.
+export type TrackerOverrides = Partial<TrackerSettings>;
+export type SourceTrackerSettings = Record<string, TrackerOverrides>;
 
 // A name a page went by: a path segment, or a query value with its field.
 export interface TrackerTabVariant {
@@ -356,6 +359,7 @@ export interface UiConfigResponse {
   default_fields?: Partial<FieldRoles>;
   default_naming?: NamingDefaults;
   tracker_settings?: Partial<TrackerSettings>;
+  source_tracker_settings?: SourceTrackerSettings;
   source_tracker_tabs?: SourceTrackerTabs;
   default_quality?: Partial<QualityDefaults>;
   default_post_processing?: Partial<PostProcessingSelection>;

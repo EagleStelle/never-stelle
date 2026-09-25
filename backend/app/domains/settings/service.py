@@ -40,7 +40,7 @@ from .templates import (
     normalize_template_settings,
 )
 from .tokens import get_effective_token_roles, normalize_source_token_roles
-from .trackers import normalize_source_tracker_tabs, normalize_tracker_settings
+from .trackers import normalize_source_tracker_settings, normalize_source_tracker_tabs, normalize_tracker_settings
 
 
 def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -93,6 +93,7 @@ def _effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, An
         "default_fields": default_fields,
         "default_naming": normalize_default_naming(payload.get("default_naming")),
         "tracker_settings": normalize_tracker_settings(payload.get("tracker_settings")),
+        "source_tracker_settings": normalize_source_tracker_settings(payload.get("source_tracker_settings")),
         "source_tracker_tabs": normalize_source_tracker_tabs(payload.get("source_tracker_tabs")),
     }
 
@@ -115,6 +116,7 @@ def persist_settings(
     raw_default_naming: Any = None,
     raw_default_post_processing: Any = None,
     raw_tracker_settings: Any = None,
+    raw_source_tracker_settings: Any = None,
     raw_tracker_tabs: Any = None,
 ) -> dict[str, Any]:
     from backend.app.domains.downloads.constants import normalize_post_processing, normalize_quality_defaults
@@ -203,6 +205,11 @@ def persist_settings(
             "tracker_settings": normalize_tracker_settings(
                 raw_tracker_settings if raw_tracker_settings is not None else existing.get("tracker_settings")
             ),
+            "source_tracker_settings": normalize_source_tracker_settings(
+                raw_source_tracker_settings
+                if raw_source_tracker_settings is not None
+                else existing.get("source_tracker_settings")
+            ),
             "source_tracker_tabs": normalize_source_tracker_tabs(
                 raw_tracker_tabs if raw_tracker_tabs is not None else existing.get("source_tracker_tabs")
             ),
@@ -256,6 +263,7 @@ def build_settings_response(
         "default_fields": saved.get("default_fields", normalize_default_fields({})),
         "default_naming": saved.get("default_naming", {}),
         "tracker_settings": saved.get("tracker_settings", normalize_tracker_settings({})),
+        "source_tracker_settings": saved.get("source_tracker_settings", {}),
         "source_tracker_tabs": saved.get("source_tracker_tabs", {}),
         # Built-ins: what the defaults above fall back to, and what the UI offers as a reset.
         "cookie_policy_defaults": builtin_cookie_policy_defaults(),

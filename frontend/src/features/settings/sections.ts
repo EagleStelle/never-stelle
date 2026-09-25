@@ -7,7 +7,6 @@ import Cookies from "@/features/settings/sections/Settings/Cookies.vue";
 import Locations from "@/features/settings/sections/Settings/Locations.vue";
 import Defaults from "@/features/settings/sections/Settings/Defaults.vue";
 import Trackers from "@/features/settings/sections/Settings/Trackers.vue";
-import Scrolling from "@/features/settings/sections/Settings/Scrolling.vue";
 import Templates from "@/features/settings/sections/Metadata/Templates.vue";
 import Fields from "@/features/settings/sections/Metadata/Fields.vue";
 import Format from "@/features/settings/sections/Metadata/Format.vue";
@@ -72,16 +71,7 @@ export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
     group: "Settings",
     icon: SETTINGS_SECTION_ICONS.trackers,
     component: Trackers,
-    focusId: () => "trackerPageSizeInput",
-    requiresSources: false,
-  },
-  {
-    key: "scrolling",
-    label: "Scrolling",
-    group: "Settings",
-    icon: SETTINGS_SECTION_ICONS.scrolling,
-    component: Scrolling,
-    focusId: (source) => `${source}ScrollingProbeInput`,
+    focusId: (source) => `${source}Trackerinterval_seconds`,
     requiresSources: true,
   },
   {

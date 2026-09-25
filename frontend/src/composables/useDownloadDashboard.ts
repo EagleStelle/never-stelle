@@ -49,7 +49,6 @@ const SETTINGS_SLUG_BY_SECTION: Record<SettingsSection, string> = {
   locations: "locations",
   cookies: "cookies",
   trackers: "trackers",
-  scrolling: "scrolling",
   format: "format",
   fields: "fields",
   scraper: "scraper",
@@ -429,13 +428,6 @@ export function useDownloadDashboard() {
     viewMode.value = mode;
   }
 
-  function setSettingsSection(
-    section: SettingsSection,
-    shouldFocus = false,
-  ): void {
-    settingsState.setSettingsSection(section, shouldFocus);
-  }
-
   function toggleThemeMode(): void {
     themeMode.value = isLightMode.value ? "dark" : "light";
   }
@@ -521,7 +513,6 @@ export function useDownloadDashboard() {
     viewMode,
     ...settingsState,
     sourceProfiles,
-    setSettingsSection,
     openSettings,
     saveSettingsDraft,
     ...taskQueue,

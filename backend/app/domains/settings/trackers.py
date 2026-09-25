@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from backend.app.core.coercion import safe_int
 from backend.app.core.sources import normalize_source_key
 
 from .storage import load_saved_settings_file, save_saved_settings_file
@@ -24,18 +23,48 @@ _PAGE_WORD_RE = re.compile(r"[^\W_]+")
 _LINK_CHARACTERS = "/?&=#"
 
 
+def _clamp(field: str, value: Any) -> int | None:
+    """The value inside the field's range, or ``None`` when it is unset or not a number."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    _, minimum, maximum = _COUNT_FIELDS[field]
+    return max(minimum, min(number, maximum))
+
+
 def normalize_tracker_settings(raw: Any) -> dict[str, Any]:
     source = raw if isinstance(raw, dict) else {}
     out: dict[str, Any] = {}
-    for field, (default, minimum, maximum) in _COUNT_FIELDS.items():
-        value = source.get(field)
-        number = default if value is None or isinstance(value, bool) else safe_int(value, default)
-        out[field] = max(minimum, min(number, maximum))
+    for field, (default, _, _) in _COUNT_FIELDS.items():
+        value = _clamp(field, source.get(field))
+        out[field] = default if value is None else value
     return out
 
 
-def get_tracker_settings() -> dict[str, Any]:
-    return normalize_tracker_settings(load_saved_settings_file().get("tracker_settings"))
+def normalize_source_tracker_settings(raw: Any) -> dict[str, dict[str, int]]:
+    """Per source, only the fields it overrides."""
+    out: dict[str, dict[str, int]] = {}
+    for raw_key, raw_fields in (raw if isinstance(raw, dict) else {}).items():
+        key = normalize_source_key(raw_key)
+        fields = raw_fields if isinstance(raw_fields, dict) else {}
+        overrides = {
+            field: value for field in _COUNT_FIELDS if (value := _clamp(field, fields.get(field))) is not None
+        }
+        if key and overrides:
+            out[key] = overrides
+    return out
+
+
+def get_tracker_settings(source_key: str = "") -> dict[str, Any]:
+    payload = load_saved_settings_file()
+    overrides = normalize_source_tracker_settings(payload.get("source_tracker_settings"))
+    return {
+        **normalize_tracker_settings(payload.get("tracker_settings")),
+        **overrides.get(normalize_source_key(source_key), {}),
+    }
 
 
 def page_words(name: str) -> frozenset[str]:

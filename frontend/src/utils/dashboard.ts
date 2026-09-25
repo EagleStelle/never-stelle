@@ -48,7 +48,9 @@ import {
   type TaskFilter,
   type TaskItem,
   type TokenRole,
+  type TrackerOverrides,
   type TrackerSettings,
+  type SourceTrackerSettings,
   type SourceTrackerTabs,
   type ViewMode,
 } from "@/types";
@@ -103,6 +105,32 @@ export function hostFromUrl(sourceUrl: string): string {
   } catch {
     return "";
   }
+}
+
+const COMMON_SECOND_LEVEL_TLDS = new Set(["ac", "co", "com", "edu", "gov", "net", "org"]);
+
+function domainStem(host: string): string {
+  const parts = displayHost(host).split(".").filter(Boolean);
+  if (!parts.length) return "";
+  if (parts.length >= 3 && parts.at(-1)?.length === 2 && COMMON_SECOND_LEVEL_TLDS.has(parts.at(-2) || "")) {
+    return parts.at(-3) || "";
+  }
+  return parts.length >= 2 ? parts.at(-2) || "" : parts[0];
+}
+
+// The source a link belongs to: a profile whose host it matches, else its domain name.
+export function sourceKeyFromUrl(url: string, profiles: SourceProfile[]): string {
+  const host = hostFromUrl(url);
+  if (!host) return "";
+  for (const profile of profiles) {
+    for (const pattern of profile.hosts || []) {
+      const normalized = hostFromUrl(String(pattern).replace(/^\*\./, ""));
+      if (normalized && (host === normalized || host.endsWith(`.${normalized}`))) {
+        return normalizeSourceKey(profile.key);
+      }
+    }
+  }
+  return normalizeSourceKey(domainStem(host));
 }
 
 // Share buttons copy the link wrapped in a title and CJK boilerplate; keep only the link
@@ -877,18 +905,26 @@ export function createFieldRoles(
   return { username: list(source.username), nickname: list(source.nickname), title: list(source.title) };
 }
 
+// An entry for every profile, plus any other source the record already holds.
+function createSourceRecord<V, T>(
+  source: Record<string, V>,
+  profiles: SourceProfile[],
+  create: (value?: V) => T,
+): Record<string, T> {
+  const out: Record<string, T> = {};
+  for (const profile of profiles) out[profile.key] = create(source[profile.key]);
+  for (const [key, value] of Object.entries(source)) {
+    const normalizedKey = normalizeSourceKey(key);
+    if (normalizedKey) out[normalizedKey] = create(value);
+  }
+  return out;
+}
+
 export function createSourceFields(
   source: Record<string, Partial<FieldRoles>> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
 ): SourceFields {
-  const out: SourceFields = {};
-  for (const profile of profiles)
-    out[profile.key] = createFieldRoles(source[profile.key] || {});
-  for (const [key, value] of Object.entries(source)) {
-    const normalizedKey = normalizeSourceKey(key);
-    if (normalizedKey) out[normalizedKey] = createFieldRoles(value);
-  }
-  return out;
+  return createSourceRecord(source, profiles, createFieldRoles);
 }
 
 // Numeric caps. max_chars is positive-only; stem_max_chars may be 0 to turn the cap off.
@@ -924,14 +960,7 @@ export function createSourceTitleCleaning(
   source: Record<string, Record<string, NamingFlagValue>> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
 ): SourceTitleCleaning {
-  const out: SourceTitleCleaning = {};
-  for (const profile of profiles)
-    out[profile.key] = createNamingFlags(source[profile.key] || {});
-  for (const [key, value] of Object.entries(source)) {
-    const normalizedKey = normalizeSourceKey(key);
-    if (normalizedKey) out[normalizedKey] = createNamingFlags(value);
-  }
-  return out;
+  return createSourceRecord(source, profiles, createNamingFlags);
 }
 
 export const BUILTIN_COOKIE_POLICY_DEFAULTS: CookiePolicyDefaults = {
@@ -963,13 +992,36 @@ export const TRACKER_SETTINGS_DEFAULTS: TrackerSettings = {
   interval_seconds: 6 * 3600,
 };
 
+function trackerCount(value: unknown): number | undefined {
+  const count = Math.floor(Number(value));
+  return Number.isFinite(count) && count > 0 ? count : undefined;
+}
+
+const TRACKER_FIELDS = Object.keys(TRACKER_SETTINGS_DEFAULTS) as (keyof TrackerSettings)[];
+
 export function createTrackerSettings(source: Partial<TrackerSettings> = {}): TrackerSettings {
   const out = { ...TRACKER_SETTINGS_DEFAULTS };
-  for (const field of ["page_size", "caught_up_after", "interval_seconds"] as const) {
-    const value = Math.floor(Number(source?.[field]));
-    if (Number.isFinite(value) && value > 0) out[field] = value;
+  for (const field of TRACKER_FIELDS) {
+    out[field] = trackerCount(source?.[field]) ?? out[field];
   }
   return out;
+}
+
+export function createTrackerOverrides(source: TrackerOverrides = {}): TrackerOverrides {
+  // Blank fields stay absent so the source keeps inheriting the default.
+  const out: TrackerOverrides = {};
+  for (const field of TRACKER_FIELDS) {
+    const value = trackerCount(source?.[field]);
+    if (value !== undefined) out[field] = value;
+  }
+  return out;
+}
+
+export function createSourceTrackerSettings(
+  source: SourceTrackerSettings = {},
+  profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
+): SourceTrackerSettings {
+  return createSourceRecord(source, profiles, createTrackerOverrides);
 }
 
 export function createSourceTrackerTabs(source: SourceTrackerTabs = {}): SourceTrackerTabs {
@@ -995,13 +1047,7 @@ export function createSourceCookiePolicies(
   source: Record<string, CookiePolicy> = {},
   profiles: SourceProfile[] = DEFAULT_SOURCE_PROFILES,
 ): SourceCookiePolicies {
-  const out: SourceCookiePolicies = {};
-  for (const profile of profiles) out[profile.key] = createCookiePolicy(source[profile.key] || {});
-  for (const [key, value] of Object.entries(source)) {
-    const normalizedKey = normalizeSourceKey(key);
-    if (normalizedKey) out[normalizedKey] = createCookiePolicy(value);
-  }
-  return out;
+  return createSourceRecord(source, profiles, createCookiePolicy);
 }
 
 export function createCookiePolicyDefaults(

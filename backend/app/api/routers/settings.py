@@ -72,6 +72,7 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
             payload.default_naming,
             payload.default_post_processing,
             payload.tracker_settings,
+            payload.source_tracker_settings,
             payload.source_tracker_tabs,
         )
     return build_settings_response(cfg, saved)

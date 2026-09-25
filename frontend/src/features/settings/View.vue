@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref } from "vue";
+import { computed, nextTick, reactive, ref, watch } from "vue";
 import IconClose from "~icons/material-symbols/close";
 import IconInfo from "~icons/material-symbols/info-outline";
 import { TabsContent, TabsRoot } from "reka-ui";
@@ -84,15 +84,23 @@ provideSettingsContext({
   },
 });
 
-// Switch pane, then focus its primary control on the next tick.
-function selectSection(section: SettingsSection): void {
-  sectionModel.value = section;
+// Focus the pane's primary control on the next tick.
+function focusSection(section: SettingsSection): void {
   const firstSource = editableSourceProfiles.value[0]?.key || "settings";
   const id = SETTINGS_SECTION_DEFS.find(
     (def) => def.key === section,
   )?.focusId?.(firstSource);
   if (id) void nextTick(() => document.getElementById(id)?.focus());
 }
+
+function selectSection(section: SettingsSection): void {
+  sectionModel.value = section;
+  focusSection(section);
+}
+
+watch(settingsOpen, (open) => {
+  if (open) focusSection(settingsSection.value);
+});
 
 function cancelClose() {
   confirmCloseOpen.value = false;

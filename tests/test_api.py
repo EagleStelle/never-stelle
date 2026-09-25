@@ -724,6 +724,10 @@ def test_settings_put_round_trips_global_defaults(tmp_path, monkeypatch):
             "source_title_cleaning": {
                 "youtube": {"case": "lowercase", "separator": "dash", "stem_max_chars": 0}
             },
+            "source_tracker_settings": {
+                "YouTube": {"page_size": "12", "caught_up_after": "", "interval_seconds": 3600},
+                "empty": {"page_size": None},
+            },
             "source_tracker_tabs": {
                 "YouTube": [
                     {"tab": " shorts ", "label": "Shorts", "variants": [{"name": "shorts_tab"}], "enabled": True},
@@ -747,6 +751,8 @@ def test_settings_put_round_trips_global_defaults(tmp_path, monkeypatch):
     assert body["source_fields"] == {"youtube": {"nickname": ["channel"]}}
     # The source matches the new default casing, so it inherits instead of pinning it.
     assert body["source_title_cleaning"] == {"youtube": {"separator": "dash", "stem_max_chars": 0}}
+    # A source keeps only the tracker fields it overrides.
+    assert body["source_tracker_settings"] == {"youtube": {"page_size": 12, "interval_seconds": 3600}}
     # One row per page name, links are no names; a source without rows keeps walking every page.
     assert body["source_tracker_tabs"] == {
         "youtube": [

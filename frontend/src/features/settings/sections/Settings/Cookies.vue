@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/accordion";
 import type { CookieFile, CookiePolicyField } from "@/types";
 import { COOKIE_POLICY_FIELDS } from "@/features/settings/cookiePolicy";
+import { useInheritedFields } from "@/features/settings/composables/useInheritedFields";
 import { useSettingsContext } from "@/features/settings/context";
 import { sourceIconUrl } from "@/utils/dashboard";
 
@@ -36,52 +37,18 @@ const {
   reorderCookies,
 } = useSettingsContext();
 
-const policyEdits = reactive<Record<string, string>>({});
-
-function editKey(key: string, field: CookiePolicyField): string {
-  return `${key}:${field}`;
-}
-
 // A source with no override of its own follows the global default from the Defaults
 // pane, which itself falls back to the built-in.
 function policyInherited(field: CookiePolicyField): number {
-  const configured = settingsDraft.default_cookie_policy[field];
   return Number(
-    configured === undefined || configured === null
-      ? settings.cookie_policy_defaults[field]
-      : configured,
+    settingsDraft.default_cookie_policy[field] ?? settings.cookie_policy_defaults[field],
   );
 }
 
-function policyValue(key: string, field: CookiePolicyField): string {
-  const editing = policyEdits[editKey(key, field)];
-  if (editing !== undefined) return editing;
-  const value = settingsDraft.source_cookie_policies[key]?.[field];
-  return String(
-    value === undefined || value === null ? policyInherited(field) : value,
-  );
-}
-
-function setPolicyValue(key: string, field: CookiePolicyField, raw: string | number): void {
-  if (!settingsDraft.source_cookie_policies[key]) {
-    settingsDraft.source_cookie_policies[key] = {};
-  }
-  // Read back through the reactive proxy so the edit below is tracked.
-  const entry = settingsDraft.source_cookie_policies[key];
-  const text = String(raw ?? "").trim();
-  policyEdits[editKey(key, field)] = text;
-  const parsed = Number(text);
-  if (!text || (Number.isFinite(parsed) && parsed === policyInherited(field))) {
-    delete entry[field];
-  } else {
-    if (!Number.isFinite(parsed)) return;
-    entry[field] = parsed;
-  }
-}
-
-function endPolicyEdit(key: string, field: CookiePolicyField): void {
-  delete policyEdits[editKey(key, field)];
-}
+const { fieldValue, setField, endEdit } = useInheritedFields<CookiePolicyField>({
+  entries: () => settingsDraft.source_cookie_policies,
+  inherited: policyInherited,
+});
 
 // Open items in the multiple-select accordion.
 const open = ref<string[]>([]);
@@ -202,10 +169,10 @@ function isDropTarget(key: string, index: number): boolean {
                     type="number"
                     :min="field.min"
                     :placeholder="String(policyInherited(field.key))"
-                    :model-value="policyValue(site.key, field.key)"
-                    @blur="endPolicyEdit(site.key, field.key)"
+                    :model-value="fieldValue(site.key, field.key)"
+                    @blur="endEdit(site.key, field.key)"
                     @update:model-value="
-                      (value: string | number) => setPolicyValue(site.key, field.key, value)
+                      (value: string | number) => setField(site.key, field.key, value)
                     "
                   />
                 </FieldContent>
@@ -283,7 +250,11 @@ function isDropTarget(key: string, index: number): boolean {
                   </Button>
                 </li>
               </ul>
-              <p v-else class="text-[0.8125rem] text-muted-foreground">
+              <p
+                v-else
+                class="flex items-start gap-2 text-[0.8125rem] leading-normal text-muted-foreground"
+              >
+                <IconInfo class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                 No cookie files yet.
               </p>
             </div>

@@ -23,6 +23,7 @@ class SettingsPayload(BaseModel):
     default_fields: dict[str, Any] = Field(default_factory=dict)
     default_naming: dict[str, Any] = Field(default_factory=dict)
     tracker_settings: dict[str, Any] | None = None
+    source_tracker_settings: dict[str, Any] = Field(default_factory=dict)
     source_tracker_tabs: dict[str, Any] = Field(default_factory=dict)
 
 

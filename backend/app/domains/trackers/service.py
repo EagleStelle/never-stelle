@@ -69,11 +69,11 @@ _STOP_WAIT_SECONDS = 30.0
 _STOP_POLL_SECONDS = 0.1
 
 
-def _interval(value: Any) -> int:
+def _interval(value: Any, source_key: str = "") -> int:
     try:
         seconds = int(value)
     except (TypeError, ValueError):
-        seconds = get_tracker_settings()["interval_seconds"]
+        seconds = get_tracker_settings(source_key)["interval_seconds"]
     return max(MIN_INTERVAL_SECONDS, min(MAX_INTERVAL_SECONDS, seconds))
 
 
@@ -156,7 +156,7 @@ def create_tracker(
             "source_url": url,
             "name": _fallback_name(url),
             "enabled": True,
-            "interval_seconds": _interval(interval_seconds),
+            "interval_seconds": _interval(interval_seconds, _source_key({"source_url": url})),
             "quality": normalize_quality_selection(quality) if quality else {},
             "post_processing": normalize_post_processing(post_processing) if post_processing is not None else {},
             "next_check_at": utc_now(),
@@ -328,7 +328,7 @@ def _run_check(tracker: dict[str, Any]) -> None:
     source_key = _source_key(tracker)
     asked = tracker_id in _asked
     _asked.discard(tracker_id)
-    settings = get_tracker_settings()
+    settings = get_tracker_settings(source_key)
     pass_start = tracker["last_success_at"]
     first = not pass_start
     stats = ListingStats()

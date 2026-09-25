@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Combobox } from "@/components/ui/combobox";
 import {
   Field,
   FieldContent,
@@ -33,14 +34,20 @@ import {
 } from "@/components/ui/tooltip";
 import type { CookiePolicyField, MediaMode, NamingChoice } from "@/types";
 import {
+  TRACKER_SETTINGS_DEFAULTS,
   createQualitySelection,
   postProcessingCapabilitiesForDefaults,
 } from "@/utils/dashboard";
 import DownloadFields from "@/features/downloads/DownloadFields.vue";
-import { PAGE_ICONS, SETTINGS_SECTION_ICONS } from "@/ui";
+import { PAGE_ICONS, SETTINGS_SECTION_ICONS, TRACKER_INTERVALS } from "@/ui";
 import type { QualityField } from "@/features/downloads/qualityFields";
 import { COOKIE_POLICY_FIELDS } from "@/features/settings/cookiePolicy";
+import { useInheritedFields } from "@/features/settings/composables/useInheritedFields";
 import { useSettingsContext } from "@/features/settings/context";
+import {
+  TRACKER_COUNT_FIELDS,
+  type TrackerCountField,
+} from "@/features/settings/trackerFields";
 import {
   TEMPLATE_FIELDS,
   templateFieldSlug,
@@ -102,35 +109,25 @@ function setDefaultPostProcessing(next: typeof settingsDraft.default_post_proces
   Object.assign(settingsDraft.default_post_processing, next);
 }
 
-const policyEdits = reactive<Partial<Record<CookiePolicyField, string>>>({});
-
 function policyInherited(field: CookiePolicyField): number {
   return Number(settings.cookie_policy_defaults[field]);
 }
 
-function policyValue(field: CookiePolicyField): string {
-  const editing = policyEdits[field];
-  if (editing !== undefined) return editing;
-  const value = settingsDraft.default_cookie_policy[field];
-  return String(
-    value === undefined || value === null ? policyInherited(field) : value,
-  );
+// The global policy is the only entry.
+const POLICY_KEY = "default";
+const { fieldValue, setField, endEdit } = useInheritedFields<CookiePolicyField>({
+  entries: () => ({ [POLICY_KEY]: settingsDraft.default_cookie_policy }),
+  inherited: policyInherited,
+});
+
+// A blank or partial entry leaves the saved value alone; the server clamps the range.
+function setTrackerCount(key: TrackerCountField, raw: string | number): void {
+  const value = Math.floor(Number(raw));
+  if (String(raw).trim() && Number.isFinite(value) && value > 0) settingsDraft.tracker_settings[key] = value;
 }
 
-function setPolicyValue(field: CookiePolicyField, raw: string | number): void {
-  const text = String(raw ?? "").trim();
-  policyEdits[field] = text;
-  const parsed = Number(text);
-  if (!text || (Number.isFinite(parsed) && parsed === policyInherited(field))) {
-    delete settingsDraft.default_cookie_policy[field];
-  } else {
-    if (!Number.isFinite(parsed)) return;
-    settingsDraft.default_cookie_policy[field] = parsed;
-  }
-}
-
-function endPolicyEdit(field: CookiePolicyField): void {
-  delete policyEdits[field];
+function setTrackerInterval(value: string | string[]): void {
+  if (typeof value === "string" && value) settingsDraft.tracker_settings.interval_seconds = Number(value);
 }
 
 // Slug and scraper tokens belong to one source, so the global order is plain fields only.
@@ -318,15 +315,62 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
                   type="number"
                   :min="field.min"
                   :placeholder="String(policyInherited(field.key))"
-                  :model-value="policyValue(field.key)"
-                  @blur="endPolicyEdit(field.key)"
+                  :model-value="fieldValue(POLICY_KEY, field.key)"
+                  @blur="endEdit(POLICY_KEY, field.key)"
                   @update:model-value="
-                    (value: string | number) => setPolicyValue(field.key, value)
+                    (value: string | number) => setField(POLICY_KEY, field.key, value)
                   "
                 />
               </FieldContent>
             </Field>
           </div>
+        </AccordionContent>
+      </AccordionItem>
+
+      <AccordionItem value="trackers">
+        <AccordionTrigger :icon="SETTINGS_SECTION_ICONS.trackers">Trackers</AccordionTrigger>
+        <AccordionContent>
+          <FieldGroup>
+            <Combobox
+              :model-value="String(settingsDraft.tracker_settings.interval_seconds)"
+              :items="TRACKER_INTERVALS"
+              label="Check interval"
+              label-placement="start"
+              placeholder="Select..."
+              empty-text="No intervals."
+              @update:model-value="setTrackerInterval"
+            />
+            <Field v-for="field in TRACKER_COUNT_FIELDS" :key="field.key">
+              <FieldLabel :for="`defaultTracker${field.key}`" class="items-center gap-1.5">
+                <span>{{ field.label }}</span>
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <button
+                      type="button"
+                      class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      :aria-label="`${field.label} help`"
+                    >
+                      <IconInfo class="size-4" aria-hidden="true" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {{ field.help }}
+                  </TooltipContent>
+                </Tooltip>
+              </FieldLabel>
+              <FieldContent>
+                <Input
+                  :id="`defaultTracker${field.key}`"
+                  type="number"
+                  min="1"
+                  max="500"
+                  :placeholder="String(TRACKER_SETTINGS_DEFAULTS[field.key])"
+                  :model-value="String(settingsDraft.tracker_settings[field.key])"
+                  @update:model-value="(value: string | number) => setTrackerCount(field.key, value)"
+                />
+              </FieldContent>
+            </Field>
+          </FieldGroup>
         </AccordionContent>
       </AccordionItem>
 

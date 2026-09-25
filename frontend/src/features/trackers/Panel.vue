@@ -35,6 +35,7 @@ import {
   constrainPostProcessingSelection,
   postProcessingCapabilitiesForQuality,
   sourceIconUrl,
+  sourceKeyFromUrl,
 } from "@/utils/dashboard";
 
 const {
@@ -104,16 +105,18 @@ const draftPostProcessing = reactive<PostProcessingSelection>(createPostProcessi
 const draftInterval = ref("");
 const draftCapabilities = computed(() => postProcessingCapabilitiesForQuality(draftSelection, qualityOptions.value));
 
-// A new link starts from the toolbar and tracker settings.
+// A new link starts from the toolbar and its source's tracker settings.
 watch(
   () => openTracker.value?.id || newTrackerUrl.value,
   (key) => {
     if (!key) return;
     const tracker = openTracker.value;
-    const defaults = settings.tracker_settings;
+    const source = settings.source_tracker_settings[sourceKeyFromUrl(newTrackerUrl.value, sourceProfiles.value)];
     Object.assign(draftSelection, createQualitySelection(tracker ? tracker.quality : downloadSelection, qualityOptions.value));
     Object.assign(draftPostProcessing, createPostProcessingSelection(tracker ? tracker.post_processing : downloadPostProcessing));
-    draftInterval.value = String(tracker ? tracker.interval_seconds : defaults.interval_seconds);
+    draftInterval.value = String(
+      tracker ? tracker.interval_seconds : (source?.interval_seconds ?? settings.tracker_settings.interval_seconds),
+    );
   },
   { immediate: true },
 );

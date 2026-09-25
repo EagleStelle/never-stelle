@@ -12,7 +12,6 @@ import IconNaming from "~icons/material-symbols/text-format";
 import IconRadar from "~icons/material-symbols/radar";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconScraper from "~icons/material-symbols/travel-explore";
-import IconScrolling from "~icons/material-symbols/swipe-vertical";
 import IconSlug from "~icons/material-symbols/link";
 import IconSpinner from "~icons/material-symbols/sync";
 import IconWarning from "~icons/material-symbols/warning";
@@ -58,7 +57,6 @@ export const SETTINGS_SECTION_ICONS: Record<SettingsSection, Component> = {
   locations: IconFolder,
   cookies: IconCookie,
   trackers: IconRadar,
-  scrolling: IconScrolling,
   format: IconFormat,
   slug: IconSlug,
   scraper: IconScraper,

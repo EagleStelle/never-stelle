@@ -21,8 +21,10 @@ from backend.app.db import repositories
 from backend.app.domains.downloads import serializers
 from backend.app.domains.downloads.access import AccessIdentity
 from backend.app.domains.settings import (
+    get_tracker_settings,
     get_tracker_tabs,
     merge_tracker_tabs,
+    normalize_source_tracker_settings,
     normalize_tracker_settings,
     save_saved_settings_file,
 )
@@ -1719,10 +1721,21 @@ def test_new_posts_come_first_and_the_scroll_goes_on_where_the_last_walk_stopped
     assert (stats.ended, stats.more) == (set(), True)
 
 
-def test_each_check_scrolls_one_batch_deeper_past_what_earlier_checks_found(temp_db, monkeypatch):
+@pytest.mark.parametrize(
+    "saved",
+    [
+        {"tracker_settings": {"page_size": 3, "caught_up_after": 2}},
+        # The source's own values win over the defaults.
+        {
+            "tracker_settings": {"page_size": 30, "caught_up_after": 9},
+            "source_tracker_settings": {"example": {"page_size": 3, "caught_up_after": 2}},
+        },
+    ],
+)
+def test_each_check_scrolls_one_batch_deeper_past_what_earlier_checks_found(temp_db, monkeypatch, saved):
     _ticking_clock(monkeypatch)
     _insert_tracker()
-    save_saved_settings_file({"tracker_settings": {"page_size": 3, "caught_up_after": 2}})
+    save_saved_settings_file(saved)
     reels = [f"https://example.test/reel/{n}1111111" for n in range(1, 8)]
     _reel_page(monkeypatch, "")
     browser = _browser(monkeypatch, *([reel] for reel in reels))
@@ -1857,6 +1870,27 @@ def test_tracker_settings_are_clamped_and_seed_new_trackers(temp_db):
     created = service_module.create_tracker(TRACKER_URL)
 
     assert created["interval_seconds"] == 3 * 3600
+
+
+def test_a_source_overrides_only_the_tracker_settings_it_sets(temp_db):
+    assert normalize_source_tracker_settings(
+        {
+            "Example": {"page_size": "900", "caught_up_after": "", "interval_seconds": 60},
+            "flags": {"page_size": True, "caught_up_after": None},
+            "": {"page_size": 4},
+        }
+    ) == {"example": {"page_size": 500, "interval_seconds": 3600}}
+    save_saved_settings_file(
+        {
+            "tracker_settings": {"page_size": 20, "caught_up_after": 4},
+            "source_tracker_settings": {"example": {"caught_up_after": 7, "interval_seconds": 12 * 3600}},
+        }
+    )
+
+    assert get_tracker_settings("example") == {"page_size": 20, "caught_up_after": 7, "interval_seconds": 12 * 3600}
+    assert get_tracker_settings("other") == {"page_size": 20, "caught_up_after": 4, "interval_seconds": 6 * 3600}
+    # A new tracker with no interval of its own starts from its source's.
+    assert service_module.create_tracker(TRACKER_URL)["interval_seconds"] == 12 * 3600
 
 
 def test_a_post_records_its_photos_and_foreign_items_are_never_queued(temp_db, monkeypatch):

@@ -1,4 +1,4 @@
-import { computed, nextTick, reactive, ref, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 
 import {
@@ -20,6 +20,7 @@ import type {
   CookiesMap,
   CookiesStatus,
   SourceCookiePolicies,
+  SourceTrackerSettings,
   SourceTrackerTabs,
   FieldRoles,
   LearnedFormats,
@@ -45,6 +46,7 @@ import {
   createNamingFlags,
   createPostProcessingSelection,
   createSourceCookiePolicies,
+  createSourceTrackerSettings,
   createSourceTrackerTabs,
   createQualityOptions,
   createFieldRoles,
@@ -60,13 +62,13 @@ import {
   createSourceTokenRoles,
   createTemplateSettings,
   createTrackerSettings,
-  displayHost,
   errorMessage,
   hostFromUrl,
   isScrapeRuleComplete,
   mergeSourceProfiles,
   normalizeSourceKey,
   settingsManagedSourceProfiles,
+  sourceKeyFromUrl,
   sourceLabelFromKey,
 } from "@/utils/dashboard";
 
@@ -194,7 +196,6 @@ const CREATOR_TOKEN = "{creator}";
 const USERNAME_TOKEN = "{username}";
 const NICKNAME_TOKEN = "{nickname}";
 const VAR_TOKEN = "{var}";
-const COMMON_SECOND_LEVEL_TLDS = new Set(["ac", "co", "com", "edu", "gov", "net", "org"]);
 const STATIC_ROUTE_SEGMENTS = new Set([
   "album",
   "albums",
@@ -235,32 +236,9 @@ function preparedUrl(value: string): string {
   return url && !url.includes("://") ? `https://${url}` : url;
 }
 
-function domainStem(host: string): string {
-  const parts = displayHost(host).split(".").filter(Boolean);
-  if (!parts.length) return "";
-  if (parts.length >= 3 && parts.at(-1)?.length === 2 && COMMON_SECOND_LEVEL_TLDS.has(parts.at(-2) || "")) {
-    return parts.at(-3) || "";
-  }
-  return parts.length >= 2 ? parts.at(-2) || "" : parts[0];
-}
-
-function sourceKeyFromUrlDraft(url: string, profiles: SourceProfile[]): string {
-  const host = hostFromUrl(url);
-  if (!host) return "";
-  for (const profile of profiles) {
-    for (const pattern of profile.hosts || []) {
-      const normalized = hostFromUrl(String(pattern).replace(/^\*\./, ""));
-      if (normalized && (host === normalized || host.endsWith(`.${normalized}`))) {
-        return normalizeSourceKey(profile.key);
-      }
-    }
-  }
-  return normalizeSourceKey(domainStem(host));
-}
-
 function sourceProfileFromUrlDraft(url: string, profiles: SourceProfile[]): SourceProfile | null {
   const host = hostFromUrl(url);
-  const key = sourceKeyFromUrlDraft(url, profiles);
+  const key = sourceKeyFromUrl(url, profiles);
   if (!host || !key) return null;
   const existing = profiles.find((profile) => normalizeSourceKey(profile.key) === key);
   if (existing) {
@@ -396,6 +374,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_fields: createFieldRoles(),
     default_naming: createNamingFlags(),
     tracker_settings: createTrackerSettings(),
+    source_tracker_settings: createSourceTrackerSettings(),
     source_tracker_tabs: createSourceTrackerTabs(),
   });
   const settings = reactive<RuntimeSettings>({
@@ -416,6 +395,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_fields: createFieldRoles(),
     default_naming: createNamingFlags(),
     tracker_settings: createTrackerSettings(),
+    source_tracker_settings: createSourceTrackerSettings(),
     source_tracker_tabs: createSourceTrackerTabs(),
     media_root: "",
     source_location_options: {},
@@ -451,6 +431,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     default_fields: createFieldRoles(),
     default_naming: createNamingFlags(),
     tracker_settings: createTrackerSettings(),
+    source_tracker_settings: createSourceTrackerSettings(),
     source_tracker_tabs: createSourceTrackerTabs(),
   });
   const learnedFormatsDraft = reactive<LearnedFormats>({});
@@ -590,6 +571,10 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       default_fields: createFieldRoles(source.default_fields),
       default_naming: createNamingFlags(source.default_naming),
       tracker_settings: createTrackerSettings(source.tracker_settings),
+      source_tracker_settings: createSourceTrackerSettings(
+        recordForProfiles(source.source_tracker_settings as SourceTrackerSettings, profiles),
+        profiles,
+      ),
       source_tracker_tabs: createSourceTrackerTabs(
         recordForProfiles(source.source_tracker_tabs as SourceTrackerTabs, profiles),
       ),
@@ -712,6 +697,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         ...defaults.tracker_settings,
         ...settings.tracker_settings,
       }),
+      source_tracker_settings: createSourceTrackerSettings(
+        recordForProfiles(
+          { ...defaults.source_tracker_settings, ...settings.source_tracker_settings },
+          profiles,
+        ),
+        profiles,
+      ),
       source_tracker_tabs: createSourceTrackerTabs(
         recordForProfiles(
           { ...defaults.source_tracker_tabs, ...settings.source_tracker_tabs },
@@ -753,6 +745,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
         default_fields: settingsDraft.default_fields,
         default_naming: settingsDraft.default_naming,
         tracker_settings: settingsDraft.tracker_settings,
+        source_tracker_settings: settingsDraft.source_tracker_settings,
         source_tracker_tabs: settingsDraft.source_tracker_tabs,
       }),
     );
@@ -957,6 +950,13 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     Object.assign(defaults.tracker_settings, trackerSettings);
     Object.assign(settings.tracker_settings, trackerSettings);
 
+    const trackerOverrides = createSourceTrackerSettings(
+      recordForProfiles(data.source_tracker_settings || {}, managedProfiles),
+      managedProfiles,
+    );
+    replaceRecord(defaults.source_tracker_settings, trackerOverrides);
+    replaceRecord(settings.source_tracker_settings, trackerOverrides);
+
     const trackerTabs = createSourceTrackerTabs(
       recordForProfiles(data.source_tracker_tabs || {}, managedProfiles),
     );
@@ -1146,6 +1146,11 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
       server.tracker_settings,
     );
     mergeCleanRecordEntries(
+      settingsDraft.source_tracker_settings,
+      previous.source_tracker_settings,
+      server.source_tracker_settings,
+    );
+    mergeCleanRecordEntries(
       settingsDraft.source_tracker_tabs,
       previous.source_tracker_tabs,
       server.source_tracker_tabs,
@@ -1230,6 +1235,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     delete settingsDraft.source_fields[key];
     delete settingsDraft.source_title_cleaning[key];
     delete settingsDraft.source_cookie_policies[key];
+    delete settingsDraft.source_tracker_settings[key];
     delete settingsDraft.source_tracker_tabs[key];
   }
 
@@ -1407,6 +1413,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     Object.assign(settingsDraft.default_fields, normalized.default_fields);
     replaceRecord(settingsDraft.default_naming, normalized.default_naming);
     Object.assign(settingsDraft.tracker_settings, normalized.tracker_settings);
+    replaceRecord(settingsDraft.source_tracker_settings, normalized.source_tracker_settings);
     replaceRecord(settingsDraft.source_tracker_tabs, normalized.source_tracker_tabs);
   }
 
@@ -1422,33 +1429,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     showRequired.value = false;
   }
 
-  function setSettingsSection(
-    section: SettingsSection,
-    shouldFocus = false,
-  ): void {
-    settingsSection.value = section;
-    if (!shouldFocus) return;
-    const firstSource =
-      settingsManagedSourceProfiles(sourceProfiles.value).find((profile) => profile.key)?.key || "settings";
-    const focusTargets: Record<SettingsSection, string> = {
-      account: "accountUsernameInput",
-      defaults: "",
-      locations: "",
-      cookies: "",
-      trackers: "trackerPageSizeInput",
-      scrolling: `${firstSource}ScrollingProbeInput`,
-      format: "formatLearnInput",
-      fields: `${firstSource}FieldsProbeInput`,
-      scraper: `${firstSource}ScraperProbeInput`,
-      slug: `${firstSource}SlugSection`,
-      templates: "",
-      naming: "",
-    };
-    void nextTick(() =>
-      document.getElementById(focusTargets[settingsSection.value])?.focus(),
-    );
-  }
-
   function openSettings(
     event?: Event,
     section: SettingsSection = "locations",
@@ -1461,7 +1441,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
           : null;
     copySettingsToDraft();
     settingsOpen.value = true;
-    setSettingsSection(section, true);
+    settingsSection.value = section;
   }
 
   function closeSettings(): void {
@@ -1822,7 +1802,6 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     openSettings,
     removeCookies,
     savedSettings,
-    setSettingsSection,
     settings,
     settingsDraft,
     learnedFormatsDraft,
