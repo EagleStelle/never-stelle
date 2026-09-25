@@ -50,6 +50,7 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(listing_module, "fetch_html", lambda url, cookie_source_key="": "")
     monkeypatch.setattr(listing_module, "probe_metadata", lambda urls, **options: {})
     monkeypatch.setattr(listing_module, "BrowserSession", _Browser().open)
+    monkeypatch.setattr(service_module, "resolve_redirect_url", lambda url: url)
     yield tmp_path
     database_module.close_database()
 
@@ -1510,6 +1511,17 @@ def test_created_tracker_is_due_at_once_without_listing_its_link(temp_db, monkey
     with pytest.raises(ValueError, match="already tracked"):
         service_module.create_tracker(TRACKER_URL)
     assert repositories.claim_due_tracker_row(utc_now_datetime().isoformat())["id"] == created["id"]
+
+
+def test_created_tracker_keeps_the_link_a_share_link_expands_to(temp_db, monkeypatch):
+    short = "https://s.example.test/AbCd1234"
+    monkeypatch.setattr(service_module, "resolve_redirect_url", lambda url: TRACKER_URL if url == short else url)
+
+    created = service_module.create_tracker(short)
+
+    assert (created["source_url"], created["name"]) == (TRACKER_URL, service_module._fallback_name(TRACKER_URL))
+    with pytest.raises(ValueError, match="already tracked"):
+        service_module.create_tracker(TRACKER_URL)
 
 
 # --- Check ---

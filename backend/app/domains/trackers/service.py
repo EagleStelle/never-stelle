@@ -38,7 +38,7 @@ from backend.app.domains.downloads.files import find_numbered_media_siblings, is
 from backend.app.domains.downloads.formats import creator_from_url, url_dedup_key
 from backend.app.domains.downloads.operations import queue_task, remove_pending_task, retry_task
 from backend.app.domains.downloads.store import load_history_entry, load_task, remove_history_record
-from backend.app.domains.downloads.urls import canonicalize_source_url
+from backend.app.domains.downloads.urls import canonicalize_source_url, resolve_redirect_url
 from backend.app.domains.downloads.workers.processes import (
     TaskCancelled,
     has_active_task,
@@ -148,6 +148,7 @@ def create_tracker(
         raise ValueError("Paste a URL first.")
     if swaratelle.is_swaratelle_url(url):
         raise ValueError("Links handled by Swaratelle cannot be tracked.")
+    url = canonicalize_source_url(resolve_redirect_url(url))
     if find_tracker_by_url(url):
         raise ValueError("This link is already tracked.")
     tracker = insert_tracker_row(
