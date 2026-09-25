@@ -26,6 +26,14 @@ function submit(): void {
     :aria-label="tracking ? 'Add tracker' : 'Add download'"
     @submit.prevent="submit"
   >
+    <!-- Link options: own row above the field below lg, inline before it from lg. -->
+    <div
+      v-if="$slots.default"
+      class="flex items-center gap-2 w-full lg:w-auto empty:hidden"
+    >
+      <slot />
+    </div>
+
     <Input
       v-model="url"
       class="flex-1 min-w-0"
@@ -43,14 +51,6 @@ function submit(): void {
         />
       </template>
     </Input>
-
-    <!-- Link options: own row above the field below lg, inline from lg. -->
-    <div
-      v-if="$slots.default"
-      class="order-first lg:order-0 flex items-center gap-2 w-full lg:w-auto empty:hidden"
-    >
-      <slot />
-    </div>
 
     <Button
       variant="primary"
