@@ -1,10 +1,10 @@
 """Trackers: saved collection links checked on a schedule.
 
 ``trackers`` holds one row per followed link. ``tracker_entries`` remembers every entry a
-tracker has listed, so an entry is queued once even after its download is removed or its
-file deleted. ``download_id`` is the id ``queue_task`` returned: the task row while active,
-the history row with the same id once complete. It is a plain column rather than a foreign
-key because that row moves between the two tables on completion.
+tracker has listed, so an entry is queued once. ``download_id`` is the id ``queue_task``
+returned: the task row while active, the history row with the same id once complete. It is
+a plain column rather than a foreign key because that row moves between the two tables on
+completion. A download the user deletes leaves it empty, so no check queues the entry again.
 """
 
 from __future__ import annotations

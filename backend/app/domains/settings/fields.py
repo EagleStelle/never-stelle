@@ -97,13 +97,6 @@ def get_effective_field_defaults(payload: dict[str, Any] | None = None) -> dict[
     return {role: configured.get(role) or builtin.get(role, []) for role in FIELD_ROLES}
 
 
-def get_effective_source_fields_map(
-    source_profiles: list[dict[str, Any]] | None = None,
-) -> dict[str, dict[str, list[str]]]:
-    payload = load_saved_settings_file()
-    return saved_fields(payload, normalize_default_fields(payload.get("default_fields")))
-
-
 def normalize_default_naming(raw: Any) -> dict[str, Any]:
     """The global naming defaults, kept sparse: only what differs from the built-ins."""
     from backend.app.domains.downloads.constants import normalize_naming_overrides

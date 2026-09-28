@@ -858,10 +858,16 @@ def reconstruct_url_candidates(
     *,
     creator: str = "",
     slug_values: dict[str, str] | None = None,
+    format_template: str = "",
 ) -> list[str]:
-    """Fill every learned template for this source; a probe picks the real one."""
+    """Fill every learned template for this source; a probe picks the real one.
+
+    With ``format_template``, only the templates that saved format key names.
+    """
     entry = learned.get(normalize_source_key(source_key)) or {}
     templates = _entry_templates(entry)
+    if format_template:
+        templates = [template for template in templates if format_covers(template, format_template)]
     media_id = str(media_id or "").strip()
     if not media_id:
         return []

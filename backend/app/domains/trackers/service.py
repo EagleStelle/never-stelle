@@ -6,11 +6,9 @@ import time
 import uuid
 from contextlib import closing, suppress
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from backend.app.core.config import MEDIA_DIR, is_allowed_location
 from backend.app.core.pacing import CpuPacer
 from backend.app.core.sources import host_from_url, source_key_from_url
 from backend.app.core.time import utc_now, utc_now_datetime
@@ -28,17 +26,16 @@ from backend.app.db.repositories import (
     load_tracker_rows,
     missing_tracker_download_rows,
     record_tracker_entry_rows,
-    relink_tracker_download_rows,
+    relink_tracker_download,
+    tracker_active_download_ids,
     tracker_backlog_urls,
-    tracker_download_ids,
     tracker_history_ids,
     update_tracker_row,
+    update_tracker_rows,
 )
 from backend.app.domains.downloads.constants import normalize_post_processing, normalize_quality_selection
-from backend.app.domains.downloads.files import find_numbered_media_siblings, is_media_file
 from backend.app.domains.downloads.formats import creator_from_url, url_dedup_key
-from backend.app.domains.downloads.operations import queue_task, remove_pending_task, retry_task
-from backend.app.domains.downloads.store import load_history_entry, load_task, remove_history_record
+from backend.app.domains.downloads.operations import delete_downloads, queue_quality, queue_task, retry_downloads
 from backend.app.domains.downloads.urls import canonicalize_source_url, resolve_redirect_url
 from backend.app.domains.downloads.workers.processes import (
     TaskCancelled,
@@ -60,12 +57,11 @@ from .listing import Entry, ListingStats, iter_entries, page_variant
 _JITTER = 0.05
 # Checks that may fail to read a backlogged link before it is dropped.
 _BACKLOG_ATTEMPTS = 3
-_ACTIVE_STATUSES = {"pending", "running", "failed"}
 UNRESOLVED_ERROR = "Could not build post links for this source."
 SINGLE_ITEM_ERROR = "This link points to a single item; add a creator, channel or playlist link."
 # Trackers whose next check was asked for by hand: it queues their missing downloads again.
 _asked: set[str] = set()
-# How long a stop that waits gives the check to end.
+# How long a stop that waits gives the checks to end.
 _STOP_WAIT_SECONDS = 30.0
 _STOP_POLL_SECONDS = 0.1
 
@@ -134,6 +130,11 @@ def get_tracker(tracker_id: str) -> dict[str, Any]:
     return tracker
 
 
+def _trackers(tracker_ids: list[str]) -> dict[str, dict[str, Any]]:
+    wanted = {str(tracker_id) for tracker_id in tracker_ids}
+    return {tracker["id"]: tracker for tracker in load_tracker_rows() if tracker["id"] in wanted}
+
+
 def _fallback_name(source_url: str) -> str:
     creator = creator_from_url(source_url)
     if creator:
@@ -176,28 +177,44 @@ def create_tracker(
 def update_tracker(tracker_id: str, changes: dict[str, Any]) -> dict[str, Any]:
     tracker = get_tracker(tracker_id)
     updates: dict[str, Any] = {}
-    if changes.get("enabled") is not None:
-        updates["enabled"] = bool(changes["enabled"])
     if changes.get("interval_seconds") is not None:
         updates["interval_seconds"] = _interval(changes["interval_seconds"])
+        updates["next_check_at"] = _next_after(tracker["last_checked_at"], updates["interval_seconds"])
     if changes.get("quality") is not None:
         updates["quality"] = normalize_quality_selection(changes["quality"])
     if changes.get("post_processing") is not None:
         updates["post_processing"] = normalize_post_processing(changes["post_processing"])
-    if "interval_seconds" in updates or (updates.get("enabled") and not tracker["enabled"]):
-        interval = updates.get("interval_seconds", tracker["interval_seconds"])
-        updates["next_check_at"] = _next_after(tracker["last_checked_at"], interval)
     return tracker_to_api(update_tracker_row(tracker_id, updates), count_tracker_items().get(tracker_id))
 
 
-def check_tracker_now(tracker_id: str) -> None:
-    tracker = get_tracker(tracker_id)
-    if not tracker["enabled"]:
-        raise PermissionError("Resume the tracker to check it.")
-    _asked.add(tracker_id)
-    # A check already waiting for a slot keeps its place.
-    if not _queued(tracker):
-        update_tracker_row(tracker_id, {"next_check_at": utc_now()})
+def set_trackers_enabled(tracker_ids: list[str], enabled: bool) -> dict[str, Any]:
+    """Pause or resume trackers; a resumed one is due its interval after its last check."""
+    trackers = _trackers(tracker_ids)
+    changes: dict[str, dict[str, Any]] = {}
+    for tracker in trackers.values():
+        if not enabled:
+            # A check asked for before the pause does not jump the line after a resume.
+            _asked.discard(tracker["id"])
+        if tracker["enabled"] == enabled:
+            continue
+        changes[tracker["id"]] = {"enabled": enabled}
+        if enabled:
+            changes[tracker["id"]]["next_check_at"] = _next_after(
+                tracker["last_checked_at"], tracker["interval_seconds"]
+            )
+    update_tracker_rows(changes)
+    return {"count": len(trackers), "errors": []}
+
+
+def check_trackers(tracker_ids: list[str]) -> dict[str, Any]:
+    """Make the trackers due at once; a check already waiting for a slot keeps its place."""
+    trackers = _trackers(tracker_ids)
+    enabled = [tracker for tracker in trackers.values() if tracker["enabled"]]
+    now = utc_now()
+    _asked.update(tracker["id"] for tracker in enabled)
+    update_tracker_rows({tracker["id"]: {"next_check_at": now} for tracker in enabled if not _queued(tracker)})
+    errors = ["Resume the tracker to check it."] if len(enabled) < len(trackers) else []
+    return {"count": len(enabled), "errors": errors}
 
 
 def claim_check() -> dict[str, Any]:
@@ -209,83 +226,61 @@ def _check_task_id(tracker_id: str) -> str:
     return f"tracker-check:{tracker_id}"
 
 
-def stop_check(tracker_id: str, *, wait: bool = False) -> None:
-    """Stop the tracker's check at once, running or waiting for a slot; what it recorded stays, and the next check
-    comes at the interval. With ``wait``, returns once the check ended, so it queues nothing after."""
-    tracker = get_tracker(tracker_id)
-    _asked.discard(tracker_id)
-    if _queued(tracker):
-        update_tracker_row(tracker_id, {"next_check_at": _next_check_at(tracker["interval_seconds"])})
-    task_id = _check_task_id(tracker_id)
-    request_cancel(task_id)
+def stop_checks(tracker_ids: list[str], *, wait: bool = False) -> dict[str, Any]:
+    """Stop the trackers' checks at once, running or waiting for a slot; what they recorded stays, and the next
+    check comes at the interval. With ``wait``, returns once the checks ended, so they queue nothing after."""
+    trackers = _trackers(tracker_ids)
+    _asked.difference_update(trackers)
+    update_tracker_rows(
+        {
+            tracker["id"]: {"next_check_at": _next_check_at(tracker["interval_seconds"])}
+            for tracker in trackers.values()
+            if _queued(tracker)
+        }
+    )
+    task_ids = [_check_task_id(tracker_id) for tracker_id in trackers]
+    for task_id in task_ids:
+        request_cancel(task_id)
     deadline = time.monotonic() + _STOP_WAIT_SECONDS
-    while wait and has_active_task(task_id) and time.monotonic() < deadline:
+    while wait and any(has_active_task(task_id) for task_id in task_ids) and time.monotonic() < deadline:
         time.sleep(_STOP_POLL_SECONDS)
+    return {"count": len(trackers), "errors": []}
 
 
-def _remove_files(entry: dict[str, Any], emptied: set[Path]) -> None:
-    raw = str(entry.get("resolved_full_path") or "").strip()
-    if not raw or not is_allowed_location(raw):
-        return
-    path = Path(raw)
-    for media in {path, *find_numbered_media_siblings(path)}:
-        try:
-            candidates = list(media.parent.iterdir())
-        except OSError:
-            continue
-        for candidate in candidates:
-            # The media itself, and sidecars written beside it (subtitles, info, thumbnail).
-            same_item = candidate == media or (
-                candidate.name.startswith(f"{media.stem}.")
-                and (candidate.stem == media.stem or not is_media_file(candidate))
-            )
-            if same_item and candidate.is_file():
-                candidate.unlink(missing_ok=True)
-        emptied.add(media.parent)
-
-
-def delete_tracker(tracker_id: str, *, delete_files: bool = False) -> None:
-    stop_check(tracker_id, wait=True)
-    _asked.discard(tracker_id)
-    for download_id in tracker_download_ids(tracker_id):
-        if str(load_task(download_id).get("status") or "") in _ACTIVE_STATUSES:
-            remove_pending_task(download_id)
+def delete_trackers(tracker_ids: list[str], *, delete_files: bool = False) -> dict[str, Any]:
+    """Delete trackers once their checks end, with their queued downloads and, with ``delete_files``, their files."""
+    ids = list(_trackers(tracker_ids))
+    stop_checks(ids, wait=True)
+    downloads = tracker_active_download_ids(ids)
     if delete_files:
-        emptied: set[Path] = set()
-        for history_id in tracker_history_ids(tracker_id):
-            _remove_files(load_history_entry(history_id), emptied)
-            remove_history_record(history_id)
-        for folder in emptied:
-            if folder.resolve() != MEDIA_DIR and is_allowed_location(str(folder)):
-                try:
-                    folder.rmdir()
-                except OSError:
-                    pass
-    delete_tracker_rows(tracker_id)
+        downloads.extend(tracker_history_ids(ids))
+    errors = delete_downloads(downloads)["errors"]
+    delete_tracker_rows(ids)
+    return {"count": len(ids), "errors": errors}
 
 
 def _queue_entry(tracker: dict[str, Any], entry: Entry) -> str:
     # Empty saved settings follow the current defaults; locations and templates always do.
-    quality = dict(tracker["quality"])
-    if tracker["post_processing"]:
-        quality["_post_processing"] = tracker["post_processing"]
-    created, _ = queue_task(entry.url, quality=quality)
+    created, _ = queue_task(entry.url, quality=queue_quality(tracker["quality"], tracker["post_processing"]))
     return str(created[0].get("vid") or "") if created else ""
 
 
 def _queue_missing(tracker: dict[str, Any]) -> list[str]:
     """Queue again the downloads of seen entries that failed or are gone; returns the errors."""
     failures: list[str] = []
+    failed: list[str] = []
     for entry_url, download_id, status in missing_tracker_download_rows(tracker["id"]):
+        if status == "failed":
+            failed.append(download_id)
+            continue
         try:
-            if status == "failed":
-                retry_task(download_id)
-                continue
             replacement = _queue_entry(tracker, Entry(url=entry_url))
             if replacement and replacement != download_id:
-                relink_tracker_download_rows(tracker["id"], download_id, replacement)
+                relink_tracker_download(download_id, replacement)
         except Exception as exc:
             failures.append(str(exc))
+    if failed:
+        failures.extend(retry_downloads(failed)["errors"])
     return failures
 
 
@@ -334,7 +329,7 @@ def run_check(tracker: dict[str, Any]) -> None:
     has yet to reach. Pages are scrolled once and what they showed waits in the backlog for the
     batches after; ``last_success_at`` marks a pass that reached every end, where later ones stop.
     Pages the link offers that the source's rows lack are added to them for every tracker of the source.
-    A check asked for by hand first queues again the downloads its seen entries lost. ``stop_check`` ends it
+    A check asked for by hand first queues again the downloads its seen entries lost. ``stop_checks`` ends it
     at once.
     """
     with task_execution(_check_task_id(tracker["id"])), suppress(TaskCancelled):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -17,8 +18,7 @@ from backend.app.domains.settings import (
 )
 from backend.app.runtime.scratch import publish_staged_file, staging_file
 
-from .constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
-from .files import is_media_file, payload_path_string, prune_empty_parents
+from .files import is_media_file, media_companions, payload_path_string, prune_empty_parents
 from .naming import (
     numbered_suffix_of,
     render_template_filename,
@@ -127,25 +127,25 @@ def _sequenced(plans: list[RenamePlan], claimed: set[str]) -> list[RenamePlan]:
     return ordered
 
 
-def plan_history_renames(
-    records: dict[str, dict[str, Any]],
-    pacer: CpuPacer | None = None,
-    *,
-    rerender: bool = False,
-) -> tuple[list[RenamePlan], list[str]]:
-    """Work out which files the current templates would name or file differently.
+@dataclass(frozen=True)
+class _Renamable:
+    task_id: str
+    payload: dict[str, Any]
+    source_url: str
+    settings: dict[str, str]
+    old_path: Path
+    fields: dict[str, str]
+
+
+def _named_differently(
+    records: dict[str, dict[str, Any]], pacer: CpuPacer | None, rerender: bool
+) -> Iterator[_Renamable]:
+    """Rows whose file the current templates would name differently, with what renders them.
 
     Reads only the rows and the settings: no probing, no walking, no re-inference.
-    ``rerender`` also renders rows already on the current templates. A file is moved
-    between folders only inside the download location it is filed under.
-
-    Returns ``(plans, needs_resolve)``, the second being rows the template cannot be
-    rendered for without losing a token. Plans come back in the order they must run.
+    ``rerender`` also yields rows already on the current templates.
     """
-    desired: list[RenamePlan] = []
-    needs_resolve: list[str] = []
     options: dict[str, set[str]] = {}
-
     for task_id, payload in records.items():
         if pacer is not None:
             pacer.tick()
@@ -162,8 +162,7 @@ def plan_history_renames(
 
         source_url = str(payload.get("source_url") or "")
         settings = get_effective_template_settings(source_url)
-        current = template_row_fields(settings)
-        if not rerender and stored["filename_template"] == current["filename_template"]:
+        if not rerender and stored["filename_template"] == template_row_fields(settings)["filename_template"]:
             continue
 
         old_path_value = payload_path_string(payload)
@@ -172,40 +171,64 @@ def plan_history_renames(
         old_path = Path(old_path_value)
         if not is_media_file(old_path):
             continue
+        fields = row_template_fields(payload, old_path.name)
+        yield _Renamable(str(task_id), payload, source_url, settings, old_path, fields)
 
+
+def rows_needing_resolve(records: dict[str, dict[str, Any]], pacer: CpuPacer | None = None) -> list[str]:
+    """Rows the current templates cannot name without losing a token."""
+    return [
+        row.task_id
+        for row in _named_differently(records, pacer, rerender=False)
+        if unsatisfied_tokens(row.settings, row.fields)
+    ]
+
+
+def plan_history_renames(
+    records: dict[str, dict[str, Any]],
+    pacer: CpuPacer | None = None,
+    *,
+    rerender: bool = False,
+) -> list[RenamePlan]:
+    """Work out which files the current templates would name or file differently.
+
+    Rows ``rows_needing_resolve`` reports are left out. A file is moved between folders
+    only inside the download location it is filed under. Plans come back in the order
+    they must run.
+    """
+    desired: list[RenamePlan] = []
+
+    for row in _named_differently(records, pacer, rerender):
+        if unsatisfied_tokens(row.settings, row.fields):
+            continue
+        current = template_row_fields(row.settings)
         # None, not {}: a row that carries no selection must render the quality it was
         # downloaded with, rather than relabel itself "source".
-        quality = payload.get("quality") or None
-        fields = row_template_fields(payload, stored["filename_template"], old_path.name)
-        if unsatisfied_tokens(settings, fields):
-            needs_resolve.append(str(task_id))
-            continue
-
-        cleaning = get_effective_title_cleaning(source_url)
+        quality = row.payload.get("quality") or None
+        cleaning = get_effective_title_cleaning(row.source_url)
         # The pipeline numbers the files of a multi-file post, so the suffix marks one.
-        numbered_suffix = numbered_suffix_of(old_path.stem)
+        numbered_suffix = numbered_suffix_of(row.old_path.stem)
         new_name = render_template_filename(
             current["filename_template"],
-            fields,
-            extension=old_path.suffix,
+            row.fields,
+            extension=row.old_path.suffix,
             numbered_suffix=numbered_suffix,
             cleaning=cleaning,
             quality=quality,
         )
         if not new_name:
-            needs_resolve.append(str(task_id))
             continue
 
-        folder, root = old_path.parent, ""
-        location = get_effective_source_location(source_url) if source_url else ""
-        if location and _path_key(old_path).startswith(f"{_path_key(location)}{os.sep}"):
+        folder, root = row.old_path.parent, ""
+        location = get_effective_source_location(row.source_url) if row.source_url else ""
+        if location and _path_key(row.old_path).startswith(f"{_path_key(location)}{os.sep}"):
             root = location
             folder = _render_template_folder(
                 Path(location),
-                settings,
+                row.settings,
                 creator="",
                 media_id="",
-                extra_tokens=fields,
+                extra_tokens=row.fields,
                 cleaning=cleaning,
                 quality=quality,
                 grouped=bool(numbered_suffix),
@@ -213,11 +236,11 @@ def plan_history_renames(
 
         desired.append(
             RenamePlan(
-                task_id=str(task_id),
-                old_path=str(old_path),
+                task_id=row.task_id,
+                old_path=str(row.old_path),
                 new_path=str(folder / new_name),
                 templates=current,
-                payload=payload,
+                payload=row.payload,
                 root=root,
             )
         )
@@ -233,7 +256,7 @@ def plan_history_renames(
         target = _free_target(plan.new_file, claimed, vacating | {plan.old_key})
         claimed.add(_path_key(target))
         plans.append(replace(plan, new_path=str(target)))
-    return _sequenced(plans, claimed), needs_resolve
+    return _sequenced(plans, claimed)
 
 
 def _swap_on_disk(old: Path, new: Path) -> None:
@@ -253,32 +276,6 @@ def _swap_on_disk(old: Path, new: Path) -> None:
         raise FileExistsError(str(new))
     new.parent.mkdir(parents=True, exist_ok=True)
     os.rename(old, new)
-
-
-def _companions(path: Path) -> list[Path]:
-    """What post-processing leaves beside a media file, all named after it.
-
-    Tags, subtitles, chapter lists and thumbnails share its stem, and split chapters sit
-    in a folder named after it. An image only ever carries tags, so it costs one lookup.
-    """
-    if path.suffix.lower() in IMAGE_EXTENSIONS:
-        tags = Path(f"{path}.json")
-        return [tags] if tags.is_file() else []
-    prefix = f"{path.stem}."
-    playable = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
-    try:
-        entries = list(os.scandir(path.parent))
-    except OSError:
-        return []
-    companions: list[Path] = []
-    for entry in entries:
-        if entry.name == path.name:
-            continue
-        # Another playable file on the stem is media of its own; an image on it is the thumbnail.
-        named_after = entry.name.startswith(prefix) and Path(entry.name).suffix.lower() not in playable
-        if named_after or (entry.name == path.stem and entry.is_dir()):
-            companions.append(Path(entry.path))
-    return companions
 
 
 def _carry_companions(old: Path, new: Path, companions: list[Path]) -> None:
@@ -305,8 +302,8 @@ def apply_history_renames(plans: list[RenamePlan]) -> tuple[dict[str, int], dict
     """Rename the planned files and point their history rows at the new names.
 
     Journalled before the disk is touched, so a crash leaves a record to settle rather
-    than a row pointing at a path the next scan reads as deleted. ``scan_mtime_ns`` and
-    ``scan_revision`` ride along untouched, keeping the walk from re-resolving the file.
+    than a row pointing at a path the next scan reads as deleted. ``scan_mtime_ns`` rides
+    along untouched, keeping the walk from re-resolving the file.
     """
     renamed = 0
     failed = 0
@@ -323,7 +320,7 @@ def apply_history_renames(plans: list[RenamePlan]) -> tuple[dict[str, int], dict
     for plan in plans:
         row = _row_at_path(plan.payload, plan.new_file, **plan.templates)
         if plan.moves_on_disk:
-            companions = _companions(plan.old_file)
+            companions = media_companions(plan.old_file)
             begin_rename(plan.task_id, plan.old_path, plan.new_path)
             try:
                 _swap_on_disk(plan.old_file, plan.new_file)

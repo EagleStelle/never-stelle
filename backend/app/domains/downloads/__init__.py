@@ -15,7 +15,7 @@ whole download stack at app startup.
 - history     : download-history entries + lookups
 - serializers : task/history -> API payloads + counts
 - worker      : facade for scheduling, execution, process, and completion helpers
-- operations  : queue/remove/clear/resolve actions
+- operations  : queue/delete/retry/clear actions
 - slideshow   : cached multi-file archives for download requests
 - scan        : media-folder reconciliation for history refresh
 """
@@ -35,9 +35,9 @@ _EXPORTS: dict[str, str] = {
     "Engine": ".engine",
     "build_output_template": ".ytdlp",
     "build_ytdlp_command": ".ytdlp",
-    "cancel_task": ".operations",
     "canonicalize_source_url": ".urls",
     "clear_pending_tasks": ".operations",
+    "delete_downloads": ".operations",
     "convert_template_to_ytdlp": ".ytdlp",
     "build_counts": ".serializers",
     "default_engine": ".engine",
@@ -61,13 +61,12 @@ _EXPORTS: dict[str, str] = {
     "probe_url": ".probe",
     "queue_task": ".operations",
     "recover_task_path": ".files",
-    "remove_history_record": ".store",
-    "remove_pending_task": ".operations",
+    "remove_history_records": ".store",
     "remove_task_record": ".store",
     "resolve_history_entry": ".resolve",
     "resolve_scope_counts": ".resolve",
     "resolve_task_file": ".operations",
-    "retry_task": ".operations",
+    "retry_downloads": ".operations",
     "start_resolve": ".resolve",
     "run_task": ".worker",
     "save_history_entry": ".history",

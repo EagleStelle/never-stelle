@@ -15,13 +15,11 @@ from backend.app.db.repositories import (
     count_history_by_source_and_media,
     count_history_rows,
     count_pending_tasks,
-    delete_enrichment_jobs_payload,
-    delete_history_row,
+    delete_history_rows,
     delete_learned_format_row,
     delete_task_row,
-    delete_task_row_if_status,
+    delete_task_rows_if_status,
     fail_running_tasks,
-    learned_formats_revision,
     load_active_task_store_payload,
     load_failed_enrichment_job_ids,
     load_history_entries_by_media_id,
@@ -31,10 +29,12 @@ from backend.app.db.repositories import (
     load_history_payload,
     load_history_resolve_flagged_ids,
     load_history_row_ids,
+    load_history_rows,
     load_learned_formats_payload,
     load_learned_redirects_payload,
     load_naming_snapshots_payload,
     load_task_payload,
+    load_task_rows,
     load_task_store_payload,
     load_unfinished_enrichment_jobs_payload,
     merge_learned_formats_payload,
@@ -44,7 +44,6 @@ from backend.app.db.repositories import (
     record_redirect_observation,
     requeue_running_enrichment_jobs_payload,
     requeue_running_task,
-    resolution_settings_revision,
     retry_enrichment_job_payload,
     save_history_row,
     save_history_rows,
@@ -58,7 +57,6 @@ from backend.app.db.repositories import (
     sync_history_resolve_flags as sync_history_resolve_flag_rows,
 )
 from backend.app.domains.downloads import volatile
-from backend.app.domains.downloads.constants import ENRICHMENT_JOB_KINDS, enrichment_job_id
 
 # Statuses that end a run: nothing is left to keep in memory for the task.
 _TERMINAL_STATUSES = frozenset({"completed", "failed"})
@@ -100,6 +98,10 @@ def load_history_entries_page(
 
 def load_history_entry(task_id: str) -> dict[str, Any]:
     return load_history_entry_payload(task_id)
+
+
+def load_history_entries(task_ids: list[str]) -> dict[str, dict[str, Any]]:
+    return load_history_rows(task_ids)
 
 
 def load_history_entries_for_media_id(media_id: str) -> list[tuple[str, dict[str, Any]]]:
@@ -149,6 +151,10 @@ def save_history_entry_rows(rows: list[tuple[str, dict[str, Any]]]) -> None:
 def load_task(task_id: str) -> dict[str, Any]:
     """One task by id, without decoding the rest of the store."""
     return volatile.merge(task_id, load_task_payload(task_id))
+
+
+def load_tasks(task_ids: list[str]) -> dict[str, dict[str, Any]]:
+    return {task_id: volatile.merge(task_id, task) for task_id, task in load_task_rows(task_ids).items()}
 
 
 def next_pending_task(skip_sources: Collection[str] = ()) -> tuple[str, dict[str, Any]] | None:
@@ -256,20 +262,6 @@ def finish_renames(task_ids: list[str]) -> None:
     clear_rename_journal_entries(task_ids)
 
 
-def resolution_revision() -> str:
-    """Marker of everything that decides how a file on disk resolves.
-
-    A disk row records this alongside the file's own signature, so a rescan
-    re-resolves a file when the rules improved, not merely because time passed.
-
-    Naming templates are deliberately absent: changing one does not change what a
-    file resolves *to*, only what it should be called, which the rename pass applies
-    directly from the stored fields. Keying re-resolution on them meant a template
-    edit re-derived (and re-probed) the whole library to arrive at the same answers.
-    """
-    return f"{resolution_settings_revision()}|{learned_formats_revision()}"
-
-
 def save_learned_formats(payload: dict[str, Any]) -> None:
     """Upsert the sources in ``payload``. Sources absent from it keep their rows."""
     save_learned_formats_payload(payload)
@@ -323,14 +315,13 @@ def remove_task_record(task_id: str) -> None:
     delete_task_row(task_id)
 
 
-def remove_task_record_if_status(task_id: str, statuses: set[str]) -> bool:
-    removed = delete_task_row_if_status(task_id, statuses)
-    if removed:
+def remove_task_records_if_status(task_ids: list[str], statuses: set[str]) -> list[str]:
+    removed = delete_task_rows_if_status(task_ids, statuses)
+    for task_id in removed:
         volatile.forget(task_id)
     return removed
 
 
-def remove_history_record(task_id: str) -> None:
-    delete_history_row(task_id)
-    # A spent job outliving its row left the id unqueueable if the download came back.
-    delete_enrichment_jobs_payload([enrichment_job_id(kind, task_id) for kind in ENRICHMENT_JOB_KINDS])
+def remove_history_records(task_ids: list[str]) -> None:
+    if task_ids:
+        delete_history_rows(task_ids)

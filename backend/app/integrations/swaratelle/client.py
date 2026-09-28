@@ -391,9 +391,8 @@ def record_to_task(
         "resolved_filename": _filename(item, resolved_path),
         "resolved_full_path": resolved_path,
         "preview_warning": "",
-        # DELETE /downloads/{id} cancels pending/running and removes failed; no retry route.
-        "can_remove": status in {"pending", "failed"},
-        "can_cancel": status == "running",
+        # DELETE /downloads/{id} cancels pending/running and removes failed; no retry or history delete route.
+        "can_delete": status != "completed",
         "can_retry": False,
         "task_type": BACKEND_NAME,
         "source_key": SOURCE_KEY,

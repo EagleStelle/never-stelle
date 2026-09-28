@@ -941,9 +941,36 @@ def test_tracker_tables_arrive_without_touching_the_download_tables(tmp_path, mo
         }
         history = connection.execute("SELECT id FROM download_history").fetchall()
 
+    # Only the later drop of the scan marker touches them.
+    before["download_history"].remove("scan_revision")
     assert after == before
     assert [row["id"] for row in history] == ["gallerydl:1"]
     assert {"source_url", "interval_seconds", "next_check_at", "checking_at", "feeds"} <= tracker_columns
     assert entry_columns == {"tracker_id", "entry_key", "entry_url", "download_id", "seen_at"}
     assert backlog_columns == {"tracker_id", "entry_key", "entry_url", "found_at", "position", "attempts"}
     assert {"idx_trackers_due", "idx_tracker_entries_download"} <= indexes
+
+
+def test_history_rows_lose_the_scan_marker_and_keep_their_data(tmp_path, monkeypatch):
+    database_path = tmp_path / "never-stelle.sqlite3"
+    _seed_pre_migration_db(database_path, None, version=13)
+    connection = sqlite3.connect(str(database_path))
+    try:
+        connection.execute("ALTER TABLE download_history ADD COLUMN media_kind TEXT NOT NULL DEFAULT ''")
+        connection.execute(
+            "INSERT INTO download_history (id, scan_mtime_ns, scan_revision, created_at, updated_at)"
+            " VALUES ('disk:abc123', 42, 'rules-rev', '', '')"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info('download_history')")}
+        row = connection.execute("SELECT id, scan_mtime_ns FROM download_history").fetchone()
+
+    assert "scan_revision" not in columns
+    assert (row["id"], row["scan_mtime_ns"]) == ("disk:abc123", 42)

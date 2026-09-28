@@ -287,7 +287,8 @@ def _maybe_strip_placeholder(title: str, media_id: str, source_key: str, flags: 
 def _strip_repeated_media_id(title: str, media_id: str = "") -> str:
     value = _text(title)
     media_id = _text(media_id)
-    if not value or len(media_id) < 4:
+    # Each id compiles its own pattern, so a title without the id skips it.
+    if not value or len(media_id) < 4 or media_id.lower() not in value.lower():
         return value
     pattern = re.compile(
         rf"(?i)(?:^|[\s\-|:_]+)[\[\(\{{]?\s*{re.escape(media_id)}\s*[\]\)\}}]?\s*$"
@@ -640,13 +641,9 @@ def settings_tokens(template_settings: dict[str, str]) -> list[str]:
     )
 
 
-def stored_filename_template(payload: dict[str, Any]) -> str:
-    return str(payload.get("filename_template") or "")
-
-
-def row_template_fields(payload: dict[str, Any], stored_template: str, old_name: str) -> dict[str, str]:
-    # Parsing the old name recovers tokens the row has no column for (scraped, URL-part).
-    fields = dict(filename_template_fields(old_name, stored_template))
+def row_template_fields(payload: dict[str, Any], old_name: str) -> dict[str, str]:
+    # Parsing the old name by the row's own template recovers tokens it has no column for.
+    fields = dict(filename_template_fields(old_name, str(payload.get("filename_template") or "").strip()))
     # Values a resolve probe recovered for those same column-less tokens.
     resolved = payload.get("resolved_tokens")
     if isinstance(resolved, dict):

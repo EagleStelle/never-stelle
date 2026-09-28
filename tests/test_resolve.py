@@ -18,7 +18,7 @@ from backend.app.domains.downloads.store import (
     history_resolve_flagged_ids,
     load_history,
     load_history_entry,
-    remove_history_record,
+    remove_history_records,
     save_history_entry_row,
     sync_history_resolve_flags,
 )
@@ -79,7 +79,7 @@ def _seed(
 
 def _refresh(records: dict[str, dict]) -> list[str]:
     """What the refresh pass does with the worklist, without walking the disk."""
-    _plans, needs_resolve = rename_module.plan_history_renames(records)
+    needs_resolve = rename_module.rows_needing_resolve(records)
     sync_history_resolve_flags(needs_resolve)
     return needs_resolve
 
@@ -91,7 +91,7 @@ def _probe_recorder(monkeypatch: pytest.MonkeyPatch, answers: dict[str, dict[str
         calls.append((url, with_cookies))
         return dict(answers.get(url, {})) if not with_cookies else dict(answers.get(f"cookies:{url}", {}))
 
-    monkeypatch.setattr(scan_module, "_scan_probe_metadata", probe)
+    monkeypatch.setattr(resolve_module, "_probe_metadata", probe)
     monkeypatch.setattr(resolve_module, "load_learned_formats", dict)
     monkeypatch.setattr(resolve_module, "get_effective_fields", lambda source_url="": {"username": ["uploader"]})
     return calls
@@ -471,10 +471,17 @@ def test_deleting_a_history_row_takes_its_jobs_with_it(tmp_path: Path, monkeypat
     _probe_recorder(monkeypatch, {})
     _spend_the_retries()
 
-    remove_history_record("gallerydl:1")
+    remove_history_records(["gallerydl:1"])
 
     # A spent job outliving its row made the id unqueueable if it came back.
     assert load_enrichment_jobs() == []
+
+
+def test_filing_a_row_deleted_mid_resolve_leaves_it_deleted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+
+    assert resolve_module._file_entry("gallerydl:gone", {"source_url": "https://example.test/post/1"}) is False
+    assert load_history()["entries"] == {}
 
 
 def _configured(monkeypatch: pytest.MonkeyPatch, *, slug: dict | None = None, scraped: dict | None = None):
@@ -524,6 +531,18 @@ def test_a_source_that_answers_nothing_still_resolves_from_its_rules(
 
     assert resolve_module.resolve_history_entry("gallerydl:1") is True
     assert load_history_entry("gallerydl:1")["creator"] == "FromScraper"
+
+
+def test_rules_that_answer_every_token_skip_the_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path)
+    calls = _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "FromProbe"}})
+    _configured(monkeypatch, slug={"username": "FromSlug"})
+
+    assert resolve_module.resolve_history_entry("gallerydl:1") is True
+    assert load_history_entry("gallerydl:1")["creator"] == "FromSlug"
+    assert calls == []
 
 
 def test_nothing_answering_and_no_rules_is_still_a_dead_link(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -719,7 +738,7 @@ def test_resolve_holds_the_history_lock_while_it_rewrites_the_row(
     original = resolve_module.save_history_entry_row
 
     def spy(task_id: str, entry: dict) -> None:
-        held.append(scan_module.scan_in_progress())
+        held.append(scan_module._scan_lock.locked())
         original(task_id, entry)
 
     monkeypatch.setattr(resolve_module, "save_history_entry_row", spy)
@@ -727,6 +746,8 @@ def test_resolve_holds_the_history_lock_while_it_rewrites_the_row(
     assert resolve_module.resolve_history_entry("gallerydl:1") is True
     # A scan planning from a snapshot would otherwise revert this write.
     assert held == [True]
+    assert scan_module._scan_lock.locked() is False
+    # Holding the lock is not a scan, so the refresh button does not spin for it.
     assert scan_module.scan_in_progress() is False
 
 
@@ -738,10 +759,10 @@ def test_the_probe_runs_outside_the_lock(tmp_path: Path, monkeypatch: pytest.Mon
     seen: list[bool] = []
 
     def probe(url: str, *, with_cookies: bool = False) -> dict[str, str]:
-        seen.append(scan_module.scan_in_progress())
+        seen.append(scan_module._scan_lock.locked())
         return {"uploader": "Creator"}
 
-    monkeypatch.setattr(scan_module, "_scan_probe_metadata", probe)
+    monkeypatch.setattr(resolve_module, "_probe_metadata", probe)
     monkeypatch.setattr(resolve_module, "load_learned_formats", dict)
     monkeypatch.setattr(resolve_module, "get_effective_fields", lambda source_url="": {"username": ["uploader"]})
 
@@ -755,8 +776,11 @@ def test_the_enrichment_worker_stands_down_during_a_scan(tmp_path: Path, monkeyp
     monkeypatch.setattr(enrichment_module, "active_download_task_count", lambda: 0)
 
     assert enrichment_module._library_busy() is False
-    with scan_module.history_write_lock():
+    scan_module._scanning.set()
+    try:
         assert enrichment_module._library_busy() is True
+    finally:
+        scan_module._scanning.clear()
     assert enrichment_module._library_busy() is False
 
 

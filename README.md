@@ -179,44 +179,93 @@ The container path stays `/media/youtube`, so history entries remain valid. Skip
 
 ## API
 
-The app authenticates with a session cookie set by `POST /api/auth/login`. All routes are served under the `/api` prefix.
+All routes are served under `/api`. Every route needs the session cookie set by
+`POST /api/auth/login`, except `GET /api/health`, `GET /api/auth/session` and
+`POST /api/auth/login`. Integration routes also accept `NEVER_STELLE_API_TOKEN` as
+`Authorization: Bearer <token>` or `X-API-Key: <token>`.
 
-| Method   | Endpoint                                                 | Description                                                 |
-| -------- | -------------------------------------------------------- | ----------------------------------------------------------- |
-| `GET`    | `/api/health`                                            | Liveness check.                                             |
-| `GET`    | `/api/auth/session`                                      | Returns the current session state.                          |
-| `POST`   | `/api/auth/login`                                        | Logs in and sets the session cookie.                        |
-| `POST`   | `/api/auth/logout`                                       | Clears the session cookie.                                  |
-| `PATCH`  | `/api/auth/credentials`                                  | Changes the account username or password.                   |
-| `GET`    | `/api/runtime-settings`                                  | Returns runtime UI settings and defaults.                   |
-| `POST`   | `/api/downloads/probe`                                   | Previews metadata for a URL before queueing.                |
-| `POST`   | `/api/downloads`                                         | Queues one or more URLs.                                    |
-| `GET`    | `/api/downloads`                                         | Lists active tasks (queued, running, failed) with counts.   |
-| `GET`    | `/api/downloads/history?limit=50&cursor=&q=&source_key=` | Lists completed records, with cursor pagination and search. |
-| `POST`   | `/api/downloads/clear-pending`                           | Clears pending queue rows.                                  |
-| `POST`   | `/api/library/scan`                                      | Reconciles database history with files present in `/media`. |
-| `GET`    | `/api/library/resolve`                                   | Counts rows needing a resolve, and the whole library.       |
-| `POST`   | `/api/library/resolve`                                   | Queues background probes for missing template tokens.       |
-| `GET`    | `/api/settings`                                          | Returns settings metadata and saved preferences.            |
-| `PUT`    | `/api/settings`                                          | Saves settings.                                             |
-| `POST`   | `/api/settings/scrape-test`                              | Tests configured scrape rules against a sample URL.         |
-| `POST`   | `/api/settings/probe-fields`                             | Probes and saves creator field priorities.                  |
-| `POST`   | `/api/settings/learn-format`                             | Learns a URL format from a pasted source link.              |
-| `PUT`    | `/api/settings/formats/{source_key}`                     | Reorders or deletes learned URL templates.                  |
-| `POST`   | `/api/settings/cookies/{source_key}`                     | Adds a cookie file to a source's rotation.                  |
-| `PUT`    | `/api/settings/cookies/{source_key}/order`               | Reorders a source's cookie files.                           |
-| `DELETE` | `/api/settings/cookies/{source_key}/{cookie_id}`         | Removes one cookie file from a source.                      |
-| `DELETE` | `/api/settings/cookies/{source_key}`                     | Removes every cookie file for a source.                     |
-| `DELETE` | `/api/downloads/{id}`                                    | Removes a pending task.                                     |
-| `POST`   | `/api/downloads/{id}/cancel`                             | Cancels a running task.                                     |
-| `POST`   | `/api/downloads/{id}/retry`                              | Retries a failed task.                                      |
-| `PATCH`  | `/api/downloads/{id}/source`                             | Reassigns a task's source key.                              |
-| `GET`    | `/api/downloads/{id}`                                    | Returns one active or historical task.                      |
-| `GET`    | `/api/downloads/{id}/file`                               | Downloads the completed file.                               |
-| `GET`    | `/api/integration/manifest`                              | Describes the read-only integration database contract.      |
-| `GET`    | `/api/integration/downloads?state=history&limit=100&offset=0` | Lists decoded download records for another app.       |
-| `GET`    | `/api/integration/tables/{table_name}`                   | Lists allowed database table rows with optional JSON decode. |
-| `GET`    | `/api/integration/settings`                              | Returns saved settings with auth secrets removed.           |
+Bulk actions take a JSON body of `{"ids": [...]}`. Query parameters are listed after each description.
+
+### App
+
+| Method | Endpoint                         | Description                               |
+| ------ | -------------------------------- | ----------------------------------------- |
+| `GET`  | `/api/health`                    | Returns `{"status": "ok"}` while running. |
+| `GET`  | `/api/runtime-settings`          | Returns runtime UI settings and defaults. |
+| `GET`  | `/api/sources/{source_key}/icon` | Returns a source's stored icon as WebP.   |
+
+### Auth
+
+| Method  | Endpoint                | Description                               |
+| ------- | ----------------------- | ----------------------------------------- |
+| `GET`   | `/api/auth/session`     | Returns the current session state.        |
+| `POST`  | `/api/auth/login`       | Logs in and sets the session cookie.      |
+| `POST`  | `/api/auth/logout`      | Clears the session cookie.                |
+| `PATCH` | `/api/auth/credentials` | Changes the account username or password. |
+
+### Downloads
+
+| Method   | Endpoint                     | Description                                                                                                |
+| -------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/downloads`             | Lists active tasks (queued, running, failed) with counts.                                                  |
+| `POST`   | `/api/downloads`             | Queues one or more URLs.                                                                                   |
+| `DELETE` | `/api/downloads`             | Deletes every active task.                                                                                 |
+| `POST`   | `/api/downloads/probe`       | Previews metadata for a URL before queueing.                                                               |
+| `GET`    | `/api/downloads/history`     | Lists completed records with cursor pagination. Query: `limit`, `cursor`, `q`, `source_key`, `tracker_id`. |
+| `GET`    | `/api/downloads/files`       | Downloads the selected finished files as one zip. Query: `ids` (repeated).                                 |
+| `POST`   | `/api/downloads/delete`      | Deletes tasks and history items with their files.                                                          |
+| `POST`   | `/api/downloads/retry`       | Retries failed tasks.                                                                                      |
+| `GET`    | `/api/downloads/{id}`        | Returns one active or completed task.                                                                      |
+| `GET`    | `/api/downloads/{id}/file`   | Downloads the completed file.                                                                              |
+| `PATCH`  | `/api/downloads/{id}/source` | Changes a task's source key.                                                                               |
+
+### Library
+
+| Method | Endpoint               | Description                                                    |
+| ------ | ---------------------- | -------------------------------------------------------------- |
+| `POST` | `/api/library/scan`    | Reconciles history with the files present in `/media`.         |
+| `GET`  | `/api/library/resolve` | Counts records missing template fields, and the whole library. |
+| `POST` | `/api/library/resolve` | Queues background probes for missing template fields.          |
+| `GET`  | `/api/library/rename`  | Counts files affected by unapplied naming changes, per source. |
+| `POST` | `/api/library/rename`  | Queues renames for one source's new naming template.           |
+
+### Trackers
+
+| Method  | Endpoint                | Description                                               |
+| ------- | ----------------------- | --------------------------------------------------------- |
+| `GET`   | `/api/trackers`         | Lists trackers with their counts.                         |
+| `POST`  | `/api/trackers`         | Starts tracking a creator link.                           |
+| `PATCH` | `/api/trackers/{id}`    | Changes a tracker's quality, post-processing or interval. |
+| `POST`  | `/api/trackers/check`   | Checks trackers now.                                      |
+| `POST`  | `/api/trackers/stop`    | Stops running or waiting checks.                          |
+| `POST`  | `/api/trackers/enabled` | Pauses or resumes trackers.                               |
+| `POST`  | `/api/trackers/delete`  | Deletes trackers, optionally with their files.            |
+
+### Settings
+
+| Method   | Endpoint                                         | Description                                         |
+| -------- | ------------------------------------------------ | --------------------------------------------------- |
+| `GET`    | `/api/settings`                                  | Returns settings metadata and saved preferences.    |
+| `PUT`    | `/api/settings`                                  | Saves settings.                                     |
+| `POST`   | `/api/settings/scrape-test`                      | Tests configured scrape rules against a sample URL. |
+| `POST`   | `/api/settings/probe-fields`                     | Probes and saves creator field priorities.          |
+| `POST`   | `/api/settings/probe-tabs`                       | Lists the tabs a creator link offers for tracking.  |
+| `POST`   | `/api/settings/learn-format`                     | Learns a URL format from a pasted source link.      |
+| `PUT`    | `/api/settings/formats/{source_key}`             | Reorders or deletes learned URL templates.          |
+| `POST`   | `/api/settings/cookies/{source_key}`             | Adds a cookie file to a source's rotation.          |
+| `PUT`    | `/api/settings/cookies/{source_key}/order`       | Reorders a source's cookie files.                   |
+| `DELETE` | `/api/settings/cookies/{source_key}`             | Removes every cookie file for a source.             |
+| `DELETE` | `/api/settings/cookies/{source_key}/{cookie_id}` | Removes one cookie file from a source.              |
+
+### Integration
+
+| Method | Endpoint                               | Description                                                                                                   |
+| ------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/integration/manifest`            | Describes the read-only integration contract.                                                                 |
+| `GET`  | `/api/integration/downloads`           | Lists decoded download records. Query: `state` (`history` or `active`), `limit`, `offset`, `q`, `source_key`. |
+| `GET`  | `/api/integration/tables`              | Lists the tables open to integrations.                                                                        |
+| `GET`  | `/api/integration/tables/{table_name}` | Lists one table's rows. Query: `limit`, `offset`, `decode_json`.                                              |
+| `GET`  | `/api/integration/settings`            | Returns saved settings with auth secrets removed.                                                             |
 
 Queue example (log in first to obtain the session cookie):
 

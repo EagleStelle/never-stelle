@@ -43,8 +43,9 @@ def _rename_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, template: str =
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
     monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda batch: rows.update(dict(batch)))
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: rows.pop(task_id, None))
-    monkeypatch.setattr(scan_module, "resolution_revision", lambda: "rev-1")
+    monkeypatch.setattr(
+        scan_module, "remove_history_records", lambda task_ids: [rows.pop(task_id, None) for task_id in task_ids]
+    )
 
     monkeypatch.setattr(rename_module, "save_history_entry_rows", lambda batch: rows.update(dict(batch)))
     _pin_template(monkeypatch, template)
@@ -63,8 +64,8 @@ def _rename_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, template: str =
 
 def _rename(rows: dict[str, dict]) -> dict[str, int]:
     """Plan and apply renames for ``rows``, as the rename pass runs them."""
-    plans, needs_resolve = rename_module.plan_history_renames(dict(rows))
-    counts, _applied = rename_module.apply_history_renames(plans)
+    needs_resolve = rename_module.rows_needing_resolve(dict(rows))
+    counts, _applied = rename_module.apply_history_renames(rename_module.plan_history_renames(dict(rows)))
     return {**counts, "needs_resolve": len(needs_resolve)}
 
 
@@ -82,7 +83,6 @@ def _row(path: Path, **overrides) -> dict:
         "folder_template": "{{username}}",
         "filename_template": OLD_TEMPLATE,
         "scan_mtime_ns": 111,
-        "scan_revision": "rev-1",
     }
     row.update(overrides)
     return row
@@ -156,8 +156,7 @@ def test_a_scan_flags_rows_but_never_renames(tmp_path: Path, monkeypatch: pytest
 
 
 def test_rename_preserves_the_resolution_signature(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    # A rename changes neither the bytes nor the rules, so the renamed file must be
-    # skipped by the walk that follows it rather than resolved (and probed) again.
+    # A rename leaves the bytes alone, so the walk that follows skips the renamed file.
     media_root, rows, _journal = _rename_env(tmp_path, monkeypatch)
     old_file = media_root / "Creator - Clip [abc123].mp4"
     old_file.write_bytes(b"video")
@@ -182,7 +181,6 @@ def test_rename_preserves_the_resolution_signature(tmp_path: Path, monkeypatch: 
 
     # Carried across the rename, so the walk still recognises the file at its new name.
     assert row["scan_mtime_ns"] == stat_result.st_mtime_ns
-    assert row["scan_revision"] == "rev-1"
     assert result["unchanged"] == 1
     assert resolved == []
 
@@ -440,20 +438,3 @@ def test_case_only_rename_lands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
     landed = [path.name for path in media_root.iterdir()]
     assert landed == ["Creator - Clip [abc123].mp4"]
-
-
-def test_resolution_revision_ignores_template_edits(monkeypatch: pytest.MonkeyPatch):
-    # The whole point of the rename pass: editing a template must not invalidate every
-    # resolved row in the library.
-    import backend.app.db.repositories.settings as settings_repo
-
-    payload = {"template_settings": {"filename_template": OLD_TEMPLATE}, "source_locations": {"a": {}}}
-    monkeypatch.setattr(settings_repo, "load_settings_payload", lambda: payload)
-    before = settings_repo.resolution_settings_revision()
-
-    payload["template_settings"] = {"filename_template": NEW_TEMPLATE}
-    payload["source_templates"] = {"example": {"": {"filename_template": NEW_TEMPLATE}}}
-    assert settings_repo.resolution_settings_revision() == before
-
-    payload["source_locations"] = {"a": {"": "elsewhere"}}
-    assert settings_repo.resolution_settings_revision() != before

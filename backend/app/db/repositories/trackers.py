@@ -6,7 +6,7 @@ from typing import Any
 from backend.app.core.coercion import safe_int
 from backend.app.core.time import utc_now
 from backend.app.db.database import transaction
-from backend.app.db.repositories.utils import _decode, _encode
+from backend.app.db.repositories.utils import _decode, _encode, chunks, marks
 
 _TRACKER_COLUMNS = (
     "id",
@@ -29,8 +29,6 @@ _TRACKER_SELECT = ", ".join(_TRACKER_COLUMNS)
 _JSON_COLUMNS = {"quality", "post_processing", "feeds"}
 _BOOL_COLUMNS = {"enabled"}
 _UPDATABLE = set(_TRACKER_COLUMNS) - {"id", "source_url", "created_at", "updated_at"}
-# SQLite caps bound parameters per statement; stay well under it.
-_CHUNK = 500
 
 # History ids linked to one tracker (bind its id twice): each download's own row, plus the
 # `{download_id}:{suffix}` child rows of a multi-file post, found as a primary-key range.
@@ -103,28 +101,37 @@ def find_tracker_by_url(source_url: str) -> dict[str, Any]:
 
 
 def update_tracker_row(tracker_id: str, updates: dict[str, Any]) -> dict[str, Any]:
-    fields = {column: value for column, value in updates.items() if column in _UPDATABLE}
-    if fields:
-        assignments = ", ".join(f"{column} = ?" for column in fields)
-        values = [_column_value(column, value) for column, value in fields.items()]
-        with transaction() as connection:
-            connection.execute(
-                f"UPDATE trackers SET {assignments}, updated_at = ? WHERE id = ?",
-                (*values, utc_now(), str(tracker_id)),
-            )
+    update_tracker_rows({str(tracker_id): updates})
     return load_tracker_row(tracker_id)
 
 
-def delete_tracker_rows(tracker_id: str) -> None:
+def update_tracker_rows(changes: dict[str, dict[str, Any]]) -> None:
+    """Apply each tracker's own column updates in one transaction."""
+    now = utc_now()
     with transaction() as connection:
-        connection.execute("DELETE FROM tracker_backlog WHERE tracker_id = ?", (str(tracker_id),))
-        connection.execute("DELETE FROM tracker_entries WHERE tracker_id = ?", (str(tracker_id),))
-        connection.execute("DELETE FROM trackers WHERE id = ?", (str(tracker_id),))
+        for tracker_id, updates in changes.items():
+            fields = {column: value for column, value in updates.items() if column in _UPDATABLE}
+            if not fields:
+                continue
+            assignments = ", ".join(f"{column} = ?" for column in fields)
+            values = [_column_value(column, value) for column, value in fields.items()]
+            connection.execute(
+                f"UPDATE trackers SET {assignments}, updated_at = ? WHERE id = ?",
+                (*values, now, str(tracker_id)),
+            )
+
+
+def delete_tracker_rows(tracker_ids: list[str]) -> None:
+    tables = (("tracker_backlog", "tracker_id"), ("tracker_entries", "tracker_id"), ("trackers", "id"))
+    with transaction() as connection:
+        for chunk in chunks(tracker_ids):
+            for table, column in tables:
+                connection.execute(f"DELETE FROM {table} WHERE {column} IN ({marks(chunk)})", chunk)
 
 
 def claim_due_tracker_row(now: str, first: Collection[str] = ()) -> dict[str, Any]:
     """Atomically mark the most overdue enabled tracker as checking and return it; due ones in ``first`` lead."""
-    lead = f"id IN ({', '.join('?' for _ in first)}) DESC, " if first else ""
+    lead = f"id IN ({marks(list(first))}) DESC, " if first else ""
     with transaction() as connection:
         row = connection.execute(
             "SELECT id FROM trackers WHERE enabled = 1 AND checking_at = '' AND next_check_at <= ?"
@@ -272,40 +279,65 @@ def missing_tracker_download_rows(tracker_id: str) -> list[tuple[str, str, str]]
     return [(str(row[0]), str(row[1]), str(row[2])) for row in rows]
 
 
-def relink_tracker_download_rows(tracker_id: str, old_id: str, new_id: str) -> None:
+def relink_tracker_download(old_id: str, new_id: str) -> None:
     with transaction() as connection:
         connection.execute(
-            "UPDATE tracker_entries SET download_id = ? WHERE tracker_id = ? AND download_id = ?",
-            (str(new_id), str(tracker_id), str(old_id)),
+            "UPDATE tracker_entries SET download_id = ? WHERE download_id = ?", (str(new_id), str(old_id))
         )
 
 
-def tracker_download_ids(tracker_id: str) -> list[str]:
-    with transaction() as connection:
-        rows = connection.execute(
-            "SELECT DISTINCT download_id FROM tracker_entries WHERE tracker_id = ? AND download_id != ''",
-            (str(tracker_id),),
-        ).fetchall()
-    return [str(row[0]) for row in rows]
+def linked_download_ids(history_ids: list[str]) -> list[str]:
+    """Ids an entry may link these rows under: each row's own, and a ``{download_id}:{suffix}`` child's parent."""
+    return [*history_ids, *(value.rsplit(":", 1)[0] for value in history_ids if ":" in value)]
 
 
-def tracker_history_ids(tracker_id: str) -> list[str]:
+def unlink_tracker_downloads(download_ids: list[str]) -> None:
+    """Unlink entries from downloads with no history row left, so no check queues them again.
+
+    A parent stays linked while a child row remains.
+    """
     with transaction() as connection:
-        rows = connection.execute(
-            f"SELECT id FROM download_history WHERE id IN ({TRACKER_HISTORY_IDS_SQL})",
-            (str(tracker_id), str(tracker_id)),
-        ).fetchall()
-    return [str(row[0]) for row in rows]
+        for chunk in chunks(linked_download_ids(download_ids)):
+            connection.execute(
+                f"UPDATE tracker_entries SET download_id = '' WHERE download_id IN ({marks(chunk)})"
+                " AND NOT EXISTS (SELECT 1 FROM download_history h WHERE h.id = tracker_entries.download_id)"
+                " AND NOT EXISTS (SELECT 1 FROM download_history h"
+                " WHERE h.id > tracker_entries.download_id || ':' AND h.id < tracker_entries.download_id || ';')",
+                chunk,
+            )
+
+
+def tracker_active_download_ids(tracker_ids: list[str]) -> list[str]:
+    """Queued, running and failed downloads the trackers queued."""
+    ids: list[str] = []
+    with transaction() as connection:
+        for chunk in chunks(tracker_ids):
+            rows = connection.execute(
+                "SELECT DISTINCT e.download_id FROM tracker_entries e JOIN download_tasks t ON t.id = e.download_id"
+                f" WHERE e.tracker_id IN ({marks(chunk)}) AND t.status != 'completed'",
+                chunk,
+            ).fetchall()
+            ids.extend(str(row[0]) for row in rows)
+    return ids
+
+
+def tracker_history_ids(tracker_ids: list[str]) -> list[str]:
+    ids: list[str] = []
+    with transaction() as connection:
+        for tracker_id in dict.fromkeys(map(str, tracker_ids)):
+            rows = connection.execute(
+                f"SELECT id FROM download_history WHERE id IN ({TRACKER_HISTORY_IDS_SQL})", (tracker_id, tracker_id)
+            ).fetchall()
+            ids.extend(str(row[0]) for row in rows)
+    return ids
 
 
 def tracker_ids_for_download_rows(download_ids: list[str]) -> dict[str, str]:
     owners: dict[str, str] = {}
     with transaction() as connection:
-        for start in range(0, len(download_ids), _CHUNK):
-            chunk = download_ids[start : start + _CHUNK]
-            placeholders = ", ".join("?" for _ in chunk)
+        for chunk in chunks(download_ids):
             rows = connection.execute(
-                f"SELECT download_id, tracker_id FROM tracker_entries WHERE download_id IN ({placeholders})",
+                f"SELECT download_id, tracker_id FROM tracker_entries WHERE download_id IN ({marks(chunk)})",
                 chunk,
             ).fetchall()
             owners.update((str(row[0]), str(row[1])) for row in rows)
@@ -318,19 +350,12 @@ def count_tracker_items() -> dict[str, dict[str, int]]:
     A post's photos are recorded under its url and download, and a multi-file download keeps a
     history row per file, so both counts are per item and a fully downloaded tracker shows them equal.
     """
-    counts: dict[str, dict[str, int]] = {}
     with transaction() as connection:
-        seen = connection.execute(
-            "SELECT tracker_id, COUNT(DISTINCT entry_url) FROM tracker_entries GROUP BY tracker_id"
+        rows = connection.execute(
+            "SELECT e.tracker_id, COUNT(DISTINCT e.entry_url), COUNT(DISTINCT CASE WHEN e.download_id != ''"
+            " AND (EXISTS (SELECT 1 FROM download_history h WHERE h.id = e.download_id)"
+            " OR EXISTS (SELECT 1 FROM download_history h"
+            " WHERE h.id > e.download_id || ':' AND h.id < e.download_id || ';'))"
+            " THEN e.download_id END) FROM tracker_entries e GROUP BY e.tracker_id"
         ).fetchall()
-        for tracker_id, count in seen:
-            completed = connection.execute(
-                "SELECT COUNT(DISTINCT e.download_id) FROM tracker_entries e"
-                " WHERE e.tracker_id = ? AND e.download_id != ''"
-                " AND (EXISTS (SELECT 1 FROM download_history h WHERE h.id = e.download_id)"
-                " OR EXISTS (SELECT 1 FROM download_history h"
-                " WHERE h.id > e.download_id || ':' AND h.id < e.download_id || ';'))",
-                (str(tracker_id),),
-            ).fetchone()
-            counts[str(tracker_id)] = {"seen": safe_int(count), "completed": safe_int(completed[0])}
-    return counts
+    return {str(row[0]): {"seen": safe_int(row[1]), "completed": safe_int(row[2])} for row in rows}

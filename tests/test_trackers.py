@@ -12,6 +12,9 @@ import pytest
 import backend.app.core.config as config_module
 import backend.app.db.database as database_module
 import backend.app.db.repositories.trackers as tracker_rows
+import backend.app.domains.downloads.files as files_module
+import backend.app.domains.downloads.operations as operations_module
+import backend.app.domains.downloads.scan as scan_module
 import backend.app.domains.settings.trackers as settings_trackers_module
 import backend.app.domains.trackers.listing as listing_module
 import backend.app.domains.trackers.scheduler as scheduler_module
@@ -54,6 +57,14 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(service_module, "_asked", set())
     yield tmp_path
     database_module.close_database()
+
+
+def _linked(tracker_id: str = "t1") -> list[str]:
+    with database_module.transaction() as connection:
+        rows = connection.execute(
+            "SELECT DISTINCT download_id FROM tracker_entries WHERE tracker_id = ? AND download_id != ''", (tracker_id,)
+        ).fetchall()
+    return sorted(str(row[0]) for row in rows)
 
 
 def _insert_tracker(**overrides) -> dict:
@@ -1547,7 +1558,7 @@ def test_first_check_queues_every_entry_with_the_saved_settings(temp_db, monkeyp
 
     assert [url for url, _ in queue.calls] == [_entry(n).url for n in range(3)]
     assert queue.calls[0][1] == {"mode": "audio", "_post_processing": {"metadata": "embed"}}
-    assert sorted(repositories.tracker_download_ids("t1")) == ["gallerydl:1", "gallerydl:2", "gallerydl:3"]
+    assert _linked() == ["gallerydl:1", "gallerydl:2", "gallerydl:3"]
     assert (bool(tracker["last_success_at"]), tracker["checking_at"]) == (True, "")
 
 
@@ -1828,7 +1839,7 @@ def test_a_tracker_deleted_mid_check_keeps_no_entries(temp_db, monkeypatch):
 
     def listing():
         yield _entry(1)
-        repositories.delete_tracker_rows("t1")
+        repositories.delete_tracker_rows(["t1"])
         yield _entry(2)
 
     _check_while(monkeypatch, listing)
@@ -1859,7 +1870,7 @@ def test_stopping_a_check_ends_it_at_once_and_keeps_what_it_recorded(temp_db, mo
     check = _check_in_background(monkeypatch)
     began = time.monotonic()
 
-    service_module.stop_check("t1")
+    service_module.stop_checks(["t1"])
     check.join(timeout=10)
 
     assert not check.is_alive()
@@ -1873,12 +1884,12 @@ def test_deleting_a_tracker_stops_its_check_before_removing_it(temp_db, monkeypa
     _insert_tracker()
     check = _check_in_background(monkeypatch)
 
-    service_module.delete_tracker("t1")
+    service_module.delete_trackers(["t1"])
     check.join(timeout=1)
 
     assert not check.is_alive()
     assert repositories.load_tracker_row("t1") == {}
-    assert repositories.tracker_download_ids("t1") == []
+    assert _linked() == []
 
 
 def test_tracker_settings_are_clamped_and_seed_new_trackers(temp_db):
@@ -1965,21 +1976,20 @@ def test_check_now_queues_again_the_downloads_its_entries_lost(temp_db, monkeypa
     repositories.merge_task_payload("gallerydl:2", {"source_url": entries[1].url, "status": "failed"})
     repositories.save_history_row("gallerydl:3:1", {"source_url": entries[2].url})
     retried: list[str] = []
-    monkeypatch.setattr(service_module, "retry_task", retried.append)
+    monkeypatch.setattr(service_module, "retry_downloads", lambda ids: retried.extend(ids) or {"errors": []})
     scheduled = _Queue()
 
     _check(monkeypatch, entries, scheduled)
 
     assert (scheduled.calls, retried) == ([], [])
 
-    service_module.check_tracker_now("t1")
+    service_module.check_trackers(["t1"])
     queue = _Queue(prefix="again")
     tracker = _check(monkeypatch, entries, queue)
 
     assert retried == ["gallerydl:2"]
     assert [url for url, _ in queue.calls] == [entries[3].url, entries[4].url]
-    linked = sorted(repositories.tracker_download_ids("t1"))
-    assert linked == ["again:1", "again:2", "gallerydl:1", "gallerydl:2", "gallerydl:3"]
+    assert _linked() == ["again:1", "again:2", "gallerydl:1", "gallerydl:2", "gallerydl:3"]
     assert tracker["last_error"] == ""
 
 
@@ -2054,19 +2064,18 @@ def test_stale_claims_are_released_and_paused_trackers_never_run(temp_db):
 def test_check_now_makes_the_tracker_due(temp_db):
     _insert_tracker(next_check_at="2999-01-01T00:00:00+00:00")
 
-    service_module.check_tracker_now("t1")
+    assert service_module.check_trackers(["t1"]) == {"count": 1, "errors": []}
 
     assert repositories.claim_due_tracker_row(utc_now_datetime().isoformat())["id"] == "t1"
-    service_module.update_tracker("t1", {"enabled": False})
-    with pytest.raises(PermissionError):
-        service_module.check_tracker_now("t1")
+    service_module.set_trackers_enabled(["t1"], False)
+    assert service_module.check_trackers(["t1"]) == {"count": 0, "errors": ["Resume the tracker to check it."]}
 
 
 def test_checks_asked_for_by_hand_run_before_overdue_ones(temp_db):
     _insert_tracker(next_check_at="2000-01-01T00:00:00+00:00")
     _insert_tracker(id="t2", source_url="https://example.test/u/bob", next_check_at="2999-01-01T00:00:00+00:00")
 
-    service_module.check_tracker_now("t2")
+    service_module.check_trackers(["t2"])
 
     assert [service_module.claim_check()["id"], service_module.claim_check()["id"]] == ["t2", "t1"]
 
@@ -2074,18 +2083,18 @@ def test_checks_asked_for_by_hand_run_before_overdue_ones(temp_db):
 def test_check_now_on_a_queued_tracker_keeps_its_place(temp_db):
     _insert_tracker(next_check_at="2000-01-01T00:00:00+00:00")
 
-    service_module.check_tracker_now("t1")
+    service_module.check_trackers(["t1"])
 
     assert repositories.load_tracker_row("t1")["next_check_at"] == "2000-01-01T00:00:00+00:00"
 
 
 def test_stopping_a_queued_check_moves_it_to_the_next_interval(temp_db):
     _insert_tracker(next_check_at="2000-01-01T00:00:00+00:00")
-    service_module.check_tracker_now("t1")
+    service_module.check_trackers(["t1"])
     assert service_module.tracker_to_api(repositories.load_tracker_row("t1"))["queued"]
     before = utc_now_datetime()
 
-    service_module.stop_check("t1")
+    service_module.stop_checks(["t1"])
 
     tracker = repositories.load_tracker_row("t1")
     assert not service_module.tracker_to_api(tracker)["queued"]
@@ -2196,12 +2205,12 @@ def test_delete_without_files_leaves_history_alone(temp_db, monkeypatch):
     repositories.record_tracker_entry_rows("t1", [("k1", "u1", "gallerydl:abc")])
     _history("gallerydl:abc", str(clip))
 
-    service_module.delete_tracker("t1")
+    service_module.delete_trackers(["t1"])
 
     assert clip.exists()
     assert repositories.load_history_entry_payload("gallerydl:abc")
     assert repositories.load_tracker_row("t1") == {}
-    assert repositories.tracker_download_ids("t1") == []
+    assert _linked() == []
 
 
 def test_delete_with_files_removes_only_linked_files_inside_the_library(temp_db, monkeypatch):
@@ -2209,7 +2218,7 @@ def test_delete_with_files_removes_only_linked_files_inside_the_library(temp_db,
     folder = media / "alice"
     folder.mkdir(parents=True)
     monkeypatch.setattr(config_module, "MEDIA_DIR", media)
-    monkeypatch.setattr(service_module, "MEDIA_DIR", media)
+    monkeypatch.setattr(files_module, "MEDIA_DIR", media)
     clip = folder / "clip [1].mp4"
     subtitles = folder / "clip [1].en.vtt"
     other = folder / "other [2].mp4"
@@ -2222,7 +2231,7 @@ def test_delete_with_files_removes_only_linked_files_inside_the_library(temp_db,
     _history("gallerydl:out", str(outside))
     _history("gallerydl:other", str(other))
 
-    service_module.delete_tracker("t1", delete_files=True)
+    service_module.delete_trackers(["t1"], delete_files=True)
 
     assert not clip.exists() and not subtitles.exists()
     assert other.exists() and outside.exists()
@@ -2230,13 +2239,131 @@ def test_delete_with_files_removes_only_linked_files_inside_the_library(temp_db,
     assert repositories.load_history_entry_payload("gallerydl:other")
 
 
-def test_delete_removes_the_trackers_queued_tasks(temp_db, monkeypatch):
+def test_delete_removes_the_trackers_queued_tasks(temp_db):
     _insert_tracker()
     repositories.record_tracker_entry_rows("t1", [("k1", "u1", "gallerydl:abc")])
     repositories.merge_task_payload("gallerydl:abc", {"status": "pending"})
-    removed: list[str] = []
-    monkeypatch.setattr(service_module, "remove_pending_task", removed.append)
 
-    service_module.delete_tracker("t1")
+    service_module.delete_trackers(["t1"])
 
-    assert removed == ["gallerydl:abc"]
+    assert repositories.load_task_payload("gallerydl:abc") == {}
+
+
+def test_deleting_trackers_waits_once_for_all_their_checks(temp_db, monkeypatch):
+    _insert_tracker()
+    _insert_tracker(id="t2", source_url=f"{TRACKER_URL}2")
+    active = {"tracker-check:t1", "tracker-check:t2"}
+    waits: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        waits.append(seconds)
+        active.clear()
+
+    monkeypatch.setattr(service_module, "has_active_task", lambda task_id: task_id in active)
+    monkeypatch.setattr(service_module.time, "sleep", sleep)
+
+    assert service_module.delete_trackers(["t1", "t2"]) == {"count": 2, "errors": []}
+    assert len(waits) == 1
+    assert repositories.load_tracker_rows() == []
+
+
+def test_stopping_checks_handles_running_and_queued_ones_together(temp_db, monkeypatch):
+    now = utc_now_datetime().isoformat()
+    _insert_tracker(next_check_at="2000-01-01T00:00:00+00:00")
+    _insert_tracker(id="t2", source_url=f"{TRACKER_URL}2", next_check_at="2999-01-01T00:00:00+00:00")
+    _insert_tracker(id="t3", source_url=f"{TRACKER_URL}3", next_check_at="2999-01-01T00:00:00+00:00", checking_at=now)
+    service_module.check_trackers(["t1", "t2"])
+    cancelled: list[str] = []
+    monkeypatch.setattr(service_module, "request_cancel", cancelled.append)
+    before = utc_now_datetime()
+
+    assert service_module.stop_checks(["t1", "t2", "t3"]) == {"count": 3, "errors": []}
+
+    rows = {tracker["id"]: tracker for tracker in repositories.load_tracker_rows()}
+    assert service_module._asked == set()
+    assert sorted(cancelled) == ["tracker-check:t1", "tracker-check:t2", "tracker-check:t3"]
+    for tracker_id in ("t1", "t2"):
+        assert datetime.fromisoformat(rows[tracker_id]["next_check_at"]) >= before + timedelta(seconds=3600 * 0.9)
+    assert rows["t3"]["next_check_at"] == "2999-01-01T00:00:00+00:00"
+
+
+def test_pausing_drops_a_check_asked_for_and_resuming_counts_from_the_last_check(temp_db):
+    _insert_tracker(next_check_at="2999-01-01T00:00:00+00:00", last_checked_at="2000-01-01T00:00:00+00:00")
+    service_module.check_trackers(["t1"])
+
+    service_module.set_trackers_enabled(["t1"], False)
+
+    assert "t1" not in service_module._asked
+    assert not repositories.load_tracker_row("t1")["enabled"]
+    service_module.set_trackers_enabled(["t1"], True)
+    assert repositories.load_tracker_row("t1")["next_check_at"] == "2000-01-01T01:00:00+00:00"
+
+
+def _library(temp_db, monkeypatch):
+    media = temp_db / "media"
+    media.mkdir(exist_ok=True)
+    monkeypatch.setattr(config_module, "MEDIA_DIR", media)
+    monkeypatch.setattr(files_module, "MEDIA_DIR", media)
+    return media
+
+
+def test_deleting_items_removes_files_companions_and_emptied_folders(temp_db, monkeypatch):
+    media = _library(temp_db, monkeypatch)
+    folder = media / "alice" / "2026"
+    chapters = folder / "clip [1]"
+    chapters.mkdir(parents=True)
+    clip = folder / "clip [1].mp4"
+    outside = temp_db / "outside [2].mp4"
+    for path in (clip, folder / "clip [1].en.vtt", folder / "clip [1].jpg", chapters / "001.mp4", outside):
+        path.write_bytes(b"x")
+    _history("gallerydl:abc", str(clip))
+    _history("gallerydl:out", str(outside))
+    repositories.merge_task_payload("gallerydl:failed", {"status": "failed"})
+
+    result = operations_module.delete_downloads(["gallerydl:abc", "gallerydl:out", "gallerydl:failed"])
+
+    assert result == {"count": 3, "errors": []}
+    assert not (media / "alice").exists() and media.exists()
+    assert outside.exists()
+    assert repositories.load_history_rows(["gallerydl:abc", "gallerydl:out"]) == {}
+    assert repositories.load_task_payload("gallerydl:failed") == {}
+
+
+def test_a_deleted_item_is_never_queued_again(temp_db, monkeypatch):
+    _insert_tracker()
+    entries = [_entry(1), _entry(2)]
+    _check(monkeypatch, entries, _Queue())
+    repositories.merge_task_payload("gallerydl:1", {"source_url": entries[0].url, "status": "failed"})
+    _history("gallerydl:2")
+
+    operations_module.delete_downloads(["gallerydl:1", "gallerydl:2"])
+    service_module.check_trackers(["t1"])
+    queue = _Queue(prefix="again")
+    _check(monkeypatch, entries, queue)
+
+    assert queue.calls == []
+    assert _linked() == []
+    assert repositories.count_tracker_items()["t1"] == {"seen": 2, "completed": 0}
+
+
+def test_deleting_one_file_of_a_post_keeps_its_link_until_the_last_goes(temp_db):
+    _insert_tracker()
+    repositories.record_tracker_entry_rows("t1", [("k1", "u1", "gallerydl:abc")])
+    for task_id in ("gallerydl:abc", "gallerydl:abc:2"):
+        _history(task_id)
+
+    operations_module.delete_downloads(["gallerydl:abc"])
+    assert _linked() == ["gallerydl:abc"]
+
+    operations_module.delete_downloads(["gallerydl:abc:2"])
+    assert _linked() == []
+
+
+def test_a_delete_gives_up_while_a_scan_holds_the_history(temp_db, monkeypatch):
+    _history("gallerydl:abc")
+    monkeypatch.setattr(operations_module, "_HISTORY_LOCK_SECONDS", 0.01)
+
+    with scan_module.history_write_lock(), pytest.raises(PermissionError):
+        operations_module.delete_downloads(["gallerydl:abc"])
+
+    assert repositories.load_history_entry_payload("gallerydl:abc")

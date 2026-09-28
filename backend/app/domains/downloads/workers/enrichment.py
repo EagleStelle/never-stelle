@@ -131,8 +131,7 @@ def _downloads_active() -> bool:
 
 
 def _library_busy() -> bool:
-    # A scan renames the same files and rewrites the same rows, so a job that ran
-    # alongside one could have its result overwritten by that scan's snapshot.
+    # A job's write would only wait behind a scan's hold on the history rows.
     from backend.app.domains.downloads.scan import scan_in_progress
 
     return _downloads_active() or scan_in_progress()
@@ -148,10 +147,6 @@ def _enrichment_loop() -> None:
             if not job:
                 if _stop_worker_if_drained():
                     return
-                continue
-            if _library_busy():
-                _retry_job(job, "")
-                _wait(_IDLE_SLEEP_SECONDS)
                 continue
             _process_enrichment_job(job)
         except Exception:

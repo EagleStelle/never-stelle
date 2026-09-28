@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from backend.app.api.schemas.downloads import IdsPayload
+
 
 class CreateTrackerPayload(BaseModel):
     url: str = ""
@@ -13,7 +15,14 @@ class CreateTrackerPayload(BaseModel):
 
 
 class UpdateTrackerPayload(BaseModel):
-    enabled: bool | None = None
     interval_seconds: int | None = None
     quality: dict[str, Any] | None = None
     post_processing: dict[str, Any] | None = None
+
+
+class DeleteTrackersPayload(IdsPayload):
+    delete_files: bool = False
+
+
+class TrackersEnabledPayload(IdsPayload):
+    enabled: bool

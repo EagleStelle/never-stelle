@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
 
 from backend.app.core.coercion import safe_int
 from backend.app.core.config import MEDIA_DIR, STAGING_DIR_NAME
@@ -20,12 +19,10 @@ from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
 from backend.app.domains.settings import (
     get_effective_title_cleaning,
-    is_scraper_field,
     iter_resolved_source_locations,
-    scraper_token_from_field,
 )
 
-from .constants import CREATOR_FIELDS, FIELD_DEFAULTS, MEDIA_EXTENSIONS, TEMPLATE_RE
+from .constants import CREATOR_FIELDS, MEDIA_EXTENSIONS, TEMPLATE_RE
 from .files import chapter_folder, payload_path_string, recover_task_path
 from .formats import (
     conflicts_with_source,
@@ -39,45 +36,48 @@ from .naming import (
     strip_numbered_suffix,
     template_literal_pattern,
 )
-from .rename import plan_history_renames, recover_interrupted_renames
+from .rename import recover_interrupted_renames, rows_needing_resolve
 from .store import (
     load_history,
     load_learned_formats,
     load_task_store,
-    remove_history_record,
+    remove_history_records,
     remove_task_record,
-    resolution_revision,
     save_history_entry_rows,
     sync_history_resolve_flags,
 )
-from .templates import template_row_fields
+from .templates import template_row_fields, template_settings_from_row
 
 _scan_lock = threading.Lock()
+# Set only by a scan: the lock is also held by writers that are not one.
+_scanning = threading.Event()
 _HISTORY_WRITE_BATCH = 200
 
 
 def scan_in_progress() -> bool:
-    """Whether a scan holds the lock, so a reload can show the pass it did not start."""
-    return _scan_lock.locked()
+    """Whether a scan is running, so a reload can show the pass it did not start."""
+    return _scanning.is_set()
 
 
 @contextmanager
-def history_write_lock() -> Iterator[None]:
+def history_write_lock(timeout: float = -1) -> Iterator[None]:
     """Held by whoever is renaming files and rewriting the rows that name them.
 
     A scan plans from a snapshot, so a row rewritten between the snapshot and the write
     is silently reverted. Resolve takes this around its own write for that reason, and
-    holds it only for the rewrite, never across a probe.
+    holds it only for the rewrite, never across a probe. With ``timeout``, a lock still
+    held after that many seconds raises ``PermissionError``.
     """
-    with _scan_lock:
+    if not _scan_lock.acquire(timeout=timeout):
+        raise PermissionError("Wait for the library scan to finish.")
+    try:
         yield
+    finally:
+        _scan_lock.release()
 
 
 FILENAME_ID_RE = re.compile(r"^(.*) \[([A-Za-z0-9_-]+)\](?:_\d+)?$")
 UNRECOVERABLE_MEDIA_IDS = {"", "na", "n-a", "n/a", "none", "null", "unknown"}
-# Bound the live probe of a manually-placed file; each probe is a network round-trip.
-_MAX_PROBE_CANDIDATES = 2
-_EMPTY_CREATOR_VALUES = {"", "unknown", "none", "null", "undefined", "na", "n/a"}
 _ID_TOKENS = {"id"}
 _EXT_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$")
 
@@ -338,7 +338,7 @@ def _drop_missing_records(
     pacer: CpuPacer | None = None,
 ) -> tuple[int, int]:
     checked = 0
-    missing = 0
+    gone: list[str] = []
     for task_id, payload in list(records.items()):
         if pacer is not None:
             pacer.tick()
@@ -365,69 +365,46 @@ def _drop_missing_records(
         if _path_key(path) in seen_paths or _path_exists(path):
             continue
         remove_task_record(task_id)
-        remove_history_record(task_id)
         records.pop(task_id, None)
-        missing += 1
-    return checked, missing
-
-
-def _known_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], set[str]]:
-    paths: set[str] = set()
-    media_ids: set[str] = set()
-    for payload in records.values():
-        path = payload_path_string(payload)
-        if path:
-            paths.add(_path_key(path))
-        media_id = _payload_media_id(payload)
-        if media_id:
-            media_ids.add(media_id)
-    return paths, media_ids
+        gone.append(task_id)
+    remove_history_records(gone)
+    return checked, len(gone)
 
 
 def _is_disk_record(task_id: str, payload: dict[str, Any]) -> bool:
     return str(task_id).startswith("disk:") or payload.get("engine") == "disk"
 
 
-def _file_signature(stat_result: os.stat_result | None, revision: str) -> tuple[int, int, str]:
-    """What a resolved disk row was derived from: the file plus the rules used.
-
-    A rescan re-resolves a file only when one of these moved. The file half is
-    mtime and size, the same pair a media server compares against its library
-    index; the rules half covers learning and settings improving, which is the
-    reason a rescan was re-resolving everything in the first place.
-    """
+def _file_signature(stat_result: os.stat_result | None) -> tuple[int, int]:
+    """The mtime and size a media server compares against its library index."""
     if stat_result is None:
-        return (0, 0, "")
-    return (int(stat_result.st_mtime_ns), int(stat_result.st_size), revision)
+        return (0, 0)
+    return (int(stat_result.st_mtime_ns), int(stat_result.st_size))
 
 
-def _record_signature(payload: dict[str, Any]) -> tuple[int, int, str]:
-    return (
-        safe_int(payload.get("scan_mtime_ns")),
-        safe_int(payload.get("file_size")),
-        str(payload.get("scan_revision") or ""),
-    )
+def _settled_disk_rows(records: dict[str, dict[str, Any]]) -> dict[str, tuple[tuple[int, int], str]]:
+    """Every disk file whose row already has a source and a link, as ``(signature, media_id)``.
 
-
-def _disk_signature_index(records: dict[str, dict[str, Any]]) -> dict[str, tuple[tuple[int, int, str], str]]:
-    """Map every already-resolved disk file to ``(signature, media_id)``."""
-    index: dict[str, tuple[tuple[int, int, str], str]] = {}
+    Such a row stays as it is until its file changes; one still missing either is
+    derived again, since a new location or learned format may now supply it.
+    """
+    index: dict[str, tuple[tuple[int, int], str]] = {}
     for task_id, payload in records.items():
-        if not _is_disk_record(task_id, payload):
+        if not _is_disk_record(task_id, payload) or payload.get("source_pending") or not payload.get("source_url"):
             continue
         path = payload_path_string(payload)
-        signature = _record_signature(payload)
-        if path and signature[0] and signature[2]:
-            index[_path_key(path)] = (signature, _payload_media_id(payload))
+        mtime_ns = safe_int(payload.get("scan_mtime_ns"))
+        if path and mtime_ns:
+            index[_path_key(path)] = ((mtime_ns, safe_int(payload.get("file_size"))), _payload_media_id(payload))
     return index
 
 
-def _disk_derived_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], set[str]]:
-    # Disk entries are rebuilt from files, so a rescan may re-resolve them as learning improves.
+def _owned_media(records: dict[str, dict[str, Any]], *, disk: bool) -> tuple[set[str], set[str]]:
+    """Path keys and media ids of the disk rows, or of the real downloads a disk row never shadows."""
     paths: set[str] = set()
     media_ids: set[str] = set()
     for task_id, payload in records.items():
-        if not _is_disk_record(task_id, payload):
+        if _is_disk_record(task_id, payload) != disk:
             continue
         path = payload_path_string(payload)
         if path:
@@ -438,21 +415,16 @@ def _disk_derived_media(records: dict[str, dict[str, Any]]) -> tuple[set[str], s
     return paths, media_ids
 
 
-def _real_download_media_ids(records: dict[str, dict[str, Any]]) -> set[str]:
-    # Ids owned by a genuine download; disk reconstructions must never shadow these.
-    return {
-        _payload_media_id(payload)
-        for task_id, payload in records.items()
-        if not _is_disk_record(task_id, payload) and _payload_media_id(payload)
-    }
-
-
 def _prune_disk_shadows(records: dict[str, dict[str, Any]], real_media_ids: set[str]) -> None:
     # Drop disk entries that merely duplicate a real download of the same media.
-    for task_id, payload in list(records.items()):
-        if _is_disk_record(task_id, payload) and _payload_media_id(payload) in real_media_ids:
-            remove_history_record(task_id)
-            records.pop(task_id, None)
+    shadows = [
+        task_id
+        for task_id, payload in records.items()
+        if _is_disk_record(task_id, payload) and _payload_media_id(payload) in real_media_ids
+    ]
+    remove_history_records(shadows)
+    for task_id in shadows:
+        records.pop(task_id, None)
 
 
 def _scan_location_rows() -> list[tuple[str, str, str]]:
@@ -514,20 +486,6 @@ def _scan_token_role_map() -> dict[str, dict[str, str]]:
     return _scan_settings_section("source_token_roles")
 
 
-def _scan_scrape_rule_tokens() -> dict[str, set[str]]:
-    out: dict[str, set[str]] = {}
-    for raw_key, platform in _scan_settings_section("source_scrape_rules").items():
-        key = normalize_source_key(raw_key)
-        tokens = {
-            str(rule.get("token") or "").strip().lower()
-            for rule in (platform.get("rules") if isinstance(platform, dict) else []) or []
-            if isinstance(rule, dict) and str(rule.get("token") or "").strip()
-        }
-        if key and tokens:
-            out[key] = tokens
-    return out
-
-
 def _scan_slug_tokens_map() -> dict[str, list[dict[str, str]]]:
     # Per-source {part, token} URL-part rules the user configured; used to capture named
     # URL parts from filenames and reconstruct links generically (no platform logic).
@@ -546,151 +504,6 @@ def _scan_source_profile_keys() -> set[str]:
     return {key for profile in _scan_source_profiles() if (key := normalize_source_key(profile.get("key")))}
 
 
-def _scan_field_roles_map() -> dict[str, dict[str, list[str]]]:
-    # Per-source creator-field priority: user settings first, then learned URL defaults.
-    try:
-        from backend.app.domains.settings import get_effective_source_fields_map
-
-        fields = get_effective_source_fields_map(_scan_source_profiles())
-        return fields if isinstance(fields, dict) else {}
-    except Exception:
-        return {}
-
-
-def _scan_field_defaults() -> dict[str, list[str]]:
-    # The configured global field order a source without its own settings falls back to.
-    try:
-        from backend.app.domains.settings import get_effective_field_defaults
-
-        defaults = get_effective_field_defaults()
-        return defaults if isinstance(defaults, dict) else dict(FIELD_DEFAULTS)
-    except Exception:
-        return dict(FIELD_DEFAULTS)
-
-
-def _scan_probe_metadata(url: str, *, with_cookies: bool = False) -> dict[str, str]:
-    # Seam over the field probe: lazy import dodges a cycle and tests stub this to stay offline.
-    try:
-        from .probe import probe_metadata
-
-        # Library passes probe row after row, each a subprocess pair; at normal priority
-        # a long pass takes the whole box with it.
-        return probe_metadata([url], with_cookies=with_cookies, low_priority=True).get(url, {})
-    except Exception:
-        return {}
-
-
-def probe_metadata_anonymous_first(url: str) -> dict[str, str]:
-    # Cookies are scarce and rate-limited, so authenticated is the fallback not the default.
-    return _scan_probe_metadata(url) or _scan_probe_metadata(url, with_cookies=True)
-
-
-def _clean_probe_value(value: str) -> str:
-    value = unquote(str(value or "")).strip().lstrip("@").strip()
-    return "" if value.lower() in _EMPTY_CREATOR_VALUES else value
-
-
-def _same_url_creator_value(left: str, right: str) -> bool:
-    return _clean_probe_value(left).casefold() == _clean_probe_value(right).casefold()
-
-
-def _normalize_scraper_role(role: str) -> str:
-    role = str(role or "").strip().lower()
-    if role in ("creator", "username", "nickname"):
-        return "creator"
-    return role if role == "title" else ""
-
-
-def _creator_roles_for_templates(
-    folder_template: str,
-    filename_template: str,
-    token_roles: dict[str, str] | None = None,
-) -> list[str]:
-    roles: list[str] = []
-    role_map = token_roles or {}
-    for template in (folder_template, filename_template):
-        for match in TEMPLATE_RE.finditer(str(template or "")):
-            field = match.group(1).strip().lower()
-            role = _normalize_scraper_role(role_map.get(field)) or (field if field in CREATOR_FIELDS else "")
-            if role and role not in roles:
-                roles.append(role)
-    return roles
-
-
-def _creator_role_for_templates(
-    folder_template: str,
-    filename_template: str,
-    token_roles: dict[str, str] | None = None,
-) -> str:
-    # {{username}} vs {{nickname}} is decided by the folder token first, else the filename token.
-    roles = _creator_roles_for_templates(folder_template, filename_template, token_roles)
-    return roles[0] if roles else "username"
-
-
-def _template_role_has_scraper_rule(
-    folder_template: str,
-    filename_template: str,
-    token_roles: dict[str, str] | None,
-    scrape_rule_tokens: set[str],
-    role: str,
-    order: list[str],
-) -> bool:
-    norm_role = _normalize_scraper_role(role)
-    if not norm_role:
-        return False
-    template_roles = _creator_roles_for_templates(folder_template, filename_template, token_roles)
-    if not any(_normalize_scraper_role(r) == "creator" for r in template_roles):
-        return False
-    return bool(_leading_scraper_tokens_for_role(order, token_roles, scrape_rule_tokens, role))
-
-
-def _leading_scraper_tokens_for_role(
-    order: list[str],
-    token_roles: dict[str, str] | None,
-    scrape_rule_tokens: set[str],
-    role: str,
-) -> list[str]:
-    norm_role = _normalize_scraper_role(role)
-    if not norm_role:
-        return []
-    out: list[str] = []
-    for field in order or []:
-        token = scraper_token_from_field(field)
-        if not token:
-            break
-        assigned = _normalize_scraper_role((token_roles or {}).get(token))
-        if token in scrape_rule_tokens and assigned == norm_role:
-            out.append(token)
-    return out
-
-
-def _template_has_active_scraper_rule(
-    folder_template: str,
-    filename_template: str,
-    scrape_rule_tokens: set[str],
-) -> bool:
-    for template in (folder_template, filename_template):
-        for match in TEMPLATE_RE.finditer(str(template or "")):
-            field = match.group(1).strip().lower()
-            if field in scrape_rule_tokens:
-                return True
-    return False
-
-
-def _probe_metadata_order(order: list[str]) -> list[str]:
-    return [field for field in order or [] if not is_scraper_field(field)]
-
-
-def _prefer_format(
-    urls: Iterable[str], learned: dict[str, Any], source_key: str, format_template: str
-) -> list[str]:
-    """``urls`` without blanks, the ones in ``format_template`` first and otherwise in order."""
-    kept = [url for url in urls if url]
-    if not format_template:
-        return kept
-    return sorted(kept, key=lambda url: not url_in_format(learned, source_key, url, format_template))
-
-
 def _file_link(
     learned: dict[str, Any],
     source_key: str,
@@ -702,52 +515,16 @@ def _file_link(
     known: str = "",
 ) -> str:
     """``known``, or a link rebuilt from the learned formats, preferring the format the file was named by."""
-    candidates = reconstruct_url_candidates(learned, source_key, media_id, creator=creator, slug_values=slug_values)
-    return next(iter(_prefer_format([known, *candidates], learned, source_key, format_template)), "")
 
+    def rebuilt(fmt: str = "") -> list[str]:
+        return reconstruct_url_candidates(
+            learned, source_key, media_id, creator=creator, slug_values=slug_values, format_template=fmt
+        )
 
-def _probe_disk_creator(
-    learned: dict[str, Any],
-    source_key: str,
-    media_id: str,
-    order: list[str],
-    slug_values: dict[str, str],
-    disk_creator: str,
-    format_template: str = "",
-) -> tuple[str, str]:
-    """Probe a manually-placed file's reconstructed link and pick its creator.
-
-    Walks the configured creator-field order over the probed metadata and
-    stops at the first field that carries a value. Reconstructs media_id (+slug) links
-    first, only using the disk creator for templates that actually contain ``{creator}``.
-    Links in ``format_template``, the format the file was named by, go first.
-    Returns ``(creator, matched_url)``; ``("", "")`` when nothing probes or matches.
-    """
-    if not order:
-        return "", ""
-    # Each link maps to the creator it was built with.
-    candidates = dict.fromkeys(
-        reconstruct_url_candidates(learned, source_key, media_id, creator="", slug_values=slug_values), ""
-    )
-    if disk_creator:
-        for url in reconstruct_url_candidates(
-            learned, source_key, media_id, creator=disk_creator, slug_values=slug_values
-        ):
-            candidates.setdefault(url, disk_creator)
-    for url in _prefer_format(candidates, learned, source_key, format_template)[:_MAX_PROBE_CANDIDATES]:
-        url_creator = candidates[url]
-        flat = probe_metadata_anonymous_first(url)
-        if not flat:
-            continue
-        for field in order:
-            value = _clean_probe_value(flat.get(field, ""))
-            if not value:
-                continue
-            if url_creator and not _same_url_creator_value(value, url_creator):
-                break
-            if value:
-                return value, url
-    return "", ""
+    in_format = rebuilt(format_template) if format_template else []
+    if known and (not in_format or url_in_format(learned, source_key, known, format_template)):
+        return known
+    return next(iter(in_format or rebuilt()), "")
 
 
 class _TemplateResolver:
@@ -879,22 +656,24 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
 
     Runs one at a time: overlapping scans walk the same tree and rewrite the same
     rows, so a second caller waits and then sees the first scan's result rather
-    than doubling the load.
+    than doubling the load. Reads only the disk, the rows and the settings; looking
+    a value up over the network is the resolve pass's job.
     """
     with _scan_lock:
-        # One settings snapshot for the whole scan. The scan writes a history row per
-        # file it resolves, and any settings derivation keyed on stored activity would
-        # otherwise be invalidated by the scan's own writes, once per file.
-        with resolution_scope(), CpuPacer() as pacer:
-            return _scan_media_library(roots, pacer)
+        _scanning.set()
+        try:
+            # One settings snapshot for the whole scan. The scan writes a history row per
+            # file it resolves, and any settings derivation keyed on stored activity would
+            # otherwise be invalidated by the scan's own writes, once per file.
+            with resolution_scope(), CpuPacer() as pacer:
+                return _scan_media_library(roots, pacer)
+        finally:
+            _scanning.clear()
 
 
 def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> dict[str, int]:
     recover_interrupted_renames()
     records = _completed_records()
-    # Files are only renamed when asked for; this flags the rows the templates cannot name.
-    _plans, needs_resolve = plan_history_renames(records, pacer)
-    sync_history_resolve_flags(needs_resolve)
     walked_media: list[tuple[Path, Path, os.stat_result | None, str]] = []
     seen_paths: set[str] = set()
     for root, path, stat_result, path_key in _iter_media_files(_iter_scan_roots(roots)):
@@ -903,27 +682,18 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
         seen_paths.add(path_key)
 
     checked, missing = _drop_missing_records(records, seen_paths, pacer)
-    real_media_ids = _real_download_media_ids(records)
+    real_paths, real_media_ids = _owned_media(records, disk=False)
     _prune_disk_shadows(records, real_media_ids)
-    known_paths, known_media_ids = _known_media(records)
-    disk_paths, disk_media_ids = _disk_derived_media(records)
+    disk_paths, disk_media_ids = _owned_media(records, disk=True)
     location_rows = _scan_location_rows()
     location_index = _source_location_index(location_rows)
     source_folders = _source_folder_keys(location_rows)
     source_profile_keys = _scan_source_profile_keys()
     token_role_map = _scan_token_role_map()
-    scrape_rule_tokens_map = _scan_scrape_rule_tokens()
     slug_tokens_map = _scan_slug_tokens_map()
     templates = _TemplateResolver(*_scan_template_map(), token_role_map, slug_tokens_map)
-    field_roles_map = _scan_field_roles_map()
-    field_defaults_map = _scan_field_defaults()
     learned = load_learned_formats()
-
-    # Index of what each disk file resolved from last time. A rescan compares the
-    # file and the rules against it and re-resolves only what actually moved,
-    # instead of rebuilding every disk entry from scratch on every pass.
-    disk_index = _disk_signature_index(records)
-    revision = resolution_revision()
+    settled = _settled_disk_rows(records)
 
     added = 0
     unchanged = 0
@@ -931,28 +701,22 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
     pending_rows: list[tuple[str, dict[str, Any]]] = []
     for root, path, stat_result, path_key in walked_media:
         pacer.tick()
-        if path_key in known_paths and path_key not in disk_paths:
+        if path_key in real_paths:
             continue
-        signature = _file_signature(stat_result, revision)
-        cached = disk_index.get(path_key)
+        signature = _file_signature(stat_result)
+        cached = settled.get(path_key)
         if cached and cached[0] == signature:
-            # Same bytes, same rules: the row on file is still the right answer.
             unchanged += 1
             resolved_this_run.add(cached[1])
-            known_paths.add(path_key)
-            known_media_ids.add(cached[1])
             continue
         media_id, title = _parse_media_fields(path, templates.base_filename)
         if not media_id or media_id in resolved_this_run:
             continue
         if media_id in real_media_ids:
             continue  # a real download already owns this media; never shadow it with a disk entry
-        if media_id in known_media_ids and media_id not in disk_media_ids:
-            continue
         resolved_this_run.add(media_id)
 
         task_id = f"disk:{media_id}"
-        file_size = int(stat_result.st_size) if stat_result else 0
         source_hint = _source_from_named_folder(root, path, source_profile_keys)
         source_key, source_pending, source_candidates, folder_format = infer_disk_source(
             path, media_id, location_index, learned, source_hint
@@ -980,60 +744,22 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
         slug_names = {rule["token"] for rule in slug_rules if rule.get("token")}
         # Recover configured URL parts from the filename so links reconstruct generically.
         slug_values = _slug_values_from_fields(slug_rules, source_roles, slug_names, filename_fields)
-        disk_creator = _creator_for_file(root, path, source_folders, compiled)
-        template_settings = templates.templates_for_format(source_key, matched_fmt)
-        folder_template = template_settings["folder_template"]
-        filename_template = template_settings["filename_template"]
         prior = records.get(task_id) or {}
-        prior_creator = str(prior.get("creator") or "").strip()
-        if prior_creator:
-            # Already resolved by a past scan or a real download: never re-probe, keep it as-is,
-            # unless its link is in another format than the one the file was named by.
-            creator = prior_creator
-            source_url = _file_link(
-                learned,
-                source_key,
-                media_id,
-                matched_fmt,
-                creator=creator,
-                slug_values=slug_values,
-                known=str(prior.get("source_url") or "").strip(),
-            )
-        else:
-            # Manually-placed file with no resolved creator yet: probe in the configured order.
-            role = _creator_role_for_templates(folder_template, filename_template, source_roles)
-            order = (field_roles_map.get(source_key) or {}).get(role) or field_defaults_map.get(role, [])
-            scraper_backed_role = _template_role_has_scraper_rule(
-                folder_template,
-                filename_template,
-                source_roles,
-                scrape_rule_tokens_map.get(source_key) or set(),
-                role,
-                order,
-            ) or _template_has_active_scraper_rule(
-                folder_template,
-                filename_template,
-                scrape_rule_tokens_map.get(source_key) or set(),
-            )
-            if scraper_backed_role:
-                creator = disk_creator
-                source_url = _file_link(
-                    learned, source_key, media_id, matched_fmt, creator="", slug_values=slug_values
-                )
-            else:
-                probed_creator, probed_url = _probe_disk_creator(
-                    learned,
-                    source_key,
-                    media_id,
-                    _probe_metadata_order(order),
-                    slug_values,
-                    disk_creator,
-                    matched_fmt,
-                )
-                creator = probed_creator or disk_creator
-                source_url = probed_url or _file_link(
-                    learned, source_key, media_id, matched_fmt, creator="", slug_values=slug_values
-                )
+        creator = str(prior.get("creator") or "").strip() or _creator_for_file(root, path, source_folders, compiled)
+        source_url = _file_link(
+            learned,
+            source_key,
+            media_id,
+            matched_fmt,
+            creator=creator,
+            slug_values=slug_values,
+            known=str(prior.get("source_url") or "").strip(),
+        )
+        # A file keeps the templates it was named by; only a new one takes those its name matches.
+        prior_path = payload_path_string(prior)
+        template_settings = (
+            template_settings_from_row(prior) if prior_path and _path_key(prior_path) == path_key else None
+        ) or templates.templates_for_format(source_key, matched_fmt)
         display_filename = clean_template_display_filename(
             path.name,
             template_settings,
@@ -1043,29 +769,30 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
             source_key=source_key,
             cleaning=get_effective_title_cleaning(source_url),
         )
-        pending_rows.append(
-            (
-                task_id,
-                {
-                    "media_id": media_id,
-                    "source_url": source_url,
-                    "engine": "disk",
-                    "source_key": source_key,
-                    "source_pending": source_pending,
-                    "source_candidates": source_candidates,
-                    "resolved_folder": str(path.parent),
-                    "resolved_filename": display_filename,
-                    "resolved_full_path": str(path),
-                    "title": title,
-                    **template_settings,
-                    "creator": creator,
-                    "file_size": file_size,
-                    "created_at": _history_created_at_from_file(path, stat_result),
-                    "scan_mtime_ns": signature[0],
-                    "scan_revision": signature[2],
-                },
-            )
-        )
+        # Laid over the prior row, so what a resolve filled survives a changed file.
+        row = {
+            **prior,
+            "media_id": media_id,
+            "source_url": source_url,
+            "engine": "disk",
+            "source_key": source_key,
+            "source_pending": source_pending,
+            "source_candidates": source_candidates,
+            "resolved_folder": str(path.parent),
+            "resolved_filename": display_filename,
+            "resolved_full_path": str(path),
+            "title": title,
+            **template_settings,
+            "creator": creator,
+            "file_size": signature[1],
+            "created_at": _history_created_at_from_file(path, stat_result),
+            "scan_mtime_ns": signature[0],
+        }
+        if row == prior:
+            unchanged += 1
+            continue
+        records[task_id] = row
+        pending_rows.append((task_id, row))
         # One commit per resolved file made the scan cost scale with fsyncs; a batch
         # keeps the write amortized while still landing rows as the scan progresses.
         if len(pending_rows) >= _HISTORY_WRITE_BATCH:
@@ -1073,10 +800,11 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
             pending_rows = []
         if path_key not in disk_paths and media_id not in disk_media_ids:
             added += 1
-        known_paths.add(path_key)
-        known_media_ids.add(media_id)
 
     save_history_entry_rows(pending_rows)
+    # Flagged against the rows as now written, so a row rewritten above keeps its flag.
+    needs_resolve = rows_needing_resolve(records, pacer)
+    sync_history_resolve_flags(needs_resolve)
     return {
         "checked": checked,
         "missing": missing,

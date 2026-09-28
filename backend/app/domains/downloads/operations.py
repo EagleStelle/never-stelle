@@ -7,32 +7,39 @@ from typing import Any
 from backend.app.core.config import is_allowed_location, load_app_config
 from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
+from backend.app.db.repositories import unlink_tracker_downloads
 from backend.app.domains.settings import get_effective_saved_settings, get_effective_title_cleaning, queue_icons
 from backend.app.integrations.swaratelle import client as swaratelle
 
 from .constants import normalize_post_processing, normalize_quality_selection
 from .engine import default_engine
-from .files import find_numbered_media_siblings, recover_task_path
+from .files import find_numbered_media_siblings, payload_path_string, recover_task_path, remove_media
 from .formats import reconstruct_url_candidates
 from .history import find_active_by_source, find_history_by_id, find_history_by_source
 from .learning import learn_source_id_signature
 from .naming import clean_template_display_filename
 from .planning import resolve_task_settings
-from .scan import parse_filename_media_id
+from .scan import history_write_lock, parse_filename_media_id
 from .serializers import history_to_api, task_to_api
 from .slideshow import build_slideshow_archive
 from .store import (
     load_active_task_store,
+    load_history_entries,
     load_learned_formats,
     load_task_store,
+    load_tasks,
+    remove_history_records,
     remove_task_record,
-    remove_task_record_if_status,
+    remove_task_records_if_status,
     save_history_entry_row,
     update_task,
 )
 from .templates import template_row_fields, template_settings_from_row
 from .urls import canonicalize_source_url, detect_source_key, resolve_redirect_url
 from .worker import ensure_worker, has_active_task, request_cancel
+
+# How long a delete waits for a library scan to finish with the history.
+_HISTORY_LOCK_SECONDS = 5.0
 
 
 def queue_task(
@@ -133,95 +140,97 @@ def _correct_reconstructed_url(task_id: str, entry: dict[str, Any], source_url: 
     return updated
 
 
-def remove_pending_task(task_id: str) -> None:
-    if swaratelle.is_swaratelle_task_id(task_id):
-        # Failed/pending Iwara downloads live in Swaratelle; delegate the delete there.
-        swaratelle.cancel_task(task_id)
-        return
-    task = (load_task_store().get("tasks") or {}).get(task_id)
-    if not task:
-        return
-    status = task.get("status")
-    if status == "running":
-        request_cancel(task_id)
-        remove_task_record(task_id)
-        return
-    if status in {"pending", "failed"}:
-        remove_task_record(task_id)
-        return
-    raise PermissionError("Only active, queued, or failed tasks can be removed.")
+def queue_quality(quality: dict[str, Any] | None, post_processing: dict[str, Any] | None) -> dict[str, Any]:
+    """The ``quality`` payload ``queue_task`` takes, carrying post-processing when one is set."""
+    payload = dict(quality or {})
+    if post_processing:
+        payload["_post_processing"] = post_processing
+    return payload
 
 
-def cancel_task(task_id: str) -> None:
-    if swaratelle.is_swaratelle_task_id(task_id):
-        # Running Iwara download: Swaratelle's DELETE signals its own downloader to stop.
-        swaratelle.cancel_task(task_id)
+def _unique(task_ids: list[str]) -> list[str]:
+    return list(dict.fromkeys(str(task_id) for task_id in task_ids))
+
+
+def _remove_history(entries: dict[str, dict[str, Any]]) -> None:
+    """Delete the rows' files and the rows; raises ``PermissionError`` while a scan holds the history."""
+    if not entries:
         return
-    task = (load_task_store().get("tasks") or {}).get(task_id)
-    if not task:
-        return
-    status = task.get("status")
-    if status == "running":
+    with history_write_lock(timeout=_HISTORY_LOCK_SECONDS):
+        remove_media([payload_path_string(entry) for entry in entries.values()])
+        remove_history_records(list(entries))
+
+
+def _stop_tasks(task_ids: list[str]) -> None:
+    """Remove queued and failed tasks; a running one is cancelled and its worker removes it."""
+    removed = set(remove_task_records_if_status(task_ids, {"pending", "failed"}))
+    for task_id in task_ids:
+        if task_id in removed:
+            continue
+        # Running, or claimed by the scheduler since it was read.
         request_cancel(task_id)
         if not has_active_task(task_id):
-            # Orphaned running row (crash debris) has no worker to signal.
             remove_task_record(task_id)
-        return
-    if status == "pending":
-        if remove_task_record_if_status(task_id, {"pending"}):
-            return
-        # The scheduler may have claimed it after our read. Re-evaluate instead
-        # of returning success while the newly-running task continues.
-        latest = (load_task_store().get("tasks") or {}).get(task_id)
-        if latest and latest.get("status") == "running":
-            request_cancel(task_id)
-            if not has_active_task(task_id):
-                remove_task_record(task_id)
-        return
-    raise PermissionError("Only active or queued downloads can be cancelled.")
 
 
-def retry_task(task_id: str) -> None:
-    task = (load_task_store().get("tasks") or {}).get(task_id)
-    if not task:
-        raise FileNotFoundError("Task was not found.")
-    if task.get("status") != "failed":
-        raise PermissionError("Only failed downloads can be retried.")
-    source_url = canonicalize_source_url(str(task.get("source_url") or ""))
+def delete_downloads(task_ids: list[str]) -> dict[str, Any]:
+    """Delete downloads in any state, with their files; trackers stop linking them, so no check queues them again."""
+    ids = _unique(task_ids)
+    errors: list[str] = []
+    count = 0
+    local: list[str] = []
+    for task_id in ids:
+        if not swaratelle.is_swaratelle_task_id(task_id):
+            local.append(task_id)
+            continue
+        try:
+            swaratelle.cancel_task(task_id)
+            count += 1
+        except swaratelle.SwaratelleError as exc:
+            errors.append(str(exc))
+    tasks = load_tasks(local)
+    history = load_history_entries(local)
+    _remove_history(history)
+    _stop_tasks(list(tasks))
+    unlink_tracker_downloads(local)
+    return {"count": count + len(tasks.keys() | history.keys()), "errors": errors}
+
+
+def retry_downloads(task_ids: list[str]) -> dict[str, Any]:
+    """Queue failed downloads again under their own ids, so tracker links stay valid."""
+    ids = _unique(task_ids)
     engine = default_engine()
-    updates: dict[str, Any] = {
-        "status": "pending",
-        "progress_pct": 0,
-        "error": "",
-        "last_log_lines": [],
-        "engine": engine.name,
-    }
-    output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
-    if source_url and output_dir:
-        template_settings = template_settings_from_row(task)
-        updates["output_template"] = engine.build_output_template(
-            source_url,
-            output_dir,
-            template_settings,
-            normalize_quality_selection(task.get("quality")),
-        )
-    update_task(task_id, **updates)
-    ensure_worker()
+    retried = 0
+    for task_id, task in load_tasks(ids).items():
+        if task.get("status") != "failed":
+            continue
+        updates: dict[str, Any] = {
+            "status": "pending",
+            "progress_pct": 0,
+            "error": "",
+            "last_log_lines": [],
+            "engine": engine.name,
+        }
+        source_url = canonicalize_source_url(str(task.get("source_url") or ""))
+        output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
+        if source_url and output_dir:
+            updates["output_template"] = engine.build_output_template(
+                source_url,
+                output_dir,
+                template_settings_from_row(task),
+                normalize_quality_selection(task.get("quality")),
+            )
+        update_task(task_id, **updates)
+        retried += 1
+    if retried:
+        ensure_worker()
+    errors = ["Only failed downloads can be retried."] if retried < len(ids) else []
+    return {"count": retried, "errors": errors}
 
 
 def clear_pending_tasks() -> dict[str, Any]:
-    # Non-completed (queued/failed/running) tasks are clearable. Completed downloads are permanent.
-    cleared = 0
-    for vid, task in (load_active_task_store().get("tasks") or {}).items():
-        status = str(task.get("status") or "")
-        if status in {"pending", "failed"}:
-            if remove_task_record_if_status(vid, {"pending", "failed"}):
-                cleared += 1
-        elif status == "running":
-            request_cancel(vid)
-            remove_task_record(vid)
-            cleared += 1
-    return {"cleared": cleared, "failed": []}
+    # Everything still in the queue goes; completed downloads live in history.
+    return delete_downloads(list(load_active_task_store().get("tasks") or {}))
 
 
 def get_task(task_id: str) -> dict[str, Any]:
@@ -279,29 +288,52 @@ def set_task_source(task_id: str, source_key: str) -> str:
     raise FileNotFoundError("Task was not found.")
 
 
+def _history_task(entry: dict[str, Any]) -> dict[str, Any]:
+    """A finished download's history row in the shape a task row has."""
+    return {
+        "status": "completed",
+        "engine": entry.get("engine") or "gallerydl",
+        "creator": entry.get("creator") or "",
+        "source_url": entry.get("source_url", ""),
+        "resolved_full_path": entry.get("resolved_full_path", ""),
+        "resolved_filename": entry.get("resolved_filename", ""),
+        "resolved_folder": entry.get("resolved_folder", ""),
+        "media_id": entry.get("media_id", ""),
+        "title": entry.get("title", ""),
+        "folder_template": entry.get("folder_template", ""),
+        "filename_template": entry.get("filename_template", ""),
+        "quality": entry.get("quality", {}),
+    }
+
+
+def _download_name(task: dict[str, Any], fallback: str) -> str:
+    """The name a finished file downloads as: its filename cleaned by the templates it was filed with."""
+    filename = str(task.get("resolved_filename") or "").strip() or fallback
+    if str(task.get("engine") or "") != "gallerydl":
+        return filename
+    source_key = str(task.get("source_key") or "").strip() or detect_source_key(str(task.get("source_url") or ""))
+    parsed_media_id, _ = parse_filename_media_id(filename)
+    return clean_template_display_filename(
+        filename,
+        template_settings_from_row(task),
+        creator=str(task.get("creator") or ""),
+        title=str(task.get("title") or "").strip(),
+        media_id=str(task.get("media_id") or "").strip() or parsed_media_id,
+        source_key=source_key,
+        cleaning=get_effective_title_cleaning(str(task.get("source_url") or "")),
+        quality=normalize_quality_selection(task.get("quality")),
+    )
+
+
 def resolve_task_file(task_id: str) -> tuple[Path, str]:
     task = (load_task_store().get("tasks") or {}).get(task_id)
     history_entry = find_history_by_id(task_id)
     if not task and history_entry:
-        task = {
-            "status": "completed",
-            "engine": history_entry.get("engine") or "gallerydl",
-            "creator": history_entry.get("creator") or "",
-            "source_url": history_entry.get("source_url", ""),
-            "resolved_full_path": history_entry.get("resolved_full_path", ""),
-            "resolved_filename": history_entry.get("resolved_filename", ""),
-            "resolved_folder": history_entry.get("resolved_folder", ""),
-            "media_id": history_entry.get("media_id", ""),
-            "title": history_entry.get("title", ""),
-            "folder_template": history_entry.get("folder_template", ""),
-            "filename_template": history_entry.get("filename_template", ""),
-            "quality": history_entry.get("quality", {}),
-        }
+        task = _history_task(history_entry)
     if not task:
         raise FileNotFoundError("Task was not found.")
     if task.get("status") != "completed":
         raise RuntimeError("File is not ready yet.")
-    display_filename = str(task.get("resolved_filename") or "").strip()
     resolved_path, _, recovered_filename = recover_task_path(task_id, task)
     if not resolved_path:
         resolved_path = str(task.get("resolved_full_path") or "")
@@ -310,23 +342,32 @@ def resolve_task_file(task_id: str) -> tuple[Path, str]:
     path = Path(resolved_path)
     if not path.exists() or not path.is_file():
         raise FileNotFoundError("The completed file could not be found.")
-    filename = display_filename or recovered_filename or path.name
-    if str(task.get("engine") or "") == "gallerydl":
-        source_key = str(task.get("source_key") or "").strip() or detect_source_key(str(task.get("source_url") or ""))
-        parsed_media_id, _ = parse_filename_media_id(filename)
-        filename = clean_template_display_filename(
-            filename,
-            template_settings_from_row(task),
-            creator=str(task.get("creator") or ""),
-            title=str(task.get("title") or "").strip(),
-            media_id=str(task.get("media_id") or "").strip() or parsed_media_id,
-            source_key=source_key,
-            cleaning=get_effective_title_cleaning(str(task.get("source_url") or "")),
-            quality=normalize_quality_selection(task.get("quality")),
-        )
+    filename = _download_name(task, recovered_filename or path.name)
     siblings = find_numbered_media_siblings(path)
     if len(siblings) > 1:
         archive_path = build_slideshow_archive(siblings)
         archive_name = f"{Path(filename).stem}.zip"
         return archive_path, archive_name
     return path, filename
+
+
+def archive_files(task_ids: list[str]) -> list[tuple[Path, str]]:
+    """Each finished download's file with its download name, in the order asked; a repeated name gets a number."""
+    ids = _unique(task_ids)
+    entries = load_history_entries(ids)
+    files: list[tuple[Path, str]] = []
+    used: set[str] = set()
+    for task_id in ids:
+        entry = entries.get(task_id)
+        path = Path(payload_path_string(entry)) if entry else None
+        if path is None or not path.is_file():
+            continue
+        name = _download_name(_history_task(entry), path.name)
+        stem, suffix = Path(name).stem, Path(name).suffix
+        copy = 1
+        while name.casefold() in used:
+            copy += 1
+            name = f"{stem} ({copy}){suffix}"
+        used.add(name.casefold())
+        files.append((path, name))
+    return files

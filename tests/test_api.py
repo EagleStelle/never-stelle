@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import io
+import zipfile
+
 from fastapi.testclient import TestClient
 
 import backend.app.domains.downloads.scan as scan_module
@@ -818,11 +821,54 @@ def test_tracker_routes_create_apply_check_and_delete(tmp_path, monkeypatch):
     listed = client.get("/api/trackers").json()["trackers"]
     assert [(tracker["id"], tracker["counts"]["seen"]) for tracker in listed] == [(tracker_id, 0)]
 
-    assert client.post(f"/api/trackers/{tracker_id}/check").status_code == 204
-    assert client.delete(f"/api/trackers/{tracker_id}/check").status_code == 204
+    ids = {"ids": [tracker_id]}
+    assert client.post("/api/trackers/check", json=ids).json() == {"count": 1, "errors": []}
+    assert client.post("/api/trackers/stop", json=ids).json() == {"count": 1, "errors": []}
+    assert client.post("/api/trackers/enabled", json={**ids, "enabled": False}).json() == {"count": 1, "errors": []}
+    assert client.get("/api/trackers").json()["trackers"][0]["enabled"] is False
     # Paused, so there is nothing to check.
-    assert client.patch(f"/api/trackers/{tracker_id}", json={"enabled": False}).json()["enabled"] is False
-    assert client.post(f"/api/trackers/{tracker_id}/check").status_code == 409
+    paused = client.post("/api/trackers/check", json=ids).json()
+    assert paused == {"count": 0, "errors": ["Resume the tracker to check it."]}
+    assert client.post("/api/trackers/check", json={"ids": []}).status_code == 422
 
-    assert client.delete(f"/api/trackers/{tracker_id}").status_code == 204
-    assert client.patch(f"/api/trackers/{tracker_id}", json={"enabled": True}).status_code == 404
+    assert client.post("/api/trackers/delete", json=ids).json() == {"count": 1, "errors": []}
+    assert client.get("/api/trackers").json()["trackers"] == []
+    assert client.patch(f"/api/trackers/{tracker_id}", json={"interval_seconds": 3600}).status_code == 404
+
+
+def test_download_batch_routes_retry_and_delete(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    monkeypatch.setattr(operations_module, "ensure_worker", lambda: None)
+    repositories.merge_task_payload("gallerydl:failed", {"status": "failed"})
+    repositories.save_history_row("gallerydl:done", {"source_url": "https://example.test/post/1"})
+    ids = {"ids": ["gallerydl:failed"]}
+
+    assert client.post("/api/downloads/retry", json=ids).json() == {"count": 1, "errors": []}
+    assert client.post("/api/downloads/delete", json=ids).json() == {"count": 1, "errors": []}
+    assert client.post("/api/downloads/delete", json={"ids": []}).status_code == 422
+    monkeypatch.setattr(operations_module, "_HISTORY_LOCK_SECONDS", 0.01)
+    with scan_module.history_write_lock():
+        assert client.post("/api/downloads/delete", json={"ids": ["gallerydl:done"]}).status_code == 409
+
+
+def test_download_files_streams_the_selected_files_under_unique_names(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    first = tmp_path / "media" / "a" / "clip [1].mp4"
+    second = tmp_path / "media" / "b" / "clip [1].mp4"
+    for path, body in ((first, b"one"), (second, b"two")):
+        path.parent.mkdir(parents=True)
+        path.write_bytes(body)
+        repositories.save_history_row(
+            f"ytdlp:{body.decode()}",
+            {"source_url": "https://example.test/post/1", "engine": "ytdlp", "resolved_full_path": str(path)},
+        )
+
+    ids = [("ids", "ytdlp:two"), ("ids", "ytdlp:gone"), ("ids", "ytdlp:one")]
+    response = client.get("/api/downloads/files", params=ids)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert archive.namelist() == ["clip [1].mp4", "clip [1] (2).mp4"]
+        assert [archive.read(name) for name in archive.namelist()] == [b"two", b"one"]
+    assert client.get("/api/downloads/files", params={"ids": "ytdlp:gone"}).status_code == 404

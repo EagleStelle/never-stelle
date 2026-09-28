@@ -16,6 +16,7 @@ import backend.app.domains.downloads.workers.execution as execution_module
 import backend.app.domains.downloads.workers.processes as processes_module
 import backend.app.domains.downloads.workers.scheduler as scheduler_module
 import backend.app.runtime.scratch as scratch_module
+from backend.app.db import repositories
 
 
 def test_cancel_interrupts_finalizer_process_reaps_it_and_clears_scratch(tmp_path, monkeypatch):
@@ -110,40 +111,30 @@ def test_cancelled_cross_filesystem_publish_removes_its_copy(tmp_path, monkeypat
     assert list(target.parent.iterdir()) == []
 
 
-def test_cancel_running_task_signals_python_finalization_without_a_subprocess(monkeypatch):
+def test_delete_running_task_signals_python_finalization_without_a_subprocess(monkeypatch):
     task_id = "ytdlp:finalizing"
+    repositories.merge_task_payload(task_id, {"status": "running"})
     requested: list[str] = []
     removed: list[str] = []
-    monkeypatch.setattr(
-        operations_module,
-        "load_task_store",
-        lambda: {"tasks": {task_id: {"status": "running"}}},
-    )
     monkeypatch.setattr(operations_module, "has_active_task", lambda value: value == task_id)
     monkeypatch.setattr(operations_module, "request_cancel", requested.append)
     monkeypatch.setattr(operations_module, "remove_task_record", removed.append)
 
-    operations_module.cancel_task(task_id)
+    operations_module.delete_downloads([task_id])
 
     assert requested == [task_id]
     assert removed == []
 
 
-def test_pending_cancel_handles_a_simultaneous_scheduler_claim(monkeypatch):
+def test_pending_delete_handles_a_simultaneous_scheduler_claim(monkeypatch):
     task_id = "ytdlp:claim-race"
-    reads = iter(
-        [
-            {"tasks": {task_id: {"status": "pending"}}},
-            {"tasks": {task_id: {"status": "running"}}},
-        ]
-    )
+    repositories.merge_task_payload(task_id, {"status": "pending"})
     requested: list[str] = []
-    monkeypatch.setattr(operations_module, "load_task_store", lambda: next(reads))
-    monkeypatch.setattr(operations_module, "remove_task_record_if_status", lambda *args: False)
+    monkeypatch.setattr(operations_module, "remove_task_records_if_status", lambda *args: [])
     monkeypatch.setattr(operations_module, "has_active_task", lambda value: value == task_id)
     monkeypatch.setattr(operations_module, "request_cancel", requested.append)
 
-    operations_module.cancel_task(task_id)
+    operations_module.delete_downloads([task_id])
 
     assert requested == [task_id]
 

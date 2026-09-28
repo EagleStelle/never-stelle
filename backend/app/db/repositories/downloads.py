@@ -13,8 +13,10 @@ from backend.app.db.repositories.utils import (
     _encode,
     _payload_source_key,
     _safe_float,
+    chunks,
+    marks,
 )
-from backend.app.domains.downloads.constants import media_kind_for
+from backend.app.domains.downloads.constants import ENRICHMENT_JOB_KINDS, enrichment_job_id, media_kind_for
 
 
 def _insert_sql(table: str, columns: tuple[str, ...]) -> str:
@@ -66,7 +68,6 @@ _HISTORY_COLUMNS = (
     "resolved_filename",
     "file_size",
     "scan_mtime_ns",
-    "scan_revision",
     "folder_template",
     "filename_template",
     "needs_resolve",
@@ -180,7 +181,6 @@ def _history_payload_from_row(row: Any) -> dict[str, Any]:
             "resolved_filename": str(row["resolved_filename"] or ""),
             "file_size": safe_int(row["file_size"]),
             "scan_mtime_ns": safe_int(row["scan_mtime_ns"]),
-            "scan_revision": str(row["scan_revision"] or ""),
             "folder_template": str(row["folder_template"] or ""),
             "filename_template": str(row["filename_template"] or ""),
             "needs_resolve": bool(safe_int(row["needs_resolve"])),
@@ -252,7 +252,6 @@ def _history_row_values(task_id: str, payload: dict[str, Any], now: str) -> tupl
         _text(payload, "resolved_filename"),
         safe_int(payload.get("file_size")),
         safe_int(payload.get("scan_mtime_ns")),
-        _text(payload, "scan_revision"),
         _text(payload, "folder_template"),
         _text(payload, "filename_template"),
         int(bool(payload.get("needs_resolve"))),
@@ -403,6 +402,17 @@ def load_task_payload(task_id: str) -> dict[str, Any]:
     return _task_payload_from_row(row)
 
 
+def load_task_rows(task_ids: list[str]) -> dict[str, dict[str, Any]]:
+    tasks: dict[str, dict[str, Any]] = {}
+    with transaction() as connection:
+        for chunk in chunks(task_ids):
+            for row in connection.execute(
+                f"SELECT {_TASK_SELECT} FROM download_tasks WHERE id IN ({marks(chunk)})", chunk
+            ).fetchall():
+                tasks[str(row["id"])] = _task_payload_from_row(row)
+    return tasks
+
+
 def _pending_filter(skip_sources: Collection[str]) -> tuple[str, list[str]]:
     """WHERE clause for queued tasks outside ``skip_sources``, with its parameters."""
     skip = sorted(skip_sources)
@@ -509,12 +519,12 @@ def upsert_enrichment_jobs_payload(kind: str, rows: list[tuple[str, dict[str, An
         return 0
     ids = [job[0] for job in prepared]
     with transaction() as connection:
-        placeholders = ", ".join("?" for _ in ids)
         running = {
             str(row["id"])
+            for chunk in chunks(ids)
             for row in connection.execute(
-                f"SELECT id FROM download_enrichment_jobs WHERE status = 'running' AND id IN ({placeholders})",
-                tuple(ids),
+                f"SELECT id FROM download_enrichment_jobs WHERE status = 'running' AND id IN ({marks(chunk)})",
+                chunk,
             ).fetchall()
         }
         connection.executemany(
@@ -530,14 +540,6 @@ def upsert_enrichment_job_payload(job_id: str, kind: str, payload: dict[str, Any
     if not job_id:
         raise ValueError("Enrichment job id is required.")
     upsert_enrichment_jobs_payload(kind, [(job_id, payload)])
-
-
-def delete_enrichment_jobs_payload(job_ids: list[str]) -> None:
-    rows = [(str(job_id),) for job_id in job_ids if str(job_id or "").strip()]
-    if not rows:
-        return
-    with transaction() as connection:
-        connection.executemany("DELETE FROM download_enrichment_jobs WHERE id = ?", rows)
 
 
 def claim_next_enrichment_job_payload() -> dict[str, Any] | None:
@@ -638,20 +640,24 @@ def delete_task_row(task_id: str) -> None:
         connection.execute("DELETE FROM download_tasks WHERE id = ?", (str(task_id),))
 
 
-def delete_task_row_if_status(task_id: str, statuses: set[str]) -> bool:
-    normalized = {str(status) for status in statuses}
-    if not normalized:
-        return False
-    invalid = normalized - _TASK_STATUSES
+def delete_task_rows_if_status(task_ids: list[str], statuses: set[str]) -> list[str]:
+    """Delete the tasks still in one of ``statuses``; returns the ids deleted."""
+    normalized = sorted({str(status) for status in statuses})
+    invalid = set(normalized) - _TASK_STATUSES
     if invalid:
         raise ValueError(f"Invalid download task status: {sorted(invalid)[0]}")
-    placeholders = ",".join("?" for _ in normalized)
+    deleted: list[str] = []
+    if not normalized:
+        return deleted
     with transaction() as connection:
-        cursor = connection.execute(
-            f"DELETE FROM download_tasks WHERE id = ? AND status IN ({placeholders})",
-            (str(task_id), *sorted(normalized)),
-        )
-    return bool(cursor.rowcount)
+        for chunk in chunks(task_ids):
+            where = f"id IN ({marks(chunk)}) AND status IN ({marks(normalized)})"
+            params = (*chunk, *normalized)
+            deleted.extend(
+                str(row[0]) for row in connection.execute(f"SELECT id FROM download_tasks WHERE {where}", params)
+            )
+            connection.execute(f"DELETE FROM download_tasks WHERE {where}", params)
+    return deleted
 
 
 def load_history_payload() -> dict[str, Any]:
@@ -669,6 +675,21 @@ def load_history_entry_payload(task_id: str) -> dict[str, Any]:
             (str(task_id),),
         ).fetchone()
     return _history_payload_from_row(row)
+
+
+def _history_rows_where(column: str, values: list[str]) -> dict[str, dict[str, Any]]:
+    entries: dict[str, dict[str, Any]] = {}
+    with transaction() as connection:
+        for chunk in chunks(values):
+            for row in connection.execute(
+                f"SELECT {_HISTORY_SELECT} FROM download_history WHERE {column} IN ({marks(chunk)})", chunk
+            ).fetchall():
+                entries[str(row["id"])] = _history_payload_from_row(row)
+    return entries
+
+
+def load_history_rows(task_ids: list[str]) -> dict[str, dict[str, Any]]:
+    return _history_rows_where("id", task_ids)
 
 
 def load_history_entries_by_media_id(media_id: str) -> list[tuple[str, dict[str, Any]]]:
@@ -813,9 +834,14 @@ def requeue_running_task(task_id: str) -> bool:
     return bool(cursor.rowcount)
 
 
-def delete_history_row(task_id: str) -> None:
+def delete_history_rows(task_ids: list[str]) -> None:
+    """Delete history rows and their enrichment jobs, whose spent state would block the id if it came back."""
+    jobs = [enrichment_job_id(kind, str(task_id)) for task_id in task_ids for kind in ENRICHMENT_JOB_KINDS]
     with transaction() as connection:
-        connection.execute("DELETE FROM download_history WHERE id = ?", (str(task_id),))
+        for chunk in chunks(task_ids):
+            connection.execute(f"DELETE FROM download_history WHERE id IN ({marks(chunk)})", chunk)
+        for chunk in chunks(jobs):
+            connection.execute(f"DELETE FROM download_enrichment_jobs WHERE id IN ({marks(chunk)})", chunk)
 
 
 def open_rename_journal_entries() -> list[dict[str, str]]:

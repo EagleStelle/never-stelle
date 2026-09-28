@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable
 from typing import Any
 
@@ -93,26 +92,6 @@ def _save_format_rows(connection: Any, payload: dict[str, Any]) -> None:
                 now,
             ),
         )
-
-
-def learned_formats_revision() -> str:
-    """Marker of what learning would resolve differently, ignoring bookkeeping.
-
-    Deliberately excludes ``samples`` and ``updated_at``: every download of a known
-    format bumps both without changing a single answer. Keying a rescan on those
-    would mark every file stale after each download. Only the columns that steer
-    reconstruction are hashed.
-    """
-    with transaction() as connection:
-        rows = connection.execute(
-            "SELECT source_key, host, templates, id_min, id_max, id_classes"
-            " FROM learned_formats ORDER BY source_key"
-        ).fetchall()
-    digest = hashlib.blake2b(digest_size=16)
-    for row in rows:
-        digest.update("\x1f".join(str(value) for value in tuple(row)).encode("utf-8", "replace"))
-        digest.update(b"\x1e")
-    return digest.hexdigest()
 
 
 def _load_format_rows(connection: Any) -> dict[str, Any]:

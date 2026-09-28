@@ -21,7 +21,7 @@ from backend.app.domains.downloads.scan import parse_filename_media_id
 from backend.app.domains.downloads.store import (
     load_history_entries_for_media_id,
     load_history_entry_for_path,
-    remove_history_record,
+    remove_history_records,
 )
 from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
 from backend.app.domains.downloads.workers.completion_creators import (
@@ -227,7 +227,7 @@ def _remove_duplicate_candidate(path: Path, seen: set[str], task_id: str = "") -
     except OSError:
         return
     if task_id:
-        remove_history_record(task_id)
+        remove_history_records([task_id])
 
 
 def _replace_group_path(paths: list[Path], old: Path, new: Path) -> None:

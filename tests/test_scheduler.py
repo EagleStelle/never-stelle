@@ -6,6 +6,7 @@ import time
 import backend.app.domains.downloads.operations as operations_module
 import backend.app.domains.downloads.workers.processes as processes_module
 import backend.app.domains.downloads.workers.scheduler as scheduler_module
+from backend.app.db import repositories
 
 
 def test_ensure_worker_spawns_additional_workers_when_workers_already_active(monkeypatch):
@@ -168,71 +169,29 @@ def test_the_last_worker_waits_for_a_benched_source_instead_of_retiring(monkeypa
     assert ran == [("example-1", None), ("example-1", 1)]
 
 
-def test_remove_pending_task_allows_cancelling_and_removing_running_task(monkeypatch):
-    """User can remove a stuck/running task from the queue via remove_pending_task."""
-    task_id = "gallerydl:stuck-task"
-    store = {task_id: {"status": "running"}}
+def test_delete_downloads_leaves_a_running_task_to_its_worker(monkeypatch):
+    task_id = "gallerydl:running"
+    repositories.merge_task_payload(task_id, {"status": "running"})
     cancelled: list[str] = []
-    removed: list[str] = []
-
-    monkeypatch.setattr(operations_module, "load_task_store", lambda: {"tasks": dict(store)})
     monkeypatch.setattr(operations_module, "request_cancel", cancelled.append)
-    monkeypatch.setattr(
-        operations_module,
-        "remove_task_record",
-        lambda tid: (store.pop(tid, None), removed.append(tid)),
-    )
+    monkeypatch.setattr(operations_module, "has_active_task", lambda tid: True)
 
-    operations_module.remove_pending_task(task_id)
+    result = operations_module.delete_downloads([task_id])
 
+    assert result == {"count": 1, "errors": []}
     assert cancelled == [task_id]
-    assert removed == [task_id]
-    assert task_id not in store
+    assert repositories.load_task_payload(task_id)
 
 
-def test_clear_pending_tasks_cancels_and_removes_running_and_pending_tasks(monkeypatch):
-    """Clear queue cancels and removes running tasks and removes pending/failed tasks."""
-    tasks = {
-        "task-running": {"status": "running"},
-        "task-pending": {"status": "pending"},
-        "task-failed": {"status": "failed"},
-    }
+def test_clear_pending_tasks_removes_queued_failed_and_orphaned_running_tasks(monkeypatch):
+    for task_id, status in (("t-running", "running"), ("t-pending", "pending"), ("t-failed", "failed")):
+        repositories.merge_task_payload(task_id, {"status": status})
     cancelled: list[str] = []
-    removed: list[str] = []
-
-    monkeypatch.setattr(operations_module, "load_active_task_store", lambda: {"tasks": tasks})
     monkeypatch.setattr(operations_module, "request_cancel", cancelled.append)
-    monkeypatch.setattr(operations_module, "remove_task_record", removed.append)
-    monkeypatch.setattr(
-        operations_module,
-        "remove_task_record_if_status",
-        lambda vid, statuses: (removed.append(vid), True)[1],
-    )
+    monkeypatch.setattr(operations_module, "has_active_task", lambda tid: False)
 
     result = operations_module.clear_pending_tasks()
 
-    assert result["cleared"] == 3
-    assert "task-running" in cancelled
-    assert "task-running" in removed
-    assert "task-pending" in removed
-    assert "task-failed" in removed
-
-
-def test_cancel_task_cleans_up_orphaned_running_task_immediately(monkeypatch):
-    """If a running task has no active in-memory worker, cancel_task removes the DB record immediately."""
-    task_id = "gallerydl:orphaned"
-    store = {task_id: {"status": "running"}}
-    removed: list[str] = []
-
-    monkeypatch.setattr(operations_module, "load_task_store", lambda: {"tasks": dict(store)})
-    monkeypatch.setattr(operations_module, "has_active_task", lambda tid: False)
-    monkeypatch.setattr(
-        operations_module,
-        "remove_task_record",
-        lambda tid: (store.pop(tid, None), removed.append(tid)),
-    )
-
-    operations_module.cancel_task(task_id)
-
-    assert removed == [task_id]
-    assert task_id not in store
+    assert result == {"count": 3, "errors": []}
+    assert cancelled == ["t-running"]
+    assert repositories.load_active_task_store_payload() == {"tasks": {}}

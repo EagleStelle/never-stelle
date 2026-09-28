@@ -27,9 +27,9 @@ def scan_media() -> dict[str, int]:
     try:
         local = scan_media_library()
         external = swaratelle.scan_media_library()
-        # "unchanged" is what the incremental pass skipped: files whose bytes and
-        # resolution rules both matched the row already on file. "needs_resolve" is what
-        # the current templates could not be applied to without dropping a token.
+        # "unchanged" is what the incremental pass left as it was: files whose row already
+        # matched them. "needs_resolve" is what the current templates could not be applied
+        # to without dropping a token.
         return {
             key: int(local.get(key, 0)) + int(external.get(key, 0))
             for key in ("checked", "missing", "added", "unchanged", "needs_resolve")

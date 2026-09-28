@@ -3,10 +3,15 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
 
 from backend.app.api.deps import require_authenticated_session
-from backend.app.api.schemas.trackers import CreateTrackerPayload, UpdateTrackerPayload
+from backend.app.api.schemas.downloads import IdsPayload
+from backend.app.api.schemas.trackers import (
+    CreateTrackerPayload,
+    DeleteTrackersPayload,
+    TrackersEnabledPayload,
+    UpdateTrackerPayload,
+)
 from backend.app.domains.trackers import service
 from backend.app.domains.trackers.scheduler import ensure_tracker_worker
 
@@ -42,31 +47,28 @@ def update_tracker(tracker_id: str, payload: UpdateTrackerPayload) -> dict[str, 
     return tracker
 
 
-@router.delete("/{tracker_id}", status_code=204, response_class=Response)
-def delete_tracker(tracker_id: str, delete_files: bool = False) -> Response:
+@router.post("/delete")
+def delete_trackers(payload: DeleteTrackersPayload) -> dict[str, Any]:
     try:
-        service.delete_tracker(tracker_id, delete_files=delete_files)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return Response(status_code=204)
-
-
-@router.post("/{tracker_id}/check", status_code=204, response_class=Response)
-def check_tracker(tracker_id: str) -> Response:
-    try:
-        service.check_tracker_now(tracker_id)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return service.delete_trackers(payload.ids, delete_files=payload.delete_files)
     except PermissionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/enabled")
+def set_trackers_enabled(payload: TrackersEnabledPayload) -> dict[str, Any]:
+    result = service.set_trackers_enabled(payload.ids, payload.enabled)
     ensure_tracker_worker()
-    return Response(status_code=204)
+    return result
 
 
-@router.delete("/{tracker_id}/check", status_code=204, response_class=Response)
-def stop_tracker_check(tracker_id: str) -> Response:
-    try:
-        service.stop_check(tracker_id)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return Response(status_code=204)
+@router.post("/check")
+def check_trackers(payload: IdsPayload) -> dict[str, Any]:
+    result = service.check_trackers(payload.ids)
+    ensure_tracker_worker()
+    return result
+
+
+@router.post("/stop")
+def stop_tracker_checks(payload: IdsPayload) -> dict[str, Any]:
+    return service.stop_checks(payload.ids)

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from starlette.background import BackgroundTask
 
 from backend.app.api.deps import require_authenticated_session
-from backend.app.api.responses import local_download_response
-from backend.app.api.schemas.downloads import AddDownloadPayload, ProbePayload, SetSourcePayload
-from backend.app.domains.downloads import operations, probe, serializers
+from backend.app.api.responses import attachment_content_disposition, local_download_response
+from backend.app.api.schemas.downloads import AddDownloadPayload, IdsPayload, ProbePayload, SetSourcePayload
+from backend.app.domains.downloads import operations, probe, serializers, slideshow
 from backend.app.integrations.swaratelle import client as swaratelle
 
 router = APIRouter(
@@ -63,6 +63,14 @@ def add_download(payload: AddDownloadPayload) -> dict[str, Any]:
     return {"created": created, "reused": reused}
 
 
+@router.delete("")
+def clear_downloads() -> dict[str, Any]:
+    try:
+        return operations.clear_pending_tasks()
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.post("/probe")
 def probe_download(payload: ProbePayload) -> dict[str, Any]:
     try:
@@ -84,42 +92,29 @@ def list_history(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/clear-pending")
-def clear_pending() -> dict[str, Any]:
-    return operations.clear_pending_tasks()
+@router.get("/files")
+def download_files(ids: list[str] = Query(default_factory=list)) -> Response:
+    files = operations.archive_files(ids)
+    if not files:
+        raise HTTPException(status_code=404, detail="None of these files could be found.")
+    return StreamingResponse(
+        slideshow.iter_zip(files),
+        media_type="application/zip",
+        headers={"Content-Disposition": attachment_content_disposition("downloads.zip")},
+    )
 
 
-@router.delete("/{task_id}", status_code=204, response_class=Response)
-def delete_download(task_id: str) -> Response:
+@router.post("/delete")
+def delete_downloads(payload: IdsPayload) -> dict[str, Any]:
     try:
-        operations.remove_pending_task(task_id)
+        return operations.delete_downloads(payload.ids)
     except PermissionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except swaratelle.SwaratelleError as exc:
-        raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
-    return Response(status_code=204)
 
 
-@router.post("/{task_id}/cancel", status_code=204, response_class=Response)
-def cancel_download(task_id: str) -> Response:
-    try:
-        operations.cancel_task(task_id)
-    except PermissionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except swaratelle.SwaratelleError as exc:
-        raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
-    return Response(status_code=204)
-
-
-@router.post("/{task_id}/retry", status_code=204, response_class=Response)
-def retry_download(task_id: str) -> Response:
-    try:
-        operations.retry_task(task_id)
-    except PermissionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return Response(status_code=204)
+@router.post("/retry")
+def retry_downloads(payload: IdsPayload) -> dict[str, Any]:
+    return operations.retry_downloads(payload.ids)
 
 
 @router.patch("/{task_id}/source")

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
-from backend.app.core.config import STAGING_DIR_NAME
+from backend.app.core.config import MEDIA_DIR, STAGING_DIR_NAME, is_allowed_location
 
-from .constants import MEDIA_EXTENSIONS
+from .constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS
 from .naming import strip_numbered_suffix
 from .store import update_task
 
@@ -96,6 +97,55 @@ def find_numbered_media_siblings(path: Path) -> list[Path]:
     except OSError:
         return []
     return sorted(candidates, key=lambda candidate: (_numbered_suffix_value(candidate.stem), candidate.name))
+
+
+def media_companions(path: Path, entries: list[os.DirEntry[str]] | None = None) -> list[Path]:
+    """What post-processing leaves beside a media file, all named after it.
+
+    Tags, subtitles, chapter lists and thumbnails share its stem, and split chapters sit
+    in a folder named after it. An image only ever carries tags, so it costs one lookup.
+    ``entries`` is the folder listing when the caller already read it.
+    """
+    if path.suffix.lower() in IMAGE_EXTENSIONS:
+        tags = Path(f"{path}.json")
+        return [tags] if tags.is_file() else []
+    if entries is None:
+        try:
+            entries = list(os.scandir(path.parent))
+        except OSError:
+            return []
+    prefix = f"{path.stem}."
+    playable = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
+    companions: list[Path] = []
+    for entry in entries:
+        if entry.name == path.name:
+            continue
+        # Another playable file on the stem is media of its own; an image on it is the thumbnail.
+        named_after = entry.name.startswith(prefix) and Path(entry.name).suffix.lower() not in playable
+        if named_after or (entry.name == path.stem and entry.is_dir()):
+            companions.append(Path(entry.path))
+    return companions
+
+
+def remove_media(paths: list[str]) -> None:
+    """Delete library files and their companions, then the folders left empty; a file that resists stays."""
+    files = [Path(raw) for raw in dict.fromkeys(paths) if raw and is_allowed_location(raw)]
+    listings: dict[Path, list[os.DirEntry[str]]] = {}
+    for path in files:
+        if path.suffix.lower() not in IMAGE_EXTENSIONS and path.parent not in listings:
+            try:
+                listings[path.parent] = list(os.scandir(path.parent))
+            except OSError:
+                listings[path.parent] = []
+        for target in (path, *media_companions(path, listings.get(path.parent))):
+            try:
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink(missing_ok=True)
+            except OSError:
+                continue
+    prune_empty_parents(files, MEDIA_DIR)
 
 
 def prune_empty_parents(paths: list[Path], root: Path | None) -> None:

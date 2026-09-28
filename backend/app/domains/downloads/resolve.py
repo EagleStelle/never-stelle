@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
@@ -35,16 +36,10 @@ from .naming import (
     numbered_suffix_of,
     row_template_fields,
     settings_tokens,
-    stored_filename_template,
     unsatisfied_tokens,
 )
 from .rename import apply_history_renames, plan_history_renames
-from .scan import (
-    _MAX_PROBE_CANDIDATES,
-    _clean_probe_value,
-    history_write_lock,
-    probe_metadata_anonymous_first,
-)
+from .scan import history_write_lock
 from .store import (
     enqueue_enrichment_jobs,
     history_counts_by_source_and_media,
@@ -67,6 +62,9 @@ from .workers.enrichment import ensure_enrichment_worker
 
 # Tokens with no column of their own ride in the encoding blob.
 _TOKEN_COLUMNS = {"title": "title", "id": "media_id"}
+# Each probe is a network round-trip, so a row tries this many links at most.
+_MAX_PROBE_CANDIDATES = 2
+_EMPTY_VALUES = {"", "unknown", "none", "null", "undefined", "na", "n/a"}
 
 _OUTCOMES = ("resolved", "skipped", "failed")
 # Passes are reported per click, so a few have to outlive their own completion for the
@@ -116,6 +114,22 @@ def resolve_pass_reports() -> dict[str, dict[str, int]]:
         return {str(pass_id): dict(counts) for pass_id, counts in _passes.items()}
 
 
+def _clean_probe_value(value: str) -> str:
+    value = unquote(str(value or "")).strip().lstrip("@").strip()
+    return "" if value.lower() in _EMPTY_VALUES else value
+
+
+def _probe_metadata(url: str, *, with_cookies: bool = False) -> dict[str, str]:
+    # Lazy import dodges a cycle; tests stub this to stay offline.
+    try:
+        from .probe import probe_metadata
+
+        # Rows are probed one after another, each a subprocess pair.
+        return probe_metadata([url], with_cookies=with_cookies, low_priority=True).get(url, {})
+    except Exception:
+        return {}
+
+
 def _probe_urls(entry: dict[str, Any]) -> list[str]:
     source_url = str(entry.get("source_url") or "").strip()
     urls = [source_url] if source_url else []
@@ -131,9 +145,10 @@ def _probe_urls(entry: dict[str, Any]) -> list[str]:
     return urls[:_MAX_PROBE_CANDIDATES]
 
 
-def _probe_entry(entry: dict[str, Any]) -> tuple[dict[str, str], str]:
-    for url in _probe_urls(entry):
-        flat = probe_metadata_anonymous_first(url)
+def _probe(urls: list[str]) -> tuple[dict[str, str], str]:
+    # Cookies are scarce and rate-limited, so each link is tried anonymously first.
+    for url in urls:
+        flat = _probe_metadata(url) or _probe_metadata(url, with_cookies=True)
         if flat:
             return flat, url
     return {}, ""
@@ -215,7 +230,7 @@ def entry_token_state(payload: dict[str, Any]) -> tuple[list[str], list[str]]:
     if not old_path_value:
         return [], []
     settings = get_effective_template_settings(str(payload.get("source_url") or ""))
-    fields = row_template_fields(payload, stored_filename_template(payload), Path(old_path_value).name)
+    fields = row_template_fields(payload, Path(old_path_value).name)
     return settings_tokens(settings), unsatisfied_tokens(settings, fields)
 
 
@@ -226,10 +241,13 @@ def _file_entry(task_id: str, entry: dict[str, Any]) -> bool:
     copy of this row back over the one saved here.
     """
     with history_write_lock():
+        # A row deleted since it was read stays deleted.
+        if not load_history_entry(task_id):
+            return False
         save_history_entry_row(task_id, entry)
         # The name may predate the values or templates now on the row, so it is rendered
         # even when the template is the one it was written with.
-        plans, _ = plan_history_renames({str(task_id): entry}, rerender=True)
+        plans = plan_history_renames({str(task_id): entry}, rerender=True)
         return apply_history_renames(plans)[0]["renamed"] > 0
 
 
@@ -250,12 +268,15 @@ def resolve_history_entry(task_id: str, *, force: bool = False) -> bool:
         if not wanted:
             return _file_entry(task_id, {**entry, "needs_resolve": False})
 
-        metadata, matched_url = _probe_entry(entry)
-        source_url = str(entry.get("source_url") or matched_url)
+        urls = _probe_urls(entry)
+        source_url = urls[0] if urls else ""
         order = get_effective_fields(source_url)
         # Configured rules can name a token the probe never carries, so a source that
         # answers nothing is only dead once those come back empty too.
         configured = _configured_tokens(entry, source_url, order)
+        # They also outrank the probe, so it runs only for what they leave empty.
+        answered = all(_clean_probe_value(configured.get(token, "")) for token in wanted)
+        metadata, matched_url = ({}, "") if answered else _probe(urls)
         if not metadata and not configured:
             raise LookupError(f"Nothing answered for {task_id}.")
 

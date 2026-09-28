@@ -17,6 +17,7 @@ import backend.app.domains.downloads.gallerydl as gallerydl_module
 import backend.app.domains.downloads.history as history_module
 import backend.app.domains.downloads.operations as operations_module
 import backend.app.domains.downloads.postprocessing as postprocessing_module
+import backend.app.domains.downloads.probe as probe_module
 import backend.app.domains.downloads.scan as scan_module
 import backend.app.domains.downloads.serializers as serializers_module
 import backend.app.domains.downloads.slideshow as slideshow_module
@@ -834,8 +835,6 @@ _YTDLP_VIDEO_INFO = {
 
 
 def _probe_media_info_calls(monkeypatch: pytest.MonkeyPatch, info: dict) -> list[str]:
-    import backend.app.domains.downloads.probe as probe_module
-
     calls: list[str] = []
     monkeypatch.setattr(
         probe_module,
@@ -901,8 +900,6 @@ def test_ytdlp_media_fields_are_left_out_when_they_cannot_apply(
 
 
 def test_media_info_probe_asks_extractors_for_subtitles(monkeypatch: pytest.MonkeyPatch):
-    import backend.app.domains.downloads.probe as probe_module
-
     commands: list[list[str]] = []
 
     def fake_run(cmd, **kwargs):
@@ -1762,35 +1759,30 @@ def test_finished_video_only_strips_audio_only_when_present(
     assert silent.read_bytes() == b"\x00\x00\x00\x18ftypisom-silent"
 
 
-def test_retry_task_rebuilds_with_selected_engine(monkeypatch: pytest.MonkeyPatch):
-    store = {
-        "tasks": {
-            "ytdlp:failed": {
-                "status": "failed",
-                "engine": "ytdlp",
-                "source_url": "https://example.test/watch?v=1",
-                "output_dir": "/media/example",
-                "folder_template": "",
-                "filename_template": "{{title}} [{{id}}]",
-            }
-        }
-    }
-    captured: dict[str, object] = {}
-
-    monkeypatch.setattr(operations_module, "load_task_store", lambda: store)
-    monkeypatch.setattr(operations_module, "ensure_worker", lambda: None)
-    monkeypatch.setattr(
-        operations_module,
-        "update_task",
-        lambda task_id, **kwargs: captured.update(kwargs) or {**store["tasks"][task_id], **kwargs},
+def test_retry_downloads_rebuilds_failed_tasks_with_selected_engine(monkeypatch: pytest.MonkeyPatch):
+    repositories.merge_task_payload(
+        "ytdlp:failed",
+        {
+            "status": "failed",
+            "engine": "ytdlp",
+            "source_url": "https://example.test/watch?v=1",
+            "output_dir": "/media/example",
+            "folder_template": "",
+            "filename_template": "{{title}} [{{id}}]",
+        },
     )
+    repositories.merge_task_payload("ytdlp:queued", {"status": "pending"})
+    started: list[bool] = []
+    monkeypatch.setattr(operations_module, "ensure_worker", lambda: started.append(True))
 
-    operations_module.retry_task("ytdlp:failed")
+    result = operations_module.retry_downloads(["ytdlp:failed", "ytdlp:queued"])
 
-    assert captured["status"] == "pending"
-    assert captured["engine"] == "gallerydl"
-    assert "engine_policy" not in captured
-    assert "{extension}" in str(captured["output_template"])
+    retried = repositories.load_task_payload("ytdlp:failed")
+    assert result == {"count": 1, "errors": ["Only failed downloads can be retried."]}
+    assert started == [True]
+    assert retried["status"] == "pending"
+    assert retried["engine"] == "gallerydl"
+    assert "{extension}" in retried["output_template"]
 
 
 def test_queue_task_reuses_history_regardless_of_stored_engine(
@@ -3410,7 +3402,7 @@ def test_duplicate_library_cleanup_removes_history_row_for_duplicate_path(
         fake_load_history_entry_for_path,
     )
     monkeypatch.setattr(completion_outputs_module, "load_history_entries_for_media_id", lambda media_id: [])
-    monkeypatch.setattr(completion_outputs_module, "remove_history_record", removed.append)
+    monkeypatch.setattr(completion_outputs_module, "remove_history_records", removed.extend)
 
     completion_outputs_module._cleanup_duplicate_library_media(tmp_path, "abc123", [keep])
 
@@ -3449,7 +3441,7 @@ def test_duplicate_library_cleanup_uses_history_index_for_different_folder(
         "load_history_entry_for_path",
         lambda path: (_ for _ in ()).throw(AssertionError("sibling fallback should not be used")),
     )
-    monkeypatch.setattr(completion_outputs_module, "remove_history_record", removed.append)
+    monkeypatch.setattr(completion_outputs_module, "remove_history_records", removed.extend)
 
     completion_outputs_module._cleanup_duplicate_library_media(tmp_path, "abc123", [keep])
 
@@ -4292,14 +4284,6 @@ def test_worker_resolved_task_creator_uses_engine_sidecar_not_url_creator(tmp_pa
     assert creator == "Some Display Name"
 
 
-@pytest.fixture(autouse=True)
-def _scan_stays_offline(monkeypatch: pytest.MonkeyPatch):
-    # Library scan probes manually-placed files over the network; keep tests offline by
-    # default. Probe-behavior tests opt back in by re-stubbing with canned metadata.
-    monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: {})
-    monkeypatch.setattr(scan_module, "_scan_scrape_rule_tokens", lambda: {})
-
-
 def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     media_root = tmp_path / "media"
     artist_dir = media_root / "Trace Artist"
@@ -4317,7 +4301,7 @@ def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkey
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     result = scan_module.scan_media_library([media_root])
 
@@ -4354,7 +4338,7 @@ def test_scan_media_library_infers_source_from_named_source_folder(
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     scan_module.scan_media_library([media_root])
 
@@ -4385,16 +4369,11 @@ def test_scan_media_library_uses_learned_tiktok_photo_template(
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
     monkeypatch.setattr(
         scan_module,
-        "_scan_probe_metadata",
-        lambda url, *, with_cookies=False: {"uploader": "fakeacc.com"},
-    )
-    monkeypatch.setattr(
-        scan_module,
         "save_history_entry_rows",
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     scan_module.scan_media_library([media_root])
 
@@ -4919,7 +4898,7 @@ def test_correct_reconstructed_url_leaves_real_download_untouched(monkeypatch):
 
 def test_prune_disk_shadows_drops_disk_duplicate_of_real_download(monkeypatch):
     removed: list[str] = []
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda tid: removed.append(tid))
+    monkeypatch.setattr(scan_module, "remove_history_records", removed.extend)
     records = {
         "ytdlp:abc": {"source_url": "https://www.tiktok.com/@a/video/7100000000000000004", "media_id": ""},
         "disk:7100000000000000004": {
@@ -4928,7 +4907,7 @@ def test_prune_disk_shadows_drops_disk_duplicate_of_real_download(monkeypatch):
             "source_url": "https://www.tiktok.com/@a/photo/7100000000000000004",
         },
     }
-    real = scan_module._real_download_media_ids(records)
+    _paths, real = scan_module._owned_media(records, disk=False)
 
     scan_module._prune_disk_shadows(records, real)
 
@@ -5117,7 +5096,7 @@ def test_scan_media_library_creator_from_filename_in_platform_folder(
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     scan_module.scan_media_library([media_root])
 
@@ -5165,14 +5144,13 @@ def test_scan_media_library_prefers_the_format_owning_the_folder(
         lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, per_source),
     )
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
-    monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, with_cookies=False: {})
     monkeypatch.setattr(
         scan_module,
         "save_history_entry_rows",
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     scan_module.scan_media_library([media_root])
 
@@ -5212,7 +5190,7 @@ def test_scan_media_library_creator_from_folder_template(
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     scan_module.scan_media_library([media_root])
 
@@ -5260,7 +5238,7 @@ def test_scan_media_library_creator_from_role_token(
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     scan_module.scan_media_library([media_root])
 
@@ -5293,7 +5271,7 @@ def test_scan_media_library_creator_empty_when_no_creator_token(
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     scan_module.scan_media_library([media_root])
 
@@ -5317,7 +5295,7 @@ def test_scan_media_library_flags_ambiguous_source_pending(tmp_path: Path, monke
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     scan_module.scan_media_library([media_root])
 
@@ -5344,7 +5322,7 @@ def test_scan_media_library_reconstructs_link_from_learned(tmp_path: Path, monke
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     scan_module.scan_media_library([media_root])
 
@@ -5402,7 +5380,7 @@ def test_scan_media_library_reconstructs_url_part_from_filename_template(
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     scan_module.scan_media_library([media_root])
 
@@ -5418,8 +5396,8 @@ _PHOTO_FORMAT = "https://example.test/photo/{id}"
 
 def _patch_two_format_scan(
     monkeypatch: pytest.MonkeyPatch, saved: dict[str, dict], entries: dict[str, dict] | None = None
-) -> list[str]:
-    """A source whose video and photo files are named apart; returns the links probed."""
+) -> None:
+    """A source whose video and photo files are named apart."""
     monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": dict(entries or {})})
     monkeypatch.setattr(scan_module, "_scan_location_rows", lambda: [])
@@ -5444,15 +5422,9 @@ def _patch_two_format_scan(
             },
         ),
     )
-    monkeypatch.setattr(scan_module, "_scan_field_roles_map", lambda: {"example": {"username": ["uploader"]}})
-    probed: list[str] = []
-    monkeypatch.setattr(
-        scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: probed.append(url) or {}
-    )
     monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: saved.update(dict(rows)))
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
-    return probed
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
 
 def test_scan_links_a_file_in_the_format_its_name_matches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -5460,13 +5432,12 @@ def test_scan_links_a_file_in_the_format_its_name_matches(tmp_path: Path, monkey
     media_root.mkdir()
     (media_root / "photo Pic [7123456789].jpg").write_bytes(b"image")
     saved: dict[str, dict] = {}
-    probed = _patch_two_format_scan(monkeypatch, saved)
+    _patch_two_format_scan(monkeypatch, saved)
 
     scan_module.scan_media_library([media_root])
 
     entry = saved["disk:7123456789"]
     assert entry["source_url"] == "https://example.test/photo/7123456789"
-    assert probed[0] == "https://example.test/photo/7123456789"
     assert entry["subfolder_template"] == "post {{id}}"
 
 
@@ -5488,14 +5459,13 @@ def test_scan_replaces_a_link_in_another_format_than_the_name(tmp_path: Path, mo
         "created_at": "2026-01-01T00:00:00+00:00",
     }
     saved: dict[str, dict] = {}
-    probed = _patch_two_format_scan(monkeypatch, saved, {"disk:7123456789": prior})
+    _patch_two_format_scan(monkeypatch, saved, {"disk:7123456789": prior})
 
     scan_module.scan_media_library([media_root])
 
     entry = saved["disk:7123456789"]
     assert entry["creator"] == "Creator"
     assert entry["source_url"] == "https://example.test/photo/7123456789"
-    assert probed == []
 
 
 def _scan_locations(source_key: str, folder: Path, format_template: str = "https://www.youtube.com/watch?v={id}"):
@@ -5512,47 +5482,10 @@ def _patch_scan_common(monkeypatch: pytest.MonkeyPatch, saved: dict[str, dict], 
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
 
-def test_scan_probes_manual_file_in_configured_username_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    # Manual file, no record yet: probe and honor the settings order (channel_id first),
-    # even though channel_id is an opaque id the handle heuristics would reject.
-    learned = learn_download({}, "https://www.youtube.com/watch?v=abc123", "abc123")
-    media_root = tmp_path / "media"
-    platform_dir = media_root / "youtube"
-    creator_dir = platform_dir / "Some Channel"
-    creator_dir.mkdir(parents=True)
-    (creator_dir / "Soft Light [abc123].mp4").write_bytes(b"video")
-
-    saved: dict[str, dict] = {}
-    _patch_scan_common(monkeypatch, saved, platform_dir)
-    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
-    monkeypatch.setattr(
-        scan_module,
-        "_scan_template_map",
-        lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
-    )
-    monkeypatch.setattr(
-        scan_module,
-        "_scan_field_roles_map",
-        lambda: {"youtube": {"username": ["channel_id", "uploader"]}},
-    )
-    probed: list[str] = []
-    monkeypatch.setattr(
-        scan_module,
-        "_scan_probe_metadata",
-        lambda url, *, with_cookies=False: probed.append(url) or {"uploader": "Mock", "channel_id": "UCopaque123"},
-    )
-
-    scan_module.scan_media_library([media_root])
-
-    assert saved["disk:abc123"]["creator"] == "UCopaque123"
-    assert saved["disk:abc123"]["source_url"] == "https://www.youtube.com/watch?v=abc123"
-    assert probed == ["https://www.youtube.com/watch?v=abc123"]
-
-
-def test_scan_reconstructs_creator_route_when_probe_matches_url_creator(
+def test_scan_builds_a_creator_link_from_the_folder_without_a_lookup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     media_id = "7100000000000000005"
@@ -5583,15 +5516,18 @@ def test_scan_reconstructs_creator_route_when_probe_matches_url_creator(
         "_scan_template_map",
         lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
     )
-    monkeypatch.setattr(scan_module, "_scan_field_roles_map", lambda: {"tiktok": {"username": ["uploader"]}})
-    monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: {"uploader": "demo0n"})
     monkeypatch.setattr(
         scan_module,
         "save_history_entry_rows",
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
+
+    def no_lookup(*args, **kwargs):
+        raise AssertionError("a refresh must not look anything up")
+
+    monkeypatch.setattr(probe_module, "probe_metadata", no_lookup)
 
     scan_module.scan_media_library([media_root])
 
@@ -5599,165 +5535,7 @@ def test_scan_reconstructs_creator_route_when_probe_matches_url_creator(
     assert saved[f"disk:{media_id}"]["source_url"] == f"https://www.tiktok.com/@demo0n/video/{media_id}"
 
 
-def test_scan_skips_creator_route_when_probe_field_mismatches_url_creator(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    media_id = "7100000000000000005"
-    learned = learn_download(
-        {},
-        f"https://www.tiktok.com/@demo0n/video/{media_id}",
-        media_id,
-        {"uploader": "demo0n"},
-    )
-    media_root = tmp_path / "media"
-    platform_dir = media_root / "tiktok"
-    creator_dir = platform_dir / "wrongname"
-    creator_dir.mkdir(parents=True)
-    (creator_dir / f"Soft Light [{media_id}].mp4").write_bytes(b"video")
-
-    saved: dict[str, dict] = {}
-    monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
-    monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
-    monkeypatch.setattr(
-        scan_module,
-        "_scan_location_rows",
-        lambda: _scan_locations("tiktok", platform_dir, "https://www.tiktok.com/@{creator}/video/{id}"),
-    )
-    monkeypatch.setattr(scan_module, "_scan_source_profile_keys", lambda: {"tiktok"})
-    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
-    monkeypatch.setattr(
-        scan_module,
-        "_scan_template_map",
-        lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
-    )
-    monkeypatch.setattr(scan_module, "_scan_field_roles_map", lambda: {"tiktok": {"username": ["uploader"]}})
-    monkeypatch.setattr(scan_module, "_scan_probe_metadata", lambda url, *, with_cookies=False: {"uploader": "demo0n"})
-    monkeypatch.setattr(
-        scan_module,
-        "save_history_entry_rows",
-        lambda rows: saved.update(dict(rows)),
-    )
-    monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
-
-    scan_module.scan_media_library([media_root])
-
-    assert saved[f"disk:{media_id}"]["creator"] == "wrongname"
-    assert saved[f"disk:{media_id}"]["source_url"] == ""
-
-
-def test_scan_probe_uses_nickname_order_when_folder_token_is_nickname(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    # Folder token decides the role: {{nickname}} -> walk the nickname field order.
-    learned = learn_download({}, "https://www.youtube.com/watch?v=abc123", "abc123")
-    media_root = tmp_path / "media"
-    platform_dir = media_root / "youtube"
-    creator_dir = platform_dir / "Some Channel"
-    creator_dir.mkdir(parents=True)
-    (creator_dir / "Soft Light [abc123].mp4").write_bytes(b"video")
-
-    saved: dict[str, dict] = {}
-    _patch_scan_common(monkeypatch, saved, platform_dir)
-    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
-    monkeypatch.setattr(
-        scan_module,
-        "_scan_template_map",
-        lambda: ({"folder_template": "{{nickname}}", "filename_template": "{{title}} [{{id}}]"}, {}),
-    )
-    monkeypatch.setattr(
-        scan_module,
-        "_scan_field_roles_map",
-        lambda: {"youtube": {"username": ["channel_id"], "nickname": ["uploader", "channel"]}},
-    )
-    monkeypatch.setattr(
-        scan_module,
-        "_scan_probe_metadata",
-        lambda url, *, with_cookies=False: {"channel_id": "UCopaque123", "uploader": "Mock Display", "channel": "Mock"},
-    )
-
-    scan_module.scan_media_library([media_root])
-
-    assert saved["disk:abc123"]["creator"] == "Mock Display"
-
-
-def test_scan_skips_creator_probe_for_scraper_backed_template_role(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    learned = learn_download({}, "https://www.youtube.com/watch?v=abc123", "abc123")
-    media_root = tmp_path / "media"
-    platform_dir = media_root / "youtube"
-    creator_dir = platform_dir / "Scraped Artist"
-    creator_dir.mkdir(parents=True)
-    (creator_dir / "Soft Light [abc123].mp4").write_bytes(b"video")
-
-    saved: dict[str, dict] = {}
-    _patch_scan_common(monkeypatch, saved, platform_dir)
-    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
-    monkeypatch.setattr(
-        scan_module,
-        "_scan_template_map",
-        lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
-    )
-    monkeypatch.setattr(scan_module, "_scan_token_role_map", lambda: {"youtube": {"artist": "username"}})
-    monkeypatch.setattr(scan_module, "_scan_scrape_rule_tokens", lambda: {"youtube": {"artist"}})
-    monkeypatch.setattr(
-        scan_module,
-        "_scan_field_roles_map",
-        lambda: {"youtube": {"username": ["scraper[artist]", "channel"]}},
-    )
-
-    def fail_probe(url, *, with_cookies=False):
-        raise AssertionError("scraper-backed username must not probe engine metadata")
-
-    monkeypatch.setattr(scan_module, "_scan_probe_metadata", fail_probe)
-
-    scan_module.scan_media_library([media_root])
-
-    assert saved["disk:abc123"]["creator"] == "Scraped Artist"
-    assert saved["disk:abc123"]["source_url"] == "https://www.youtube.com/watch?v=abc123"
-
-
-def test_scan_keeps_creator_probe_when_scraper_backed_role_is_not_top(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    learned = learn_download({}, "https://www.youtube.com/watch?v=abc123", "abc123")
-    media_root = tmp_path / "media"
-    platform_dir = media_root / "youtube"
-    creator_dir = platform_dir / "Scraped Artist"
-    creator_dir.mkdir(parents=True)
-    (creator_dir / "Soft Light [abc123].mp4").write_bytes(b"video")
-
-    saved: dict[str, dict] = {}
-    _patch_scan_common(monkeypatch, saved, platform_dir)
-    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
-    monkeypatch.setattr(
-        scan_module,
-        "_scan_template_map",
-        lambda: ({"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}, {}),
-    )
-    monkeypatch.setattr(scan_module, "_scan_token_role_map", lambda: {"youtube": {"artist": "username"}})
-    monkeypatch.setattr(scan_module, "_scan_scrape_rule_tokens", lambda: {"youtube": {"artist"}})
-    monkeypatch.setattr(
-        scan_module,
-        "_scan_field_roles_map",
-        lambda: {"youtube": {"username": ["channel", "scraper[artist]"]}},
-    )
-    probed: list[str] = []
-    monkeypatch.setattr(
-        scan_module,
-        "_scan_probe_metadata",
-        lambda url, *, with_cookies=False: probed.append(url) or {"channel": "Probed Channel"},
-    )
-
-    scan_module.scan_media_library([media_root])
-
-    assert saved["disk:abc123"]["creator"] == "Probed Channel"
-    assert probed == ["https://www.youtube.com/watch?v=abc123"]
-
-
-def test_scan_skips_probe_when_creator_already_resolved(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    # Details already in the system: keep the resolved creator/url, never re-probe.
+def test_scan_keeps_a_resolved_creator_and_link(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     media_root = tmp_path / "media"
     platform_dir = media_root / "youtube"
     creator_dir = platform_dir / "Some Channel"
@@ -5783,12 +5561,7 @@ def test_scan_skips_probe_when_creator_already_resolved(tmp_path: Path, monkeypa
         lambda rows: saved.update(dict(rows)),
     )
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
-
-    def _fail_probe(url, *, with_cookies=False):
-        raise AssertionError("probe must not run for an already-resolved file")
-
-    monkeypatch.setattr(scan_module, "_scan_probe_metadata", _fail_probe)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     scan_module.scan_media_library([media_root])
 
@@ -5808,7 +5581,7 @@ def test_scan_media_library_removes_missing_completed_rows(tmp_path: Path, monke
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
     monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: None)
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: removed_tasks.append(task_id))
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: removed_history.append(task_id))
+    monkeypatch.setattr(scan_module, "remove_history_records", removed_history.extend)
 
     result = scan_module.scan_media_library([tmp_path])
 
@@ -5854,7 +5627,7 @@ def test_scan_media_library_unreadable_subtree_keeps_records(tmp_path: Path, mon
     )
     monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: None)
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: removed.append(task_id))
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: removed.append(task_id))
+    monkeypatch.setattr(scan_module, "remove_history_records", removed.extend)
 
     result = scan_module.scan_media_library([media_root])
 
@@ -5888,7 +5661,7 @@ def test_scan_media_library_keeps_non_media_history_file(tmp_path: Path, monkeyp
     )
     monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: None)
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: removed.append(task_id))
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: removed.append(task_id))
+    monkeypatch.setattr(scan_module, "remove_history_records", removed.extend)
 
     result = scan_module.scan_media_library([tmp_path])
 
@@ -5924,7 +5697,7 @@ def test_scan_media_library_keeps_history_file_outside_roots(tmp_path: Path, mon
     )
     monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: None)
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: removed.append(task_id))
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: removed.append(task_id))
+    monkeypatch.setattr(scan_module, "remove_history_records", removed.extend)
 
     result = scan_module.scan_media_library([media_root])
 
@@ -5965,7 +5738,7 @@ def test_scan_media_library_healthy_scan_skips_fallback_exists(tmp_path: Path, m
     )
     monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: None)
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     result = scan_module.scan_media_library([tmp_path])
 
@@ -5992,7 +5765,7 @@ def test_scan_media_library_recovers_stale_completed_path(tmp_path: Path, monkey
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": {}})
     monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: None)
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: removed.append(task_id))
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: removed.append(task_id))
+    monkeypatch.setattr(scan_module, "remove_history_records", removed.extend)
     monkeypatch.setattr(files_module, "update_task", lambda task_id, **updates: persisted.update(updates))
 
     result = scan_module.scan_media_library([media_root])
@@ -6207,7 +5980,7 @@ def test_scan_batches_history_writes_instead_of_one_commit_per_file(
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
     monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: batches.append(len(rows)))
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     result = scan_module.scan_media_library([media_root])
 
@@ -6232,7 +6005,7 @@ def test_scan_skips_non_media_files_without_touching_them(
     monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
     monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda rows: saved.update(dict(rows)))
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: None)
+    monkeypatch.setattr(scan_module, "remove_history_records", lambda task_ids: None)
 
     result = scan_module.scan_media_library([media_root])
 
@@ -6283,14 +6056,21 @@ def _incremental_scan_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     media_root.mkdir()
     rows: dict[str, dict] = {}
     resolved: list[str] = []
+    written: list[str] = []
+    learned: dict[str, dict] = {"example": {"templates": ["https://example.test/v/{id}"]}}
+
+    def save(batch):
+        written.extend(task_id for task_id, _ in batch)
+        rows.update(dict(batch))
 
     monkeypatch.setattr(scan_module, "load_task_store", lambda: {"tasks": {}})
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": dict(rows)})
-    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: {})
-    monkeypatch.setattr(scan_module, "save_history_entry_rows", lambda batch: rows.update(dict(batch)))
+    monkeypatch.setattr(scan_module, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(scan_module, "save_history_entry_rows", save)
     monkeypatch.setattr(scan_module, "remove_task_record", lambda task_id: None)
-    monkeypatch.setattr(scan_module, "remove_history_record", lambda task_id: rows.pop(task_id, None))
-    monkeypatch.setattr(scan_module, "resolution_revision", lambda: "rev-1")
+    monkeypatch.setattr(
+        scan_module, "remove_history_records", lambda task_ids: [rows.pop(task_id, None) for task_id in task_ids]
+    )
 
     real_parse = scan_module._parse_media_fields
 
@@ -6299,11 +6079,11 @@ def _incremental_scan_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         return real_parse(path, pattern)
 
     monkeypatch.setattr(scan_module, "_parse_media_fields", counting_parse)
-    return media_root, rows, resolved
+    return media_root, rows, resolved, written, learned
 
 
 def test_rescan_skips_files_that_did_not_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    media_root, rows, resolved = _incremental_scan_env(tmp_path, monkeypatch)
+    media_root, rows, resolved, _written, _learned = _incremental_scan_env(tmp_path, monkeypatch)
     for index in range(4):
         (media_root / f"Creator - Clip [vid{index}].mp4").write_bytes(b"video")
 
@@ -6313,7 +6093,6 @@ def test_rescan_skips_files_that_did_not_change(tmp_path: Path, monkeypatch: pyt
 
     assert first["added"] == 4
     assert first["unchanged"] == 0
-    # Second pass resolves nothing: same bytes, same rules.
     assert second == {
         "checked": 4,
         "missing": 0,
@@ -6326,7 +6105,7 @@ def test_rescan_skips_files_that_did_not_change(tmp_path: Path, monkeypatch: pyt
 
 
 def test_rescan_reresolves_a_file_whose_contents_changed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    media_root, _rows, resolved = _incremental_scan_env(tmp_path, monkeypatch)
+    media_root, _rows, resolved, _written, _learned = _incremental_scan_env(tmp_path, monkeypatch)
     stable = media_root / "Creator - Clip [vid1].mp4"
     edited = media_root / "Creator - Clip [vid2].mp4"
     stable.write_bytes(b"video")
@@ -6342,28 +6121,47 @@ def test_rescan_reresolves_a_file_whose_contents_changed(tmp_path: Path, monkeyp
     assert result["unchanged"] == 1
 
 
-def test_rescan_reresolves_everything_when_the_rules_improve(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    # Learning a new format or changing settings is exactly when a disk row may
-    # resolve better than last time, so that is when the work is worth redoing.
-    media_root, _rows, resolved = _incremental_scan_env(tmp_path, monkeypatch)
+def test_learning_a_format_leaves_settled_rows_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # A download teaching a new format used to rebuild every disk row on the next refresh.
+    media_root, _rows, resolved, written, learned = _incremental_scan_env(tmp_path, monkeypatch)
     for index in range(3):
         (media_root / f"Creator - Clip [vid{index}].mp4").write_bytes(b"video")
 
     scan_module.scan_media_library([media_root])
     resolved.clear()
-    monkeypatch.setattr(scan_module, "resolution_revision", lambda: "rev-2")
+    written.clear()
+    learned["other"] = {"templates": ["https://other.test/p/{id}"]}
     result = scan_module.scan_media_library([media_root])
 
-    assert len(resolved) == 3
-    assert result["unchanged"] == 0
+    assert resolved == []
+    assert written == []
+    assert result["unchanged"] == 3
+
+
+def test_a_row_without_a_link_gets_one_once_its_format_is_learned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    media_root, rows, _resolved, written, learned = _incremental_scan_env(tmp_path, monkeypatch)
+    learned.clear()
+    (media_root / "Creator - Clip [vid1].mp4").write_bytes(b"video")
+
+    scan_module.scan_media_library([media_root])
+    assert rows["disk:vid1"]["source_url"] == ""
+    written.clear()
+    # Derived again to the same answer, so nothing is written.
+    assert scan_module.scan_media_library([media_root])["unchanged"] == 1
+    assert written == []
+
+    learned["example"] = {"templates": ["https://example.test/v/{id}"]}
+    scan_module.scan_media_library([media_root])
+
+    assert rows["disk:vid1"]["source_url"] == "https://example.test/v/vid1"
 
 
 def test_a_scan_learns_no_format_from_past_downloads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # A download teaches its format when it succeeds; a scan only reads formats, so one the
     # user deleted stays deleted.
-    media_root, _rows, _resolved = _incremental_scan_env(tmp_path, monkeypatch)
+    media_root, _rows, _resolved, _written, _learned = _incremental_scan_env(tmp_path, monkeypatch)
     (media_root / "Creator - Clip [vid1].mp4").write_bytes(b"video")
     history = {
         "gallerydl:1": {"source_url": "https://example.test/@creator/video/1", "media_id": "1"},

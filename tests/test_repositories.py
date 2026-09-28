@@ -68,7 +68,6 @@ def test_download_tables_use_real_task_and_history_columns(tmp_path, monkeypatch
         "resolved_path_key",
         "file_size",
         "scan_mtime_ns",
-        "scan_revision",
         "created_at",
         "updated_at",
         "encoding",
@@ -422,12 +421,21 @@ def test_task_payload_rejects_invalid_status_before_sqlite_check(tmp_path, monke
         repositories.merge_task_payload("t1", {"status": "typo"})
 
 
-def test_delete_task_row_if_status_rejects_invalid_status_filter(tmp_path, monkeypatch):
+def test_delete_task_rows_if_status_rejects_invalid_status_filter(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
     repositories.merge_task_payload("t1", {"status": "pending"})
 
     with pytest.raises(ValueError, match="Invalid download task status"):
-        repositories.delete_task_row_if_status("t1", {"pendnig"})
+        repositories.delete_task_rows_if_status(["t1"], {"pendnig"})
+
+
+def test_delete_task_rows_if_status_deletes_only_matching_rows(tmp_path, monkeypatch):
+    use_temp_db(tmp_path, monkeypatch)
+    repositories.merge_task_payload("t1", {"status": "pending"})
+    repositories.merge_task_payload("t2", {"status": "running"})
+
+    assert repositories.delete_task_rows_if_status(["t1", "t2"], {"pending", "failed"}) == ["t1"]
+    assert list(repositories.load_task_rows(["t1", "t2"])) == ["t2"]
 
 
 def test_source_activity_rows_carry_one_sample_url_per_source(tmp_path, monkeypatch):
@@ -618,7 +626,6 @@ def test_history_payload_roundtrips_through_real_columns(tmp_path, monkeypatch):
             "created_at": "2026-07-10T00:00:00+00:00",
             "file_size": 4096,
             "scan_mtime_ns": 123456,
-            "scan_revision": "rules-rev",
         },
     )
 
@@ -626,7 +633,7 @@ def test_history_payload_roundtrips_through_real_columns(tmp_path, monkeypatch):
         row = connection.execute(
             """
             SELECT id, engine, creator, title, media_id, resolved_full_path, file_size,
-                   scan_mtime_ns, scan_revision, folder_template, filename_template, encoding
+                   scan_mtime_ns, folder_template, filename_template, encoding
             FROM download_history WHERE id = ?
             """,
             ("disk:abc123",),
@@ -637,7 +644,6 @@ def test_history_payload_roundtrips_through_real_columns(tmp_path, monkeypatch):
     assert row["creator"] == "Disk Artist"
     assert row["file_size"] == 4096
     assert row["scan_mtime_ns"] == 123456
-    assert row["scan_revision"] == "rules-rev"
     assert row["folder_template"] == "{{username}}"
     assert row["filename_template"] == "{{title}} [{{id}}]"
     assert json.loads(row["encoding"]) == {"source_pending": True, "source_candidates": ["example"]}
@@ -645,7 +651,6 @@ def test_history_payload_roundtrips_through_real_columns(tmp_path, monkeypatch):
     entry = repositories.load_history_payload()["entries"]["disk:abc123"]
     assert entry["creator"] == "Disk Artist"
     assert entry["scan_mtime_ns"] == 123456
-    assert entry["scan_revision"] == "rules-rev"
     assert entry["filename_template"] == "{{title}} [{{id}}]"
     assert repositories.load_history_page(30, search="disk artist")[0][0] == "disk:abc123"
 

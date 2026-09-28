@@ -16,6 +16,10 @@ class AddDownloadPayload(BaseModel):
     post_processing: dict[str, Any] | None = None
 
 
+class IdsPayload(BaseModel):
+    ids: list[str] = Field(min_length=1)
+
+
 class ProbePayload(BaseModel):
     url: str = ""
 
