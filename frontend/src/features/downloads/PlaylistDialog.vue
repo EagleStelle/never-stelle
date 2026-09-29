@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch, watchEffect } from "vue";
-import { DialogShell as Dialog } from "@/components/ui/dialog";
+import { DialogFooter, DialogShell as Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ACTION_ICONS } from "@/ui";
 import {
   Table,
   TableBody,
@@ -165,9 +166,7 @@ function formatDuration(seconds: number | null): string {
         </Table>
       </div>
 
-      <div
-        class="flex shrink-0 items-center justify-end gap-2 border-t border-(--glass-border) px-5 py-4 sm:px-6"
-      >
+      <DialogFooter>
         <Button
           variant="ghost"
           type="button"
@@ -181,9 +180,12 @@ function formatDuration(seconds: number | null): string {
           :disabled="selectedCount === 0"
           @click="confirm"
         >
+          <template #icon>
+            <component :is="ACTION_ICONS.download" aria-hidden="true" />
+          </template>
           Download {{ selectedCount }}
         </Button>
-      </div>
+      </DialogFooter>
     </div>
   </Dialog>
 </template>

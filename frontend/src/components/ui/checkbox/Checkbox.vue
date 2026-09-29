@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { CheckboxRoot, CheckboxIndicator, type CheckboxRootProps } from "reka-ui";
-import { Check } from "@lucide/vue";
+import { Check, Minus } from "@lucide/vue";
 import { cn } from "@/lib/utils";
 
 type CheckedValue = boolean | "indeterminate";
@@ -35,7 +35,7 @@ function update(value: CheckedValue): void {
     @update:model-value="update"
     :class="
       cn(
-        'peer size-4 shrink-0 rounded-[4px] border border-(--glass-border) bg-black/20 text-black shadow-xs transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-accent data-[state=checked]:bg-accent in-[.light-mode]:bg-white/40',
+        'peer size-4 shrink-0 rounded-[4px] border border-(--glass-border) bg-black/20 text-black shadow-xs transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-accent data-[state=checked]:bg-accent data-[state=indeterminate]:border-accent data-[state=indeterminate]:bg-accent in-[.light-mode]:bg-white/40',
         props.class,
       )
     "
@@ -45,7 +45,8 @@ function update(value: CheckedValue): void {
       class="grid h-full w-full place-content-center text-current transition-none"
     >
       <slot>
-        <Check class="size-3.5" />
+        <Minus v-if="modelValue === 'indeterminate'" class="size-3.5" />
+        <Check v-else class="size-3.5" />
       </slot>
     </CheckboxIndicator>
   </CheckboxRoot>

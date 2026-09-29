@@ -1104,6 +1104,9 @@ export function isViewMode(value: string | null): value is ViewMode {
   return value === "grid" || value === "table";
 }
 
+// "1 item" vs "2 items".
+export const plural = (count: number): string => (count === 1 ? "" : "s");
+
 export function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }

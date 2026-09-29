@@ -166,7 +166,7 @@ const {
                 <template #icon>
                   <IconSpinner
                     v-if="scrapeTests[site.key].loading"
-                    class="w-4 h-4 animate-spin"
+                    class="w-4 h-4 animate-sync"
                     aria-hidden="true"
                   />
                   <IconSearch v-else class="w-4 h-4" aria-hidden="true" />

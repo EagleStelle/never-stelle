@@ -1,7 +1,6 @@
 ﻿<script setup lang="ts">
 import { computed, ref, nextTick } from "vue";
 import IconInfo from "~icons/material-symbols/info-outline";
-import IconResolve from "~icons/material-symbols/cloud-sync";
 import {
   Accordion,
   AccordionContent,
@@ -18,6 +17,7 @@ import {
   type TemplateFieldDef,
 } from "@/features/settings/templateFields";
 import type { TemplateSettings } from "@/types";
+import { ACTION_ICONS, syncIconClass } from "@/ui";
 import {
   Tooltip,
   TooltipContent,
@@ -223,9 +223,10 @@ function insert(siteKey: string, format: string, token: string): void {
                 @click="openRename(site.key, site.label, 'templates')"
               >
                 <template #icon>
-                  <IconResolve
+                  <component
+                    :is="ACTION_ICONS.resolve"
                     aria-hidden="true"
-                    :class="{ 'animate-spin': renameRunning(site.key, 'templates') }"
+                    :class="syncIconClass(renameRunning(site.key, 'templates'))"
                   />
                 </template>
                 Resolve History
@@ -261,9 +262,10 @@ function insert(siteKey: string, format: string, token: string): void {
                       @click="openRename(site.key, site.label, 'templates', template)"
                     >
                       <template #icon>
-                        <IconResolve
+                        <component
+                          :is="ACTION_ICONS.resolve"
                           aria-hidden="true"
-                          :class="{ 'animate-spin': renameRunning(site.key, 'templates', template) }"
+                          :class="syncIconClass(renameRunning(site.key, 'templates', template))"
                         />
                       </template>
                       Resolve History

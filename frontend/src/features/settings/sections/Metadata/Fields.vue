@@ -2,7 +2,6 @@
 import { reactive } from "vue";
 import IconDrag from "~icons/material-symbols/drag-indicator";
 import IconInfo from "~icons/material-symbols/info-outline";
-import IconResolve from "~icons/material-symbols/cloud-sync";
 import IconSearch from "~icons/material-symbols/search";
 import IconSpinner from "~icons/material-symbols/sync";
 
@@ -23,6 +22,7 @@ import {
   type FieldRole,
 } from "@/features/settings/composables/useFieldsSettings";
 import { useSettingsContext } from "@/features/settings/context";
+import { ACTION_ICONS, syncIconClass } from "@/ui";
 import { sourceIconUrl } from "@/utils/dashboard";
 import { Label } from "@/components/ui/label";
 import {
@@ -163,7 +163,7 @@ function filledRoles(key: string) {
                 <template #icon>
                   <IconSpinner
                     v-if="probes[site.key].loading"
-                    class="w-4 h-4 animate-spin"
+                    class="w-4 h-4 animate-sync"
                     aria-hidden="true"
                   />
                   <IconSearch v-else class="w-4 h-4" aria-hidden="true" />
@@ -291,9 +291,10 @@ function filledRoles(key: string) {
                   @click="openRename(site.key, site.label, 'fields')"
                 >
                   <template #icon>
-                    <IconResolve
+                    <component
+                      :is="ACTION_ICONS.resolve"
                       aria-hidden="true"
-                      :class="{ 'animate-spin': renameRunning(site.key, 'fields') }"
+                      :class="syncIconClass(renameRunning(site.key, 'fields'))"
                     />
                   </template>
                   Resolve History

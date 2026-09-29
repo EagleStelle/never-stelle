@@ -1,62 +1,67 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
+import { computed, onUnmounted, shallowRef, useTemplateRef, watch, watchEffect } from "vue";
 import IconSpinner from "~icons/material-symbols/sync";
 
 import TaskGrid from "@/components/task/TaskGrid.vue";
 import TaskTable from "@/components/task/TaskTable.vue";
+import type { Selection } from "@/composables/useSelection";
 
 import type { SourceProfile, TaskItem, ViewMode } from "@/types";
 
-const PAGE_SIZE = 30;
+// Covers the longest staggered rise: 300ms delay and a 640ms animation.
+const RISE_MS = 1000;
 
 const props = defineProps<{
   tasks: TaskItem[];
   viewMode: ViewMode;
   pageKind: "downloads" | "history" | "trackers";
-  listKey: string;
+  selection: Selection<TaskItem>;
   sourceProfiles?: SourceProfile[];
   loading?: boolean;
   errorMessage?: string;
-  // Set by server-paginated callers (history); undefined uses the client-side window.
+  // Set by server-paginated callers (history and tracker items).
   hasMore?: boolean;
   fetchingMore?: boolean;
 }>();
 
 const emit = defineEmits<{
-  cancel: [taskId: string];
-  remove: [taskId: string];
-  resolve: [taskId: string];
-  retry: [taskId: string];
-  "set-source": [payload: { taskId: string; sourceKey: string }];
   "load-more": [];
 }>();
 
-const clientMode = computed(() => props.hasMore === undefined);
-const visibleCount = ref(PAGE_SIZE);
-const visibleTasks = computed(() => (clientMode.value ? props.tasks.slice(0, visibleCount.value) : props.tasks));
-const canLoadMore = computed(() =>
-  clientMode.value ? visibleCount.value < props.tasks.length : Boolean(props.hasMore),
-);
-const showSentinel = computed(() =>
-  clientMode.value ? canLoadMore.value : props.pageKind !== "downloads" || canLoadMore.value,
-);
+const paged = computed(() => props.hasMore !== undefined);
 
-watch(() => props.listKey, () => (visibleCount.value = PAGE_SIZE));
+// Items rise in when they join the list. Ones scrolled back into view appear at once.
+const rising = shallowRef<ReadonlySet<string>>(new Set());
+let listed = new Set<string>();
+let riseTimer = 0;
+
+watch(
+  () => props.tasks,
+  (tasks) => {
+    const ids = new Set(tasks.map((task) => task.vid));
+    const joined = [...ids].filter((id) => !listed.has(id));
+    listed = ids;
+    if (!joined.length) return;
+    rising.value = new Set([...rising.value, ...joined]);
+    window.clearTimeout(riseTimer);
+    riseTimer = window.setTimeout(() => (rising.value = new Set()), RISE_MS);
+  },
+  { immediate: true },
+);
 
 const sentinel = useTemplateRef<HTMLElement>("sentinel");
 let observer: IntersectionObserver | null = null;
 
 watchEffect((onCleanup) => {
   const element = sentinel.value;
-  if (!element || !canLoadMore.value || (!clientMode.value && props.fetchingMore)) return;
+  if (!element || !props.hasMore || props.fetchingMore) return;
 
   let didRequestNextPage = false;
   observer = new IntersectionObserver(
     ([entry]) => {
       if (!entry?.isIntersecting || didRequestNextPage) return;
       didRequestNextPage = true;
-      if (clientMode.value) visibleCount.value += PAGE_SIZE;
-      else emit("load-more");
+      emit("load-more");
     },
     { rootMargin: "320px 0px" },
   );
@@ -68,21 +73,26 @@ watchEffect((onCleanup) => {
   });
 });
 
-onUnmounted(() => observer?.disconnect());
+onUnmounted(() => {
+  observer?.disconnect();
+  window.clearTimeout(riseTimer);
+});
 </script>
 
 <template>
-  <section aria-live="polite">
+  <section>
     <div
       v-if="loading"
+      role="status"
       class="rounded-lg glass flex min-h-32 items-center justify-center gap-2 text-white in-[.light-mode]:text-black text-center"
     >
-      <IconSpinner class="animate-spin text-accent" aria-hidden="true" />
+      <IconSpinner class="animate-sync text-accent" aria-hidden="true" />
       <span>Loading downloads...</span>
     </div>
 
     <div
       v-else-if="errorMessage && tasks.length === 0"
+      role="status"
       class="rounded-lg glass flex min-h-32 items-center justify-center gap-2 text-center text-white in-[.light-mode]:text-black"
     >
       {{ errorMessage }}
@@ -91,43 +101,29 @@ onUnmounted(() => observer?.disconnect());
     <template v-else>
       <TaskTable
         v-if="viewMode === 'table'"
-        :tasks="visibleTasks"
+        :tasks="tasks"
+        :selection="selection"
         :source-profiles="sourceProfiles"
-        @cancel="emit('cancel', $event)"
-        @remove="emit('remove', $event)"
-        @resolve="emit('resolve', $event)"
-        @retry="emit('retry', $event)"
-        @set-source="emit('set-source', $event)"
+        :rising="rising"
       />
 
       <TaskGrid
         v-else
-        :tasks="visibleTasks"
-        :page-kind="pageKind"
+        :tasks="tasks"
+        :selection="selection"
         :source-profiles="sourceProfiles"
-        @cancel="emit('cancel', $event)"
-        @remove="emit('remove', $event)"
-        @resolve="emit('resolve', $event)"
-        @retry="emit('retry', $event)"
-        @set-source="emit('set-source', $event)"
+        :rising="rising"
       />
 
       <div
-        v-if="showSentinel"
+        v-if="paged"
         ref="sentinel"
-        :aria-hidden="!canLoadMore"
+        :aria-hidden="!hasMore"
         class="min-h-10"
         :data-testid="pageKind === 'history' ? 'history-scroll-sentinel' : undefined"
       >
         <div
-          v-if="clientMode"
-          class="flex min-h-10 items-center justify-center gap-2 text-white in-[.light-mode]:text-black"
-        >
-          <IconSpinner class="animate-spin text-accent" aria-hidden="true" />
-          <span class="text-sm">Loading more...</span>
-        </div>
-        <div
-          v-else-if="fetchingMore"
+          v-if="fetchingMore"
           role="status"
           class="flex justify-center py-2 text-sm text-white/70 in-[.light-mode]:text-black/70"
         >

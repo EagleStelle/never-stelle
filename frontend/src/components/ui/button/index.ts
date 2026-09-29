@@ -3,6 +3,13 @@ import { cva } from "class-variance-authority";
 
 export { default as Button } from "@/components/ui/button/Button.vue";
 
+// Filled variants: flat fill, focus ring set off from it.
+const solid =
+  "border border-transparent focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+// Colored variants turn neutral when disabled.
+const inert =
+  "disabled:border-transparent disabled:bg-white/10 disabled:text-white/45 disabled:opacity-100 in-[.light-mode]:disabled:bg-black/6 in-[.light-mode]:disabled:text-black/40";
+
 export const buttonVariants = cva(
   [
     "group inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg text-sm font-medium leading-none whitespace-nowrap",
@@ -15,38 +22,28 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary:
-          "border border-(--glass-border) bg-accent text-black hover:bg-accent/45 disabled:border-transparent disabled:bg-white/10 disabled:text-white/45 disabled:opacity-100 in-[.light-mode]:disabled:bg-black/6 in-[.light-mode]:disabled:text-black/40",
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80 shadow-sm",
+        primary: `${solid} ${inert} bg-accent text-accent-foreground hover:bg-accent-hover`,
+        secondary: `${inert} border border-accent/30 bg-accent/12 text-accent-ink hover:border-accent/50 hover:bg-accent/20 in-[.light-mode]:border-accent/45 in-[.light-mode]:bg-accent/14 in-[.light-mode]:hover:border-accent/65 in-[.light-mode]:hover:bg-accent/22`,
         ghost:
           "border border-transparent bg-transparent text-white/70 hover:bg-white/10 hover:text-white in-[.light-mode]:text-black/70 in-[.light-mode]:hover:bg-black/5 in-[.light-mode]:hover:text-black",
         outline:
           "border border-(--glass-border) bg-transparent text-white hover:bg-white/10 in-[.light-mode]:text-black in-[.light-mode]:hover:bg-black/5",
-        destructive:
-          "border border-(--glass-border) bg-destructive text-destructive-foreground hover:bg-destructive/85",
+        destructive: `${solid} ${inert} bg-destructive-solid text-destructive-foreground hover:bg-destructive-solid-hover`,
         "destructive-ghost":
-          "border border-transparent bg-transparent text-white/70 hover:bg-white/10 hover:text-destructive in-[.light-mode]:text-black/70 in-[.light-mode]:hover:bg-black/5 in-[.light-mode]:hover:text-destructive",
-        link: "h-auto p-0 text-accent underline-offset-4 hover:underline active:scale-100",
+          "border border-transparent bg-transparent text-destructive-ink hover:bg-destructive/15 in-[.light-mode]:hover:bg-destructive/10",
       },
       size: {
         default: "h-9 px-4 text-sm",
         sm: "h-8 px-3 text-xs",
-        lg: "h-10 px-5 text-base",
-        icon: "h-9 w-9 p-0 text-sm",
-        "icon-sm": "h-8 w-8 p-0 text-xs",
+        icon: "size-9 p-0 text-sm",
+        "icon-sm": "size-8 p-0 text-xs",
       },
       // Below `sm` a labelled button keeps only its icon, squared to its height.
       compact: {
-        true: "max-sm:px-0",
+        true: "max-sm:aspect-square max-sm:px-0",
         false: "",
       },
     },
-    compoundVariants: [
-      { compact: true, size: "sm", class: "max-sm:w-8" },
-      { compact: true, size: "default", class: "max-sm:w-9" },
-      { compact: true, size: "lg", class: "max-sm:w-10" },
-    ],
     defaultVariants: {
       variant: "primary",
       size: "default",

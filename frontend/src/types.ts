@@ -1,6 +1,6 @@
 import type { Component } from "vue";
 
-export const PAGE_KEYS = ["downloads", "history", "trackers"] as const;
+export const PAGE_KEYS = ["downloads", "history", "trackers", "account"] as const;
 
 export type SourceKey = string;
 export type MenuKey = "all" | SourceKey;
@@ -10,6 +10,22 @@ export type TaskStatus =
 export type TaskFilter = "all" | "active" | "done";
 export type MediaFilter = "all" | "image" | "video";
 export type ViewMode = "grid" | "table";
+
+// One thing a user can do to an item, from its row, its tile or the selection bar.
+export interface ItemAction {
+  key: string;
+  label: string;
+  icon: Component;
+  variant: "primary" | "ghost" | "destructive" | "destructive-ghost";
+  // A tooltip that says more than the label.
+  title?: string;
+  disabled?: boolean;
+  // Set for a sync glyph: it spins while the action's work runs and nudges on hover.
+  spinning?: boolean;
+  // A link action downloads instead of running.
+  href?: string;
+  run?: () => void;
+}
 export type MediaMode = "merged" | "video" | "audio";
 export type SettingsSection =
   | "account"
@@ -383,8 +399,7 @@ export interface TaskItem {
   resolved_filename: string;
   resolved_full_path: string;
   preview_warning: string;
-  can_remove: boolean;
-  can_cancel: boolean;
+  can_delete: boolean;
   can_retry: boolean;
   task_type: string;
   source_key: string;
@@ -438,7 +453,6 @@ export interface TrackersResponse {
 }
 
 export interface TrackerPayload {
-  enabled?: boolean;
   interval_seconds?: number;
   quality?: QualitySelection;
   post_processing?: PostProcessingSelection;
@@ -491,9 +505,10 @@ export interface ProbeResponse {
   entries: PlaylistEntry[];
 }
 
-export interface ClearTasksResponse {
-  cleared: number;
-  failed?: string[];
+// What a batch action did, and why the items it skipped were skipped.
+export interface BatchResponse {
+  count: number;
+  errors: string[];
 }
 
 export interface ScanMediaResponse {

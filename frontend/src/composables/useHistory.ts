@@ -1,10 +1,12 @@
-import { computed, ref, type Ref } from "vue";
-import { useInfiniteQuery, type InfiniteData } from "@tanstack/vue-query";
+import { computed, ref, watch, type Ref } from "vue";
+import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/vue-query";
 
 import { getHistory } from "@/api";
 import { HISTORY_PAGE_SIZE, HISTORY_QUERY_KEY } from "@/ui";
 import type { HistoryResponse, TaskItem } from "@/types";
 import { errorMessage } from "@/utils/dashboard";
+
+type HistoryData = InfiniteData<HistoryResponse, string | undefined>;
 
 interface UseHistoryOptions {
   sourceKey: Ref<string>;
@@ -15,14 +17,9 @@ interface UseHistoryOptions {
 
 // Paginated history: one page per fetch, appended on scroll, so the browser never holds the whole table.
 export function useHistory({ sourceKey, search, enabled, trackerId = ref("") }: UseHistoryOptions) {
+  const queryClient = useQueryClient();
   const searchQuery = computed(() => search.value.trim());
-  const query = useInfiniteQuery<
-    HistoryResponse,
-    Error,
-    InfiniteData<HistoryResponse, string | undefined>,
-    readonly unknown[],
-    string | undefined
-  >({
+  const query = useInfiniteQuery<HistoryResponse, Error, HistoryData, readonly unknown[], string | undefined>({
     queryKey: [...HISTORY_QUERY_KEY, HISTORY_PAGE_SIZE, sourceKey, searchQuery, trackerId],
     queryFn: ({ pageParam, signal }) =>
       getHistory(pageParam, HISTORY_PAGE_SIZE, sourceKey.value, searchQuery.value, trackerId.value, signal),
@@ -31,6 +28,21 @@ export function useHistory({ sourceKey, search, enabled, trackerId = ref("") }: 
     enabled,
     staleTime: 1000,
   });
+
+  // A list left behind keeps only its first page, so showing it again refetches one page, not all of them.
+  watch(
+    [enabled, sourceKey, searchQuery, trackerId],
+    () => {
+      queryClient.setQueriesData<HistoryData>(
+        { queryKey: HISTORY_QUERY_KEY, predicate: (cached) => !cached.isActive() },
+        (data) =>
+          data && data.pages.length > 1
+            ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) }
+            : undefined,
+      );
+    },
+    { flush: "post" },
+  );
 
   const entries = computed<TaskItem[]>(() => (query.data.value?.pages || []).flatMap((page) => page.entries));
   const loading = computed(() => query.isLoading.value);

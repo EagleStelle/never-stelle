@@ -6,9 +6,10 @@ const props = defineProps<{ class?: HTMLAttributes["class"] }>();
 </script>
 
 <template>
+  <!-- Tables sit on flat surfaces, so they skip the backdrop blur. -->
   <div
     data-slot="table-container"
-    class="relative w-full overflow-auto rounded-lg glass"
+    class="relative w-full overflow-auto rounded-lg glass backdrop-filter-none"
   >
     <table
       data-slot="table"

@@ -129,7 +129,7 @@ function isDropTarget(key: string, index: number): boolean {
       <template #icon>
         <IconSpinner
           v-if="learning"
-          class="animate-spin"
+          class="animate-sync"
           aria-hidden="true"
         />
         <IconAdd v-else aria-hidden="true" />

@@ -1,5 +1,9 @@
 <script setup lang="ts">
+import { computed } from "vue";
+
+import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
+import { FieldLabel } from "@/components/ui/field";
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -9,16 +13,19 @@ import IconList from "~icons/material-symbols/list";
 
 import { useDashboard } from "@/composables/useDashboard";
 import { useIsDesktop } from "@/composables/useBreakpoints";
+import type { SelectAll } from "@/composables/useSelection";
 import type { MediaFilter, MenuKey, ViewMode } from "@/types";
 
 // Downloads, history and the tracker dialog narrow the same task list, so each mounts this.
-defineProps<{ hidePlatform?: boolean }>();
+const props = defineProps<{ hidePlatform?: boolean; selection?: SelectAll }>();
 
 const {
   activeMenu,
   mediaFilter,
   mediaFilterItems,
   navigationItems,
+  pageSelection,
+  selectAllPlace,
   setActiveMenu,
   setMediaFilter,
   setViewMode,
@@ -26,6 +33,8 @@ const {
 } = useDashboard();
 
 const isDesktop = useIsDesktop();
+// The list this toolbar narrows: the page's own, unless a dialog hands its list in.
+const selectAll = computed(() => props.selection ?? pageSelection.value);
 
 function selectViewMode(value: string | string[]): void {
   if (typeof value === "string" && value) setViewMode(value as ViewMode);
@@ -57,11 +66,20 @@ function selectViewMode(value: string | string[]): void {
       empty-text="No types."
     />
 
-    <SegmentedControl
-      :model-value="viewMode"
-      @update:model-value="selectViewMode"
-      aria-label="View mode"
-    >
+    <div class="flex shrink-0 items-center gap-2 lg:gap-3">
+      <FieldLabel
+        v-if="selectAllPlace === 'toolbar' && selectAll.total"
+        class="cursor-pointer items-center gap-2 text-sm whitespace-nowrap"
+      >
+        <Checkbox :checked="selectAll.state" @update:checked="selectAll.setAll" />
+        <span>Select all</span>
+      </FieldLabel>
+
+      <SegmentedControl
+        :model-value="viewMode"
+        @update:model-value="selectViewMode"
+        aria-label="View mode"
+      >
       <SegmentedControlItem value="grid" aria-label="Grid view" title="Grid view">
         <IconGrid class="w-3.5 h-3.5" aria-hidden="true" />
         <span class="hidden @xl:inline">Grid</span>
@@ -71,5 +89,6 @@ function selectViewMode(value: string | string[]): void {
         <span class="hidden @xl:inline">Table</span>
       </SegmentedControlItem>
     </SegmentedControl>
+    </div>
   </div>
 </template>

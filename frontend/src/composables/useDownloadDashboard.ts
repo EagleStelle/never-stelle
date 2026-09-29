@@ -9,6 +9,8 @@ import { useDashboardSettings } from "@/composables/useDashboardSettings";
 import { useAuth } from "@/composables/useAuth";
 import { useTaskQueue } from "@/composables/useTaskQueue";
 import { useHistory } from "@/composables/useHistory";
+import { useIsMobile } from "@/composables/useBreakpoints";
+import { useSelection } from "@/composables/useSelection";
 import { useTrackers } from "@/composables/useTrackers";
 import { useSonner } from "@/composables/useSonner";
 import { COUNT_ICONS, PAGE_ICONS, PAGE_ROUTES } from "@/ui";
@@ -239,13 +241,15 @@ export function useDownloadDashboard() {
         hosts: [],
       })),
   );
-  const sourceProfiles = computed<SourceProfile[]>(() =>
-    mergeSourceProfiles(
+  // Keeps the previous array while nothing changed, so a task poll does not re-render every list reading it.
+  const sourceProfiles = computed<SourceProfile[]>((previous) => {
+    const next = mergeSourceProfiles(
       settingsState.sourceProfiles.value,
       taskSourceProfiles.value,
       menuKeyProfiles.value,
-    ),
-  );
+    );
+    return previous && JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+  });
 
   const isLightMode = computed(() => themeMode.value === "light");
   const navigationItems = computed(() => {
@@ -264,6 +268,11 @@ export function useDownloadDashboard() {
     { key: "downloads" as PageKey, label: "Downloads", icon: PAGE_ICONS.downloads },
     { key: "trackers" as PageKey, label: "Trackers", icon: PAGE_ICONS.trackers },
     { key: "history" as PageKey, label: "History", icon: PAGE_ICONS.history },
+  ]);
+  // Phones reach the account as a page; the sidebar keeps it in its menu.
+  const mobilePageItems = computed(() => [
+    ...pageItems.value,
+    { key: "account" as PageKey, label: "Account", icon: PAGE_ICONS.account },
   ]);
   const menuTasks = computed(() => {
     const tasks = taskQueue.taskItems.value;
@@ -315,6 +324,30 @@ export function useDownloadDashboard() {
             (task) => mediaKindForTask(task) === mediaFilter.value,
           );
     return [...queued, ...done];
+  });
+  // The rows the downloads or history page shows.
+  const pageTasks = computed(() => (activePage.value === "history" ? completedTasks.value : activeTasks.value));
+  // Selection restarts whenever the query behind a list changes.
+  const taskListKey = computed(
+    () => `${activePage.value}|${activeMenu.value}|${mediaFilter.value}|${historySearchQuery.value}`,
+  );
+  const trackerItemsKey = computed(
+    () => `${trackerState.openTrackerId.value}|${mediaFilter.value}|${historySearchQuery.value}`,
+  );
+  const taskSelection = useSelection(pageTasks, (task) => task.vid, taskListKey);
+  const itemSelection = useSelection(trackerTasks, (task) => task.vid, trackerItemsKey);
+  const trackerSelection = useSelection(menuTrackers, (tracker) => tracker.id, activeMenu);
+  const taskBatch = computed(() => taskQueue.taskBatchActions(taskSelection.selectedItems));
+  const itemBatch = computed(() => taskQueue.taskBatchActions(itemSelection.selectedItems));
+  const trackerBatch = computed(() => trackerState.trackerBatchActions(trackerSelection.selectedItems));
+  // The trackers page selects trackers; the others select their rows.
+  const pageSelection = computed(() => (activePage.value === "trackers" ? trackerSelection : taskSelection));
+  const pageBatch = computed(() => (activePage.value === "trackers" ? trackerBatch.value : taskBatch.value));
+  const isMobile = useIsMobile();
+  // Where a list's select-all lives: a table heads its column, a grid uses the toolbar, or on phones the selection bar.
+  const selectAllPlace = computed<"header" | "toolbar" | "bar">(() => {
+    if (viewMode.value === "table") return "header";
+    return isMobile.value ? "bar" : "toolbar";
   });
   const countsForActiveMenu = computed<TaskCounts>(
     () => {
@@ -482,16 +515,25 @@ export function useDownloadDashboard() {
     activeFilter,
     activeMenu,
     activeMenuLabel,
-    activeTasks,
-    completedTasks,
     countCards,
     isLightMode,
+    itemBatch,
+    itemSelection,
     mediaFilter,
     mediaFilterItems,
     navigationItems,
+    pageBatch,
+    mobilePageItems,
     pageItems,
+    pageSelection,
+    pageTasks,
+    selectAllPlace,
     setActivePage,
     menuTrackers,
+    taskBatch,
+    taskSelection,
+    trackerBatch,
+    trackerSelection,
     trackerTasks,
     trackerHistoryLoading: trackerHistory.loading,
     trackerHistoryError: trackerHistory.historyError,

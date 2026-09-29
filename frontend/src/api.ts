@@ -1,7 +1,7 @@
 import type {
   AddTaskResponse,
   AuthSessionResponse,
-  ClearTasksResponse,
+  BatchResponse,
   CredentialsPayload,
   HistoryResponse,
   LoginPayload,
@@ -256,22 +256,24 @@ export function addTask(payload: {
   );
 }
 
-export async function removeTask(taskId: string): Promise<void> {
-  const response = await fetch(`/api/downloads/${encodeURIComponent(taskId)}`, { method: "DELETE" });
-  if (response.status === 204) return;
-  throw new Error(await readError(response, "Could not remove task."));
+function batchRequest(path: string, payload: Record<string, unknown>, fallback: string): Promise<BatchResponse> {
+  return jsonRequest<BatchResponse>(
+    path,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    fallback,
+  );
 }
 
-export async function cancelTask(taskId: string): Promise<void> {
-  const response = await fetch(`/api/downloads/${encodeURIComponent(taskId)}/cancel`, { method: "POST" });
-  if (response.status === 204) return;
-  throw new Error(await readError(response, "Could not cancel download."));
+export function deleteTasks(ids: string[]): Promise<BatchResponse> {
+  return batchRequest("/api/downloads/delete", { ids }, "Could not delete.");
 }
 
-export async function retryTask(taskId: string): Promise<void> {
-  const response = await fetch(`/api/downloads/${encodeURIComponent(taskId)}/retry`, { method: "POST" });
-  if (response.status === 204) return;
-  throw new Error(await readError(response, "Could not retry download."));
+export function retryTasks(ids: string[]): Promise<BatchResponse> {
+  return batchRequest("/api/downloads/retry", { ids }, "Could not retry.");
 }
 
 export function setTaskSource(taskId: string, sourceKey: string): Promise<{ source_key: string }> {
@@ -286,10 +288,10 @@ export function setTaskSource(taskId: string, sourceKey: string): Promise<{ sour
   );
 }
 
-export function clearPendingTasks(): Promise<ClearTasksResponse> {
-  return jsonRequest<ClearTasksResponse>(
-    "/api/downloads/clear-pending",
-    { method: "POST" },
+export function clearPendingTasks(): Promise<BatchResponse> {
+  return jsonRequest<BatchResponse>(
+    "/api/downloads",
+    { method: "DELETE" },
     "Could not clear queue.",
   );
 }
@@ -342,7 +344,7 @@ export function getTrackers(signal?: AbortSignal): Promise<TrackersResponse> {
   return jsonRequest<TrackersResponse>("/api/trackers", { signal }, "Could not load trackers.");
 }
 
-export function createTracker(payload: Required<Omit<TrackerPayload, "enabled">> & { url: string }): Promise<Tracker> {
+export function createTracker(payload: Required<TrackerPayload> & { url: string }): Promise<Tracker> {
   return jsonRequest<Tracker>(
     "/api/trackers",
     {
@@ -366,25 +368,26 @@ export function updateTracker(trackerId: string, payload: TrackerPayload): Promi
   );
 }
 
-export async function checkTracker(trackerId: string): Promise<void> {
-  const response = await fetch(`/api/trackers/${encodeURIComponent(trackerId)}/check`, { method: "POST" });
-  if (response.status === 204) return;
-  throw new Error(await readError(response, "Could not check tracker."));
+export function checkTrackers(ids: string[]): Promise<BatchResponse> {
+  return batchRequest("/api/trackers/check", { ids }, "Could not check.");
 }
 
-export async function stopTrackerCheck(trackerId: string): Promise<void> {
-  const response = await fetch(`/api/trackers/${encodeURIComponent(trackerId)}/check`, { method: "DELETE" });
-  if (response.status === 204) return;
-  throw new Error(await readError(response, "Could not stop the check."));
+export function stopTrackerChecks(ids: string[]): Promise<BatchResponse> {
+  return batchRequest("/api/trackers/stop", { ids }, "Could not stop the check.");
 }
 
-export async function deleteTracker(trackerId: string, deleteFiles: boolean): Promise<void> {
-  const params = new URLSearchParams({ delete_files: String(deleteFiles) });
-  const response = await fetch(`/api/trackers/${encodeURIComponent(trackerId)}?${params.toString()}`, {
-    method: "DELETE",
-  });
-  if (response.status === 204) return;
-  throw new Error(await readError(response, "Could not delete tracker."));
+export function setTrackersEnabled(ids: string[], enabled: boolean): Promise<BatchResponse> {
+  return batchRequest("/api/trackers/enabled", { ids, enabled }, "Could not update trackers.");
+}
+
+export function deleteTrackers(ids: string[], deleteFiles: boolean): Promise<BatchResponse> {
+  return batchRequest("/api/trackers/delete", { ids, delete_files: deleteFiles }, "Could not delete trackers.");
+}
+
+// One zip of the selected finished files, streamed by the server as it reads them.
+export function taskFilesUrl(taskIds: string[]): string {
+  const params = new URLSearchParams(taskIds.map((taskId) => ["ids", taskId]));
+  return `/api/downloads/files?${params.toString()}`;
 }
 
 // Same-origin URL for the completed media bytes. Used directly by <a download>

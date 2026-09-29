@@ -13,8 +13,8 @@ const isDesktop = useIsDesktop();
 
 // The toolbar docks below the header on desktop and above the status bar on mobile.
 // Only the slot for the live breakpoint renders, so the URL field never exists twice.
-const visible = computed(() =>
-  props.placement === "top" ? isDesktop.value : !isDesktop.value,
+const visible = computed(
+  () => activePage.value !== "account" && (props.placement === "top" ? isDesktop.value : !isDesktop.value),
 );
 </script>
 

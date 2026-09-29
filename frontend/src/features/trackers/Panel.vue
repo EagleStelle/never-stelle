@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import { computed, reactive, ref, useTemplateRef, watch } from "vue";
-import IconDelete from "~icons/material-symbols/delete";
 import { Link as IconLink } from "@lucide/vue";
-import IconPause from "~icons/material-symbols/pause";
-import IconResume from "~icons/material-symbols/play-arrow";
 import IconSeen from "~icons/material-symbols/visibility";
-import IconCheck from "~icons/material-symbols/sync";
 
+import ItemActions from "@/components/task/ItemActions.vue";
+import SelectionBar from "@/components/task/SelectionBar.vue";
 import TaskCollection from "@/components/task/TaskCollection.vue";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +17,7 @@ import {
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
-import { DialogShell as Dialog } from "@/components/ui/dialog";
+import { DialogFooter, DialogShell as Dialog } from "@/components/ui/dialog";
 import { FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { IconImage } from "@/components/ui/icon-image";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -27,8 +25,8 @@ import DownloadFields from "@/features/downloads/DownloadFields.vue";
 import type { QualityField } from "@/features/downloads/qualityFields";
 import HistoryToolbar from "@/features/history/Toolbar.vue";
 import { useDashboard } from "@/composables/useDashboard";
-import { hasCheck } from "@/composables/useTrackers";
-import { COUNT_ICONS, TRACKER_INTERVALS } from "@/ui";
+import { provideScrollRoot } from "@/composables/useVirtualRows";
+import { ACTION_ICONS, COUNT_ICONS, TILE_GRID, TRACKER_INTERVALS } from "@/ui";
 import type { Component } from "vue";
 import type { MediaMode, PostProcessingSelection, QualitySelection, Tracker } from "@/types";
 import {
@@ -41,26 +39,22 @@ import {
 } from "@/utils/dashboard";
 
 const {
-  activeMenu,
-  cancelTask,
-  checkTracker,
-  deleteTracker,
+  deleteTrackers,
+  deletingTrackers,
   downloadPostProcessing,
   downloadSelection,
+  itemBatch,
+  itemSelection,
   loadMoreTrackerHistory,
-  mediaFilter,
   menuTrackers,
   newTrackerUrl,
   openTracker,
   openTrackerId,
   qualityOptions,
-  removeTask,
-  resolveTask,
-  retryTask,
   saveTracker,
-  setTaskSource,
   settings,
   sourceProfiles,
+  trackerActions,
   trackerHistoryError,
   trackerHistoryFetchingMore,
   trackerHistoryHasMore,
@@ -68,23 +62,18 @@ const {
   trackers,
   trackersError,
   trackersLoading,
+  trackerSelection,
   trackerTasks,
   updateTracker,
   viewMode,
 } = useDashboard();
 
-// Paging restarts from the top whenever the query behind the list changes.
-const listKey = computed(() => `${openTrackerId.value}|${activeMenu.value}|${mediaFilter.value}`);
+provideScrollRoot(useTemplateRef<HTMLElement>("itemsScroll"));
 
 function trackerStatus(tracker: Tracker): string {
   if (tracker.checking) return "Checking";
   if (tracker.queued) return "Queued";
   return tracker.enabled ? "" : "Paused";
-}
-
-// The check button stops a check already running or waiting.
-function checkLabel(tracker: Tracker): string {
-  return hasCheck(tracker) ? "Stop check" : "Check now";
 }
 
 const TRACKER_STATS: { label: string; icon: Component; count: (counts: Tracker["counts"]) => number }[] = [
@@ -96,10 +85,6 @@ const TRACKER_STATS: { label: string; icon: Component; count: (counts: Tracker["
 
 function trackerStats(tracker: Tracker): { label: string; value: number; icon: Component }[] {
   return TRACKER_STATS.map((stat) => ({ label: stat.label, icon: stat.icon, value: stat.count(tracker.counts) }));
-}
-
-function toggleTracker(tracker: Tracker): void {
-  void updateTracker(tracker.id, { enabled: !tracker.enabled }, tracker.enabled ? "Tracker paused." : "Tracker resumed.");
 }
 
 // The dialog edits a draft; nothing reaches the tracker until Apply.
@@ -179,19 +164,21 @@ async function applyTracker(): Promise<void> {
   if (saved && newTrackerUrl.value === url) closeTracker();
 }
 
-const deleting = ref<Tracker | null>(null);
 const deleteFiles = ref(false);
+const deleteTitle = computed(() =>
+  deletingTrackers.value.length === 1
+    ? `Delete ${deletingTrackers.value[0].name}?`
+    : `Delete ${deletingTrackers.value.length} trackers?`,
+);
 
-function openDelete(tracker: Tracker): void {
-  deleteFiles.value = false;
-  deleting.value = tracker;
-}
+watch(deletingTrackers, (next) => {
+  if (next.length) deleteFiles.value = false;
+});
 
 async function confirmDelete(): Promise<void> {
-  const tracker = deleting.value;
-  if (!tracker) return;
-  deleting.value = null;
-  await deleteTracker(tracker.id, deleteFiles.value);
+  const ids = deletingTrackers.value.map((tracker) => tracker.id);
+  deletingTrackers.value = [];
+  if (ids.length) await deleteTrackers(ids, deleteFiles.value);
 }
 </script>
 
@@ -209,6 +196,14 @@ async function confirmDelete(): Promise<void> {
     <Table v-else-if="viewMode === 'table' && menuTrackers.length">
       <TableHeader>
         <TableRow>
+          <TableHead class="w-px">
+            <Checkbox
+              :checked="trackerSelection.state"
+              aria-label="Select all"
+              title="Select all"
+              @update:checked="trackerSelection.setAll"
+            />
+          </TableHead>
           <TableHead class="w-1/3 min-w-48 whitespace-nowrap">Name</TableHead>
           <TableHead class="w-2/3 min-w-72 whitespace-nowrap">Source</TableHead>
           <TableHead
@@ -225,12 +220,20 @@ async function confirmDelete(): Promise<void> {
         <TableRow
           v-for="tracker in menuTrackers"
           :key="tracker.id"
+          v-bind="trackerSelection.itemProps(tracker, () => showTracker(tracker.id))"
           class="glass-rise cursor-pointer"
-          @click="showTracker(tracker.id)"
+          :data-state="trackerSelection.isSelected(tracker) ? 'selected' : undefined"
         >
+          <TableCell class="w-px" @click.stop>
+            <Checkbox
+              :checked="trackerSelection.isSelected(tracker)"
+              :aria-label="`Select ${tracker.name}`"
+              title="Select"
+              @click="(event: MouseEvent) => trackerSelection.toggle(tracker, event.shiftKey)"
+            />
+          </TableCell>
           <TableCell class="w-1/3 max-w-0 min-w-48">
             <div class="flex items-center gap-2 text-white in-[.light-mode]:text-black">
-              <IconImage :src="sourceIconUrl(tracker.source_key)" class="h-4 w-4 shrink-0" />
               <span class="truncate" :title="tracker.name">{{ tracker.name }}</span>
               <span v-if="trackerStatus(tracker)" class="shrink-0 text-xs text-white/60 in-[.light-mode]:text-black/60">
                 {{ trackerStatus(tracker) }}
@@ -241,16 +244,19 @@ async function confirmDelete(): Promise<void> {
             </div>
           </TableCell>
           <TableCell class="w-2/3 max-w-0 min-w-72">
-            <a
-              :href="tracker.source_url"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="truncate block min-w-0 font-mono text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
-              :title="tracker.source_url"
-              @click.stop
-            >
-              {{ tracker.source_url }}
-            </a>
+            <div class="flex items-center gap-2">
+              <IconImage :src="sourceIconUrl(tracker.source_key)" class="h-4 w-4 shrink-0" />
+              <a
+                :href="tracker.source_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="truncate block min-w-0 font-mono text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                :title="tracker.source_url"
+                @click.stop
+              >
+                {{ tracker.source_url }}
+              </a>
+            </div>
           </TableCell>
           <TableCell
             v-for="stat in trackerStats(tracker)"
@@ -260,61 +266,41 @@ async function confirmDelete(): Promise<void> {
             {{ stat.value }}
           </TableCell>
           <TableCell class="w-px" @click.stop>
-            <div class="flex items-center justify-end gap-1.5">
-              <Button
-                type="button"
-                :title="checkLabel(tracker)"
-                :aria-label="checkLabel(tracker)"
-                :disabled="!tracker.checking && !tracker.enabled"
-                @click="checkTracker(tracker.id)"
-              >
-                <template #icon>
-                  <IconCheck aria-hidden="true" :class="{ 'animate-spin': tracker.checking }" />
-                </template>
-              </Button>
-              <Button
-                type="button"
-                :title="tracker.enabled ? 'Pause' : 'Resume'"
-                :aria-label="tracker.enabled ? 'Pause' : 'Resume'"
-                @click="toggleTracker(tracker)"
-              >
-                <template #icon>
-                  <IconPause v-if="tracker.enabled" aria-hidden="true" />
-                  <IconResume v-else aria-hidden="true" />
-                </template>
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                title="Delete tracker"
-                aria-label="Delete tracker"
-                @click="openDelete(tracker)"
-              >
-                <template #icon>
-                  <IconDelete aria-hidden="true" />
-                </template>
-              </Button>
-            </div>
+            <ItemActions :actions="trackerActions(tracker)" :disabled="trackerSelection.count > 0" />
           </TableCell>
         </TableRow>
       </TableBody>
     </Table>
 
-    <div v-else class="grid grid-cols-1 gap-2">
+    <div v-else :class="TILE_GRID">
       <Card
         v-for="tracker in menuTrackers"
         :key="tracker.id"
-        class="glass-rise glass-hoverable hover:-translate-y-0.5 cursor-pointer"
+        v-bind="trackerSelection.itemProps(tracker, () => showTracker(tracker.id))"
+        class="glass-rise glass-hoverable hover:-translate-y-0.5 cursor-pointer gap-2 py-3"
         role="button"
         tabindex="0"
-        :aria-label="`Open ${tracker.name}`"
-        @click="showTracker(tracker.id)"
-        @keydown.enter="showTracker(tracker.id)"
+        :aria-label="`${trackerSelection.count ? 'Select' : 'Open'} ${tracker.name}`"
+        :data-state="trackerSelection.isSelected(tracker) ? 'selected' : undefined"
       >
-        <CardHeader>
-          <CardTitle class="flex items-center gap-1.5">
+        <CardHeader class="items-center px-4">
+          <div class="flex items-center gap-2.5">
+            <Checkbox
+              :checked="trackerSelection.isSelected(tracker)"
+              :aria-label="`Select ${tracker.name}`"
+              title="Select"
+              @click.stop="(event: MouseEvent) => trackerSelection.toggle(tracker, event.shiftKey)"
+            />
             <IconImage :src="sourceIconUrl(tracker.source_key)" class="h-4 w-4 shrink-0" />
-            <span class="min-w-0">{{ tracker.name }}</span>
+          </div>
+          <CardAction class="self-center" @click.stop>
+            <ItemActions :actions="trackerActions(tracker)" :disabled="trackerSelection.count > 0" />
+          </CardAction>
+        </CardHeader>
+
+        <CardContent class="gap-1 px-4">
+          <CardTitle class="flex items-center gap-1.5">
+            <span class="min-w-0 truncate" :title="tracker.name">{{ tracker.name }}</span>
             <Button
               as="a"
               variant="ghost"
@@ -326,7 +312,6 @@ async function confirmDelete(): Promise<void> {
               :title="tracker.source_url"
               aria-label="Open creator page"
               @click.stop
-              @keydown.enter.stop
             >
               <template #icon>
                 <IconLink aria-hidden="true" />
@@ -348,44 +333,9 @@ async function confirmDelete(): Promise<void> {
               {{ stat.value }}
             </span>
           </CardDescription>
-          <CardAction @click.stop>
-            <Button
-              type="button"
-              :title="checkLabel(tracker)"
-              :aria-label="checkLabel(tracker)"
-              :disabled="!tracker.checking && !tracker.enabled"
-              @click="checkTracker(tracker.id)"
-            >
-              <template #icon>
-                <IconCheck aria-hidden="true" :class="{ 'animate-spin': tracker.checking }" />
-              </template>
-            </Button>
-            <Button
-              type="button"
-              :title="tracker.enabled ? 'Pause' : 'Resume'"
-              :aria-label="tracker.enabled ? 'Pause' : 'Resume'"
-              @click="toggleTracker(tracker)"
-            >
-              <template #icon>
-                <IconPause v-if="tracker.enabled" aria-hidden="true" />
-                <IconResume v-else aria-hidden="true" />
-              </template>
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              title="Delete tracker"
-              aria-label="Delete tracker"
-              @click="openDelete(tracker)"
-            >
-              <template #icon>
-                <IconDelete aria-hidden="true" />
-              </template>
-            </Button>
-          </CardAction>
-        </CardHeader>
-        <CardContent v-if="tracker.last_error">
-          <div class="wrap-break-word whitespace-pre-line text-destructive">{{ tracker.last_error }}</div>
+          <div v-if="tracker.last_error" class="mt-1 wrap-break-word whitespace-pre-line text-sm text-destructive">
+            {{ tracker.last_error }}
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -438,7 +388,7 @@ async function confirmDelete(): Promise<void> {
           </div>
         </header>
 
-        <div class="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 flex flex-col gap-6">
+        <div ref="itemsScroll" class="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 flex flex-col gap-6">
           <DownloadFields
             :selection="draftSelection"
             :options="qualityOptions"
@@ -451,32 +401,27 @@ async function confirmDelete(): Promise<void> {
 
           <FieldSet v-if="openTracker">
             <FieldLegend variant="divider">Items</FieldLegend>
-            <HistoryToolbar hide-platform />
+            <HistoryToolbar hide-platform :selection="itemSelection" />
             <TaskCollection
               :tasks="trackerTasks"
               :view-mode="viewMode"
-              :list-key="listKey"
+              :selection="itemSelection"
               :loading="trackerHistoryLoading"
               page-kind="trackers"
               :source-profiles="sourceProfiles"
               :error-message="trackerHistoryError"
               :has-more="trackerHistoryHasMore"
               :fetching-more="trackerHistoryFetchingMore"
-              @cancel="cancelTask"
-              @remove="removeTask"
-              @resolve="resolveTask"
-              @retry="retryTask"
-              @set-source="setTaskSource"
               @load-more="loadMoreTrackerHistory"
             />
           </FieldSet>
         </div>
 
-        <footer
-          class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-0 border-t border-(--glass-border) bg-primary/45 backdrop-blur-md px-5 py-4 sm:px-6"
-        >
+        <DialogFooter class="flex-row flex-wrap items-center justify-between gap-3 sm:justify-between">
           <div class="flex flex-wrap items-center gap-3">
+            <SelectionBar v-if="itemSelection.count" :selection="itemSelection" :actions="itemBatch" />
             <Combobox
+              v-else
               :model-value="draftInterval"
               :items="TRACKER_INTERVALS"
               aria-label="Check interval"
@@ -485,20 +430,20 @@ async function confirmDelete(): Promise<void> {
               @update:model-value="setDraftInterval"
             />
           </div>
-          <div class="flex items-center gap-2">
+          <div v-if="!itemSelection.count" class="flex items-center gap-2">
             <Button variant="ghost" type="button" @click="closeTracker">Cancel</Button>
             <Button ref="applyButton" variant="primary" type="button" :disabled="saving" @click="applyTracker">Apply</Button>
           </div>
-        </footer>
+        </DialogFooter>
       </template>
     </Dialog>
 
     <Dialog
-      :open="Boolean(deleting)"
-      :title="deleting ? `Delete ${deleting.name}?` : 'Delete tracker?'"
-      description="The tracker stops checking and its queued downloads are removed."
+      :open="deletingTrackers.length > 0"
+      :title="deleteTitle"
+      description="Checks stop and queued downloads are removed."
       content-class="fixed left-1/2 top-1/2 z-70 flex w-[min(480px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
-      @update:open="(open) => !open && (deleting = null)"
+      @update:open="(open) => !open && (deletingTrackers = [])"
     >
       <div class="px-5 py-4 sm:px-6">
         <FieldLabel class="cursor-pointer items-center gap-2">
@@ -506,10 +451,15 @@ async function confirmDelete(): Promise<void> {
           <span>Also delete downloaded files</span>
         </FieldLabel>
       </div>
-      <div class="flex shrink-0 items-center justify-end gap-2 border-0 border-t border-(--glass-border) bg-primary/45 backdrop-blur-md px-5 py-4 sm:px-6">
-        <Button variant="ghost" type="button" @click="deleting = null">Cancel</Button>
-        <Button variant="destructive" type="button" @click="confirmDelete">Delete</Button>
-      </div>
+      <DialogFooter>
+        <Button variant="ghost" type="button" @click="deletingTrackers = []">Cancel</Button>
+        <Button variant="destructive" type="button" @click="confirmDelete">
+          <template #icon>
+            <component :is="ACTION_ICONS.delete" aria-hidden="true" />
+          </template>
+          Delete
+        </Button>
+      </DialogFooter>
     </Dialog>
   </section>
 </template>

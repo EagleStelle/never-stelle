@@ -87,7 +87,7 @@ const isExpanded = ref(true);
     </SidebarContent>
 
     <SidebarFooter class="w-full">
-      <AccountMenu :variant="isExpanded ? 'sidebar' : 'sidebar-collapsed'" />
+      <AccountMenu :collapsed="!isExpanded" />
     </SidebarFooter>
   </Sidebar>
 </template>

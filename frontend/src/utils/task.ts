@@ -1,5 +1,13 @@
-import type { SourceProfile, TaskItem } from "@/types";
-import { sourceLabelFromKey } from "@/utils/dashboard";
+import type { ItemAction, TaskItem } from "@/types";
+
+export function isDestructive(action: ItemAction): boolean {
+  return action.variant.startsWith("destructive");
+}
+
+// Destructive actions sit apart: a divider opens their group after the ordinary ones.
+export function opensDestructiveGroup(actions: ItemAction[], index: number): boolean {
+  return index > 0 && isDestructive(actions[index]) && !isDestructive(actions[index - 1]);
+}
 
 const IMAGE_EXTENSIONS = new Set([
   "jpg",
@@ -41,30 +49,15 @@ function progressPct(task: TaskItem): number {
   return Number.isFinite(pct) ? clampProgress(pct) : 0;
 }
 
-// Resolve the profile matching the task's source key.
-function sourceProfileFor(task: TaskItem, profiles: SourceProfile[] = []): SourceProfile | undefined {
-  const key = task.source_key || "";
-  return profiles.find((profile) => profile.key === key);
-}
-
-// Human label for the task's source.
-function sourceLabel(task: TaskItem, profiles: SourceProfile[] = []): string {
-  return String(sourceProfileFor(task, profiles)?.label || sourceLabelFromKey(task.source_key || "")).trim();
-}
-
 // Only linkify http(s) source urls.
 export function sourceLink(task: TaskItem): string {
   const url = String(task.source_url || "").trim();
   return /^https?:\/\//i.test(url) ? url : "";
 }
 
-// Display title: filename, else "<site> <status>".
-export function taskTitle(task: TaskItem, profiles: SourceProfile[] = []): string {
-  const filename = String(task.resolved_filename || "").trim();
-  if (filename) return filename;
-  const siteLabel = sourceLabel(task, profiles);
-  const statusLabel = String(task.status_label || "Download").trim().toLowerCase();
-  return siteLabel ? `${siteLabel} ${statusLabel}` : "Download";
+// Display title: the filename once known, else the item's state (Queued, Active, Failed).
+export function taskTitle(task: TaskItem): string {
+  return String(task.resolved_filename || "").trim() || task.status_label;
 }
 
 // Secondary line under the title.

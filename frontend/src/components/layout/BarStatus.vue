@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import IconRefresh from "~icons/material-symbols/sync";
-import IconResolve from "~icons/material-symbols/cloud-sync";
-import IconTrash from "~icons/material-symbols/delete";
+import ActionButton from "@/components/task/ActionButton.vue";
+import SelectionBar from "@/components/task/SelectionBar.vue";
 import { Button } from "@/components/ui/button";
 import { useDashboard } from "@/composables/useDashboard";
-import { useIsMobile } from "@/composables/useBreakpoints";
+import type { ItemAction } from "@/types";
+import { ACTION_ICONS } from "@/ui";
 
 const {
   activePage,
@@ -15,11 +15,35 @@ const {
   historyResolving,
   libraryBusy,
   openResolveDialog,
+  pageBatch,
+  pageSelection,
   refreshHistory,
 } = useDashboard();
 
 const isHistory = computed(() => activePage.value === "history");
-const isMobile = useIsMobile();
+
+const historyActions = computed<ItemAction[]>(() => [
+  {
+    key: "refresh",
+    label: "Refresh History",
+    title: "Refresh history",
+    icon: ACTION_ICONS.refresh,
+    variant: "primary",
+    disabled: libraryBusy.value,
+    spinning: historyRefreshing.value,
+    run: () => void refreshHistory(),
+  },
+  {
+    key: "resolve",
+    label: "Resolve History",
+    title: "Resolve history",
+    icon: ACTION_ICONS.resolve,
+    variant: "ghost",
+    disabled: libraryBusy.value,
+    spinning: historyResolving.value,
+    run: () => void openResolveDialog(),
+  },
+]);
 </script>
 
 <template>
@@ -27,59 +51,31 @@ const isMobile = useIsMobile();
     class="z-40 glass glass-border-top py-2 px-3 flex items-center justify-between text-white in-[.light-mode]:text-black mb-(--nav-bottom-height) lg:mb-0 gap-3"
     aria-label="Task counts"
   >
-    <div v-if="isHistory" class="flex shrink-0 items-center gap-2">
-      <Button
-        type="button"
-        size="sm"
-        title="Refresh history"
-        aria-label="Refresh history"
-        :disabled="libraryBusy"
-        @click="refreshHistory"
-      >
-        <template #icon>
-          <IconRefresh
-            aria-hidden="true"
-            class="group-hover:rotate-45"
-            :class="{ 'animate-spin': historyRefreshing }"
-          />
-        </template>
-        <template v-if="!isMobile">Refresh History</template>
-      </Button>
+    <div class="flex shrink-0 items-center gap-2">
+      <SelectionBar v-if="pageSelection.count" :selection="pageSelection" :actions="pageBatch" />
+
+      <template v-else-if="isHistory">
+        <ActionButton v-for="action in historyActions" :key="action.key" :action="action" size="sm" compact />
+      </template>
 
       <Button
+        v-else
         type="button"
+        variant="destructive"
         size="sm"
-        title="Resolve history"
-        aria-label="Resolve history"
-        :disabled="libraryBusy"
-        @click="openResolveDialog"
+        compact
+        title="Clear Queue"
+        @click="clearPending"
       >
         <template #icon>
-          <IconResolve
-            aria-hidden="true"
-            :class="{ 'animate-spin': historyResolving }"
-          />
+          <component :is="ACTION_ICONS.delete" aria-hidden="true" />
         </template>
-        <template v-if="!isMobile">Resolve History</template>
+        Clear Queue
       </Button>
     </div>
-
-    <Button
-      v-else
-      type="button"
-      variant="destructive"
-      size="sm"
-      title="Clear Queue"
-      aria-label="Clear Queue"
-      @click="clearPending"
-    >
-      <template #icon>
-        <IconTrash aria-hidden="true" />
-      </template>
-      <template v-if="!isMobile">Clear Queue</template>
-    </Button>
     <div
       class="flex items-center justify-end gap-3 sm:gap-4 overflow-x-auto scrollbar-hide w-full max-w-full"
+      :class="{ 'max-sm:hidden': pageSelection.count }"
     >
       <div
         v-for="item in countCards"

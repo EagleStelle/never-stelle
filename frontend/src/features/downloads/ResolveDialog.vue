@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { DialogShell as Dialog } from "@/components/ui/dialog";
+import { DialogFooter, DialogShell as Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ACTION_ICONS, syncIconClass } from "@/ui";
 import type { ResolveScope } from "@/types";
 
 const props = defineProps<{
@@ -31,11 +32,20 @@ const format = (count: number) => count.toLocaleString();
     description="Looks up missing details from each source so these files can be named."
     content-class="fixed left-1/2 top-1/2 z-70 flex w-[min(460px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
   >
-    <div
-      class="flex flex-wrap items-center justify-end gap-2 px-5 pb-5 pt-4 sm:px-6"
-    >
-      <Button variant="secondary" type="button" :disabled="pending" @click="openModel = false">
+    <DialogFooter class="mt-5">
+      <Button variant="ghost" type="button" :disabled="pending" @click="openModel = false">
         Cancel
+      </Button>
+      <Button
+        variant="destructive-ghost"
+        type="button"
+        :disabled="pending || total === 0"
+        @click="emit('confirm', 'all')"
+      >
+        <template #icon>
+          <component :is="ACTION_ICONS.resolve" aria-hidden="true" :class="syncIconClass(false)" />
+        </template>
+        Resolve All ({{ format(total) }})
       </Button>
       <Button
         variant="primary"
@@ -43,16 +53,11 @@ const format = (count: number) => count.toLocaleString();
         :disabled="pending || flagged === 0"
         @click="emit('confirm', 'flagged')"
       >
+        <template #icon>
+          <component :is="ACTION_ICONS.resolve" aria-hidden="true" :class="syncIconClass(false)" />
+        </template>
         Resolve Missing ({{ format(flagged) }})
       </Button>
-      <Button
-        variant="destructive"
-        type="button"
-        :disabled="pending || total === 0"
-        @click="emit('confirm', 'all')"
-      >
-        Resolve All ({{ format(total) }})
-      </Button>
-    </div>
+    </DialogFooter>
   </Dialog>
 </template>

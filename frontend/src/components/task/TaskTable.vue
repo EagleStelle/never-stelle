@@ -1,52 +1,41 @@
 <script setup lang="ts">
-import IconDownload from "~icons/material-symbols/download";
-import IconResolve from "~icons/material-symbols/cloud-sync";
-import IconX from "~icons/material-symbols/close";
-import IconStop from "~icons/material-symbols/stop";
-import IconRetry from "~icons/material-symbols/replay";
-import { reactive } from "vue";
+import { computed, reactive, useTemplateRef } from "vue";
 
-import { Button } from "@/components/ui/button";
-import { IconImage } from "@/components/ui/icon-image";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import SourcePicker from "@/components/task/SourcePicker.vue";
+import TaskRow from "@/components/task/TaskRow.vue";
 
-import { taskFileUrl } from "@/api";
+import type { Selection } from "@/composables/useSelection";
+import { useVirtualRows } from "@/composables/useVirtualRows";
 import type { SourceProfile, TaskItem } from "@/types";
-import { sourceIconUrl } from "@/utils/dashboard";
-import {
-  formatSize,
-  resolveHint,
-  sourceLink,
-  taskProgressState,
-  taskProgressStyle,
-} from "@/utils/task";
 
 const props = defineProps<{
   tasks: TaskItem[];
+  selection: Selection<TaskItem>;
   sourceProfiles?: SourceProfile[];
+  rising: ReadonlySet<string>;
 }>();
 
-const emit = defineEmits<{
-  cancel: [taskId: string];
-  remove: [taskId: string];
-  resolve: [taskId: string];
-  retry: [taskId: string];
-  "set-source": [payload: { taskId: string; sourceKey: string }];
-}>();
+const body = useTemplateRef<InstanceType<typeof TableBody>>("body");
+const { rows, before, after, measure } = useVirtualRows(body, {
+  count: computed(() => props.tasks.length),
+  estimate: 48,
+  overscan: 10,
+});
+const shown = computed(() => rows.value.map((row) => ({ task: props.tasks[row.index], index: row.index })));
+const creators = computed(() => [...new Set(props.tasks.map((task) => task.creator).filter(Boolean))]);
 
 const expandedFilenames = reactive(new Set<string>());
 
-function toggle(set: Set<string>, id: string): void {
-  if (set.has(id)) set.delete(id);
-  else set.add(id);
+function toggleFilename(id: string): void {
+  if (expandedFilenames.has(id)) expandedFilenames.delete(id);
+  else expandedFilenames.add(id);
 }
 </script>
 
@@ -54,133 +43,46 @@ function toggle(set: Set<string>, id: string): void {
   <Table v-if="props.tasks.length > 0">
     <TableHeader>
       <TableRow>
+        <TableHead class="w-px">
+          <Checkbox
+            :checked="props.selection.state"
+            aria-label="Select all"
+            title="Select all"
+            @update:checked="props.selection.setAll"
+          />
+        </TableHead>
         <TableHead class="w-1/2 min-w-72 whitespace-nowrap">Name</TableHead>
-        <TableHead class="w-px whitespace-nowrap">Creator</TableHead>
+        <TableHead class="w-px max-w-40 md:max-w-60 whitespace-nowrap">
+          Creator
+          <!-- Holds the column at the widest creator of every loaded row, not just the mounted ones. -->
+          <div aria-hidden="true" class="invisible h-0 overflow-hidden font-normal">
+            <div v-for="creator in creators" :key="creator">{{ creator }}</div>
+          </div>
+        </TableHead>
         <TableHead class="w-1/2 min-w-72 whitespace-nowrap">Source</TableHead>
-        <TableHead class="w-px whitespace-nowrap">Size</TableHead>
+        <TableHead class="w-px min-w-18 whitespace-nowrap">Size</TableHead>
         <TableHead class="w-px"></TableHead>
       </TableRow>
     </TableHeader>
-    <TableBody>
-      <TableRow
-        v-for="task in props.tasks"
+    <TableBody ref="body">
+      <tr v-if="before" aria-hidden="true">
+        <td colspan="6" :style="{ height: `${before}px` }" />
+      </tr>
+      <TaskRow
+        v-for="{ task, index } in shown"
         :key="task.vid"
-        class="glass-rise task-progress-surface task-progress-row"
-        :data-task-state="taskProgressState(task)"
-        :style="taskProgressStyle(task)"
-      >
-        <TableCell class="w-1/2 max-w-0 min-w-72 cursor-pointer" @click="toggle(expandedFilenames, task.vid)">
-          <div :class="['text-white in-[.light-mode]:text-black', expandedFilenames.has(task.vid) ? 'break-all whitespace-normal' : 'truncate']" :title="task.resolved_filename">
-            {{ task.resolved_filename }}
-          </div>
-        </TableCell>
-        <TableCell class="w-px max-w-40 md:max-w-60">
-          <div class="truncate text-white in-[.light-mode]:text-black" :title="task.creator">
-            {{ task.creator }}
-          </div>
-        </TableCell>
-        <TableCell class="w-1/2 max-w-0 min-w-72">
-          <div class="flex flex-col gap-1.5">
-            <div class="flex items-center gap-2">
-              <IconImage
-                :src="sourceIconUrl(task.source_key)"
-                class="h-4 w-4 shrink-0"
-              />
-              <a
-                v-if="sourceLink(task)"
-                :href="sourceLink(task)"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="truncate block min-w-0 text-white in-[.light-mode]:text-black underline decoration-dotted underline-offset-2 hover:decoration-solid"
-                :title="task.source_url"
-              >
-                {{ task.source_url }}
-              </a>
-              <div v-else class="truncate block min-w-0 text-white in-[.light-mode]:text-black" :title="task.source_url || task.vid">
-                {{ task.source_url || task.vid }}
-              </div>
-            </div>
-            <SourcePicker
-              v-if="task.source_pending"
-              variant="row"
-              :task="task"
-              :source-profiles="props.sourceProfiles"
-              @set-source="emit('set-source', $event)"
-            />
-          </div>
-        </TableCell>
-        <TableCell class="w-px whitespace-nowrap">
-          <div class="text-white in-[.light-mode]:text-black tabular-nums">
-            {{ formatSize(task.file_size) }}
-          </div>
-        </TableCell>
-        <TableCell class="w-px">
-          <div class="flex items-center justify-end gap-1.5">
-            <Button
-              v-if="task.can_resolve"
-              variant="primary"
-              type="button"
-              :aria-label="resolveHint(task)"
-              :title="resolveHint(task)"
-              :data-resolve-failed="task.resolve_failed || undefined"
-              @click="emit('resolve', task.vid)"
-            >
-              <template #icon>
-                <IconResolve aria-hidden="true" />
-              </template>
-            </Button>
-            <Button
-              v-if="task.can_download"
-              as="a"
-              variant="primary"
-              :href="taskFileUrl(task.vid)"
-              download
-              aria-label="Download file"
-              title="Download file"
-            >
-              <template #icon>
-                <IconDownload aria-hidden="true" />
-              </template>
-            </Button>
-            <Button
-              v-if="task.can_retry"
-              variant="primary"
-              type="button"
-              aria-label="Retry download"
-              title="Retry download"
-              @click="emit('retry', task.vid)"
-            >
-              <template #icon>
-                <IconRetry aria-hidden="true" />
-              </template>
-            </Button>
-            <Button
-              v-if="task.can_cancel"
-              variant="destructive"
-              type="button"
-              aria-label="Cancel download"
-              title="Cancel download"
-              @click="emit('cancel', task.vid)"
-            >
-              <template #icon>
-                <IconStop aria-hidden="true" />
-              </template>
-            </Button>
-            <Button
-              v-if="task.can_remove"
-              variant="primary"
-              type="button"
-              aria-label="Remove task from the list"
-              title="Remove task from the list"
-              @click="emit('remove', task.vid)"
-            >
-              <template #icon>
-                <IconX aria-hidden="true" />
-              </template>
-            </Button>
-          </div>
-        </TableCell>
-      </TableRow>
+        :ref="measure"
+        :data-index="index"
+        :task="task"
+        :selection="props.selection"
+        :source-profiles="props.sourceProfiles"
+        :rising="props.rising.has(task.vid)"
+        :expanded="expandedFilenames.has(task.vid)"
+        @toggle-name="toggleFilename"
+      />
+      <tr v-if="after" aria-hidden="true">
+        <td colspan="6" :style="{ height: `${after}px` }" />
+      </tr>
     </TableBody>
   </Table>
 </template>

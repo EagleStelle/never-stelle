@@ -5,8 +5,9 @@ import TaskFilters from "@/components/task/Filters.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDashboard } from "@/composables/useDashboard";
+import type { SelectAll } from "@/composables/useSelection";
 
-defineProps<{ hidePlatform?: boolean }>();
+defineProps<{ hidePlatform?: boolean; selection?: SelectAll }>();
 
 const { historySearch, submitHistorySearch } = useDashboard();
 </script>
@@ -46,6 +47,6 @@ const { historySearch, submitHistorySearch } = useDashboard();
       </Button>
     </form>
 
-    <TaskFilters :hide-platform="hidePlatform" />
+    <TaskFilters :hide-platform="hidePlatform" :selection="selection" />
   </div>
 </template>

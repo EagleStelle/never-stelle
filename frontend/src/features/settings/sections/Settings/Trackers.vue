@@ -208,7 +208,7 @@ function resetPages(key: string): void {
                       <template #icon>
                         <IconSpinner
                           v-if="probes[site.key].loading"
-                          class="w-4 h-4 animate-spin"
+                          class="w-4 h-4 animate-sync"
                           aria-hidden="true"
                         />
                         <IconSearch v-else class="w-4 h-4" aria-hidden="true" />

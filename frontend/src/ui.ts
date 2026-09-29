@@ -2,18 +2,27 @@ import type { Component } from "vue";
 import IconAccount from "~icons/material-symbols/admin-panel-settings";
 import IconCheck from "~icons/material-symbols/check-circle";
 import IconClock from "~icons/material-symbols/schedule";
+import IconClose from "~icons/material-symbols/close";
 import IconCookie from "~icons/material-symbols/cookie";
 import IconDefaults from "~icons/material-symbols/tune";
+import IconDelete from "~icons/material-symbols/delete";
 import IconDownloads from "~icons/material-symbols/download";
 import IconFields from "~icons/material-symbols/badge";
 import IconFolder from "~icons/material-symbols/folder";
 import IconFormat from "~icons/material-symbols/pattern";
+import IconMore from "~icons/material-symbols/more-horiz";
 import IconNaming from "~icons/material-symbols/text-format";
+import IconPause from "~icons/material-symbols/pause";
+import IconProfile from "~icons/material-symbols/account-circle";
 import IconRadar from "~icons/material-symbols/radar";
+import IconResolve from "~icons/material-symbols/cloud-sync";
+import IconResume from "~icons/material-symbols/play-arrow";
+import IconRetry from "~icons/material-symbols/replay";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconScraper from "~icons/material-symbols/travel-explore";
 import IconSlug from "~icons/material-symbols/link";
 import IconSpinner from "~icons/material-symbols/sync";
+import IconStop from "~icons/material-symbols/stop";
 import IconWarning from "~icons/material-symbols/warning";
 
 import type { PageKey, SettingsSection, SourceProfile } from "@/types";
@@ -49,7 +58,34 @@ export const PAGE_ICONS: Record<PageKey, Component> = {
   downloads: IconDownloads,
   trackers: IconRadar,
   history: IconClock,
+  account: IconProfile,
 };
+
+// One glyph per action, shared by row buttons and selection footers.
+export const ACTION_ICONS = {
+  check: IconSpinner,
+  delete: IconDelete,
+  download: IconDownloads,
+  more: IconMore,
+  pause: IconPause,
+  refresh: IconSpinner,
+  remove: IconClose,
+  resolve: IconResolve,
+  resume: IconResume,
+  retry: IconRetry,
+  stop: IconStop,
+} satisfies Record<string, Component>;
+
+// A sync glyph turns with its arrows: a nudge on button hover, a spin while busy.
+export const syncIconClass = (busy: boolean) => (busy ? "animate-sync" : "group-hover:-rotate-45");
+
+// Grid view: as many tile columns as fit, one on a phone.
+export const TILE_GRID = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-3";
+
+// A list item a touch hold selects, so a hold starts no text selection or link menu.
+export const SELECTABLE_ITEM = "pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]";
+// While its list is selecting, only the item's direct children (cells, card sections) take presses.
+export const SELECTING_ITEM = "cursor-pointer *:**:pointer-events-none";
 
 export const SETTINGS_SECTION_ICONS: Record<SettingsSection, Component> = {
   account: IconAccount,
@@ -75,6 +111,7 @@ export const PAGE_ROUTES = {
   downloads: "/downloads",
   history: "/history",
   trackers: "/trackers",
+  account: "/account",
 } as const;
 export const TRACKERS_QUERY_KEY = ["trackers"] as const;
 export const TRACKER_INTERVALS: { key: string; label: string }[] = [

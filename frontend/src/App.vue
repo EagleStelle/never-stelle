@@ -8,16 +8,19 @@ import NavSide from "@/components/layout/NavSide.vue";
 import PageToolbar from "@/components/layout/PageToolbar.vue";
 import AuthLoading from "@/features/auth/Loading.vue";
 import Login from "@/features/auth/Login.vue";
+import AccountPanel from "@/features/account/Panel.vue";
 import DownloadPanel from "@/features/downloads/Panel.vue";
 import PlaylistDialog from "@/features/downloads/PlaylistDialog.vue";
 import ResolveDialog from "@/features/downloads/ResolveDialog.vue";
 import TrackerPanel from "@/features/trackers/Panel.vue";
 import { Button } from "@/components/ui/button";
-import { DialogShell as Dialog } from "@/components/ui/dialog";
+import { DialogFooter, DialogShell as Dialog } from "@/components/ui/dialog";
 import { Toaster } from "@/components/ui/sonner";
 
 import { provideDashboard } from "@/composables/useDashboard";
 import { useAuth } from "@/composables/useAuth";
+import { provideScrollRoot } from "@/composables/useVirtualRows";
+import { ACTION_ICONS, syncIconClass } from "@/ui";
 
 // Loaded on its own chunk, keeping the largest surface out of first paint.
 const SettingsView = defineAsyncComponent(() => import("@/features/settings/View.vue"));
@@ -36,11 +39,13 @@ const {
   activePage,
   confirmPlaylistSelection,
   confirmResolve,
+  confirmTaskAction,
   historyResolving,
   isLightMode,
   playlistEntries,
   playlistOpen,
   playlistTitle,
+  pendingTaskAction,
   confirmRename,
   renameCount,
   renameTarget,
@@ -48,6 +53,20 @@ const {
   resolveOpen,
   resolveTotal,
 } = provideDashboard();
+
+provideScrollRoot(useTemplateRef<HTMLElement>("main"));
+
+// What each task action's confirm dialog says and shows.
+const TASK_ACTION_CONFIRM = {
+  delete: { label: "Delete", description: "Their files are removed from disk.", variant: "destructive", iconClass: "" },
+  resolve: {
+    label: "Resolve",
+    description: "Looks up missing details from each source so these files can be named.",
+    variant: "primary",
+    iconClass: syncIconClass(false),
+  },
+} as const;
+const taskConfirm = computed(() => pendingTaskAction.value && TASK_ACTION_CONFIRM[pendingTaskAction.value.kind]);
 
 // Live status-bar height so toasts dock above it instead of covering it.
 const statusBar = useTemplateRef<InstanceType<typeof BarStatus>>("statusBar");
@@ -81,6 +100,7 @@ const { height: statusBarHeight } = useElementSize(
     <div class="flex-1 min-w-0 flex flex-col h-dvh relative">
       <div class="flex-1 relative min-h-0 overflow-hidden">
         <main
+          ref="main"
           id="mainContent"
           class="absolute inset-0 overflow-y-auto overflow-x-hidden flex flex-col"
           tabindex="-1"
@@ -89,12 +109,13 @@ const { height: statusBarHeight } = useElementSize(
 
           <div class="flex-1 flex flex-col p-4 pb-36 lg:pb-4">
             <TrackerPanel v-if="activePage === 'trackers'" />
+            <AccountPanel v-else-if="activePage === 'account'" />
             <DownloadPanel v-else />
           </div>
 
           <div class="sticky bottom-0 z-20 flex flex-col shrink-0">
             <PageToolbar placement="bottom" />
-            <BarStatus ref="statusBar" />
+            <BarStatus v-if="activePage !== 'account'" ref="statusBar" />
           </div>
         </main>
       </div>
@@ -133,14 +154,39 @@ const { height: statusBarHeight } = useElementSize(
       content-class="fixed left-1/2 top-1/2 z-70 flex w-[min(460px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
       @update:open="(open) => !open && (renameTarget = null)"
     >
-      <div class="flex flex-wrap items-center justify-end gap-2 px-5 pb-5 pt-4 sm:px-6">
-        <Button variant="secondary" type="button" @click="renameTarget = null">
+      <DialogFooter class="mt-5">
+        <Button variant="ghost" type="button" @click="renameTarget = null">
           Cancel
         </Button>
         <Button variant="destructive" type="button" @click="confirmRename">
+          <template #icon>
+            <component :is="ACTION_ICONS.resolve" aria-hidden="true" :class="syncIconClass(false)" />
+          </template>
           Resolve All ({{ renameCount(renameTarget.key, renameTarget.kind, renameTarget.format).toLocaleString() }})
         </Button>
-      </div>
+      </DialogFooter>
+    </Dialog>
+
+    <!-- Rendered after the tracker dialog, so it stacks above it. -->
+    <Dialog
+      v-if="pendingTaskAction && taskConfirm"
+      :open="Boolean(pendingTaskAction)"
+      :title="`${taskConfirm.label} ${pendingTaskAction.ids.length} item${pendingTaskAction.ids.length === 1 ? '' : 's'}?`"
+      :description="taskConfirm.description"
+      content-class="fixed left-1/2 top-1/2 z-70 flex w-[min(460px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
+      @update:open="(open) => !open && (pendingTaskAction = null)"
+    >
+      <DialogFooter class="mt-5">
+        <Button variant="ghost" type="button" @click="pendingTaskAction = null">
+          Cancel
+        </Button>
+        <Button :variant="taskConfirm.variant" type="button" @click="confirmTaskAction">
+          <template #icon>
+            <component :is="ACTION_ICONS[pendingTaskAction.kind]" aria-hidden="true" :class="taskConfirm.iconClass" />
+          </template>
+          {{ taskConfirm.label }}
+        </Button>
+      </DialogFooter>
     </Dialog>
 
     <Toaster

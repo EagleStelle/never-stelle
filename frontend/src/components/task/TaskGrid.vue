@@ -1,188 +1,64 @@
 <script setup lang="ts">
-import IconDownload from "~icons/material-symbols/download";
-import IconResolve from "~icons/material-symbols/cloud-sync";
-import IconX from "~icons/material-symbols/close";
-import IconStop from "~icons/material-symbols/stop";
-import IconRetry from "~icons/material-symbols/replay";
+import { computed, ref, useTemplateRef } from "vue";
+import { useResizeObserver } from "@vueuse/core";
 
-import { Button } from "@/components/ui/button";
-import { IconImage } from "@/components/ui/icon-image";
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import SourcePicker from "@/components/task/SourcePicker.vue";
-
-import { taskFileUrl } from "@/api";
+import TaskTile from "@/components/task/TaskTile.vue";
+import type { Selection } from "@/composables/useSelection";
+import { useVirtualRows } from "@/composables/useVirtualRows";
 import type { SourceProfile, TaskItem } from "@/types";
-import { sourceIconUrl } from "@/utils/dashboard";
-import {
-  resolveHint,
-  sourceLink,
-  taskProgressState,
-  taskProgressStyle,
-  taskDetail,
-  taskTitle,
-} from "@/utils/task";
+import { TILE_GRID } from "@/ui";
 
 const props = defineProps<{
   tasks: TaskItem[];
-  // A tracker lists queue and history rows together, so each row keeps its own actions.
-  pageKind: "downloads" | "history" | "trackers";
+  selection: Selection<TaskItem>;
   sourceProfiles?: SourceProfile[];
+  rising: ReadonlySet<string>;
 }>();
 
-const emit = defineEmits<{
-  cancel: [taskId: string];
-  remove: [taskId: string];
-  resolve: [taskId: string];
-  retry: [taskId: string];
-  "set-source": [payload: { taskId: string; sourceKey: string }];
-}>();
+const grid = useTemplateRef<HTMLElement>("grid");
+// Read back from the grid's auto-fill rule, so rows split where the browser wraps them.
+const columns = ref(1);
+const rowGap = ref(0);
+useResizeObserver(grid, () => {
+  if (!grid.value) return;
+  const style = getComputedStyle(grid.value);
+  columns.value = Math.max(1, style.gridTemplateColumns.split(" ").length);
+  rowGap.value = parseFloat(style.rowGap) || 0;
+});
 
-function canDownload(task: TaskItem): boolean {
-  return props.pageKind !== "downloads" && task.can_download;
-}
+const { rows, before, after, measure } = useVirtualRows(grid, {
+  count: computed(() => Math.ceil(props.tasks.length / columns.value)),
+  estimate: 120,
+  overscan: 3,
+  gap: rowGap,
+});
 
-function canResolve(task: TaskItem): boolean {
-  return props.pageKind !== "downloads" && Boolean(task.can_resolve);
-}
-
-function canRetry(task: TaskItem): boolean {
-  return props.pageKind !== "history" && task.can_retry;
-}
-
-function canCancel(task: TaskItem): boolean {
-  return props.pageKind !== "history" && task.can_cancel;
-}
-
-function canRemove(task: TaskItem): boolean {
-  return props.pageKind !== "history" && task.can_remove;
-}
-
-function hasActions(task: TaskItem): boolean {
-  return canResolve(task) || canDownload(task) || canRetry(task) || canCancel(task) || canRemove(task);
-}
+// Tiles of the mounted rows. A row's first tile carries the row index it is measured by.
+const tiles = computed(() => {
+  const first = (rows.value[0]?.index ?? 0) * columns.value;
+  const end = ((rows.value.at(-1)?.index ?? -1) + 1) * columns.value;
+  return props.tasks.slice(first, end).map((task, offset) => {
+    const index = first + offset;
+    return { task, row: index % columns.value === 0 ? index / columns.value : undefined };
+  });
+});
 </script>
 
 <template>
-  <section class="grid grid-cols-1 gap-2">
-    <Card
-      v-for="task in props.tasks"
+  <section
+    ref="grid"
+    :class="TILE_GRID"
+    :style="{ paddingTop: `${before}px`, paddingBottom: `${after}px` }"
+  >
+    <TaskTile
+      v-for="{ task, row } in tiles"
       :key="task.vid"
-      class="glass-rise glass-hoverable hover:-translate-y-0.5 task-progress-surface task-progress-card"
-      :data-task-state="taskProgressState(task)"
-      :style="taskProgressStyle(task)"
-    >
-      <CardHeader>
-        <CardTitle>
-          <IconImage
-            :src="sourceIconUrl(task.source_key)"
-            class="mr-1.5 inline h-4 w-4 align-[-2px]"
-          />
-          {{ taskTitle(task, props.sourceProfiles) }}
-        </CardTitle>
-        <CardDescription>
-          <a
-            v-if="sourceLink(task)"
-            :href="sourceLink(task)"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="block font-mono text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
-          >
-            {{ taskDetail(task) }}
-          </a>
-          <span v-else class="block font-mono">
-            {{ taskDetail(task) }}
-          </span>
-        </CardDescription>
-        <CardAction v-if="hasActions(task)">
-          <Button
-            v-if="canResolve(task)"
-            variant="primary"
-            type="button"
-            :aria-label="resolveHint(task)"
-            :title="resolveHint(task)"
-            :data-resolve-failed="task.resolve_failed || undefined"
-            @click="emit('resolve', task.vid)"
-          >
-            <template #icon>
-              <IconResolve aria-hidden="true" />
-            </template>
-          </Button>
-          <Button
-            v-if="canDownload(task)"
-            as="a"
-            variant="primary"
-            :href="taskFileUrl(task.vid)"
-            download
-            aria-label="Download file"
-            title="Download file"
-          >
-            <template #icon>
-              <IconDownload aria-hidden="true" />
-            </template>
-          </Button>
-          <Button
-            v-if="canRetry(task)"
-            variant="primary"
-            type="button"
-            aria-label="Retry download"
-            title="Retry download"
-            @click="emit('retry', task.vid)"
-          >
-            <template #icon>
-              <IconRetry aria-hidden="true" />
-            </template>
-          </Button>
-          <Button
-            v-if="canCancel(task)"
-            variant="destructive"
-            type="button"
-            aria-label="Cancel download"
-            title="Cancel download"
-            @click="emit('cancel', task.vid)"
-          >
-            <template #icon>
-              <IconStop aria-hidden="true" />
-            </template>
-          </Button>
-          <Button
-            v-if="canRemove(task)"
-            variant="primary"
-            type="button"
-            aria-label="Remove task from the list"
-            title="Remove task from the list"
-            @click="emit('remove', task.vid)"
-          >
-            <template #icon>
-              <IconX aria-hidden="true" />
-            </template>
-          </Button>
-        </CardAction>
-      </CardHeader>
-
-      <CardContent
-        v-if="(task.status === 'failed' && task.error) || task.source_pending"
-      >
-        <div
-          v-if="task.status === 'failed' && task.error"
-          class="wrap-break-word whitespace-pre-line"
-        >
-          {{ task.error }}
-        </div>
-        <SourcePicker
-          v-if="task.source_pending"
-          variant="card"
-          :task="task"
-          :source-profiles="props.sourceProfiles"
-          @set-source="emit('set-source', $event)"
-        />
-      </CardContent>
-    </Card>
+      :ref="measure"
+      :data-index="row"
+      :task="task"
+      :selection="props.selection"
+      :source-profiles="props.sourceProfiles"
+      :rising="props.rising.has(task.vid)"
+    />
   </section>
 </template>

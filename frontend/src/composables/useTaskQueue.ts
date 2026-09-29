@@ -1,32 +1,39 @@
 import { computed, onBeforeUnmount, ref, watch, type Ref } from "vue";
-import { useMutation, useQuery } from "@tanstack/vue-query";
+import { useMutation, useQuery, useQueryClient, type InfiniteData } from "@tanstack/vue-query";
 import { useEventListener, useIntervalFn, useSessionStorage } from "@vueuse/core";
 
 import {
   addTask as createTask,
-  cancelTask as cancelTaskRequest,
   clearPendingTasks,
+  taskFileUrl,
+  taskFilesUrl,
+  deleteTasks as deleteTasksRequest,
   getRenameCounts,
   getResolveScope,
   getTasks,
   probeUrl,
-  removeTask as removeTaskRequest,
   renameHistory as renameHistoryRequest,
   resolveHistory as resolveHistoryRequest,
-  retryTask as retryTaskRequest,
+  retryTasks as retryTasksRequest,
   scanMediaLibrary,
   setTaskSource as setTaskSourceRequest,
 } from "@/api";
 import { useAuth } from "@/composables/useAuth";
 import {
+  ACTION_ICONS,
+  HISTORY_QUERY_KEY,
   POLL_PENDING_MS,
   POLL_RUNNING_MS,
   QUEUE_FAILED_MESSAGE,
   REUSED_TASK_FALLBACK,
   REUSED_TASK_MESSAGES,
   TASKS_QUERY_KEY,
+  TRACKERS_QUERY_KEY,
 } from "@/ui";
 import type {
+  BatchResponse,
+  HistoryResponse,
+  ItemAction,
   NamingKind,
   PlaylistEntry,
   QualitySelection,
@@ -45,7 +52,9 @@ import {
   errorMessage,
   extractUrl,
   normalizeSourceKey,
+  plural,
 } from "@/utils/dashboard";
+import { resolveHint } from "@/utils/task";
 
 interface UseTaskQueueOptions {
   getSavedSettings: () => SavedSettings;
@@ -70,8 +79,7 @@ function reusedMessage(status?: TaskStatus): string {
   return REUSED_TASK_MESSAGES[status || ""] || REUSED_TASK_FALLBACK;
 }
 
-// "1 item needs" vs "2 items need": the noun and the verb take the s in opposite cases.
-const plural = (count: number) => (count === 1 ? "" : "s");
+// "1 item needs" vs "2 items need": the verb takes the s the noun drops.
 const pluralVerb = (count: number) => (count === 1 ? "s" : "");
 
 // "Added 2 files and removed 3 missing files."
@@ -97,6 +105,12 @@ interface RenameTarget {
   format: string;
 }
 
+// A delete or resolve waiting on the confirm dialog.
+interface PendingTaskAction {
+  kind: "delete" | "resolve";
+  ids: string[];
+}
+
 export function useTaskQueue({
   getSavedSettings,
   getQuality,
@@ -105,6 +119,7 @@ export function useTaskQueue({
   url,
 }: UseTaskQueueOptions) {
   const auth = useAuth();
+  const queryClient = useQueryClient();
   let taskCache = new Map<string, Partial<TaskItem>>();
   const pollingIntervalMs = ref(POLL_PENDING_MS);
 
@@ -121,6 +136,7 @@ export function useTaskQueue({
   const renameTarget = ref<RenameTarget | null>(null);
   // Covers the gap between the click and the first poll that sees the queued jobs.
   const renameStarting = ref<RenameTarget | null>(null);
+  const pendingTaskAction = ref<PendingTaskAction | null>(null);
 
   const tasksQuery = useQuery<TasksResponse>({
     queryKey: TASKS_QUERY_KEY,
@@ -276,34 +292,119 @@ export function useTaskQueue({
     }
   }
 
-  async function removeTask(taskId: string): Promise<void> {
+  // One toast for what the batch did and one for the first item it skipped; false when the request failed.
+  async function runBatch(
+    request: () => Promise<BatchResponse>,
+    done: (count: number) => string,
+    fallback: string,
+  ): Promise<boolean> {
     try {
-      await removeTaskRequest(taskId);
-      toast("Task removed.");
-      await loadTasks(true);
+      const result = await request();
+      if (result.count > 0) toast(done(result.count));
+      if (result.errors.length > 0) toast(result.errors[0], "error");
+      return true;
     } catch (error) {
-      toast(errorMessage(error, "Could not remove task."), "error");
+      toast(errorMessage(error, fallback), "error");
+      return false;
     }
   }
 
-  async function cancelTask(taskId: string): Promise<void> {
-    try {
-      await cancelTaskRequest(taskId);
-      toast("Download cancelled.");
-      await loadTasks(true);
-    } catch (error) {
-      toast(errorMessage(error, "Could not cancel download."), "error");
-    }
+  // Drops rows from every loaded history page, so no page is fetched again.
+  function dropHistoryRows(ids: string[]): void {
+    const gone = new Set(ids);
+    queryClient.setQueriesData<InfiniteData<HistoryResponse>>({ queryKey: HISTORY_QUERY_KEY }, (data) =>
+      data
+        ? { ...data, pages: data.pages.map((page) => ({ ...page, entries: page.entries.filter((task) => !gone.has(task.vid)) })) }
+        : data,
+    );
   }
 
-  async function retryTask(taskId: string): Promise<void> {
-    try {
-      await retryTaskRequest(taskId);
-      toast("Retrying download.");
-      await loadTasks(true);
-    } catch (error) {
-      toast(errorMessage(error, "Could not retry download."), "error");
+  async function deleteTasks(ids: string[]): Promise<void> {
+    if (!(await runBatch(() => deleteTasksRequest(ids), (count) => `Deleted ${count} item${plural(count)}.`, "Could not delete."))) return;
+    dropHistoryRows(ids);
+    void queryClient.invalidateQueries({ queryKey: TRACKERS_QUERY_KEY });
+    await loadTasks(true);
+  }
+
+  async function retryTasks(ids: string[]): Promise<void> {
+    if (!(await runBatch(() => retryTasksRequest(ids), (count) => `Retrying ${count} download${plural(count)}.`, "Could not retry."))) return;
+    await loadTasks(true);
+  }
+
+  // Asks first only when files would go.
+  function requestDelete(tasks: TaskItem[]): void {
+    const ids = tasks.map((task) => task.vid);
+    if (tasks.some((task) => task.status === "completed")) pendingTaskAction.value = { kind: "delete", ids };
+    else void deleteTasks(ids);
+  }
+
+  async function confirmTaskAction(): Promise<void> {
+    const action = pendingTaskAction.value;
+    if (!action) return;
+    pendingTaskAction.value = null;
+    const run = { delete: deleteTasks, resolve: resolveTasks };
+    await run[action.kind](action.ids);
+  }
+
+  // Shared by an item and a selection: the action outside an item's menu is primary, the rest step back.
+  function downloadAction(ids: string[]): ItemAction {
+    const href = ids.length === 1 ? taskFileUrl(ids[0]) : taskFilesUrl(ids);
+    return { key: "download", label: "Download", icon: ACTION_ICONS.download, variant: "primary", href };
+  }
+
+  function retryAction(ids: string[]): ItemAction {
+    return { key: "retry", label: "Retry", icon: ACTION_ICONS.retry, variant: "primary", run: () => void retryTasks(ids) };
+  }
+
+  function resolveAction(ids: string[], title?: string): ItemAction {
+    return { key: "resolve", label: "Resolve", title, icon: ACTION_ICONS.resolve, variant: "ghost", run: () => void resolveTasks(ids) };
+  }
+
+  function deleteAction(tasks: TaskItem[]): ItemAction {
+    return {
+      key: "delete",
+      label: "Delete",
+      icon: ACTION_ICONS.delete,
+      variant: "destructive-ghost",
+      disabled: historyRefreshing.value && tasks.some((task) => task.status === "completed"),
+      run: () => requestDelete(tasks),
+    };
+  }
+
+  // The actions a selection bar offers, each on the selected items it applies to.
+  function taskBatchActions(tasks: TaskItem[]): ItemAction[] {
+    const pick = (flag: (task: TaskItem) => boolean | undefined) => tasks.filter(flag);
+    const ids = (list: TaskItem[]) => list.map((task) => task.vid);
+    // The zip reads local files; a file Swaratelle keeps downloads from its own row.
+    const downloadable = pick((task) => task.can_download && !task.external);
+    const failed = pick((task) => task.can_retry);
+    const resolvable = pick((task) => task.can_resolve);
+    const deletable = pick((task) => task.can_delete);
+    const entries: [TaskItem[], ItemAction][] = [
+      [downloadable, downloadAction(ids(downloadable))],
+      [failed, retryAction(ids(failed))],
+      // A selection asks before resolving, an item resolves at once.
+      [resolvable, { ...resolveAction(ids(resolvable)), run: () => (pendingTaskAction.value = { kind: "resolve", ids: ids(resolvable) }) }],
+      [deletable, deleteAction(deletable)],
+    ];
+    return entries.filter(([list]) => list.length > 0).map(([, action]) => action);
+  }
+
+  // One item's actions, the one its state calls for first: download a finished file, retry a failed one.
+  function taskActions(task: TaskItem): ItemAction[] {
+    const id = [task.vid];
+    const actions: ItemAction[] = [];
+    if (task.can_download) actions.push(downloadAction(id));
+    if (task.can_retry) actions.push(retryAction(id));
+    if (task.can_resolve) actions.push(resolveAction(id, resolveHint(task)));
+    if (task.can_delete) {
+      // A running download stops and a queued one is removed; both go the way a finished one is deleted.
+      const remove = deleteAction([task]);
+      if (task.status === "running") actions.push({ ...remove, label: "Stop", icon: ACTION_ICONS.stop, variant: "destructive" });
+      else if (task.status === "pending") actions.push({ ...remove, label: "Remove", icon: ACTION_ICONS.remove });
+      else actions.push(remove);
     }
+    return actions;
   }
 
   async function setTaskSource(payload: { taskId: string; sourceKey: string }): Promise<void> {
@@ -321,7 +422,8 @@ export function useTaskQueue({
   async function clearPending(): Promise<void> {
     try {
       const data = await clearPendingTasks();
-      toast(data.cleared === 0 ? "No queued tasks." : `Cleared ${data.cleared} queued task${plural(data.cleared)}.`);
+      toast(data.count === 0 ? "No queued tasks." : `Cleared ${data.count} queued task${plural(data.count)}.`);
+      void queryClient.invalidateQueries({ queryKey: TRACKERS_QUERY_KEY });
       await loadTasks(true);
     } catch (error) {
       toast(errorMessage(error, "Could not clear queue."), "error");
@@ -473,8 +575,8 @@ export function useTaskQueue({
     await startResolve({ scope });
   }
 
-  async function resolveTask(taskId: string): Promise<void> {
-    await startResolve({ task_ids: [taskId] });
+  async function resolveTasks(ids: string[]): Promise<void> {
+    await startResolve({ task_ids: ids });
   }
 
   function handleVisibilityChange(): void {
@@ -504,15 +606,15 @@ export function useTaskQueue({
 
   return {
     addDownloadTask,
-    cancelTask,
     clearPending,
     confirmPlaylistSelection,
     confirmResolve,
+    confirmTaskAction,
     historyRefreshing,
     historyResolving,
     libraryBusy,
     openResolveDialog,
-    retryTask,
+    pendingTaskAction,
     playlistEntries,
     playlistOpen,
     playlistTitle,
@@ -520,15 +622,15 @@ export function useTaskQueue({
     loadRenameCounts,
     openRename,
     refreshHistory,
-    removeTask,
     renameCount,
     renameRunning,
     renameTarget,
     resolveFlagged,
     resolveOpen,
-    resolveTask,
     resolveTotal,
     setTaskSource,
+    taskActions,
+    taskBatchActions,
     taskItems,
     countsByMenu,
     countsByMediaMenu,

@@ -13,8 +13,12 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent-ink: var(--accent-ink);
+  --color-accent-hover: var(--accent-hover);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-ink: var(--destructive-ink);
+  --color-destructive-solid: var(--destructive-solid);
+  --color-destructive-solid-hover: var(--destructive-solid-hover);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-muted: var(--muted);
@@ -30,6 +34,8 @@
 
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
+  /* Sync glyph arrows point counterclockwise. */
+  --animate-sync: spin 1s linear infinite reverse;
 }
 
 :root {
@@ -38,6 +44,7 @@
   --secondary: #2a2640;
   --accent: #ed9e59;
   --accent-ink: #ed9e59;
+  --accent-hover: color-mix(in oklab, var(--accent), white 16%);
   --background: var(--primary);
   --foreground: #f8f4f5;
   --card: rgba(22, 18, 32, 0.72);
@@ -47,6 +54,9 @@
   --accent-foreground: #1b1931;
   --destructive: #ef4444;
   --destructive-foreground: #f8f4f5;
+  --destructive-ink: var(--destructive);
+  --destructive-solid: #b92d26;
+  --destructive-solid-hover: #c6342d;
   --popover: rgba(16, 13, 25, 0.95);
   --popover-foreground: #f8f4f5;
   --muted: rgba(248, 244, 245, 0.1);
@@ -83,6 +93,7 @@
   --accent-foreground: #1b1931;
   --destructive: #ef4444;
   --destructive-foreground: #f8f4f5;
+  --destructive-ink: #b42326;
   --popover: rgba(255, 255, 255, 0.95);
   --popover-foreground: #000;
   --muted: rgba(17, 24, 39, 0.08);
@@ -321,6 +332,16 @@
       var(--glass-surface-2)
     );
     border-color: var(--glass-border);
+  }
+
+  /* A checked list item holds the hover surface, edged in the accent. */
+  .glass-hoverable[data-state="selected"] {
+    background: linear-gradient(
+      135deg,
+      var(--glass-hover),
+      var(--glass-surface-2)
+    );
+    border-color: var(--accent);
   }
 
   .glass-hoverable.glass-selected[aria-pressed="true"]:hover,
