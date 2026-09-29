@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, useTemplateRef, watch } from "vue";
+import { useElementSize } from "@vueuse/core";
 import { Link as IconLink } from "@lucide/vue";
 import IconSeen from "~icons/material-symbols/visibility";
 
@@ -68,7 +69,9 @@ const {
   viewMode,
 } = useDashboard();
 
-provideScrollRoot(useTemplateRef<HTMLElement>("itemsScroll"));
+const itemsScroll = useTemplateRef<HTMLElement>("itemsScroll");
+provideScrollRoot(itemsScroll);
+const { height: itemsViewHeight } = useElementSize(itemsScroll);
 
 function trackerStatus(tracker: Tracker): string {
   if (tracker.checking) return "Checking";
@@ -344,7 +347,7 @@ async function confirmDelete(): Promise<void> {
       :open="Boolean(openTracker || newTrackerUrl)"
       :title="openTracker?.name || newTrackerUrl || 'Tracker'"
       hide-title
-      content-class="fixed left-1/2 top-1/2 z-70 flex max-h-[90dvh] w-[min(900px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
+      :content-class="`fixed left-1/2 top-1/2 z-70 flex ${openTracker ? 'h-[90dvh]' : 'max-h-[90dvh]'} w-[min(900px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none`"
       @update:open="(open) => !open && closeTracker()"
       @open-auto-focus="focusApply"
     >
@@ -402,7 +405,9 @@ async function confirmDelete(): Promise<void> {
           <FieldSet v-if="openTracker">
             <FieldLegend variant="divider">Items</FieldLegend>
             <HistoryToolbar hide-platform :selection="itemSelection" />
+            <!-- At least one view tall, so a filter, search or view swap never scrolls the toolbar away. -->
             <TaskCollection
+              :style="{ minHeight: `${itemsViewHeight}px` }"
               :tasks="trackerTasks"
               :view-mode="viewMode"
               :selection="itemSelection"

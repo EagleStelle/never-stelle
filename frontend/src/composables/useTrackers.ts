@@ -284,10 +284,10 @@ export function useTrackers({ enabled, tasks, toast, url }: UseTrackersOptions) 
     return entries.filter(([count]) => count > 0).map(([, action]) => action);
   }
 
-  // One tracker's actions: its check first, which stops a check running or waiting.
+  // One tracker's actions: its check first, which turns into a stop while a check runs or waits.
   function trackerActions(tracker: Tracker): ItemAction[] {
     const check: ItemAction = hasCheck(tracker)
-      ? { ...stopAction([tracker.id]), label: "Stop check", icon: ACTION_ICONS.check, variant: "primary", spinning: tracker.checking }
+      ? { ...stopAction([tracker.id]), label: "Stop check", variant: "destructive" }
       : { ...checkAction([tracker.id]), label: "Check now", disabled: !tracker.enabled };
     return [check, enabledAction([tracker.id], !tracker.enabled), deleteAction([tracker])];
   }

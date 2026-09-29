@@ -51,6 +51,8 @@ export function useVirtualRows(list: MaybeElementRef, { count, estimate, oversca
       overscan,
       gap: gap?.value,
       scrollMargin: margin.value,
+      // A list mounting in a scrolled root starts where it is, instead of scrolling it to the top.
+      initialOffset: () => root.value?.scrollTop ?? 0,
       // Sizes come from the resize observer only, so mounting a row never forces a layout.
       measureElement: (element: Element, entry: ResizeObserverEntry | undefined, instance: Virtualizer<HTMLElement, Element>) => {
         const size = entry?.borderBoxSize[0]?.blockSize;
