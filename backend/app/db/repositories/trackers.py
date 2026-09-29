@@ -40,6 +40,23 @@ TRACKER_HISTORY_IDS_SQL = (
 )
 
 
+def _in_history(column: str) -> str:
+    """SQL true while ``column`` names a history row or the parent of ``{id}:{suffix}`` child rows."""
+    return (
+        f"(EXISTS (SELECT 1 FROM download_history h WHERE h.id = {column})"
+        f" OR EXISTS (SELECT 1 FROM download_history h WHERE h.id > {column} || ':' AND h.id < {column} || ';'))"
+    )
+
+
+def _only_seen(table: str) -> str:
+    """SQL true for a shown entry of ``table`` only seen: never queued, or its download left the queue and history."""
+    return (
+        f"{table}.deleted_at = '' AND ({table}.download_id = '' OR NOT (EXISTS (SELECT 1 FROM download_tasks t"
+        f" WHERE t.id = {table}.download_id AND t.status IN ('pending', 'running', 'failed', 'completed'))"
+        f" OR {_in_history(f'{table}.download_id')}))"
+    )
+
+
 def _tracker_from_row(row: Any) -> dict[str, Any]:
     if not row:
         return {}
@@ -270,10 +287,7 @@ def missing_tracker_download_rows(tracker_id: str) -> list[tuple[str, str, str]]
             " LEFT JOIN download_tasks t ON t.id = e.download_id"
             " WHERE e.tracker_id = ? AND e.download_id != ''"
             " AND COALESCE(t.status, '') NOT IN ('pending', 'running', 'completed')"
-            " AND NOT EXISTS (SELECT 1 FROM download_history h WHERE h.id = e.download_id)"
-            " AND NOT EXISTS (SELECT 1 FROM download_history h"
-            " WHERE h.id > e.download_id || ':' AND h.id < e.download_id || ';')"
-            " GROUP BY e.download_id",
+            f" AND NOT {_in_history('e.download_id')} GROUP BY e.download_id",
             (str(tracker_id),),
         ).fetchall()
     return [(str(row[0]), str(row[1]), str(row[2])) for row in rows]
@@ -300,9 +314,7 @@ def unlink_tracker_downloads(download_ids: list[str]) -> None:
         for chunk in chunks(linked_download_ids(download_ids)):
             connection.execute(
                 f"UPDATE tracker_entries SET download_id = '' WHERE download_id IN ({marks(chunk)})"
-                " AND NOT EXISTS (SELECT 1 FROM download_history h WHERE h.id = tracker_entries.download_id)"
-                " AND NOT EXISTS (SELECT 1 FROM download_history h"
-                " WHERE h.id > tracker_entries.download_id || ':' AND h.id < tracker_entries.download_id || ';')",
+                f" AND NOT {_in_history('tracker_entries.download_id')}",
                 chunk,
             )
 
@@ -349,13 +361,64 @@ def count_tracker_items() -> dict[str, dict[str, int]]:
 
     A post's photos are recorded under its url and download, and a multi-file download keeps a
     history row per file, so both counts are per item and a fully downloaded tracker shows them equal.
+    Deleted entries count nowhere.
     """
     with transaction() as connection:
         rows = connection.execute(
-            "SELECT e.tracker_id, COUNT(DISTINCT e.entry_url), COUNT(DISTINCT CASE WHEN e.download_id != ''"
-            " AND (EXISTS (SELECT 1 FROM download_history h WHERE h.id = e.download_id)"
-            " OR EXISTS (SELECT 1 FROM download_history h"
-            " WHERE h.id > e.download_id || ':' AND h.id < e.download_id || ';'))"
-            " THEN e.download_id END) FROM tracker_entries e GROUP BY e.tracker_id"
+            "SELECT e.tracker_id, COUNT(DISTINCT CASE WHEN e.deleted_at = '' THEN e.entry_url END),"
+            f" COUNT(DISTINCT CASE WHEN e.download_id != '' AND {_in_history('e.download_id')} THEN e.download_id END)"
+            " FROM tracker_entries e GROUP BY e.tracker_id"
         ).fetchall()
     return {str(row[0]): {"seen": safe_int(row[1]), "completed": safe_int(row[2])} for row in rows}
+
+
+def _only_seen_where(chunk: list[str]) -> str:
+    return f" WHERE tracker_id = ? AND entry_url IN ({marks(chunk)}) AND {_only_seen('tracker_entries')}"
+
+
+def only_seen_tracker_entry_urls(tracker_id: str, urls: list[str] | None = None) -> list[str]:
+    """The tracker's urls whose entries are only seen, the newest first; with ``urls``, those of them in their order."""
+    found: set[str] = set()
+    with transaction() as connection:
+        if urls is None:
+            rows = connection.execute(
+                f"SELECT entry_url FROM tracker_entries WHERE tracker_id = ? AND {_only_seen('tracker_entries')}"
+                " GROUP BY entry_url ORDER BY MAX(seen_at) DESC, entry_url DESC",
+                (str(tracker_id),),
+            ).fetchall()
+            return [str(row[0]) for row in rows]
+        for chunk in chunks(urls):
+            rows = connection.execute(
+                f"SELECT DISTINCT entry_url FROM tracker_entries{_only_seen_where(chunk)}", (str(tracker_id), *chunk)
+            ).fetchall()
+            found.update(str(row[0]) for row in rows)
+    return [url for url in dict.fromkeys(map(str, urls)) if url in found]
+
+
+def link_tracker_entry_url(tracker_id: str, url: str, download_id: str) -> None:
+    with transaction() as connection:
+        connection.execute(
+            "UPDATE tracker_entries SET download_id = ? WHERE tracker_id = ? AND entry_url = ? AND deleted_at = ''",
+            (str(download_id), str(tracker_id), str(url)),
+        )
+
+
+def _change_only_seen(tracker_id: str, urls: list[str], statement: str, values: tuple[Any, ...] = ()) -> int:
+    """Run ``statement`` on the entries of ``urls`` only seen; returns how many urls it reached."""
+    found = only_seen_tracker_entry_urls(tracker_id, urls)
+    with transaction() as connection:
+        for chunk in chunks(found):
+            connection.execute(statement + _only_seen_where(chunk), (*values, str(tracker_id), *chunk))
+    return len(found)
+
+
+def dismiss_tracker_entry_urls(tracker_id: str, urls: list[str]) -> int:
+    """Forget the entries only seen, so a later check that lists them records them again."""
+    return _change_only_seen(tracker_id, urls, "DELETE FROM tracker_entries")
+
+
+def delete_tracker_entry_urls(tracker_id: str, urls: list[str]) -> int:
+    """Hide the entries only seen for good; they stay recorded, so no check queues them again."""
+    return _change_only_seen(
+        tracker_id, urls, "UPDATE tracker_entries SET deleted_at = ?, download_id = ''", (utc_now(),)
+    )

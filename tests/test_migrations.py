@@ -946,7 +946,7 @@ def test_tracker_tables_arrive_without_touching_the_download_tables(tmp_path, mo
     assert after == before
     assert [row["id"] for row in history] == ["gallerydl:1"]
     assert {"source_url", "interval_seconds", "next_check_at", "checking_at", "feeds"} <= tracker_columns
-    assert entry_columns == {"tracker_id", "entry_key", "entry_url", "download_id", "seen_at"}
+    assert entry_columns == {"tracker_id", "entry_key", "entry_url", "download_id", "seen_at", "deleted_at"}
     assert backlog_columns == {"tracker_id", "entry_key", "entry_url", "found_at", "position", "attempts"}
     assert {"idx_trackers_due", "idx_tracker_entries_download"} <= indexes
 

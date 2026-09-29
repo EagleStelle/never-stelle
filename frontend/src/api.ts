@@ -22,6 +22,8 @@ import type {
   StopResponse,
   TasksResponse,
   Tracker,
+  TrackerEntriesResponse,
+  TrackerEntryAction,
   TrackerPayload,
   TrackersResponse,
   UiConfigResponse,
@@ -391,6 +393,18 @@ export function setTrackersEnabled(ids: string[], enabled: boolean): Promise<Bat
 
 export function deleteTrackers(ids: string[], deleteFiles: boolean): Promise<BatchResponse> {
   return batchRequest("/api/trackers/delete", { ids, delete_files: deleteFiles }, "Could not delete trackers.");
+}
+
+export function getTrackerEntries(trackerId: string, signal?: AbortSignal): Promise<TrackerEntriesResponse> {
+  return jsonRequest<TrackerEntriesResponse>(
+    `/api/trackers/${encodeURIComponent(trackerId)}/entries`,
+    { signal },
+    "Could not load items.",
+  );
+}
+
+export function changeTrackerEntries(trackerId: string, action: TrackerEntryAction, urls: string[]): Promise<BatchResponse> {
+  return batchRequest(`/api/trackers/${encodeURIComponent(trackerId)}/entries/${action}`, { urls }, `Could not ${action}.`);
 }
 
 // One zip of the selected finished files, streamed by the server as it reads them.

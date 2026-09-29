@@ -44,9 +44,11 @@ import {
   type NamingFlagValue,
   type SourceTitleCleaning,
   type SourceTokenRoles,
+  type BatchResponse,
   type TaskCounts,
   type TaskFilter,
   type TaskItem,
+  type ToastType,
   type TokenRole,
   type TrackerOverrides,
   type TrackerSettings,
@@ -1109,6 +1111,24 @@ export const plural = (count: number): string => (count === 1 ? "" : "s");
 
 export function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+// One toast for what the batch did and one for the first item it skipped; false when the request failed.
+export async function runBatch(
+  request: () => Promise<BatchResponse>,
+  done: (count: number) => string,
+  fallback: string,
+  toast: (message: string, type?: ToastType) => void,
+): Promise<boolean> {
+  try {
+    const result = await request();
+    if (result.count > 0) toast(done(result.count));
+    if (result.errors.length > 0) toast(result.errors[0], "error");
+    return true;
+  } catch (error) {
+    toast(errorMessage(error, fallback), "error");
+    return false;
+  }
 }
 
 export function emptyTaskCounts(): TaskCounts {

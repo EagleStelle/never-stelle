@@ -12,9 +12,11 @@ import { useHistory } from "@/composables/useHistory";
 import { useIsMobile } from "@/composables/useBreakpoints";
 import { useSelection } from "@/composables/useSelection";
 import { useTrackers } from "@/composables/useTrackers";
+import { isTrackerEntry, useTrackerEntries } from "@/composables/useTrackerEntries";
 import { useSonner } from "@/composables/useSonner";
 import { COUNT_ICONS, PAGE_ICONS, PAGE_ROUTES } from "@/ui";
 import type {
+  ItemAction,
   MediaFilter,
   MenuKey,
   PageKey,
@@ -23,6 +25,7 @@ import type {
   SettingsSection,
   SourceProfile,
   TaskCounts,
+  TaskItem,
   TaskFilter,
   ViewMode,
 } from "@/types";
@@ -43,6 +46,29 @@ import {
   sourceLabelFromKey,
 } from "@/utils/dashboard";
 import { mediaKindForTask } from "@/utils/task";
+
+// One button per action: one both kinds of row offer runs on all of them, and delete comes last.
+function mergeActions(actions: ItemAction[]): ItemAction[] {
+  const merged = new Map<string, ItemAction>();
+  for (const action of actions) {
+    const same = merged.get(action.key);
+    merged.set(
+      action.key,
+      same
+        ? {
+            ...same,
+            href: same.href ?? action.href,
+            disabled: same.disabled || action.disabled,
+            run: () => {
+              same.run?.();
+              action.run?.();
+            },
+          }
+        : action,
+    );
+  }
+  return [...merged.values()].sort((a, b) => Number(a.key === "delete") - Number(b.key === "delete"));
+}
 
 // Settings overlay rides in a ?settings=<slug> query param, not its own path.
 const SETTINGS_SLUG_BY_SECTION: Record<SettingsSection, string> = {
@@ -215,6 +241,16 @@ export function useDownloadDashboard() {
     trackerId: trackerState.openTrackerId,
     enabled: computed(() => trackersPage.value && Boolean(trackerState.openTrackerId.value)),
   });
+  // Seen items have no media kind, and a search looks through downloads only.
+  const showTrackerEntries = computed(() => !historySearchQuery.value.trim() && mediaFilter.value === "all");
+  const entryState = useTrackerEntries({
+    trackerId: trackerState.openTrackerId,
+    sourceKey: computed(() => trackerState.openTracker.value?.source_key || ""),
+    enabled: computed(
+      () => trackersPage.value && Boolean(trackerState.openTrackerId.value) && showTrackerEntries.value,
+    ),
+    toast: sonner.toast,
+  });
 
   const taskSourceProfiles = computed<SourceProfile[]>(() =>
     taskQueue.taskItems.value
@@ -310,8 +346,10 @@ export function useDownloadDashboard() {
       ? trackerState.trackers.value
       : trackerState.trackers.value.filter((tracker) => tracker.source_key === activeMenu.value),
   );
-  // Queue rows first, then its history page; the media filter narrows both, a search shows history only.
+  // Seen items first, then queue rows, then its history page; the media filter narrows the queue and
+  // history, and a search shows history only.
   const trackerTasks = computed(() => {
+    const entries = showTrackerEntries.value ? entryState.trackerEntries.value : [];
     const queued = historySearchQuery.value.trim() ? [] : mediaTasks.value.filter(
       (task) =>
         task.tracker_id === trackerState.openTrackerId.value &&
@@ -323,7 +361,7 @@ export function useDownloadDashboard() {
         : trackerHistory.entries.value.filter(
             (task) => mediaKindForTask(task) === mediaFilter.value,
           );
-    return [...queued, ...done];
+    return [...entries, ...queued, ...done];
   });
   // The rows the downloads or history page shows.
   const pageTasks = computed(() => (activePage.value === "history" ? completedTasks.value : activeTasks.value));
@@ -338,7 +376,16 @@ export function useDownloadDashboard() {
   const itemSelection = useSelection(trackerTasks, (task) => task.vid, trackerItemsKey);
   const trackerSelection = useSelection(menuTrackers, (tracker) => tracker.id, activeMenu);
   const taskBatch = computed(() => taskQueue.taskBatchActions(taskSelection.selectedItems));
-  const itemBatch = computed(() => taskQueue.taskBatchActions(itemSelection.selectedItems));
+  // A tracker's Seen items take their own actions; every other row keeps its download's.
+  function taskActions(task: TaskItem): ItemAction[] {
+    return isTrackerEntry(task) ? entryState.entryBatchActions([task]) : taskQueue.taskActions(task);
+  }
+  const itemBatch = computed(() =>
+    mergeActions([
+      ...entryState.entryBatchActions(itemSelection.selectedItems),
+      ...taskQueue.taskBatchActions(itemSelection.selectedItems),
+    ]),
+  );
   const trackerBatch = computed(() => trackerState.trackerBatchActions(trackerSelection.selectedItems));
   // The trackers page selects trackers; the others select their rows.
   const pageSelection = computed(() => (activePage.value === "trackers" ? trackerSelection : taskSelection));
@@ -536,7 +583,7 @@ export function useDownloadDashboard() {
     trackerSelection,
     trackerTasks,
     trackerHistoryLoading: trackerHistory.loading,
-    trackerHistoryError: trackerHistory.historyError,
+    trackerHistoryError: computed(() => trackerHistory.historyError.value || entryState.entriesError.value),
     trackerHistoryHasMore: trackerHistory.hasMore,
     trackerHistoryFetchingMore: trackerHistory.fetchingMore,
     loadMoreTrackerHistory: trackerHistory.loadMore,
@@ -558,6 +605,7 @@ export function useDownloadDashboard() {
     openSettings,
     saveSettingsDraft,
     ...taskQueue,
+    taskActions,
     ...sonner,
     historySearch,
     submitHistorySearch,

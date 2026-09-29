@@ -33,7 +33,6 @@ import {
   TRACKERS_QUERY_KEY,
 } from "@/ui";
 import type {
-  BatchResponse,
   HistoryResponse,
   ItemAction,
   NamingKind,
@@ -55,6 +54,7 @@ import {
   extractUrl,
   normalizeSourceKey,
   plural,
+  runBatch,
 } from "@/utils/dashboard";
 import { resolveHint } from "@/utils/task";
 
@@ -312,23 +312,6 @@ export function useTaskQueue({
     }
   }
 
-  // One toast for what the batch did and one for the first item it skipped; false when the request failed.
-  async function runBatch(
-    request: () => Promise<BatchResponse>,
-    done: (count: number) => string,
-    fallback: string,
-  ): Promise<boolean> {
-    try {
-      const result = await request();
-      if (result.count > 0) toast(done(result.count));
-      if (result.errors.length > 0) toast(result.errors[0], "error");
-      return true;
-    } catch (error) {
-      toast(errorMessage(error, fallback), "error");
-      return false;
-    }
-  }
-
   // Drops rows from every loaded history page, so no page is fetched again.
   function dropHistoryRows(ids: string[]): void {
     const gone = new Set(ids);
@@ -340,14 +323,14 @@ export function useTaskQueue({
   }
 
   async function deleteTasks(ids: string[]): Promise<void> {
-    if (!(await runBatch(() => deleteTasksRequest(ids), (count) => `Deleted ${count} item${plural(count)}.`, "Could not delete."))) return;
+    if (!(await runBatch(() => deleteTasksRequest(ids), (count) => `Deleted ${count} item${plural(count)}.`, "Could not delete.", toast))) return;
     dropHistoryRows(ids);
     void queryClient.invalidateQueries({ queryKey: TRACKERS_QUERY_KEY });
     await loadTasks(true);
   }
 
   async function retryTasks(ids: string[]): Promise<void> {
-    if (!(await runBatch(() => retryTasksRequest(ids), (count) => `Retrying ${count} download${plural(count)}.`, "Could not retry."))) return;
+    if (!(await runBatch(() => retryTasksRequest(ids), (count) => `Retrying ${count} download${plural(count)}.`, "Could not retry.", toast))) return;
     await loadTasks(true);
   }
 

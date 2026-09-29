@@ -16,15 +16,19 @@ from backend.app.db.repositories import (
     add_tracker_backlog_rows,
     claim_due_tracker_row,
     count_tracker_items,
+    delete_tracker_entry_urls,
     delete_tracker_rows,
+    dismiss_tracker_entry_urls,
     fail_tracker_backlog_row,
     find_tracker_by_url,
     has_tracker_backlog_row,
     has_tracker_entry,
     insert_tracker_row,
+    link_tracker_entry_url,
     load_tracker_row,
     load_tracker_rows,
     missing_tracker_download_rows,
+    only_seen_tracker_entry_urls,
     record_tracker_entry_rows,
     relink_tracker_download,
     tracker_active_download_ids,
@@ -35,6 +39,7 @@ from backend.app.db.repositories import (
 )
 from backend.app.domains.downloads.constants import normalize_post_processing, normalize_quality_selection
 from backend.app.domains.downloads.formats import creator_from_url, url_dedup_key
+from backend.app.domains.downloads.history import find_history_by_source
 from backend.app.domains.downloads.operations import delete_downloads, queue_quality, queue_task, retry_downloads
 from backend.app.domains.downloads.urls import canonicalize_source_url, resolve_redirect_url
 from backend.app.domains.downloads.workers.processes import (
@@ -259,29 +264,69 @@ def delete_trackers(tracker_ids: list[str], *, delete_files: bool = False) -> di
     return {"count": len(ids), "errors": errors}
 
 
-def _queue_entry(tracker: dict[str, Any], entry: Entry) -> str:
+def _queue_entry(tracker: dict[str, Any], entry: Entry) -> tuple[str, bool]:
+    """The entry's download id, and whether the app already had it downloaded or queued."""
     # Empty saved settings follow the current defaults; locations and templates always do.
-    created, _ = queue_task(entry.url, quality=queue_quality(tracker["quality"], tracker["post_processing"]))
-    return str(created[0].get("vid") or "") if created else ""
+    created, existing = queue_task(entry.url, quality=queue_quality(tracker["quality"], tracker["post_processing"]))
+    return (str(created[0].get("vid") or "") if created else ""), existing
 
 
-def _queue_missing(tracker: dict[str, Any]) -> list[str]:
-    """Queue again the downloads of seen entries that failed or are gone; returns the errors."""
+def _restore_missing(tracker: dict[str, Any], *, queue: bool) -> list[str]:
+    """Link seen entries whose download is gone to the copy the app has, as after a restored database;
+    with ``queue``, queue again the rest and retry the failed ones. Returns the errors."""
     failures: list[str] = []
     failed: list[str] = []
     for entry_url, download_id, status in missing_tracker_download_rows(tracker["id"]):
         if status == "failed":
-            failed.append(download_id)
+            if queue:
+                failed.append(download_id)
             continue
-        try:
-            replacement = _queue_entry(tracker, Entry(url=entry_url))
-            if replacement and replacement != download_id:
-                relink_tracker_download(download_id, replacement)
-        except Exception as exc:
-            failures.append(str(exc))
+        history_id, _ = find_history_by_source(canonicalize_source_url(entry_url))
+        if history_id:
+            relink_tracker_download(download_id, history_id)
+        elif queue:
+            try:
+                replacement, _ = _queue_entry(tracker, Entry(url=entry_url))
+                if replacement and replacement != download_id:
+                    relink_tracker_download(download_id, replacement)
+            except Exception as exc:
+                failures.append(str(exc))
     if failed:
         failures.extend(retry_downloads(failed)["errors"])
     return failures
+
+
+def list_entries(tracker_id: str) -> dict[str, Any]:
+    """The tracker's entries only seen, the newest first."""
+    get_tracker(tracker_id)
+    return {"urls": only_seen_tracker_entry_urls(tracker_id)}
+
+
+def queue_entries(tracker_id: str, urls: list[str]) -> dict[str, Any]:
+    """Queue entries only seen under the tracker's settings; an item the app has is linked."""
+    tracker = get_tracker(tracker_id)
+    count = 0
+    errors: list[str] = []
+    for url in only_seen_tracker_entry_urls(tracker_id, urls):
+        try:
+            download_id, _ = _queue_entry(tracker, Entry(url=url))
+        except Exception as exc:
+            errors.append(str(exc))
+            continue
+        if download_id:
+            link_tracker_entry_url(tracker_id, url, download_id)
+            count += 1
+    return {"count": count, "errors": errors}
+
+
+def dismiss_entries(tracker_id: str, urls: list[str]) -> dict[str, Any]:
+    get_tracker(tracker_id)
+    return {"count": dismiss_tracker_entry_urls(tracker_id, urls), "errors": []}
+
+
+def delete_entries(tracker_id: str, urls: list[str]) -> dict[str, Any]:
+    get_tracker(tracker_id)
+    return {"count": delete_tracker_entry_urls(tracker_id, urls), "errors": []}
 
 
 class _TrackerBacklog:
@@ -324,13 +369,14 @@ def _learned_pages(tracker: dict[str, Any]) -> dict[str, list[tuple[str, str]]]:
 def run_check(tracker: dict[str, Any]) -> None:
     """List one batch of the tracker's link and queue what it has not seen; always releases the claim.
 
-    A batch ends after ``page_size`` new entries and the next one waits for the interval. Listing
+    A batch ends after ``page_size`` entries it queued and the next one waits for the interval; items the
+    app already has are linked without taking a place, so a re-added link passes them in one check. Listing
     runs newest first, so each batch takes what was posted since, then the older entries a pass
     has yet to reach. Pages are scrolled once and what they showed waits in the backlog for the
     batches after; ``last_success_at`` marks a pass that reached every end, where later ones stop.
     Pages the link offers that the source's rows lack are added to them for every tracker of the source.
-    A check asked for by hand first queues again the downloads its seen entries lost. ``stop_checks`` ends it
-    at once.
+    Every check first links seen entries whose download is gone to the copy the app has; one asked for by
+    hand also queues the rest again. ``stop_checks`` ends it at once.
     """
     with task_execution(_check_task_id(tracker["id"])), suppress(TaskCancelled):
         _run_check(tracker)
@@ -347,14 +393,12 @@ def _run_check(tracker: dict[str, Any]) -> None:
     stats = ListingStats()
     listed: set[str] = set()
     failures: list[str] = []
-    lost: list[str] = []
     counted = 0
     detected_name = ""
     succeeded = False
     updates: dict[str, Any] = {}
     try:
-        if asked:
-            lost = _queue_missing(tracker)
+        lost = _restore_missing(tracker, queue=asked)
         with CpuPacer() as pacer:
             entries = iter_entries(
                 tracker["source_url"],
@@ -389,11 +433,11 @@ def _run_check(tracker: dict[str, Any]) -> None:
                         continue
                     if counted + len(failures) >= settings["page_size"]:
                         break
-                    download_id = ""
+                    download_id, existing = "", False
                     if entry.owned:
                         try:
                             # An item the app already downloaded is linked, not fetched again.
-                            download_id = _queue_entry(tracker, entry)
+                            download_id, existing = _queue_entry(tracker, entry)
                         except Exception as exc:
                             # Left unrecorded, so the next check tries the entry again.
                             failures.append(str(exc))
@@ -404,8 +448,8 @@ def _run_check(tracker: dict[str, Any]) -> None:
                         tracker_id,
                         [(member, entry.url, download_id) for member in dict.fromkeys((key, *entry.members))],
                     )
-                    # Someone else's item is recorded without taking a place in the batch.
-                    if entry.owned:
+                    # Someone else's item, or one the app already has, takes no place in the batch.
+                    if entry.owned and not existing:
                         counted += 1
         if not listed and not stats.shown and (first or stats.unresolved):
             raise ValueError(UNRESOLVED_ERROR if stats.unresolved else SINGLE_ITEM_ERROR)

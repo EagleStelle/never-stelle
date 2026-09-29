@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.app.api.schemas.downloads import IdsPayload
 
@@ -26,3 +26,7 @@ class DeleteTrackersPayload(IdsPayload):
 
 class TrackersEnabledPayload(IdsPayload):
     enabled: bool
+
+
+class EntryUrlsPayload(BaseModel):
+    urls: list[str] = Field(min_length=1)

@@ -452,6 +452,13 @@ export interface TrackersResponse {
   trackers: (Omit<Tracker, "counts"> & { counts: Pick<TrackerCounts, "completed" | "seen"> })[];
 }
 
+export type TrackerEntryAction = "queue" | "dismiss" | "delete";
+
+// Links a tracker only saw, the newest first: never queued, or their download is gone.
+export interface TrackerEntriesResponse {
+  urls: string[];
+}
+
 export interface TrackerPayload {
   interval_seconds?: number;
   quality?: QualitySelection;

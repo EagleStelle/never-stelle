@@ -84,16 +84,22 @@ def _insert_tracker(**overrides) -> dict:
 
 
 class _Queue:
-    """Stands in for queue_task: records calls and hands back a fresh download id."""
+    """Stands in for queue_task: records calls and hands back a fresh download id, or the history row of a link
+    in ``existing``."""
 
-    def __init__(self, fail_on: set[str] | None = None, prefix: str = "gallerydl") -> None:
+    def __init__(
+        self, fail_on: set[str] | None = None, prefix: str = "gallerydl", existing: set[str] | None = None
+    ) -> None:
         self.calls: list[tuple[str, dict]] = []
         self.fail_on = fail_on or set()
         self.prefix = prefix
+        self.existing = existing or set()
 
     def __call__(self, url: str, quality: dict | None = None):
         if url in self.fail_on:
             raise ValueError("Choose a valid download location from Settings.")
+        if url in self.existing:
+            return [{"vid": f"h:{url}"}], True
         self.calls.append((url, quality or {}))
         return [{"vid": f"{self.prefix}:{len(self.calls)}"}], False
 
@@ -808,6 +814,8 @@ class _Browser:
         self.rendered: dict[str, tuple[str, list[tuple[str, str, bool]], list[list[str]]]] = {}
         self.addresses: dict[str, str] = {}
         self.clicked: list[str] = []
+        # What the last scroll was told the walk already has; rounds of only those cost no scrolling time.
+        self.known = lambda link: False
 
     def open(self, source_key: str) -> _Browser:
         self.opens += 1
@@ -821,6 +829,7 @@ class _Browser:
 
     def scroll_links(self, url, is_item, known, follow=None):
         self.walks.append(url)
+        self.known = known
         batches = self.batches
         if url in self.rendered:
             self.landed[url], self.navigation[url], batches = self.rendered[url]
@@ -933,6 +942,35 @@ def test_a_link_the_app_already_downloaded_is_not_probed(temp_db, monkeypatch):
 
     assert [entry.url for entry in entries] == reels
     assert probed == [reels[0], reels[2]]
+
+
+def test_a_page_scrolls_past_what_the_app_already_downloaded_without_filling_its_batch(temp_db, monkeypatch):
+    # A re-added link: the app kept the downloads, but the tracker has no record of them.
+    reels = [f"https://example.test/reel/{n}1111111" for n in range(1, 7)]
+    elsewhere = "https://example.test/reel/81111111"
+    _reel_page(monkeypatch, "")
+    browser = _browser(monkeypatch, *([reel] for reel in reels))
+    probed: list[str] = []
+
+    def probe(urls, **options):
+        probed.extend(urls)
+        return {url: {"uploader": "Alice", "ext": "mp4"} for url in urls}
+
+    downloaded = {*reels[:3], elsewhere}
+    monkeypatch.setattr(listing_module, "probe_metadata", probe)
+    monkeypatch.setattr(
+        listing_module, "find_history_by_source", lambda url: ("h1", {}) if url in downloaded else (None, None)
+    )
+    stats = ListingStats()
+
+    entries = list(listing_module.iter_entries(TRACKER_URL, "example", stats, batch=2))
+
+    assert [entry.url for entry in entries] == reels[:5]
+    assert probed == reels[3:5]
+    assert (browser.pulled, stats.more) == (5, True)
+    # Scrolling past a downloaded item costs no scrolling time.
+    assert browser.known(elsewhere)
+    assert not browser.known("https://example.test/reel/91111111")
 
 
 class _HeldResolver:
@@ -1608,6 +1646,26 @@ def test_a_full_batch_waits_for_the_interval_then_takes_new_entries_before_older
     assert last["last_success_at"]
 
 
+def test_items_the_app_already_has_are_linked_without_taking_a_place_in_the_batch(temp_db, monkeypatch):
+    # A re-added link: the app kept the downloads, but the tracker has no record of them.
+    _insert_tracker()
+    _page_size(2)
+    had = [_entry(n) for n in range(3)]
+    fresh = [_entry(n) for n in range(3, 6)]
+    queue = _Queue(existing={entry.url for entry in had})
+
+    first = _check(monkeypatch, [*had, *fresh], queue)
+
+    assert [url for url, _ in queue.calls] == [entry.url for entry in fresh[:2]]
+    assert _linked() == sorted([*(f"h:{entry.url}" for entry in had), "gallerydl:1", "gallerydl:2"])
+    assert first["last_success_at"] == ""
+
+    last = _check(monkeypatch, [*had, *fresh], queue)
+
+    assert [url for url, _ in queue.calls[2:]] == [fresh[2].url]
+    assert last["last_success_at"]
+
+
 def test_a_page_of_only_queue_failures_waits_for_the_next_interval(temp_db, monkeypatch):
     _insert_tracker()
     _page_size(2)
@@ -1993,6 +2051,26 @@ def test_check_now_queues_again_the_downloads_its_entries_lost(temp_db, monkeypa
     assert tracker["last_error"] == ""
 
 
+def test_every_check_links_lost_downloads_to_the_files_the_app_has(temp_db, monkeypatch):
+    _insert_tracker()
+    entries = [_entry(n) for n in range(3)]
+    _check(monkeypatch, entries, _Queue())
+    # A restored database lost the downloads; a library scan found the first two files again.
+    for number, entry in enumerate(entries[:2]):
+        media_id = service_module.url_dedup_key(entry.url).rpartition("#")[2]
+        repositories.save_history_row(
+            f"disk:{number}", {"source_url": entry.url, "source_key": "example", "media_id": media_id}
+        )
+    queue = _Queue()
+
+    tracker = _check(monkeypatch, entries, queue)
+
+    assert queue.calls == []
+    assert _linked() == ["disk:0", "disk:1", "gallerydl:3"]
+    assert repositories.count_tracker_items()["t1"] == {"seen": 3, "completed": 2}
+    assert tracker["last_error"] == ""
+
+
 def test_queue_failure_is_reported_and_retried_next_check(temp_db, monkeypatch):
     _insert_tracker()
 
@@ -2367,3 +2445,88 @@ def test_a_delete_gives_up_while_a_scan_holds_the_history(temp_db, monkeypatch):
         operations_module.delete_downloads(["gallerydl:abc"])
 
     assert repositories.load_history_entry_payload("gallerydl:abc")
+
+
+# --- Entries only seen ---
+_POSTS = [f"https://example.test/post/{number}" for number in range(1, 6)]
+
+
+def _record_every_state() -> None:
+    """Post 1 is done, 2 queued, 3 failed, 4 never queued (with a photo) and 5 lost its download."""
+    _insert_tracker()
+    downloads = ["gallerydl:done", "gallerydl:queued", "gallerydl:failed", "", "gallerydl:gone"]
+    rows = [(service_module.url_dedup_key(url), url, download) for url, download in zip(_POSTS, downloads, strict=True)]
+    repositories.record_tracker_entry_rows("t1", [*rows, ("photo-4", _POSTS[3], "")])
+    _history("gallerydl:done")
+    repositories.merge_task_payload("gallerydl:queued", {"source_url": _POSTS[1], "status": "pending"})
+    repositories.merge_task_payload("gallerydl:failed", {"source_url": _POSTS[2], "status": "failed"})
+
+
+def _seen_urls() -> list[str]:
+    return service_module.list_entries("t1")["urls"]
+
+
+class _QueueRows(_Queue):
+    """A ``_Queue`` whose downloads land in the queue."""
+
+    def __call__(self, url: str, quality: dict | None = None):
+        created, existing = super().__call__(url, quality)
+        repositories.merge_task_payload(created[0]["vid"], {"source_url": url, "status": "pending"})
+        return created, existing
+
+
+def test_entries_with_no_download_list_once_as_seen(temp_db):
+    _record_every_state()
+
+    assert _seen_urls() == [_POSTS[4], _POSTS[3]]
+    assert repositories.count_tracker_items()["t1"] == {"seen": 5, "completed": 1}
+
+
+def test_queueing_entries_links_every_row_with_the_trackers_settings(temp_db, monkeypatch):
+    _record_every_state()
+    queue = _QueueRows()
+    monkeypatch.setattr(service_module, "queue_task", queue)
+
+    result = service_module.queue_entries("t1", [_POSTS[3], _POSTS[4], _POSTS[0], _POSTS[1], _POSTS[2]])
+
+    assert result == {"count": 2, "errors": []}
+    assert queue.calls == [
+        (url, {"mode": "audio", "_post_processing": {"metadata": "embed"}}) for url in (_POSTS[3], _POSTS[4])
+    ]
+    assert _linked() == ["gallerydl:1", "gallerydl:2", "gallerydl:done", "gallerydl:failed", "gallerydl:queued"]
+    assert _seen_urls() == []
+
+
+def test_a_dismissed_entry_is_forgotten_and_queued_when_listed_again(temp_db, monkeypatch):
+    _record_every_state()
+
+    assert service_module.dismiss_entries("t1", [_POSTS[3], *_POSTS[:3]]) == {"count": 1, "errors": []}
+    assert _seen_urls() == [_POSTS[4]]
+    assert repositories.count_tracker_items()["t1"]["seen"] == 4
+
+    queue = _Queue(prefix="again")
+    _check(monkeypatch, [Entry(url=_POSTS[3])], queue)
+
+    assert [url for url, _ in queue.calls] == [_POSTS[3]]
+
+
+def test_a_deleted_entry_leaves_every_list_and_is_never_queued_again(temp_db, monkeypatch):
+    _record_every_state()
+
+    assert service_module.delete_entries("t1", [_POSTS[4], *_POSTS[:3]]) == {"count": 1, "errors": []}
+    assert _seen_urls() == [_POSTS[3]]
+    assert repositories.count_tracker_items()["t1"] == {"seen": 4, "completed": 1}
+
+    service_module.check_trackers(["t1"])
+    queue = _Queue(prefix="again")
+    _check(monkeypatch, [Entry(url=_POSTS[4])], queue)
+
+    assert queue.calls == []
+    assert _seen_urls() == [_POSTS[3]]
+
+
+def test_entry_actions_need_a_tracker(temp_db):
+    with pytest.raises(FileNotFoundError):
+        service_module.list_entries("t1")
+    with pytest.raises(FileNotFoundError):
+        service_module.delete_entries("t1", [_POSTS[0]])

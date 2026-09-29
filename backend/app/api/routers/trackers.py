@@ -9,6 +9,7 @@ from backend.app.api.schemas.downloads import IdsPayload
 from backend.app.api.schemas.trackers import (
     CreateTrackerPayload,
     DeleteTrackersPayload,
+    EntryUrlsPayload,
     TrackersEnabledPayload,
     UpdateTrackerPayload,
 )
@@ -72,3 +73,25 @@ def check_trackers(payload: IdsPayload) -> dict[str, Any]:
 @router.post("/stop")
 def stop_tracker_checks(payload: IdsPayload) -> dict[str, Any]:
     return service.stop_checks(payload.ids)
+
+
+@router.get("/{tracker_id}/entries")
+def list_tracker_entries(tracker_id: str) -> dict[str, Any]:
+    try:
+        return service.list_entries(tracker_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+_ENTRY_ACTIONS = {"queue": service.queue_entries, "dismiss": service.dismiss_entries, "delete": service.delete_entries}
+
+
+@router.post("/{tracker_id}/entries/{action}")
+def change_tracker_entries(tracker_id: str, action: str, payload: EntryUrlsPayload) -> dict[str, Any]:
+    run = _ENTRY_ACTIONS.get(action)
+    if not run:
+        raise HTTPException(status_code=404, detail="Unknown action.")
+    try:
+        return run(tracker_id, payload.urls)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

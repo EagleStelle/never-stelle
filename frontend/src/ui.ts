@@ -6,6 +6,7 @@ import IconClose from "~icons/material-symbols/close";
 import IconCookie from "~icons/material-symbols/cookie";
 import IconDefaults from "~icons/material-symbols/tune";
 import IconDelete from "~icons/material-symbols/delete";
+import IconDismiss from "~icons/material-symbols/visibility-off";
 import IconDownloads from "~icons/material-symbols/download";
 import IconFields from "~icons/material-symbols/badge";
 import IconFolder from "~icons/material-symbols/folder";
@@ -13,6 +14,7 @@ import IconFormat from "~icons/material-symbols/pattern";
 import IconMore from "~icons/material-symbols/more-horiz";
 import IconNaming from "~icons/material-symbols/text-format";
 import IconPause from "~icons/material-symbols/pause";
+import IconQueue from "~icons/material-symbols/playlist-add";
 import IconProfile from "~icons/material-symbols/account-circle";
 import IconRadar from "~icons/material-symbols/radar";
 import IconResolve from "~icons/material-symbols/cloud-sync";
@@ -65,9 +67,11 @@ export const PAGE_ICONS: Record<PageKey, Component> = {
 export const ACTION_ICONS = {
   check: IconSpinner,
   delete: IconDelete,
+  dismiss: IconDismiss,
   download: IconDownloads,
   more: IconMore,
   pause: IconPause,
+  queue: IconQueue,
   refresh: IconSpinner,
   remove: IconClose,
   resolve: IconResolve,
@@ -114,6 +118,8 @@ export const PAGE_ROUTES = {
   account: "/account",
 } as const;
 export const TRACKERS_QUERY_KEY = ["trackers"] as const;
+// Under the trackers key, so whatever refreshes trackers refreshes their item lists too.
+export const TRACKER_ENTRIES_QUERY_KEY = [...TRACKERS_QUERY_KEY, "entries"] as const;
 export const TRACKER_INTERVALS: { key: string; label: string }[] = [
   { key: String(3600), label: "Every hour" },
   { key: String(3 * 3600), label: "Every 3 hours" },

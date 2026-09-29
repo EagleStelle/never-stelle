@@ -10,7 +10,14 @@ import {
   stopTrackerChecks as stopTrackerChecksRequest,
   updateTracker as updateTrackerRequest,
 } from "@/api";
-import { ACTION_ICONS, HISTORY_QUERY_KEY, POLL_RUNNING_MS, TASKS_QUERY_KEY, TRACKERS_QUERY_KEY } from "@/ui";
+import {
+  ACTION_ICONS,
+  HISTORY_QUERY_KEY,
+  POLL_RUNNING_MS,
+  TASKS_QUERY_KEY,
+  TRACKER_ENTRIES_QUERY_KEY,
+  TRACKERS_QUERY_KEY,
+} from "@/ui";
 import type {
   ItemAction,
   TaskItem,
@@ -128,13 +135,16 @@ export function useTrackers({ enabled, tasks, toast, url }: UseTrackersOptions) 
     }
   });
 
-  // A running check queues rows as it lists, so the queue and history follow it.
+  // A running check queues rows as it lists, so the queue follows it; history and item lists catch up as it ends.
   watch(trackersQuery.data, (next, previous) => {
     const busy = (next?.trackers || []).some((tracker) => tracker.checking);
     const wasBusy = (previous?.trackers || []).some((tracker) => tracker.checking);
     if (busy || wasBusy) {
       void queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
-      if (!busy) void queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY });
+      if (!busy) {
+        void queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY });
+        void queryClient.invalidateQueries({ queryKey: TRACKER_ENTRIES_QUERY_KEY });
+      }
     }
   });
 

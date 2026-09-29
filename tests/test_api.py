@@ -850,6 +850,24 @@ def test_tracker_routes_create_apply_check_and_delete(tmp_path, monkeypatch):
     assert client.patch(f"/api/trackers/{tracker_id}", json={"interval_seconds": 3600}).status_code == 404
 
 
+
+def test_tracker_entry_routes(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    monkeypatch.setattr(trackers_router, "ensure_tracker_worker", lambda: None)
+    tracker_id = client.post("/api/trackers", json={"url": "https://example.test/u/alice"}).json()["id"]
+    urls = {"urls": ["https://example.test/post/1"]}
+
+    assert client.get(f"/api/trackers/{tracker_id}/entries").json() == {"urls": []}
+    for action in ("queue", "dismiss", "delete"):
+        assert client.post(f"/api/trackers/{tracker_id}/entries/{action}", json=urls).json() == {
+            "count": 0,
+            "errors": [],
+        }
+    assert client.post(f"/api/trackers/{tracker_id}/entries/dismiss", json={"urls": []}).status_code == 422
+    assert client.post(f"/api/trackers/{tracker_id}/entries/other", json=urls).status_code == 404
+    assert client.get("/api/trackers/unknown/entries").status_code == 404
+    assert client.post("/api/trackers/unknown/entries/delete", json=urls).status_code == 404
+
 def test_download_batch_routes_retry_and_delete(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
     monkeypatch.setattr(operations_module, "ensure_worker", lambda: None)

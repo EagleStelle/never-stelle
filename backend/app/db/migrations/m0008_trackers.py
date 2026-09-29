@@ -5,6 +5,8 @@ tracker has listed, so an entry is queued once. ``download_id`` is the id ``queu
 returned: the task row while active, the history row with the same id once complete. It is
 a plain column rather than a foreign key because that row moves between the two tables on
 completion. A download the user deletes leaves it empty, so no check queues the entry again.
+``deleted_at`` marks an entry the user deleted itself: it stays recorded for the same reason but
+leaves the tracker's lists and its seen count.
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ def upgrade(connection: sqlite3.Connection) -> None:
             entry_url   TEXT NOT NULL DEFAULT '',
             download_id TEXT NOT NULL DEFAULT '',
             seen_at     TEXT NOT NULL,
+            deleted_at  TEXT NOT NULL DEFAULT '',
             PRIMARY KEY (tracker_id, entry_key)
         ) WITHOUT ROWID
         """
