@@ -29,6 +29,8 @@ const props = withDefaults(
     items: ComboboxItemOption[]
     /** Keeps the list open and toggles each picked key in the model. */
     multiple?: boolean
+    /** Offers the typed text as its own key when no item matches it. */
+    creatable?: boolean
     placeholder?: string
     emptyText?: string
     class?: HTMLAttributes["class"]
@@ -62,6 +64,17 @@ const layout = computed(
 )
 
 const open = ref(false)
+const search = ref("")
+
+const typedItem = computed<ComboboxItemOption | null>(() => {
+  const term = search.value.trim()
+  if (!props.creatable || !term) return null
+  const lower = term.toLowerCase()
+  const taken = props.items.some(
+    (item) => item.key.toLowerCase() === lower || item.label.toLowerCase() === lower,
+  )
+  return taken ? null : { key: term, label: term }
+})
 
 // Any option with an icon reserves the icon slot on every row.
 const hasIcons = computed(() => props.items.some((item) => item.icon || item.iconUrl))
@@ -133,7 +146,7 @@ const handleModelValue = (value: unknown) => {
         </ComboboxAnchor>
 
         <ComboboxList :open="open" :label="label">
-          <ComboboxInput :placeholder="props.placeholder || 'Search...'" />
+          <ComboboxInput v-model="search" :placeholder="props.placeholder || 'Search...'" />
           <ComboboxViewport>
             <ComboboxEmpty>
               {{ props.emptyText || "No items found." }}
@@ -155,6 +168,14 @@ const handleModelValue = (value: unknown) => {
                 <div class="flex items-center gap-2">
                   <ComboboxItemIcon v-if="hasIcons" :item="item" />
                   <span>{{ item.label }}</span>
+                </div>
+              </ComboboxItem>
+
+              <!-- Keyed by text so reka refilters it. Last, so Enter picks a real match first. -->
+              <ComboboxItem v-if="typedItem" :key="typedItem.key" :value="typedItem">
+                <div class="flex min-w-0 items-center gap-2">
+                  <ComboboxItemIcon v-if="hasIcons" :item="typedItem" />
+                  <span class="truncate">Use “{{ typedItem.label }}”</span>
                 </div>
               </ComboboxItem>
             </ComboboxGroup>

@@ -150,6 +150,18 @@ export function sourceIconUrl(sourceKey: string): string {
   return sourceKey ? `/api/sources/${encodeURIComponent(sourceKey)}/icon` : "";
 }
 
+// An unresolved task's source options: its learned guesses first, then every known source.
+export function sourceOptions(
+  task: TaskItem,
+  profiles: SourceProfile[] = [],
+): Array<{ key: string; label: string; iconUrl: string }> {
+  const labels = new Map(profiles.map((profile) => [profile.key, profile.label]));
+  const keys = new Set([...(task.source_candidates || []), ...labels.keys()]);
+  return [...keys]
+    .filter(Boolean)
+    .map((key) => ({ key, label: labels.get(key) || sourceLabelFromKey(key), iconUrl: sourceIconUrl(key) }));
+}
+
 export function createSourceProfile(
   source: Partial<SourceProfile> = {},
 ): SourceProfile {

@@ -60,11 +60,6 @@ export function taskTitle(task: TaskItem): string {
   return String(task.resolved_filename || "").trim() || task.status_label;
 }
 
-// Secondary line under the title.
-export function taskDetail(task: TaskItem): string {
-  return String(task.source_url || task.vid || "").trim();
-}
-
 // A spent row is skipped by "Resolve Missing", so its own button is the only way back.
 export function resolveHint(task: TaskItem): string {
   return task.resolve_failed
