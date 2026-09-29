@@ -601,7 +601,7 @@ def test_the_pass_report_counts_a_filled_row(tmp_path: Path, monkeypatch: pytest
     started = resolve_module.start_resolve()
     _drain(1)
 
-    assert _report(started["pass_id"]) == {"queued": 1, "resolved": 1, "skipped": 0, "failed": 0}
+    assert _report(started["pass_id"]) == {"queued": 1, "resolved": 1, "skipped": 0, "failed": 0, "stopped": 0}
     # The count lands before the job row clears, so a client seeing 0 running reads a settled pass.
     assert resolve_module.resolve_activity()["resolving"] == 0
 
@@ -623,7 +623,7 @@ def test_a_row_that_no_longer_needs_anything_counts_as_skipped(tmp_path: Path, m
 
     _drain(1)
 
-    assert _report(started["pass_id"]) == {"queued": 1, "resolved": 0, "skipped": 1, "failed": 0}
+    assert _report(started["pass_id"]) == {"queued": 1, "resolved": 0, "skipped": 1, "failed": 0, "stopped": 0}
 
 
 def test_a_dead_link_counts_once_its_retries_are_spent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -641,7 +641,7 @@ def test_a_dead_link_counts_once_its_retries_are_spent(tmp_path: Path, monkeypat
 
     _drain(enrichment_module._MAX_ATTEMPTS - 1)
 
-    assert _report(started["pass_id"]) == {"queued": 1, "resolved": 0, "skipped": 0, "failed": 1}
+    assert _report(started["pass_id"]) == {"queued": 1, "resolved": 0, "skipped": 0, "failed": 1, "stopped": 0}
 
 
 def test_a_partly_filled_row_is_not_reported_as_resolved(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -660,7 +660,7 @@ def test_a_partly_filled_row_is_not_reported_as_resolved(tmp_path: Path, monkeyp
     # The creator is kept, but the row still cannot be named, so it stays flagged.
     assert entry["creator"] == "Creator"
     assert entry["needs_resolve"] is True
-    assert _report(started["pass_id"]) == {"queued": 1, "resolved": 0, "skipped": 0, "failed": 1}
+    assert _report(started["pass_id"]) == {"queued": 1, "resolved": 0, "skipped": 0, "failed": 1, "stopped": 0}
 
 
 def test_each_click_reports_its_own_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -676,8 +676,8 @@ def test_each_click_reports_its_own_pass(tmp_path: Path, monkeypatch: pytest.Mon
     _drain(2)
 
     # A click landing mid-pass used to be told the running total of both.
-    assert _report(first["pass_id"]) == {"queued": 1, "resolved": 1, "skipped": 0, "failed": 0}
-    assert _report(second["pass_id"]) == {"queued": 1, "resolved": 1, "skipped": 0, "failed": 0}
+    assert _report(first["pass_id"]) == {"queued": 1, "resolved": 1, "skipped": 0, "failed": 0, "stopped": 0}
+    assert _report(second["pass_id"]) == {"queued": 1, "resolved": 1, "skipped": 0, "failed": 0, "stopped": 0}
 
 
 def test_a_row_already_running_is_not_queued_twice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -710,6 +710,35 @@ def test_activity_carries_the_pass_reports(tmp_path: Path, monkeypatch: pytest.M
     started = resolve_module.start_resolve(task_ids=["gallerydl:1"])
 
     assert library_activity()["resolve_passes"][str(started["pass_id"])]["queued"] == 1
+
+
+def test_stopping_drops_the_queued_rows_and_reports_them(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    for index in range(1, 4):
+        _seed(tmp_path, task_id=f"gallerydl:{index}", name=f"Clip {index} [abc123].mp4")
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
+
+    started = resolve_module.start_resolve(task_ids=["gallerydl:1", "gallerydl:2", "gallerydl:3"])
+    running = claim_next_enrichment_job()
+    assert running is not None
+
+    assert resolve_module.stop_resolve() == {"stopped": 2}
+    # The probe in flight finishes and reports like any other.
+    assert resolve_module.resolve_activity()["resolving"] == 1
+    enrichment_module._process_enrichment_job(running)
+
+    assert load_enrichment_jobs() == []
+    assert _report(started["pass_id"]) == {"queued": 3, "resolved": 1, "skipped": 0, "failed": 0, "stopped": 2}
+
+
+def test_stopping_leaves_other_queued_work_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    enqueue_enrichment_job("completion:gallerydl:1", "completion", {"task_id": "gallerydl:1"})
+
+    assert resolve_module.stop_resolve() == {"stopped": 0}
+    assert [job["id"] for job in load_enrichment_jobs()] == ["completion:gallerydl:1"]
 
 
 def test_a_spent_resolve_is_not_reported_as_still_running(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -861,6 +890,51 @@ def test_a_new_id_token_renames_without_a_lookup_when_the_row_knows_the_id(
     assert path.with_name("Clip [abc123].mp4").is_file()
     assert calls == []
     assert _pending("templates") == 0
+
+
+def test_a_stopped_rename_is_offered_again(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, "{{title}}")
+    _seed(tmp_path, name="Clip.mp4", filename_template="{{title}}", creator="Creator")
+    _save_naming(monkeypatch, STORED_TEMPLATE)
+
+    resolve_module.start_renames("example", "templates")
+    assert _pending("templates") == 0
+    assert resolve_module.stop_resolve() == {"stopped": 1}
+
+    assert _pending("templates") == 1
+
+
+def test_a_stopped_lookup_is_offered_again_from_an_empty_field_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    _seed(tmp_path, name="Old - Clip [abc123].mp4", creator="Old", filename_template=CURRENT_TEMPLATE)
+    monkeypatch.setattr(resolve_module, "get_effective_source_fields", lambda source_key: {})
+    _save_naming(monkeypatch, fields={"username": ["channel"]})
+
+    resolve_module.start_renames("example", "fields")
+    assert load_naming_snapshots_payload() == {}
+    resolve_module.stop_resolve()
+
+    # The files were named by no order at all, which is still an order to go back to.
+    assert load_naming_snapshots_payload() == {"example": {"fields": {}}}
+    assert _pending("fields") == 1
+
+
+def test_a_stop_keeps_a_naming_change_saved_since(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, "{{title}}")
+    _seed(tmp_path, name="Clip.mp4", filename_template="{{title}}", creator="Creator")
+    _save_naming(monkeypatch, STORED_TEMPLATE)
+    resolve_module.start_renames("example", "templates")
+    _save_naming(monkeypatch, CURRENT_TEMPLATE)
+    newer = load_naming_snapshots_payload()
+
+    resolve_module.stop_resolve()
+
+    assert load_naming_snapshots_payload() == newer
 
 
 def test_a_new_id_token_is_looked_up_when_the_row_has_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

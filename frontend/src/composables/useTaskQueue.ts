@@ -17,6 +17,8 @@ import {
   retryTasks as retryTasksRequest,
   scanMediaLibrary,
   setTaskSource as setTaskSourceRequest,
+  stopMediaScan,
+  stopResolveHistory,
 } from "@/api";
 import { useAuth } from "@/composables/useAuth";
 import {
@@ -88,11 +90,22 @@ function sentence(parts: string[]): string {
   return `${summary.charAt(0).toUpperCase()}${summary.slice(1)}.`;
 }
 
+// "Refresh stopped. Added 2 files." A stopped job, then what it did before stopping.
+function stoppedMessage(job: string, parts: string[]): string {
+  return parts.length === 0 ? `${job} stopped.` : `${job} stopped. ${sentence(parts)}`;
+}
+
+// Rows the pass has not heard back about yet.
+function unsettled(report: ResolvePassReport): boolean {
+  return report.resolved + report.skipped + report.failed + report.stopped < report.queued;
+}
+
 function resolvedMessage(report: ResolvePassReport): string {
   const parts: string[] = [];
   if (report.resolved > 0) parts.push(`resolved ${report.resolved} item${plural(report.resolved)}`);
   if (report.skipped > 0) parts.push(`skipped ${report.skipped} item${plural(report.skipped)}`);
   if (report.failed > 0) parts.push(`could not resolve ${report.failed} item${plural(report.failed)}`);
+  if (report.stopped > 0) return stoppedMessage("Resolve", parts);
   return parts.length === 0 ? "Nothing changed." : sentence(parts);
 }
 
@@ -137,6 +150,9 @@ export function useTaskQueue({
   // Covers the gap between the click and the first poll that sees the queued jobs.
   const renameStarting = ref<RenameTarget | null>(null);
   const pendingTaskAction = ref<PendingTaskAction | null>(null);
+  // Set from a stop click until the work leaves the poll, so the button reads Stopping meanwhile.
+  const refreshStopping = ref(false);
+  const resolveStopping = ref(false);
 
   const tasksQuery = useQuery<TasksResponse>({
     queryKey: TASKS_QUERY_KEY,
@@ -151,6 +167,8 @@ export function useTaskQueue({
   const resolveScopeMutation = useMutation({ mutationFn: getResolveScope });
   const resolveMutation = useMutation({ mutationFn: resolveHistoryRequest });
   const renameMutation = useMutation({ mutationFn: renameHistoryRequest });
+  const stopScanMutation = useMutation({ mutationFn: stopMediaScan });
+  const stopResolveMutation = useMutation({ mutationFn: stopResolveHistory });
   const setSourceMutation = useMutation({
     mutationFn: (payload: { taskId: string; sourceKey: string }) =>
       setTaskSourceRequest(payload.taskId, payload.sourceKey),
@@ -167,12 +185,14 @@ export function useTaskQueue({
   const historyRefreshing = computed<boolean>(
     () => scanMediaMutation.isPending.value || Boolean(tasksQuery.data.value?.scanning),
   );
+  // Items queued or running, the ones a stop acts on.
+  const resolveQueued = computed<number>(() => Number(tasksQuery.data.value?.resolving || 0));
   const historyResolving = computed<boolean>(
     () =>
       resolveScopeMutation.isPending.value ||
       resolveMutation.isPending.value ||
       renameMutation.isPending.value ||
-      Number(tasksQuery.data.value?.resolving || 0) > 0,
+      resolveQueued.value > 0,
   );
   const libraryBusy = computed<boolean>(() => historyRefreshing.value || historyResolving.value);
 
@@ -438,6 +458,12 @@ export function useTaskQueue({
       if (result.added > 0) parts.push(`added ${result.added} file${plural(result.added)}`);
       if (result.missing > 0) parts.push(`removed ${result.missing} missing file${plural(result.missing)}`);
 
+      // A stopped scan never got to count what needs resolution.
+      if (result.stopped) {
+        toast(stoppedMessage("Refresh", parts));
+        return;
+      }
+
       const pending =
         result.needs_resolve > 0
           ? `${result.needs_resolve} item${plural(result.needs_resolve)} need${pluralVerb(result.needs_resolve)} resolution.`
@@ -452,6 +478,43 @@ export function useTaskQueue({
       toast(pending ? `${summary} ${pending}` : summary);
     } catch (error) {
       toast(errorMessage(error, "Could not refresh history."), "error");
+    }
+  }
+
+  async function stopRefresh(): Promise<void> {
+    refreshStopping.value = true;
+    // A scan this tab started reports the stop when its own request returns.
+    const reportsItself = scanMediaMutation.isPending.value;
+    try {
+      const result = await stopScanMutation.mutateAsync();
+      if (result.stopped && !reportsItself) toast(stoppedMessage("Refresh", []));
+      await loadTasks(true);
+    } catch (error) {
+      refreshStopping.value = false;
+      toast(errorMessage(error, "Could not stop refresh."), "error");
+    } finally {
+      if (!historyRefreshing.value) refreshStopping.value = false;
+    }
+  }
+
+  async function stopResolve(): Promise<void> {
+    resolveStopping.value = true;
+    // Every pass still running reports its stop once its last item is done, whichever tab
+    // started it. Read before the stop, as a pass it settles would no longer look running.
+    const running = Object.entries(tasksQuery.data.value?.resolve_passes || {})
+      .filter(([, report]) => unsettled(report))
+      .map(([passId]) => Number(passId));
+    pendingResolvePasses.value = [...new Set([...pendingResolvePasses.value, ...running])];
+    try {
+      const result = await stopResolveMutation.mutateAsync();
+      // Items left from before a restart belong to no pass that could report them.
+      if (running.length === 0 && result.stopped > 0) toast(stoppedMessage("Resolve", []));
+      await loadTasks(true);
+    } catch (error) {
+      resolveStopping.value = false;
+      toast(errorMessage(error, "Could not stop resolve."), "error");
+    } finally {
+      if (resolveQueued.value === 0) resolveStopping.value = false;
     }
   }
 
@@ -482,7 +545,7 @@ export function useTaskQueue({
         continue;
       }
       // Idle with rows still unaccounted for means their jobs left with a deleted row.
-      if (report.resolved + report.skipped + report.failed < report.queued && !idle) {
+      if (unsettled(report) && !idle) {
         waiting.push(passId);
         continue;
       }
@@ -599,6 +662,13 @@ export function useTaskQueue({
     if (wasBusy && !busy) void loadTasks(true);
   });
 
+  watch(historyRefreshing, (busy) => {
+    if (!busy) refreshStopping.value = false;
+  });
+  watch(resolveQueued, (count) => {
+    if (count === 0) resolveStopping.value = false;
+  });
+
   watch(tasksQuery.data, () => reportSettledResolves());
 
   useEventListener(document, "visibilitychange", handleVisibilityChange);
@@ -622,13 +692,18 @@ export function useTaskQueue({
     loadRenameCounts,
     openRename,
     refreshHistory,
+    refreshStopping,
     renameCount,
     renameRunning,
     renameTarget,
     resolveFlagged,
     resolveOpen,
+    resolveQueued,
+    resolveStopping,
     resolveTotal,
     setTaskSource,
+    stopRefresh,
+    stopResolve,
     taskActions,
     taskBatchActions,
     taskItems,

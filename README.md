@@ -221,13 +221,15 @@ Bulk actions take a JSON body of `{"ids": [...]}`. Query parameters are listed a
 
 ### Library
 
-| Method | Endpoint               | Description                                                    |
-| ------ | ---------------------- | -------------------------------------------------------------- |
-| `POST` | `/api/library/scan`    | Reconciles history with the files present in `/media`.         |
-| `GET`  | `/api/library/resolve` | Counts records missing template fields, and the whole library. |
-| `POST` | `/api/library/resolve` | Queues background probes for missing template fields.          |
-| `GET`  | `/api/library/rename`  | Counts files affected by unapplied naming changes, per source. |
-| `POST` | `/api/library/rename`  | Queues renames for one source's new naming template.           |
+| Method | Endpoint                    | Description                                                    |
+| ------ | --------------------------- | -------------------------------------------------------------- |
+| `POST` | `/api/library/scan`         | Reconciles history with the files present in `/media`.         |
+| `POST` | `/api/library/scan/stop`    | Stops the running scan, keeping what it already saved.         |
+| `GET`  | `/api/library/resolve`      | Counts records missing template fields, and the whole library. |
+| `POST` | `/api/library/resolve`      | Queues background probes for missing template fields.          |
+| `POST` | `/api/library/resolve/stop` | Drops queued probes and renames; the one running finishes.     |
+| `GET`  | `/api/library/rename`       | Counts files affected by unapplied naming changes, per source. |
+| `POST` | `/api/library/rename`       | Queues renames for one source's new naming template.           |
 
 ### Trackers
 

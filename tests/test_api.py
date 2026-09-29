@@ -215,6 +215,20 @@ def test_library_resolve_task_ids_override_the_scope(tmp_path, monkeypatch):
     assert [job["id"] for job in repositories.load_enrichment_jobs_payload()] == ["resolve:disk:abc123"]
 
 
+def test_library_stop_reports_what_it_stopped(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    import backend.app.domains.downloads.resolve as resolve_module
+
+    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    repositories.save_history_row("disk:abc123", {"media_id": "abc123"})
+    repositories.save_history_row("disk:def456", {"media_id": "def456"})
+    client.post("/api/library/resolve", json={"scope": "all"})
+
+    assert client.post("/api/library/scan/stop").json() == {"stopped": 0}
+    assert client.post("/api/library/resolve/stop").json() == {"stopped": 2}
+    assert repositories.load_enrichment_jobs_payload() == []
+
+
 def test_a_template_saved_through_settings_is_offered_as_a_rename(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
     import backend.app.domains.downloads.resolve as resolve_module

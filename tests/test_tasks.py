@@ -6174,6 +6174,37 @@ def test_a_scan_learns_no_format_from_past_downloads(tmp_path: Path, monkeypatch
     assert repositories.load_learned_formats_payload() == {}
 
 
+def test_a_stopped_scan_keeps_the_rows_it_derived(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media_root, rows, _resolved, _written, _learned = _incremental_scan_env(tmp_path, monkeypatch)
+    for index in range(3):
+        (media_root / f"Creator - Clip [vid{index}].mp4").write_bytes(b"video")
+    flagged: list[list[str]] = []
+    monkeypatch.setattr(scan_module, "sync_history_resolve_flags", flagged.append)
+    parse = scan_module._parse_media_fields
+
+    def stop_on_first_file(path, pattern):
+        scan_module.stop_scan()
+        return parse(path, pattern)
+
+    assert scan_module.stop_scan() is False
+    monkeypatch.setattr(scan_module, "_parse_media_fields", stop_on_first_file)
+    result = scan_module.scan_media_library([media_root])
+
+    # Asked mid-file, so that file is saved before the scan stops at the next one.
+    assert result["stopped"] == 1
+    assert result["added"] == 1
+    assert len(rows) == 1
+    assert flagged == []
+    assert scan_module.scan_in_progress() is False
+
+    monkeypatch.setattr(scan_module, "_parse_media_fields", parse)
+    result = scan_module.scan_media_library([media_root])
+
+    # The stop was for that scan alone.
+    assert "stopped" not in result
+    assert len(rows) == 3
+
+
 @pytest.mark.parametrize("placeholder", ["None", "unknown"])
 def test_a_download_filed_under_a_placeholder_creator_moves_to_the_root(tmp_path: Path, placeholder: str):
     # The engine's own folder token came back null, so it invented a directory.

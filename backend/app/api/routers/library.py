@@ -11,8 +11,9 @@ from backend.app.domains.downloads.resolve import (
     resolve_scope_counts,
     start_renames,
     start_resolve,
+    stop_resolve,
 )
-from backend.app.domains.downloads.scan import scan_media_library
+from backend.app.domains.downloads.scan import scan_media_library, stop_scan
 from backend.app.integrations.swaratelle import client as swaratelle
 
 router = APIRouter(
@@ -26,6 +27,9 @@ router = APIRouter(
 def scan_media() -> dict[str, int]:
     try:
         local = scan_media_library()
+        # Stopped means the whole refresh, so the other library is left for next time.
+        if local.get("stopped"):
+            return local
         external = swaratelle.scan_media_library()
         # "unchanged" is what the incremental pass left as it was: files whose row already
         # matched them. "needs_resolve" is what the current templates could not be applied
@@ -36,6 +40,12 @@ def scan_media() -> dict[str, int]:
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/scan/stop")
+def stop_media_scan() -> dict[str, int]:
+    # The scan's own request returns its counts so far once it stops.
+    return {"stopped": int(stop_scan())}
 
 
 @router.get("/resolve")
@@ -51,6 +61,12 @@ def resolve_history(payload: ResolvePayload) -> dict[str, int]:
         return start_resolve(payload.scope, payload.task_ids)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/resolve/stop")
+def stop_resolve_passes() -> dict[str, int]:
+    # ``stopped`` counts the queued rows dropped; the one in flight finishes.
+    return stop_resolve()
 
 
 @router.get("/rename")

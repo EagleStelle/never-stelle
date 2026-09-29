@@ -51,12 +51,32 @@ from .templates import template_row_fields, template_settings_from_row
 _scan_lock = threading.Lock()
 # Set only by a scan: the lock is also held by writers that are not one.
 _scanning = threading.Event()
+_stop_requested = threading.Event()
 _HISTORY_WRITE_BATCH = 200
+
+
+class ScanStopped(Exception):
+    """Raised at a scan's next tick once it was asked to stop."""
+
+
+class _StoppablePacer(CpuPacer):
+    def tick(self) -> None:
+        if _stop_requested.is_set():
+            raise ScanStopped
+        super().tick()
 
 
 def scan_in_progress() -> bool:
     """Whether a scan is running, so a reload can show the pass it did not start."""
     return _scanning.is_set()
+
+
+def stop_scan() -> bool:
+    """Ask the running scan to stop at its next file; what it already wrote stays."""
+    if not _scanning.is_set():
+        return False
+    _stop_requested.set()
+    return True
 
 
 @contextmanager
@@ -339,35 +359,38 @@ def _drop_missing_records(
 ) -> tuple[int, int]:
     checked = 0
     gone: list[str] = []
-    for task_id, payload in list(records.items()):
-        if pacer is not None:
-            pacer.tick()
-        task = dict(payload)
-        path = payload_path_string(task)
-        if path and _path_key(path) in seen_paths:
+    try:
+        for task_id, payload in list(records.items()):
+            if pacer is not None:
+                pacer.tick()
+            task = dict(payload)
+            path = payload_path_string(task)
+            if path and _path_key(path) in seen_paths:
+                checked += 1
+                continue
+            if task.get("status") == "completed":
+                resolved_path, resolved_folder, resolved_filename = recover_task_path(task_id, task)
+                if resolved_path:
+                    task.update(
+                        {
+                            "resolved_full_path": resolved_path,
+                            "resolved_folder": resolved_folder,
+                            "resolved_filename": resolved_filename,
+                        }
+                    )
+                    records[task_id] = task
+                    path = resolved_path
+            if not path:
+                continue
             checked += 1
-            continue
-        if task.get("status") == "completed":
-            resolved_path, resolved_folder, resolved_filename = recover_task_path(task_id, task)
-            if resolved_path:
-                task.update(
-                    {
-                        "resolved_full_path": resolved_path,
-                        "resolved_folder": resolved_folder,
-                        "resolved_filename": resolved_filename,
-                    }
-                )
-                records[task_id] = task
-                path = resolved_path
-        if not path:
-            continue
-        checked += 1
-        if _path_key(path) in seen_paths or _path_exists(path):
-            continue
-        remove_task_record(task_id)
-        records.pop(task_id, None)
-        gone.append(task_id)
-    remove_history_records(gone)
+            if _path_key(path) in seen_paths or _path_exists(path):
+                continue
+            remove_task_record(task_id)
+            records.pop(task_id, None)
+            gone.append(task_id)
+    finally:
+        # A stopped scan still drops the history rows whose task records it removed.
+        remove_history_records(gone)
     return checked, len(gone)
 
 
@@ -658,20 +681,28 @@ def scan_media_library(roots: Iterable[str | Path] | None = None) -> dict[str, i
     rows, so a second caller waits and then sees the first scan's result rather
     than doubling the load. Reads only the disk, the rows and the settings; looking
     a value up over the network is the resolve pass's job.
+
+    A stopped scan keeps what it wrote and reports the counts so far with ``stopped``.
     """
+    counts = dict.fromkeys(("checked", "missing", "added", "unchanged", "needs_resolve"), 0)
     with _scan_lock:
+        # A stop asked of the scan before this one is not meant for it.
+        _stop_requested.clear()
         _scanning.set()
         try:
             # One settings snapshot for the whole scan. The scan writes a history row per
             # file it resolves, and any settings derivation keyed on stored activity would
             # otherwise be invalidated by the scan's own writes, once per file.
-            with resolution_scope(), CpuPacer() as pacer:
-                return _scan_media_library(roots, pacer)
+            with resolution_scope(), _StoppablePacer() as pacer:
+                _scan_media_library(roots, pacer, counts)
+        except ScanStopped:
+            return {**counts, "stopped": 1}
         finally:
             _scanning.clear()
+    return counts
 
 
-def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> dict[str, int]:
+def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer, counts: dict[str, int]) -> None:
     recover_interrupted_renames()
     records = _completed_records()
     walked_media: list[tuple[Path, Path, os.stat_result | None, str]] = []
@@ -681,7 +712,7 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
         walked_media.append((root, path, stat_result, path_key))
         seen_paths.add(path_key)
 
-    checked, missing = _drop_missing_records(records, seen_paths, pacer)
+    counts["checked"], counts["missing"] = _drop_missing_records(records, seen_paths, pacer)
     real_paths, real_media_ids = _owned_media(records, disk=False)
     _prune_disk_shadows(records, real_media_ids)
     disk_paths, disk_media_ids = _owned_media(records, disk=True)
@@ -695,120 +726,114 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer) -> 
     learned = load_learned_formats()
     settled = _settled_disk_rows(records)
 
-    added = 0
-    unchanged = 0
     resolved_this_run: set[str] = set()
     pending_rows: list[tuple[str, dict[str, Any]]] = []
-    for root, path, stat_result, path_key in walked_media:
-        pacer.tick()
-        if path_key in real_paths:
-            continue
-        signature = _file_signature(stat_result)
-        cached = settled.get(path_key)
-        if cached and cached[0] == signature:
-            unchanged += 1
-            resolved_this_run.add(cached[1])
-            continue
-        media_id, title = _parse_media_fields(path, templates.base_filename)
-        if not media_id or media_id in resolved_this_run:
-            continue
-        if media_id in real_media_ids:
-            continue  # a real download already owns this media; never shadow it with a disk entry
-        resolved_this_run.add(media_id)
+    try:
+        for root, path, stat_result, path_key in walked_media:
+            pacer.tick()
+            if path_key in real_paths:
+                continue
+            signature = _file_signature(stat_result)
+            cached = settled.get(path_key)
+            if cached and cached[0] == signature:
+                counts["unchanged"] += 1
+                resolved_this_run.add(cached[1])
+                continue
+            media_id, title = _parse_media_fields(path, templates.base_filename)
+            if not media_id or media_id in resolved_this_run:
+                continue
+            if media_id in real_media_ids:
+                continue  # a real download already owns this media; never shadow it with a disk entry
+            resolved_this_run.add(media_id)
 
-        task_id = f"disk:{media_id}"
-        source_hint = _source_from_named_folder(root, path, source_profile_keys)
-        source_key, source_pending, source_candidates, folder_format = infer_disk_source(
-            path, media_id, location_index, learned, source_hint
-        )
-        # Try to find a matching template for the disk file among all formats configured,
-        # starting with the format that owns the folder the file was found in.
-        compiled: _CompiledTemplates | None = None
-        filename_fields: dict[str, str] = {}
-        matched_fmt = ""
+            task_id = f"disk:{media_id}"
+            source_hint = _source_from_named_folder(root, path, source_profile_keys)
+            source_key, source_pending, source_candidates, folder_format = infer_disk_source(
+                path, media_id, location_index, learned, source_hint
+            )
+            # Try to find a matching template for the disk file among all formats configured,
+            # starting with the format that owns the folder the file was found in.
+            compiled: _CompiledTemplates | None = None
+            filename_fields: dict[str, str] = {}
+            matched_fmt = ""
 
-        for fmt in templates.all_formats_for(source_key, folder_format):
-            candidate = templates.for_source_format(source_key, fmt)
-            fields = _match_template(candidate.filename, path.stem)
-            if fields:
-                compiled, filename_fields, matched_fmt = candidate, fields, fmt
-                break
+            for fmt in templates.all_formats_for(source_key, folder_format):
+                candidate = templates.for_source_format(source_key, fmt)
+                fields = _match_template(candidate.filename, path.stem)
+                if fields:
+                    compiled, filename_fields, matched_fmt = candidate, fields, fmt
+                    break
 
-        if compiled is None:
-            compiled = templates.for_source_format(source_key, "")
-            filename_fields = _match_template(compiled.filename, path.stem)
+            if compiled is None:
+                compiled = templates.for_source_format(source_key, "")
+                filename_fields = _match_template(compiled.filename, path.stem)
 
-        title = filename_fields.get("title", title)
-        source_roles = token_role_map.get(source_key) or {}
-        slug_rules = templates.slug_rules_for(source_key)
-        slug_names = {rule["token"] for rule in slug_rules if rule.get("token")}
-        # Recover configured URL parts from the filename so links reconstruct generically.
-        slug_values = _slug_values_from_fields(slug_rules, source_roles, slug_names, filename_fields)
-        prior = records.get(task_id) or {}
-        creator = str(prior.get("creator") or "").strip() or _creator_for_file(root, path, source_folders, compiled)
-        source_url = _file_link(
-            learned,
-            source_key,
-            media_id,
-            matched_fmt,
-            creator=creator,
-            slug_values=slug_values,
-            known=str(prior.get("source_url") or "").strip(),
-        )
-        # A file keeps the templates it was named by; only a new one takes those its name matches.
-        prior_path = payload_path_string(prior)
-        template_settings = (
-            template_settings_from_row(prior) if prior_path and _path_key(prior_path) == path_key else None
-        ) or templates.templates_for_format(source_key, matched_fmt)
-        display_filename = clean_template_display_filename(
-            path.name,
-            template_settings,
-            creator=creator,
-            title=title,
-            media_id=media_id,
-            source_key=source_key,
-            cleaning=get_effective_title_cleaning(source_url),
-        )
-        # Laid over the prior row, so what a resolve filled survives a changed file.
-        row = {
-            **prior,
-            "media_id": media_id,
-            "source_url": source_url,
-            "engine": "disk",
-            "source_key": source_key,
-            "source_pending": source_pending,
-            "source_candidates": source_candidates,
-            "resolved_folder": str(path.parent),
-            "resolved_filename": display_filename,
-            "resolved_full_path": str(path),
-            "title": title,
-            **template_settings,
-            "creator": creator,
-            "file_size": signature[1],
-            "created_at": _history_created_at_from_file(path, stat_result),
-            "scan_mtime_ns": signature[0],
-        }
-        if row == prior:
-            unchanged += 1
-            continue
-        records[task_id] = row
-        pending_rows.append((task_id, row))
-        # One commit per resolved file made the scan cost scale with fsyncs; a batch
-        # keeps the write amortized while still landing rows as the scan progresses.
-        if len(pending_rows) >= _HISTORY_WRITE_BATCH:
-            save_history_entry_rows(pending_rows)
-            pending_rows = []
-        if path_key not in disk_paths and media_id not in disk_media_ids:
-            added += 1
-
-    save_history_entry_rows(pending_rows)
+            title = filename_fields.get("title", title)
+            source_roles = token_role_map.get(source_key) or {}
+            slug_rules = templates.slug_rules_for(source_key)
+            slug_names = {rule["token"] for rule in slug_rules if rule.get("token")}
+            # Recover configured URL parts from the filename so links reconstruct generically.
+            slug_values = _slug_values_from_fields(slug_rules, source_roles, slug_names, filename_fields)
+            prior = records.get(task_id) or {}
+            creator = str(prior.get("creator") or "").strip() or _creator_for_file(root, path, source_folders, compiled)
+            source_url = _file_link(
+                learned,
+                source_key,
+                media_id,
+                matched_fmt,
+                creator=creator,
+                slug_values=slug_values,
+                known=str(prior.get("source_url") or "").strip(),
+            )
+            # A file keeps the templates it was named by; only a new one takes those its name matches.
+            prior_path = payload_path_string(prior)
+            template_settings = (
+                template_settings_from_row(prior) if prior_path and _path_key(prior_path) == path_key else None
+            ) or templates.templates_for_format(source_key, matched_fmt)
+            display_filename = clean_template_display_filename(
+                path.name,
+                template_settings,
+                creator=creator,
+                title=title,
+                media_id=media_id,
+                source_key=source_key,
+                cleaning=get_effective_title_cleaning(source_url),
+            )
+            # Laid over the prior row, so what a resolve filled survives a changed file.
+            row = {
+                **prior,
+                "media_id": media_id,
+                "source_url": source_url,
+                "engine": "disk",
+                "source_key": source_key,
+                "source_pending": source_pending,
+                "source_candidates": source_candidates,
+                "resolved_folder": str(path.parent),
+                "resolved_filename": display_filename,
+                "resolved_full_path": str(path),
+                "title": title,
+                **template_settings,
+                "creator": creator,
+                "file_size": signature[1],
+                "created_at": _history_created_at_from_file(path, stat_result),
+                "scan_mtime_ns": signature[0],
+            }
+            if row == prior:
+                counts["unchanged"] += 1
+                continue
+            records[task_id] = row
+            pending_rows.append((task_id, row))
+            # One commit per resolved file made the scan cost scale with fsyncs; a batch
+            # keeps the write amortized while still landing rows as the scan progresses.
+            if len(pending_rows) >= _HISTORY_WRITE_BATCH:
+                save_history_entry_rows(pending_rows)
+                pending_rows = []
+            if path_key not in disk_paths and media_id not in disk_media_ids:
+                counts["added"] += 1
+    finally:
+        # A stopped scan still saves the rows it derived.
+        save_history_entry_rows(pending_rows)
     # Flagged against the rows as now written, so a row rewritten above keeps its flag.
     needs_resolve = rows_needing_resolve(records, pacer)
     sync_history_resolve_flags(needs_resolve)
-    return {
-        "checked": checked,
-        "missing": missing,
-        "added": added,
-        "unchanged": unchanged,
-        "needs_resolve": len(needs_resolve),
-    }
+    counts["needs_resolve"] = len(needs_resolve)

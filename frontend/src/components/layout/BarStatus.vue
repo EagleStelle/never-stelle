@@ -18,32 +18,78 @@ const {
   pageBatch,
   pageSelection,
   refreshHistory,
+  refreshStopping,
+  resolveQueued,
+  resolveStopping,
+  stopRefresh,
+  stopResolve,
 } = useDashboard();
 
 const isHistory = computed(() => activePage.value === "history");
 
-const historyActions = computed<ItemAction[]>(() => [
-  {
+interface Stop {
+  label: string;
+  title: string;
+  // The tooltip while the work winds down.
+  waiting: string;
+  stopping: boolean;
+  variant: ItemAction["variant"];
+  run: () => void;
+}
+
+// A running pass turns its button into a stop, which spins once asked until the work is gone.
+function stopAction(action: ItemAction, stop: Stop): ItemAction {
+  const { variant } = stop;
+  return stop.stopping
+    ? { ...action, variant, label: "Stopping", title: stop.waiting, spinning: true, disabled: true }
+    : { ...action, variant, label: stop.label, title: stop.title, icon: ACTION_ICONS.stop, spinning: undefined, disabled: false, run: stop.run };
+}
+
+const historyActions = computed<ItemAction[]>(() => {
+  const refresh: ItemAction = {
     key: "refresh",
     label: "Refresh History",
     title: "Refresh history",
     icon: ACTION_ICONS.refresh,
     variant: "primary",
-    disabled: libraryBusy.value,
-    spinning: historyRefreshing.value,
+    spinning: false,
     run: () => void refreshHistory(),
-  },
-  {
+  };
+  // Waits for a refresh, as the missing count reads the flags the refresh sets.
+  const resolve: ItemAction = {
     key: "resolve",
     label: "Resolve History",
-    title: "Resolve history",
+    title: historyRefreshing.value ? "Available once the refresh ends." : "Resolve history",
     icon: ACTION_ICONS.resolve,
     variant: "ghost",
     disabled: libraryBusy.value,
     spinning: historyResolving.value,
     run: () => void openResolveDialog(),
-  },
-]);
+  };
+  return [
+    historyRefreshing.value
+      ? stopAction(refresh, {
+          label: "Stop Refresh",
+          title: "Stops the scan. What it saved so far stays.",
+          waiting: "Stopping at the next file.",
+          stopping: refreshStopping.value,
+          variant: "destructive",
+          run: () => void stopRefresh(),
+        })
+      : refresh,
+    // Only once the poll shows queued items, so a click always has something to stop.
+    resolveQueued.value > 0
+      ? stopAction(resolve, {
+          label: `Stop Resolve (${resolveQueued.value.toLocaleString()})`,
+          title: "Stops the items still waiting. The one in progress finishes first.",
+          waiting: "Waiting for the item in progress.",
+          stopping: resolveStopping.value,
+          variant: "destructive-ghost",
+          run: () => void stopResolve(),
+        })
+      : resolve,
+  ];
+});
 </script>
 
 <template>

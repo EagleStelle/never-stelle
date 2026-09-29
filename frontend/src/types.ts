@@ -517,6 +517,12 @@ export interface ScanMediaResponse {
   added: number;
   unchanged: number;
   needs_resolve: number;
+  // Set when the scan was stopped; the counts are what it did until then.
+  stopped?: number;
+}
+
+export interface StopResponse {
+  stopped: number;
 }
 
 export type ResolveScope = "flagged" | "all";
@@ -542,6 +548,7 @@ export interface ResolvePassReport {
   resolved: number;
   skipped: number;
   failed: number;
+  stopped: number;
 }
 
 export interface AuthSessionResponse {

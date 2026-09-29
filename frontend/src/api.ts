@@ -19,6 +19,7 @@ import type {
   ScrapeRule,
   ScrapeTestResponse,
   SourceTrackerTabs,
+  StopResponse,
   TasksResponse,
   Tracker,
   TrackerPayload,
@@ -304,6 +305,10 @@ export function scanMediaLibrary(): Promise<ScanMediaResponse> {
   );
 }
 
+export function stopMediaScan(): Promise<StopResponse> {
+  return jsonRequest<StopResponse>("/api/library/scan/stop", { method: "POST" }, "Could not stop refresh.");
+}
+
 export function getResolveScope(): Promise<ResolveScopeResponse> {
   return jsonRequest<ResolveScopeResponse>("/api/library/resolve", {}, "Could not read resolve scope.");
 }
@@ -318,6 +323,10 @@ export function resolveHistory(payload: { scope?: ResolveScope; task_ids?: strin
     },
     "Could not resolve history.",
   );
+}
+
+export function stopResolveHistory(): Promise<StopResponse> {
+  return jsonRequest<StopResponse>("/api/library/resolve/stop", { method: "POST" }, "Could not stop resolve.");
 }
 
 export function getRenameCounts(): Promise<RenameCounts> {

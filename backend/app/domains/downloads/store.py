@@ -17,6 +17,7 @@ from backend.app.db.repositories import (
     count_pending_tasks,
     delete_history_rows,
     delete_learned_format_row,
+    delete_pending_enrichment_jobs_payload,
     delete_task_row,
     delete_task_rows_if_status,
     fail_running_tasks,
@@ -199,6 +200,10 @@ def spent_enrichment_job_ids() -> set[str]:
 def unfinished_enrichment_jobs(kind: str) -> list[dict[str, Any]]:
     """The payloads of one kind's jobs still queued or running."""
     return load_unfinished_enrichment_jobs_payload(kind)
+
+
+def drop_pending_enrichment_jobs(kind: str) -> list[dict[str, Any]]:
+    return delete_pending_enrichment_jobs_payload(kind)
 
 
 def requeue_running_enrichment_jobs() -> int:

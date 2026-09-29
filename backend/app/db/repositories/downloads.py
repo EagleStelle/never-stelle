@@ -478,6 +478,20 @@ def load_unfinished_enrichment_jobs_payload(kind: str) -> list[dict[str, Any]]:
     return [_json_dict(row["payload"]) for row in rows]
 
 
+def delete_pending_enrichment_jobs_payload(kind: str) -> list[dict[str, Any]]:
+    """Drop one kind's pending jobs and return their payloads; a running job is left to finish."""
+    with transaction() as connection:
+        rows = connection.execute(
+            "SELECT payload FROM download_enrichment_jobs WHERE kind = ? AND status = 'pending'",
+            (str(kind),),
+        ).fetchall()
+        connection.execute(
+            "DELETE FROM download_enrichment_jobs WHERE kind = ? AND status = 'pending'",
+            (str(kind),),
+        )
+    return [_json_dict(row["payload"]) for row in rows]
+
+
 def requeue_running_enrichment_jobs_payload() -> int:
     """Hand 'running' jobs back to the queue; a fresh process is running none of them.
 

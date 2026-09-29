@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -41,6 +42,7 @@ from .naming import (
 from .rename import apply_history_renames, plan_history_renames
 from .scan import history_write_lock
 from .store import (
+    drop_pending_enrichment_jobs,
     enqueue_enrichment_jobs,
     history_counts_by_source_and_media,
     history_entry_count,
@@ -66,7 +68,7 @@ _TOKEN_COLUMNS = {"title": "title", "id": "media_id"}
 _MAX_PROBE_CANDIDATES = 2
 _EMPTY_VALUES = {"", "unknown", "none", "null", "undefined", "na", "n/a"}
 
-_OUTCOMES = ("resolved", "skipped", "failed")
+_OUTCOMES = ("resolved", "skipped", "failed", "stopped")
 # Passes are reported per click, so a few have to outlive their own completion for the
 # client polling behind them.
 _KEPT_PASSES = 8
@@ -82,7 +84,7 @@ def _open_pass() -> int:
     global _pass_serial
     with _pass_lock:
         _pass_serial += 1
-        _passes[_pass_serial] = {"queued": 0, "resolved": 0, "skipped": 0, "failed": 0}
+        _passes[_pass_serial] = {"queued": 0, **dict.fromkeys(_OUTCOMES, 0)}
         for stale in list(_passes)[:-_KEPT_PASSES]:
             del _passes[stale]
         return _pass_serial
@@ -375,6 +377,45 @@ def start_resolve(scope: ResolveScope = "flagged", task_ids: list[str] | None = 
     return enqueue_resolve(dict.fromkeys(_flagged_worklist(), False))
 
 
+def stop_resolve() -> dict[str, int]:
+    """Drop every queued resolve job, counted as stopped against the pass that queued it.
+
+    The job running now finishes, as a probe in flight cannot be cut short. A dropped
+    rename puts its naming change back, so it is offered again.
+    """
+    payloads = drop_pending_enrichment_jobs(RESOLVE_JOB_KIND)
+    stopped = Counter(int(payload.get("pass") or 0) for payload in payloads)
+    with _pass_lock:
+        for pass_id, count in stopped.items():
+            if pass_id in _passes:
+                _passes[pass_id]["stopped"] += count
+    _restore_naming([payload["naming"] for payload in payloads if isinstance(payload.get("naming"), dict)])
+    return {"stopped": len(payloads)}
+
+
+def _restore_naming(namings: list[dict[str, Any]]) -> None:
+    """Keep what each stopped rename was named by, unless a later save already did."""
+    # An empty field order is still one a file was named by.
+    changes = {
+        (str(naming.get("source_key") or ""), str(naming.get("kind") or ""), str(naming.get("format") or "")): named_by
+        for naming in namings
+        if (named_by := naming.get("named_by")) is not None
+    }
+    if not changes:
+        return
+    with _naming_lock:
+        snapshots = load_naming_snapshots()
+        for (key, kind, _fmt), named_by in changes.items():
+            entry = snapshots.setdefault(key, {})
+            if kind == "templates":
+                formats = entry.setdefault("templates", {})
+                for saved, value in named_by.items():
+                    formats.setdefault(saved, value)
+            else:
+                entry.setdefault("fields", named_by)
+        save_naming_snapshots(snapshots)
+
+
 def _naming_now() -> dict[str, dict[str, Any]]:
     """Per source, the templates each format files by ("" for links no format matches) and the field order."""
     learned = load_learned_formats()
@@ -509,13 +550,16 @@ def start_renames(source_key: str, kind: NamingKind, format_template: str = "") 
         if kind == "templates":
             formats = entry.get("templates", {})
             # Keys saved before the format generalized name it too.
-            for saved in [saved for saved in formats if format_covers(format_template, saved)]:
-                del formats[saved]
+            covered = [saved for saved in formats if format_covers(format_template, saved)]
+            named_by: Any = {saved: formats.pop(saved) for saved in covered} or None
             if not formats:
                 entry.pop("templates", None)
         else:
-            entry.pop("fields", None)
+            named_by = entry.pop("fields", None)
         if not entry:
             snapshots.pop(key, None)
         save_naming_snapshots(snapshots)
-    return enqueue_resolve(jobs, {"source_key": key, "kind": kind, "format": format_template})
+    # Carried on each job, so stopping the pass can put the change back.
+    return enqueue_resolve(
+        jobs, {"source_key": key, "kind": kind, "format": format_template, "named_by": named_by}
+    )

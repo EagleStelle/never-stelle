@@ -40,8 +40,8 @@ const {
   confirmPlaylistSelection,
   confirmResolve,
   confirmTaskAction,
-  historyResolving,
   isLightMode,
+  libraryBusy,
   playlistEntries,
   playlistOpen,
   playlistTitle,
@@ -138,7 +138,7 @@ const { height: statusBarHeight } = useElementSize(
       v-model:open="resolveOpen"
       :flagged="resolveFlagged"
       :total="resolveTotal"
-      :pending="historyResolving"
+      :pending="libraryBusy"
       @confirm="confirmResolve"
     />
 
