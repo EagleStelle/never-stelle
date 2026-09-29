@@ -19,6 +19,7 @@ from .history import find_active_by_source, find_history_by_id, find_history_by_
 from .learning import learn_source_id_signature
 from .naming import clean_template_display_filename
 from .planning import resolve_task_settings
+from .resolve import entry_token_state, file_history_entry
 from .scan import history_write_lock, parse_filename_media_id
 from .serializers import history_to_api, task_to_api
 from .slideshow import build_slideshow_archive
@@ -259,7 +260,11 @@ def _learn_confirmed_source(source_key: str, media_id: str) -> None:
     learn_source_id_signature(source_key, media_id)
 
 
-def set_task_source(task_id: str, source_key: str) -> str:
+def set_task_source(task_id: str, source_key: str) -> dict[str, Any]:
+    """Confirm a row's source and move its file into that source's download location.
+
+    Raises ``PermissionError`` while a scan holds the history.
+    """
     key = normalize_source_key(source_key)
     if not key:
         raise ValueError("Choose or type a source.")
@@ -268,7 +273,7 @@ def set_task_source(task_id: str, source_key: str) -> str:
         update_task(task_id, source_key=key, source_pending=False)
         media_id, _ = parse_filename_media_id(str(task.get("resolved_filename") or ""))
         _learn_confirmed_source(key, media_id)
-        return key
+        return {"source_key": key, "move_failed": False}
     entry = find_history_by_id(task_id)
     if entry:
         updated = dict(entry)
@@ -282,9 +287,10 @@ def set_task_source(task_id: str, source_key: str) -> str:
             creator = str(updated.get("creator") or "")
             candidates = reconstruct_url_candidates(load_learned_formats(), key, media_id, creator=creator)
             updated["source_url"] = candidates[0] if candidates else ""
-        save_history_entry_row(task_id, updated)
+        updated["needs_resolve"] = bool(entry_token_state(updated)[1])
+        counts = file_history_entry(task_id, updated, refile=True, timeout=_HISTORY_LOCK_SECONDS)
         _learn_confirmed_source(key, media_id)
-        return key
+        return {"source_key": key, "move_failed": counts["failed"] > 0}
     raise FileNotFoundError("Task was not found.")
 
 

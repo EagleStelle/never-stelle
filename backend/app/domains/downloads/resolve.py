@@ -236,21 +236,24 @@ def entry_token_state(payload: dict[str, Any]) -> tuple[list[str], list[str]]:
     return settings_tokens(settings), unsatisfied_tokens(settings, fields)
 
 
-def _file_entry(task_id: str, entry: dict[str, Any]) -> bool:
-    """Save ``entry`` and file it by the current templates; True when the file moved.
+def file_history_entry(
+    task_id: str, entry: dict[str, Any], *, refile: bool = False, timeout: float = -1
+) -> dict[str, int]:
+    """Save ``entry`` and file it by the current templates; returns the rename counts.
 
-    Takes the scan's lock: a scan planning from a snapshot would otherwise write its
-    copy of this row back over the one saved here.
+    ``refile`` also moves the file into its source's download location from outside it.
+    Takes the scan's lock, waiting ``timeout`` seconds at most: a scan planning from a
+    snapshot would otherwise write its copy of this row back over the one saved here.
     """
-    with history_write_lock():
+    with history_write_lock(timeout=timeout):
         # A row deleted since it was read stays deleted.
         if not load_history_entry(task_id):
-            return False
+            return {"renamed": 0, "failed": 0}
         save_history_entry_row(task_id, entry)
         # The name may predate the values or templates now on the row, so it is rendered
         # even when the template is the one it was written with.
-        plans = plan_history_renames({str(task_id): entry}, rerender=True)
-        return apply_history_renames(plans)[0]["renamed"] > 0
+        plans = plan_history_renames({str(task_id): entry}, rerender=True, refile=refile)
+        return apply_history_renames(plans)[0]
 
 
 def resolve_history_entry(task_id: str, *, force: bool = False) -> bool:
@@ -268,7 +271,7 @@ def resolve_history_entry(task_id: str, *, force: bool = False) -> bool:
         tokens, missing = entry_token_state(entry)
         wanted = tokens if force else missing
         if not wanted:
-            return _file_entry(task_id, {**entry, "needs_resolve": False})
+            return file_history_entry(task_id, {**entry, "needs_resolve": False})["renamed"] > 0
 
         urls = _probe_urls(entry)
         source_url = urls[0] if urls else ""
@@ -293,7 +296,7 @@ def resolve_history_entry(task_id: str, *, force: bool = False) -> bool:
         # that something was filled.
         still_missing = entry_token_state(updated)[1]
         updated["needs_resolve"] = bool(still_missing)
-        _file_entry(task_id, updated)
+        file_history_entry(task_id, updated)
         if still_missing:
             raise LookupError(f"{task_id} still needs {', '.join(still_missing)}.")
         return True

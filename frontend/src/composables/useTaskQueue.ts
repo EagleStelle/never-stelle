@@ -414,8 +414,9 @@ export function useTaskQueue({
     const sourceKey = payload.sourceKey.trim();
     if (!sourceKey) return;
     try {
-      await setSourceMutation.mutateAsync({ taskId: payload.taskId, sourceKey });
-      toast("Source updated.");
+      const result = await setSourceMutation.mutateAsync({ taskId: payload.taskId, sourceKey });
+      if (result.move_failed) toast("Source set, but the file could not be moved.", "error");
+      else toast("Source set.");
       await loadTasks(true);
     } catch (error) {
       toast(errorMessage(error, "Could not set source."), "error");

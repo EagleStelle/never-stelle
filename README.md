@@ -217,7 +217,7 @@ Bulk actions take a JSON body of `{"ids": [...]}`. Query parameters are listed a
 | `POST`   | `/api/downloads/retry`       | Retries failed tasks.                                                                                      |
 | `GET`    | `/api/downloads/{id}`        | Returns one active or completed task.                                                                      |
 | `GET`    | `/api/downloads/{id}/file`   | Downloads the completed file.                                                                              |
-| `PATCH`  | `/api/downloads/{id}/source` | Changes a task's source key.                                                                               |
+| `PATCH`  | `/api/downloads/{id}/source` | Sets an item's source and moves its file into that source's folder.                                        |
 
 ### Library
 

@@ -279,8 +279,11 @@ export function retryTasks(ids: string[]): Promise<BatchResponse> {
   return batchRequest("/api/downloads/retry", { ids }, "Could not retry.");
 }
 
-export function setTaskSource(taskId: string, sourceKey: string): Promise<{ source_key: string }> {
-  return jsonRequest<{ source_key: string }>(
+export function setTaskSource(
+  taskId: string,
+  sourceKey: string,
+): Promise<{ source_key: string; move_failed: boolean }> {
+  return jsonRequest<{ source_key: string; move_failed: boolean }>(
     `/api/downloads/${encodeURIComponent(taskId)}/source`,
     {
       method: "PATCH",

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import backend.app.domains.downloads.operations as operations_module
 import backend.app.domains.downloads.rename as rename_module
 import backend.app.domains.downloads.resolve as resolve_module
 import backend.app.domains.downloads.scan as scan_module
@@ -480,7 +481,8 @@ def test_deleting_a_history_row_takes_its_jobs_with_it(tmp_path: Path, monkeypat
 def test_filing_a_row_deleted_mid_resolve_leaves_it_deleted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     use_temp_db(tmp_path, monkeypatch)
 
-    assert resolve_module._file_entry("gallerydl:gone", {"source_url": "https://example.test/post/1"}) is False
+    counts = resolve_module.file_history_entry("gallerydl:gone", {"source_url": "https://example.test/post/1"})
+    assert counts == {"renamed": 0, "failed": 0}
     assert load_history()["entries"] == {}
 
 
@@ -1062,6 +1064,67 @@ def test_a_file_outside_its_download_location_is_only_renamed(tmp_path: Path, mo
     assert _resolve_platform("templates")["resolved"] == 1
 
     assert path.with_name("Clip (abc123).mp4").is_file()
+
+
+def _pick_source_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The picked source's download location, with its id learning stubbed out."""
+    media_root = tmp_path / "media"
+    location = media_root / "example"
+    monkeypatch.setattr(rename_module, "get_effective_source_location", lambda source_url: str(location))
+    monkeypatch.setattr(rename_module, "MEDIA_DIR", media_root)
+    monkeypatch.setattr(operations_module, "_learn_confirmed_source", lambda source_key, media_id: None)
+    return location
+
+
+def test_picking_a_source_files_the_file_in_that_source_location(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    location = _pick_source_env(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    path, _row_payload = _seed(
+        tmp_path, name="Loose/Clip [abc123].mp4", creator="Creator", source_key="", source_pending=True
+    )
+
+    result = operations_module.set_task_source("gallerydl:1", "example")
+
+    moved = location / "Creator" / "Creator - Clip [abc123].mp4"
+    assert result == {"source_key": "example", "move_failed": False}
+    assert moved.is_file()
+    assert not path.parent.exists()
+    row = load_history_entry("gallerydl:1")
+    assert row["source_key"] == "example"
+    assert row["source_pending"] is False
+    assert row["resolved_full_path"] == str(moved)
+
+
+def test_picking_a_source_moves_an_unnameable_file_on_its_old_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # The templates need a creator the row lacks, so it lands at the top for a resolve to name.
+    use_temp_db(tmp_path, monkeypatch)
+    location = _pick_source_env(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    path, _row_payload = _seed(tmp_path, name="Loose/Clip [abc123].mp4", source_key="", source_pending=True)
+
+    operations_module.set_task_source("gallerydl:1", "example")
+
+    moved = location / path.name
+    assert moved.is_file()
+    row = load_history_entry("gallerydl:1")
+    assert row["resolved_full_path"] == str(moved)
+    assert row["filename_template"] == STORED_TEMPLATE
+    assert row["needs_resolve"] is True
+
+
+def test_picking_a_source_during_a_scan_changes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pick_source_env(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    monkeypatch.setattr(operations_module, "_HISTORY_LOCK_SECONDS", 0.01)
+    path, _row_payload = _seed(tmp_path, name="Loose/Clip [abc123].mp4", source_key="", source_pending=True)
+
+    with scan_module.history_write_lock(), pytest.raises(PermissionError):
+        operations_module.set_task_source("gallerydl:1", "example")
+
+    assert path.is_file()
+    assert load_history_entry("gallerydl:1")["source_pending"] is True
 
 
 def test_a_change_to_one_source_renames_only_its_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

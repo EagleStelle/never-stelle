@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from backend.app.core.config import MEDIA_DIR
 from backend.app.core.pacing import CpuPacer
 from backend.app.core.paths import path_key as _path_key
 from backend.app.core.sources import normalize_source_key
@@ -14,7 +15,9 @@ from backend.app.domains.settings import (
     get_effective_source_location,
     get_effective_template_settings,
     get_effective_title_cleaning,
+    load_saved_settings_file,
     possible_template_settings,
+    resolve_source_location,
 )
 from backend.app.runtime.scratch import publish_staged_file, staging_file
 
@@ -47,7 +50,7 @@ class RenamePlan:
     new_path: str
     templates: dict[str, str]
     payload: dict[str, Any]
-    # The download location the file is filed under, "" when it sits outside it.
+    # Where pruning the folders a move empties stops, "" to leave them.
     root: str = ""
 
     @property
@@ -175,6 +178,14 @@ def _named_differently(
         yield _Renamable(str(task_id), payload, source_url, settings, old_path, fields)
 
 
+def _download_location(row: _Renamable) -> str:
+    """The download location a row belongs in: by its link, else by its source alone."""
+    if row.source_url:
+        return get_effective_source_location(row.source_url)
+    key = normalize_source_key(row.payload.get("source_key"))
+    return resolve_source_location(load_saved_settings_file().get("source_locations"), key) if key else ""
+
+
 def rows_needing_resolve(records: dict[str, dict[str, Any]], pacer: CpuPacer | None = None) -> list[str]:
     """Rows the current templates cannot name without losing a token."""
     return [
@@ -189,18 +200,24 @@ def plan_history_renames(
     pacer: CpuPacer | None = None,
     *,
     rerender: bool = False,
+    refile: bool = False,
 ) -> list[RenamePlan]:
     """Work out which files the current templates would name or file differently.
 
     Rows ``rows_needing_resolve`` reports are left out. A file is moved between folders
-    only inside the download location it is filed under. Plans come back in the order
-    they must run.
+    only inside the download location it is filed under. ``refile`` also moves a file
+    from outside that location into it, keeping its name at the top when the templates
+    cannot name it yet. Plans come back in the order they must run.
     """
     desired: list[RenamePlan] = []
 
     for row in _named_differently(records, pacer, rerender):
-        if unsatisfied_tokens(row.settings, row.fields):
+        missing = unsatisfied_tokens(row.settings, row.fields)
+        if missing and not refile:
             continue
+        location = _download_location(row)
+        inside = bool(location) and _path_key(row.old_path).startswith(f"{_path_key(location)}{os.sep}")
+        moving_in = refile and bool(location) and not inside
         current = template_row_fields(row.settings)
         # None, not {}: a row that carries no selection must render the quality it was
         # downloaded with, rather than relabel itself "source".
@@ -208,7 +225,7 @@ def plan_history_renames(
         cleaning = get_effective_title_cleaning(row.source_url)
         # The pipeline numbers the files of a multi-file post, so the suffix marks one.
         numbered_suffix = numbered_suffix_of(row.old_path.stem)
-        new_name = render_template_filename(
+        new_name = "" if missing else render_template_filename(
             current["filename_template"],
             row.fields,
             extension=row.old_path.suffix,
@@ -217,12 +234,23 @@ def plan_history_renames(
             quality=quality,
         )
         if not new_name:
+            if moving_in:
+                # The stored templates stay, so a resolve pass still names it later.
+                desired.append(
+                    RenamePlan(
+                        task_id=row.task_id,
+                        old_path=str(row.old_path),
+                        new_path=str(Path(location) / row.old_path.name),
+                        templates=template_row_fields(row.payload),
+                        payload=row.payload,
+                        root=str(MEDIA_DIR),
+                    )
+                )
             continue
 
         folder, root = row.old_path.parent, ""
-        location = get_effective_source_location(row.source_url) if row.source_url else ""
-        if location and _path_key(row.old_path).startswith(f"{_path_key(location)}{os.sep}"):
-            root = location
+        if inside or moving_in:
+            root = location if inside else str(MEDIA_DIR)
             folder = _render_template_folder(
                 Path(location),
                 row.settings,

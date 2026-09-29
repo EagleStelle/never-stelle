@@ -118,16 +118,17 @@ def retry_downloads(payload: IdsPayload) -> dict[str, Any]:
 
 
 @router.patch("/{task_id}/source")
-def update_download_source(task_id: str, payload: SetSourcePayload) -> dict[str, str]:
+def update_download_source(task_id: str, payload: SetSourcePayload) -> dict[str, Any]:
     if not payload.source_key.strip():
         raise HTTPException(status_code=400, detail="Choose or type a source.")
     try:
-        source_key = operations.set_task_source(task_id, payload.source_key)
+        return operations.set_task_source(task_id, payload.source_key)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"source_key": source_key}
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/{task_id}")
