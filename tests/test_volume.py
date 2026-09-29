@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+import backend.app.db.database as database_module
 import backend.app.db.volume as volume
 
 
@@ -43,3 +46,29 @@ def test_a_process_namespace_that_cannot_be_read_counts_as_held(tmp_path, monkey
 
     assert volume.release_stale_lock(database_path, "9p") is None
     assert lock.is_dir()
+
+
+def test_a_native_open_holds_the_dot_file_lock_until_closed():
+    database_module.initialize_database()
+    lock = volume.dot_lock(database_module.DATABASE_PATH)
+    assert lock.is_file()
+
+    database_module.close_database()
+    assert not lock.exists()
+
+
+def test_a_native_open_refuses_a_database_locked_across_a_mount():
+    lock = volume.dot_lock(database_module.DATABASE_PATH)
+    lock.mkdir()
+
+    with pytest.raises(database_module.DatabaseVolumeError, match="open in another process"):
+        database_module.initialize_database()
+    assert lock.is_dir()
+
+
+def test_a_native_lock_left_by_a_dead_process_is_taken_over():
+    lock = volume.dot_lock(database_module.DATABASE_PATH)
+    lock.write_bytes(b"")
+
+    database_module.initialize_database()
+    assert lock.is_file()

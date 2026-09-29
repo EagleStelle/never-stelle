@@ -6,14 +6,18 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import BinaryIO
 
 from backend.app.core.config import DATABASE_PATH
 from backend.app.db.migrations import apply_pending
 from backend.app.db.volume import (
+    dot_lock,
     free_bytes,
+    hold_dot_lock,
     megabytes,
     network_mount,
     open_connection,
+    release_dot_lock,
     release_stale_lock,
 )
 
@@ -22,6 +26,7 @@ logger = logging.getLogger(__name__)
 _DB_LOCK = threading.RLock()
 _INITIALIZED = False
 _CONNECTION: sqlite3.Connection | None = None
+_DOT_LOCK: BinaryIO | None = None
 
 
 def database_path() -> Path:
@@ -103,6 +108,8 @@ def _connect() -> sqlite3.Connection:
                 "Removed %s, a lock left behind by a process that was killed while holding it.",
                 stale,
             )
+    else:
+        _hold_dot_lock()
     try:
         connection = open_connection(DATABASE_PATH, kind)
         connection.row_factory = sqlite3.Row
@@ -123,6 +130,19 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
+def _hold_dot_lock() -> None:
+    global _DOT_LOCK
+    if _DOT_LOCK is not None:
+        return
+    _DOT_LOCK = hold_dot_lock(DATABASE_PATH)
+    if _DOT_LOCK is None:
+        lock = dot_lock(DATABASE_PATH)
+        raise DatabaseVolumeError(
+            f"{DATABASE_PATH} is open in another process, such as a container that mounts this "
+            f"folder. Stop it before starting this one; if nothing else is running, delete {lock}."
+        )
+
+
 def _shared_connection() -> sqlite3.Connection:
     global _CONNECTION
     if _CONNECTION is None:
@@ -131,11 +151,14 @@ def _shared_connection() -> sqlite3.Connection:
 
 
 def close_database() -> None:
-    global _CONNECTION, _INITIALIZED
+    global _CONNECTION, _DOT_LOCK, _INITIALIZED
     with _DB_LOCK:
         if _CONNECTION is not None:
             _CONNECTION.close()
         _CONNECTION = None
+        if _DOT_LOCK is not None:
+            release_dot_lock(DATABASE_PATH, _DOT_LOCK)
+        _DOT_LOCK = None
         _INITIALIZED = False
 
 

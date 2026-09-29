@@ -12,6 +12,7 @@ import os
 import shutil
 import sqlite3
 from pathlib import Path
+from typing import BinaryIO
 from urllib.parse import quote
 
 _MEGABYTE = 1024 * 1024
@@ -153,6 +154,33 @@ def release_stale_lock(path: Path, kind: str) -> Path | None:
     except OSError:
         return None
     return lock
+
+
+def hold_dot_lock(path: Path) -> BinaryIO | None:
+    """Take the dot-file lock for a database opened on native locks; None when held.
+
+    Native locks never cross a shared folder, so a container opening the same file over
+    a network mount cannot see them and both would write. Its dot-file VFS does see this
+    file and waits while it exists. The holder keeps it open, so it cannot be deleted as
+    stale from across the mount; after the holder dies it can.
+    """
+    lock = dot_lock(path)
+    if lock.is_dir():
+        # A dot-file VFS lock: taken over a network mount, which this side cannot check.
+        return None
+    try:
+        lock.unlink(missing_ok=True)
+        return lock.open("xb")
+    except OSError:
+        return None
+
+
+def release_dot_lock(path: Path, handle: BinaryIO) -> None:
+    handle.close()
+    try:
+        dot_lock(path).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def open_connection(path: Path, kind: str) -> sqlite3.Connection:
