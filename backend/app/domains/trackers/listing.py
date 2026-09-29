@@ -891,7 +891,9 @@ class _Probes:
         for _ in range(_PROBES_AHEAD - _PROBES_WHILE_SCROLLING):
             self.gate.release()
 
-    def add(self, links: list[str]) -> None:
+    def add(self, links: list[str]) -> int:
+        """Start reading the links; returns how many of them are new to the walk and not downloaded yet."""
+        added = 0
         for link in links:
             key = url_dedup_key(link)
             if key in self.added:
@@ -907,6 +909,8 @@ class _Probes:
                     self.unread.append((link, future))
                 self.pool.submit(self._run)
             self.waiting.append((link, future, downloaded))
+            added += not downloaded
+        return added
 
     def entries(self, *, wait: bool = False) -> Iterator[Entry]:
         """Entries of the links read so far, in order; with ``wait``, of every link added."""
@@ -1016,7 +1020,7 @@ def _is_item_link(link: str, resolver: _Resolver) -> bool:
 
 def _had(link: str, resolver: _Resolver, backlog: Backlog) -> bool:
     key = url_dedup_key(canonicalize_url(link))
-    return key in resolver.found or resolver.known(key) or backlog.has(key)
+    return key in resolver.found or resolver.known(key) or backlog.has(key) or _downloaded(link)
 
 
 def _parents(link: str) -> list[str]:
@@ -1256,8 +1260,8 @@ def _find_items(
     Every page starts at its top, so what was posted since an earlier walk comes first. A page an earlier
     walk scrolled to its end is caught up after ``caught_up_after`` ``settled`` items in a row and stops.
     Any other page goes on past what earlier walks found to where they stopped, and stops once it took
-    a batch of links; reaching its end marks it ended in ``stats``. Known items never count toward a
-    batch; links an earlier check left in the backlog do, as they are read now.
+    a batch of links; reaching its end marks it ended in ``stats``. Known items and items the app already
+    downloaded never count toward a batch; links an earlier check left in the backlog do, as they are read now.
 
     The page keeps nothing until the browser shows it is the ``row``'s page. Returns the page it turned
     out to be, "" when it was another page.
@@ -1304,8 +1308,7 @@ def _find_items(
                 caught_up = True
                 break
         probes.backlog.add(fresh)
-        probes.add(fresh)
-        taken += len(fresh)
+        taken += probes.add(fresh)
         return caught_up or bool(resolver.batch and taken >= resolver.batch)
 
     page = ""
@@ -1396,9 +1399,10 @@ def iter_entries(
     ``ValueError`` when neither engine could list the link and its page added nothing.
 
     What pages show goes to the ``backlog`` and is read at once, a few links at a time, so entries
-    come while pages still scroll; a link the app already downloaded is not probed. A page scrolls
-    until it took a ``batch`` of links or reached its end; one stopped at a batch is scrolled past
-    what it showed by the next walk, which goes on from there. Pages ``ended`` by an earlier walk
+    come while pages still scroll; a link the app already downloaded is not probed, takes no place in
+    a batch and costs no scrolling time. A page scrolls until it took a ``batch`` of links or reached
+    its end; one stopped at a batch is scrolled past what it showed by the next walk, which goes on
+    from there. Pages ``ended`` by an earlier walk
     only catch up with it. A caller that stops early leaves the rest in the backlog for a later walk.
 
     ``tabs`` are the source's page rows. Once the engines are done, a ticked row's page is scrolled;
