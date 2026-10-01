@@ -738,6 +738,7 @@ FIELD_ROLE_CHAINS: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         "title": (
             "title",
+            "content",
             "caption",
             "description",
             "alt_text",
