@@ -74,13 +74,13 @@ def test_fresh_database_lands_on_the_latest_version(tmp_path, monkeypatch):
         "download_tasks",
         "download_history",
         "learned_formats",
-        "learned_redirects",
+        "learned_routes",
         "trackers",
         "tracker_entries",
     } <= tables
 
 
-def test_pre_migration_database_gains_the_redirect_table(tmp_path, monkeypatch):
+def test_pre_migration_database_gains_the_route_table(tmp_path, monkeypatch):
     database_path = tmp_path / "never-stelle.sqlite3"
     _seed_pre_migration_db(database_path, _legacy_payload())
     use_temp_db(tmp_path, monkeypatch)
@@ -89,7 +89,7 @@ def test_pre_migration_database_gains_the_redirect_table(tmp_path, monkeypatch):
 
     with database_module.transaction() as connection:
         row = connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'learned_redirects'"
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'learned_routes'"
         ).fetchone()
     assert row is not None
 
@@ -974,3 +974,36 @@ def test_history_rows_lose_the_scan_marker_and_keep_their_data(tmp_path, monkeyp
 
     assert "scan_revision" not in columns
     assert (row["id"], row["scan_mtime_ns"]) == ("disk:abc123", 42)
+
+
+def test_redirect_answers_move_into_the_route_table(tmp_path, monkeypatch):
+    database_path = tmp_path / "never-stelle.sqlite3"
+    _seed_pre_migration_db(database_path, None, version=14)
+    connection = sqlite3.connect(str(database_path))
+    try:
+        connection.execute(
+            "CREATE TABLE learned_redirects (shape TEXT PRIMARY KEY, expands INTEGER NOT NULL DEFAULT 0,"
+            " direct INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO learned_redirects VALUES ('example.test/share/{}', 3, 0, 'a', 'b'),"
+            " ('example.test/reel/{}', 0, 2, 'c', 'd')"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        rows = connection.execute("SELECT shape, fact, hits, misses, updated_at FROM learned_routes").fetchall()
+        old = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'learned_redirects'"
+        ).fetchone()
+
+    assert sorted(tuple(row) for row in rows) == [
+        ("example.test/reel/{}", "redirect", 0, 2, "d"),
+        ("example.test/share/{}", "redirect", 3, 0, "b"),
+    ]
+    assert old is None

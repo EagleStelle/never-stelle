@@ -529,19 +529,19 @@ def probe_media_info(
     *,
     with_cookies: bool = True,
     cookie_source_key: str = "",
-) -> dict[str, Any]:
-    """yt-dlp's full info dict for one item, subtitles included; ``{}`` on failure."""
+) -> tuple[dict[str, Any], str]:
+    """yt-dlp's full info dict for one item, subtitles included; ``{}`` and the last failure's output when none."""
     url = _prepare_url(source_url)
     if not url:
-        return {}
+        return {}, ""
     # Extractors only collect subtitles when asked to write them; --no-download still writes nothing.
-    found, _ = _ytdlp_dumps(
+    found, error = _ytdlp_dumps(
         [url],
         with_cookies=with_cookies,
         cookie_source_key=cookie_source_key,
         extra_args=("--write-subs", "--write-auto-subs"),
     )
-    return found.get(url, {})
+    return found.get(url, {}), error
 
 
 def _probe_field_metadata(

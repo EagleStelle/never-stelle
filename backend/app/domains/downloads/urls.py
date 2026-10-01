@@ -2,22 +2,20 @@ from __future__ import annotations
 
 import re
 from contextlib import closing
-from datetime import datetime, timedelta
 from typing import NamedTuple
 from urllib.parse import unquote, urlparse
 
 import httpx
 
 from backend.app.core.sources import apex_host, host_from_url, source_key_from_url
-from backend.app.core.time import utc_now_datetime
 from backend.app.domains.downloads.enrich import _load_cookie_jar
 from backend.app.domains.downloads.formats import (
     _prepare_url,
-    analyze_url,
     canonicalize_url,
     media_id_from_url,
 )
-from backend.app.domains.downloads.store import learn_redirect, load_learned_redirects
+from backend.app.domains.downloads.routes import absence_settled, route_shape
+from backend.app.domains.downloads.store import learn_route, load_route_facts
 from backend.app.domains.settings import browser_identity, cookie_rotation, detect_cookie_source
 
 _REDIRECT_TIMEOUT_SECONDS = 8.0
@@ -73,80 +71,12 @@ _INCONCLUSIVE = _Attempt("", False)
 # way to tell that apart from a route that never redirects.
 _DIRECT_CONFIRMATIONS = 2
 
-# How long that answer holds before one probe re-checks it. A site can start redirecting a
-# route it used to serve directly, and without an expiry the last answer would stand
-# forever with nothing left to notice the change. One request a month per route.
-_DIRECT_TRUST = timedelta(days=30)
-
-_SHAPE_SLOT = "{}"
-
-
-def _redirect_shape(url: str) -> str:
-    """Host plus route, with the media id and the creator segment blanked.
-
-    Whether a link redirects is a property of the route, not of the post or the person
-    behind it, so one answer covers every later link of the same shape. The creator is
-    blanked as well or every new account on a site would re-probe a route already known.
-
-    Returns "" when there was nothing to blank. Such a URL is its own shape, so recording
-    it would fill the table with rows that can never match a second link.
-    """
-    analysis = analyze_url(url)
-    canonical = str(analysis.get("canonical") or "")
-    if not canonical:
-        return ""
-    try:
-        parsed = urlparse(canonical)
-    except Exception:
-        return ""
-
-    segments = [part for part in str(parsed.path or "").split("/") if part.strip()]
-    id_part = str(analysis.get("id_part") or "")
-    blanked = False
-    for part in (id_part, str(analysis.get("creator_part") or "")):
-        if not part.startswith("path:"):
-            continue
-        try:
-            index = int(part.split(":", 1)[1])
-        except ValueError:
-            continue
-        if 0 <= index < len(segments):
-            segments[index] = _SHAPE_SLOT
-            blanked = True
-
-    query = ""
-    if id_part.startswith("query:"):
-        query = f"?{id_part.split(':', 1)[1]}={_SHAPE_SLOT}"
-        blanked = True
-    if not blanked:
-        return ""
-
-    # Host verbatim: a short host redirects where its apex does not (vt.tiktok.com against
-    # www.tiktok.com), so folding them together would teach one the other's answer.
-    host = str(analysis.get("host") or parsed.netloc or "").lower()
-    return "/".join([host, *segments]) + query
-
-
-def _stale(updated_at: str) -> bool:
-    try:
-        return utc_now_datetime() - datetime.fromisoformat(updated_at) > _DIRECT_TRUST
-    except ValueError:
-        return True
+_REDIRECT_FACT = "redirect"
 
 
 def _needs_expansion(shape: str) -> bool:
     # An unrecorded route is probed: that probe is what there is to learn from.
-    if not shape:
-        return True
-    record = load_learned_redirects().get(shape)
-    if not record:
-        return True
-    # A redirect is proof and never expires. Only the absence of one is provisional.
-    if int(record.get("expands") or 0) > 0:
-        return True
-    if int(record.get("direct") or 0) < _DIRECT_CONFIRMATIONS:
-        return True
-    return _stale(str(record.get("updated_at") or ""))
+    return not shape or not absence_settled(load_route_facts(shape).get(_REDIRECT_FACT), _DIRECT_CONFIRMATIONS)
 
 
 def _follow(url: str, jar=None, headers: dict[str, str] | None = None) -> str:
@@ -212,7 +142,7 @@ def resolve_redirect_url(source_url: str) -> str:
     if not url:
         return source_url
 
-    shape = _redirect_shape(url)
+    shape = route_shape(url)
     if not _needs_expansion(shape):
         return source_url
 
@@ -222,10 +152,10 @@ def resolve_redirect_url(source_url: str) -> str:
         attempt = _resolve_with_cookies(url)
 
     if attempt.url and attempt.url != url:
-        learn_redirect(shape, expands=True)
+        learn_route(shape, _REDIRECT_FACT, hit=True)
         return attempt.url
     if attempt.direct:
-        learn_redirect(shape, expands=False)
+        learn_route(shape, _REDIRECT_FACT, hit=False)
     return source_url
 
 

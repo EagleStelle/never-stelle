@@ -124,7 +124,7 @@ def _run_benched_queue(
     def fake_run_task(tid, task, mark_running=False, resume=None):
         ran.append((tid, resume.engine if resume else None))
         if task["source_key"] == "example" and not jar_free.is_set():
-            raise processes_module.TaskDeferred("example", engine=1)
+            raise processes_module.TaskDeferred("example", engine="ytdlp")
         with lock:
             tasks[tid]["status"] = "completed"
             if all(task["status"] == "completed" for task in tasks.values()):
@@ -157,7 +157,7 @@ def test_a_deferred_task_steps_aside_for_another_source_until_its_jar_frees(monk
     ran = _run_benched_queue(monkeypatch, [("example-1", "example"), ("other-1", "other")], threading.Event())
 
     # The deferred task comes back at the engine that deferred, not from the start.
-    assert ran == [("example-1", None), ("other-1", None), ("example-1", 1)]
+    assert ran == [("example-1", None), ("other-1", None), ("example-1", "ytdlp")]
 
 
 def test_the_last_worker_waits_for_a_benched_source_instead_of_retiring(monkeypatch):
@@ -166,7 +166,7 @@ def test_the_last_worker_waits_for_a_benched_source_instead_of_retiring(monkeypa
 
     ran = _run_benched_queue(monkeypatch, [("example-1", "example")], jar_free)
 
-    assert ran == [("example-1", None), ("example-1", 1)]
+    assert ran == [("example-1", None), ("example-1", "ytdlp")]
 
 
 def test_delete_downloads_leaves_a_running_task_to_its_worker(monkeypatch):

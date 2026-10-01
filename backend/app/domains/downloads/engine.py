@@ -8,6 +8,7 @@ from .constants import PROGRESS_RE
 from .files import extract_downloaded_path
 from .formats import media_id_from_url
 from .probe import gallerydl_reads, ytdlp_single_video
+from .store import load_route_facts
 
 
 class Engine:
@@ -193,8 +194,33 @@ class GallerydlEngine(Engine):
 _ENGINES: tuple[Engine, ...] = (GallerydlEngine(), YtdlpEngine())
 
 
+# Downloads on a route before its answer reorders the engines.
+_ENGINE_SAMPLES = 3
+# Counts fade past this many, so a route whose site changed is re-learned within a few downloads.
+ENGINE_WINDOW = 20
+
+
 def all_engines() -> tuple[Engine, ...]:
     return _ENGINES
+
+
+def engine_fact(engine: Engine) -> str:
+    return f"engine:{engine.name}"
+
+
+def _engine_rank(stats: dict[str, Any] | None) -> int:
+    """0 when the engine gets media on the route, 1 while unknown, 2 when it mostly does not."""
+    hits = int((stats or {}).get("hits") or 0)
+    misses = int((stats or {}).get("misses") or 0)
+    if hits + misses < _ENGINE_SAMPLES:
+        return 1
+    return 0 if hits >= misses else 2
+
+
+def engine_order(shape: str) -> tuple[Engine, ...]:
+    """Every engine, the ones that get media on this route shape first; ties keep the run order."""
+    facts = load_route_facts(shape)
+    return tuple(sorted(_ENGINES, key=lambda engine: _engine_rank(facts.get(engine_fact(engine)))))
 
 
 def default_engine() -> Engine:

@@ -18,6 +18,7 @@ import backend.app.domains.downloads.history as history_module
 import backend.app.domains.downloads.operations as operations_module
 import backend.app.domains.downloads.postprocessing as postprocessing_module
 import backend.app.domains.downloads.probe as probe_module
+import backend.app.domains.downloads.routes as routes_module
 import backend.app.domains.downloads.scan as scan_module
 import backend.app.domains.downloads.serializers as serializers_module
 import backend.app.domains.downloads.slideshow as slideshow_module
@@ -170,8 +171,8 @@ def _count_head(monkeypatch, final_url=None):
         ("https://www.instagram.com/somebody/", ""),
     ],
 )
-def test_redirect_shape_generalizes_route(url, expected):
-    assert urls_module._redirect_shape(url) == expected
+def test_route_shape_generalizes_route(url, expected):
+    assert routes_module.route_shape(url) == expected
 
 
 def test_resolve_redirect_stops_probing_a_route_that_never_redirects(monkeypatch):
@@ -199,7 +200,7 @@ def test_resolve_redirect_does_not_learn_from_a_wall(monkeypatch):
         assert urls_module.resolve_redirect_url(url) == url
     # A consent/login wall says nothing about the route, so it must not settle the answer.
     assert len(calls) == 3
-    assert urls_module.load_learned_redirects() == {}
+    assert store_module.load_route_facts("www.instagram.com/reel/{}") == {}
 
 
 def test_resolve_redirect_rechecks_a_route_it_has_not_probed_in_a_month(monkeypatch):
@@ -210,7 +211,7 @@ def test_resolve_redirect_rechecks_a_route_it_has_not_probed_in_a_month(monkeypa
     assert len(calls) == urls_module._DIRECT_CONFIRMATIONS
 
     # A site can start redirecting a route it used to serve directly.
-    monkeypatch.setattr(urls_module, "_DIRECT_TRUST", timedelta(seconds=-1))
+    monkeypatch.setattr(routes_module, "ANSWER_TRUST", timedelta(seconds=-1))
     urls_module.resolve_redirect_url(url)
     assert len(calls) == urls_module._DIRECT_CONFIRMATIONS + 1
 
@@ -839,7 +840,7 @@ def _probe_media_info_calls(monkeypatch: pytest.MonkeyPatch, info: dict) -> list
     monkeypatch.setattr(
         probe_module,
         "probe_media_info",
-        lambda url, **kwargs: calls.append(url) or dict(info),
+        lambda url, **kwargs: calls.append(url) or (dict(info), ""),
     )
     return calls
 
@@ -908,7 +909,7 @@ def test_media_info_probe_asks_extractors_for_subtitles(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(probe_module, "_run_probe_command", fake_run)
 
-    info = probe_module.probe_media_info("https://www.tiktok.com/@creator/video/1", with_cookies=False)
+    info, _ = probe_module.probe_media_info("https://example.test/@creator/video/1", with_cookies=False)
 
     assert info["subtitles"] == _YTDLP_VIDEO_INFO["subtitles"]
     assert "--write-subs" in commands[0] and "--write-auto-subs" in commands[0]
@@ -2872,8 +2873,16 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
     assert saved[task_id]["resolved_filename"] == "Creator - [1234567890].jpg"
 
 
-def test_gallerydl_sparse_single_output_enqueues_metadata_repair_without_inline_probe(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("answer", "repair", "filename"),
+    [
+        ({"channel": "ChannelHandle", "title": "Nice clip"}, False, "ChannelHandle - Nice clip [abc123].mp4"),
+        # No engine answered, so the lookup is tried once more later; an empty answer would be final.
+        (None, True, "[abc123].mp4"),
+    ],
+)
+def test_gallerydl_sparse_single_output_probes_inline_and_repairs_only_an_unanswered_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer, repair, filename
 ):
     raw_video = tmp_path / "[abc123].mp4"
     raw_video.write_bytes(b"video")
@@ -2895,6 +2904,7 @@ def test_gallerydl_sparse_single_output_enqueues_metadata_repair_without_inline_
     }
     saved: dict[str, dict] = {}
     queued: list[dict[str, object]] = []
+    probed: list[str] = []
 
     class FakeProcess:
         stdout = iter([f"{raw_video}\n"])
@@ -2915,11 +2925,12 @@ def test_gallerydl_sparse_single_output_enqueues_metadata_repair_without_inline_
     monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "get_effective_fields", lambda url: {"username": ["channel"]})
-    monkeypatch.setattr(
-        completion_metadata_module,
-        "_probe_output_metadata",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("probe must not run inline")),
-    )
+
+    def probe(url: str, key: str) -> dict[str, str] | None:
+        probed.append(url)
+        return answer
+
+    monkeypatch.setattr(completion_metadata_module, "_probe_output_metadata", probe)
     monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
     monkeypatch.setattr(worker_module, "_learn_field_roles_from_download", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
@@ -2933,12 +2944,13 @@ def test_gallerydl_sparse_single_output_enqueues_metadata_repair_without_inline_
 
     completed = store["tasks"][task_id]
     assert completed["status"] == "completed"
-    assert raw_video.is_file()
+    assert Path(saved[task_id]["resolved_full_path"]).is_file()
     assert saved[task_id]["folder_template"] == store["tasks"][task_id]["folder_template"]
     assert saved[task_id]["filename_template"] == store["tasks"][task_id]["filename_template"]
-    assert len(queued) == 1
+    assert probed == [source_url]
+    assert saved[task_id]["resolved_filename"] == filename
     assert queued[0]["args"] == (task_id,)
-    assert queued[0]["kwargs"]["needs_metadata_probe"] is True
+    assert queued[0]["kwargs"]["needs_metadata_probe"] is repair
     assert queued[0]["kwargs"]["needs_field_probe"] is False
 
 
@@ -3133,6 +3145,21 @@ def test_one_probe_names_every_output_of_a_multi_file_task(tmp_path: Path, monke
     # The creator fits every output; each keeps its own title.
     assert [metadata_by_path[path_key(path)]["uploader"] for path in paths] == ["Alice Example"] * 2
     assert [metadata_by_path[path_key(path)]["title"] for path in paths] == ["Photo 1", "Photo 2"]
+
+
+def test_output_probe_reads_one_link_not_its_characters(monkeypatch: pytest.MonkeyPatch):
+    calls: list[list[str]] = []
+
+    def probe_metadata(urls, **options):
+        calls.append(list(urls))
+        return {url: {"title": "Clip"} for url in urls}
+
+    monkeypatch.setattr(probe_module, "probe_metadata", probe_metadata)
+    monkeypatch.setattr(completion_metadata_module, "has_cookies_for_source", lambda key: False)
+    monkeypatch.setattr(completion_metadata_module, "has_cookies_for_url", lambda url: False)
+
+    assert completion_metadata_module._probe_output_metadata(_FIELDS_URL, "example") == {"title": "Clip"}
+    assert calls == [[_FIELDS_URL]]
 
 
 def test_enrichment_repairs_sparse_creator_title_and_filename(
@@ -3694,6 +3721,66 @@ def test_worker_runs_ytdlp_fallback_after_empty_gallerydl_failure(
     assert saved[task_id]["resolved_full_path"] == str(video)
 
 
+def test_worker_leads_with_the_engine_that_gets_media_on_the_route(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    video = tmp_path / "Creator - Clip [abc123].mp4"
+    video.write_bytes(b"video")
+    source_url = "https://www.example.test/post/abc123"
+    store: dict = {"tasks": {}}
+    commands: list[str] = []
+
+    class FakeProcess:
+        def __init__(self, lines: list[str], rc: int):
+            self.stdout = iter(lines)
+            self._rc = rc
+
+        def wait(self):
+            return self._rc
+
+        def poll(self):
+            return self._rc
+
+        def kill(self):
+            return None
+
+    def fake_popen(cmd, *args, **kwargs):
+        commands.append(cmd[0])
+        if cmd[0] == "gallery-dl":
+            return FakeProcess([f"ERROR: Unsupported URL: {source_url}\n"], 1)
+        return FakeProcess([f"[download] Destination: {video}\n"], 0)
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
+    monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
+    monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: None)
+
+    for run in range(4):
+        task_id = f"gallerydl:learned-{run}"
+        store["tasks"][task_id] = {
+            "engine": "gallerydl",
+            "source_url": source_url,
+            "source_key": "example",
+            "status": "pending",
+            "output_dir": str(tmp_path),
+            "resolved_folder": str(tmp_path),
+            "folder_template": "",
+            "filename_template": "{{username}} - {{title}} [{{id}}]",
+        }
+        commands.clear()
+        worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+        assert store["tasks"][task_id]["status"] == "completed"
+
+    # Three links taught the route; the fourth skips the engine that never got media there.
+    assert commands == ["yt-dlp"]
+
+
 def test_worker_resumes_a_deferred_task_at_the_cookie_stage_of_the_engine_that_found_the_jar_busy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -3769,7 +3856,7 @@ def test_worker_resumes_a_deferred_task_at_the_cookie_stage_of_the_engine_that_f
         worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
 
     assert commands == [("gallery-dl", False), ("gallery-dl", True), ("yt-dlp", False)]
-    assert deferred.value.engine == 1
+    assert deferred.value.engine == "ytdlp"
     assert deferred.value.walled is False
     assert [failure.split()[0] for failure in deferred.value.failures] == ["gallerydl"]
 
@@ -3999,7 +4086,7 @@ def test_worker_renames_display_creator_to_handle_and_template_folder(
 
     monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
-    monkeypatch.setattr(worker_module, "all_engines", lambda: (engine_by_name("ytdlp"),))
+    monkeypatch.setattr(worker_module, "engine_order", lambda url: (engine_by_name("ytdlp"),))
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
     monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
@@ -4071,7 +4158,7 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
 
     monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
     monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
-    monkeypatch.setattr(worker_module, "all_engines", lambda: (engine_by_name("ytdlp"),))
+    monkeypatch.setattr(worker_module, "engine_order", lambda url: (engine_by_name("ytdlp"),))
     _patch_worker_task_store(monkeypatch, store, fake_update_task)
     monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
     learned: list[tuple[list, set[str]]] = []

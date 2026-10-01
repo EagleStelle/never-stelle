@@ -21,7 +21,7 @@ from backend.app.domains.downloads.constants import (
     post_processing_requested,
     quality_needs_ffmpeg,
 )
-from backend.app.domains.downloads.engine import Engine, all_engines
+from backend.app.domains.downloads.engine import ENGINE_WINDOW, Engine, engine_fact, engine_order
 from backend.app.domains.downloads.formats import (
     creator_from_url,
     match_template,
@@ -38,8 +38,10 @@ from backend.app.domains.downloads.postprocessing import (
     metadata_sidecars_for,
     scratch_payload_index,
 )
+from backend.app.domains.downloads.routes import route_shape
 from backend.app.domains.downloads.store import (
     append_task_log,
+    learn_route,
     load_learned_formats,
     load_task,
     record_task_progress,
@@ -59,7 +61,6 @@ from backend.app.domains.downloads.workers.completion import (
     _format_sample,
     _has_output_media,
     _learn_field_roles_from_download,
-    _metadata_enrichment_needed,
     _metadata_output_paths,
     _probe_output_metadata_inline,
     _read_metadata_sidecar,
@@ -84,6 +85,8 @@ from backend.app.domains.settings import (
     load_scrape_rules,
     load_slug_tokens,
     load_token_roles,
+    looks_antibot_walled,
+    looks_rate_limited,
 )
 from backend.app.runtime.scratch import (
     remove_scratch_path,
@@ -93,9 +96,13 @@ from backend.app.runtime.scratch import (
 )
 
 
-def _should_try_next_engine(rc: int, last_dest: str, emitted_paths: list[str]) -> bool:
-    # Media from a failed run is kept, never downloaded again through another backend.
-    return rc != 0 and not _has_output_media(last_dest, emitted_paths)
+def _learn_engine_outcome(task_id: str, shape: str, engine: Engine, got_media: bool) -> None:
+    # A blocked run says nothing about whether the engine reads the route.
+    if not got_media:
+        tail = _task_log_tail(task_id)
+        if looks_rate_limited(tail) or looks_antibot_walled(tail):
+            return
+    learn_route(shape, engine_fact(engine), hit=got_media, window=ENGINE_WINDOW)
 
 
 def _failure_detail(engine: Engine, rc: int, task: dict[str, Any]) -> str:
@@ -248,7 +255,8 @@ def _run_task(
     raw_source_key = normalize_source_key(task.get("source_key"))
     task_source_key = raw_source_key or detect_source_key(source_url)
     cookie_source_key = raw_source_key or detect_cookie_source(source_url)
-    candidates = all_engines()
+    shape = route_shape(source_url)
+    candidates = engine_order(shape)
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
 
@@ -300,7 +308,10 @@ def _run_task(
         raise_if_cancelled(task_id)
         record_task_progress(task_id, progress.prepare(0.6))
 
-        first_engine = resume.engine if resume else 0
+        # Found by name, since the learned order may have changed while the task waited.
+        first_engine = next(
+            (index for index, engine in enumerate(candidates) if resume and engine.name == resume.engine), 0
+        )
         for index, engine in enumerate(candidates[first_engine:], start=first_engine):
             if _cancel_pending(task_id):
                 break
@@ -352,21 +363,23 @@ def _run_task(
                     post_processing,
                     progress,
                     str(task_parts),
-                    resume_walled=resume.walled if resume and index == resume.engine else None,
+                    resume_walled=resume.walled if resume and engine.name == resume.engine else None,
                 )
             except TaskDeferred as deferred:
                 # Resumes at this engine's cookie stage; nothing already tried runs again.
-                deferred.engine, deferred.failures = index, failure_details
+                deferred.engine, deferred.failures = engine.name, failure_details
                 raise
             if _cancel_pending(task_id):
                 break
             # Only a run without media hands over, so every output path belongs to this engine.
             output_paths = [Path(path) for path in _attempt_output_paths(last_dest, emitted_paths)]
+            _learn_engine_outcome(task_id, shape, engine, bool(output_paths))
             if rc == 0:
                 break
 
             failure_details.append(_failure_detail(engine, rc, load_task(task_id)))
-            if index + 1 < len(candidates) and _should_try_next_engine(rc, last_dest, emitted_paths):
+            # Media from a failed run is kept, never downloaded again through another backend.
+            if index + 1 < len(candidates) and not output_paths:
                 append_task_log(
                     task_id,
                     f"[never-stelle] {engine.name} did not produce media; trying {candidates[index + 1].name}...",
@@ -399,24 +412,19 @@ def _run_task(
                     error=f"{used_engine.name} finished, but no media file was found.",
                 )
                 return
-            # Post-processed and multi-output tasks probe here; a lone plain output is repaired later.
-            if has_post_processing or len(output_paths) > 1:
-                raise_if_cancelled(task_id)
-                _probe_output_metadata_inline(
-                    output_paths,
-                    used_engine,
-                    metadata_by_path,
-                    source_url,
-                    task_source_key,
-                    template_settings,
-                )
-            metadata_enrichment_needed = len(output_paths) == 1 and _metadata_enrichment_needed(
-                output_paths, used_engine, metadata_by_path, template_settings, source_url
+            raise_if_cancelled(task_id)
+            unanswered = _probe_output_metadata_inline(
+                output_paths,
+                used_engine,
+                metadata_by_path,
+                source_url,
+                task_source_key,
+                template_settings,
             )
             raise_if_cancelled(task_id)
             groups = _download_groups(output_paths, used_engine, filename_template, metadata_by_path, source_url)
             completed_rows: list[tuple[str, dict[str, Any]]] = []
-            enrichment_jobs: list[tuple[str, dict[str, str], bool]] = []
+            first_row: tuple[str, dict[str, str]] | None = None
             format_samples: list[tuple[str, str, dict[str, str] | None]] = []
             probed_media_fields: dict[str, tuple[str, dict[str, Any]]] = {}
             # gallery-dl's yt-dlp handoff writes its info.json beside the part file.
@@ -546,28 +554,27 @@ def _run_task(
                 format_samples.append(
                     _format_sample(finalized.source_url, finalized.display_filename, finalized.media_id, metadata)
                 )
-                enrichment_jobs.append((row_task_id, dict(metadata), metadata_enrichment_needed and index == 0))
+                if first_row is None:
+                    first_row = (row_task_id, dict(metadata))
             raise_if_cancelled(task_id)
             for row_task_id, completed_updates in completed_rows:
                 completed_task = update_task(row_task_id, **completed_updates)
                 save_history_entry(row_task_id, completed_task)
                 remove_task_record(row_task_id)
             # Only a download whose every output was saved teaches its format.
-            fields_needed = learn_formats(format_samples) and not field_roles_ready
-            for index, (row_task_id, metadata, needs_metadata_probe) in enumerate(enrichment_jobs):
-                needs_field_probe = fields_needed and index == 0
-                if not (needs_metadata_probe or needs_field_probe):
-                    continue
+            needs_field_probe = learn_formats(format_samples) and not field_roles_ready
+            if first_row:
                 enqueue_completion_enrichment(
-                    row_task_id,
-                    metadata=metadata,
+                    first_row[0],
+                    metadata=first_row[1],
                     template_settings=template_settings,
                     quality=quality,
                     output_root=str(output_root),
                     extra_tokens=extra_tokens,
                     token_roles=token_roles,
                     post_processing=post_processing,
-                    needs_metadata_probe=needs_metadata_probe,
+                    # A lookup that got no answer is tried once more later; an empty answer is final.
+                    needs_metadata_probe=unanswered and len(output_paths) == 1,
                     needs_field_probe=needs_field_probe,
                 )
             return

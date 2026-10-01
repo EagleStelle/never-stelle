@@ -32,8 +32,8 @@ from backend.app.db.repositories import (
     load_history_row_ids,
     load_history_rows,
     load_learned_formats_payload,
-    load_learned_redirects_payload,
     load_naming_snapshots_payload,
+    load_route_facts_payload,
     load_task_payload,
     load_task_rows,
     load_task_store_payload,
@@ -42,7 +42,7 @@ from backend.app.db.repositories import (
     merge_task_payload,
     next_pending_task_payload,
     open_rename_journal_entries,
-    record_redirect_observation,
+    record_route_observation,
     requeue_running_enrichment_jobs_payload,
     requeue_running_task,
     retry_enrichment_job_payload,
@@ -243,16 +243,18 @@ def load_learned_formats() -> dict[str, Any]:
     return resolved(LEARNED_FORMATS_KEY, load_learned_formats_payload)
 
 
-LEARNED_REDIRECTS_KEY = "downloads.learned_redirects"
+ROUTE_FACTS_KEY = "downloads.route_facts"
 
 
-def load_learned_redirects() -> dict[str, dict[str, Any]]:
-    return resolved(LEARNED_REDIRECTS_KEY, load_learned_redirects_payload)
+def load_route_facts(shape: str) -> dict[str, dict[str, Any]]:
+    if not shape:
+        return {}
+    return resolved(f"{ROUTE_FACTS_KEY}:{shape}", lambda: load_route_facts_payload(shape))
 
 
-def learn_redirect(shape: str, *, expands: bool) -> None:
-    record_redirect_observation(shape, expands=expands)
-    invalidate(LEARNED_REDIRECTS_KEY)
+def learn_route(shape: str, fact: str, *, hit: bool, value: str = "", window: int = 0) -> None:
+    record_route_observation(shape, fact, hit=hit, value=value, window=window)
+    invalidate(f"{ROUTE_FACTS_KEY}:{shape}")
 
 
 def open_renames() -> list[dict[str, str]]:

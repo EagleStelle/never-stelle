@@ -25,7 +25,6 @@ from backend.app.domains.downloads.constants import (
     video_format_selector,
 )
 from backend.app.domains.downloads.engine import all_engines
-from backend.app.domains.downloads.workers.execution import _should_try_next_engine
 from backend.app.domains.downloads.workers.progress import (
     DOWNLOAD_END,
     FINALIZE_END,
@@ -900,15 +899,6 @@ def test_engines_run_gallerydl_first_and_only_it_bundles_post_files():
         (True, True),
         (False, False),
     ]
-
-
-def test_should_try_next_engine_only_after_an_empty_failure(tmp_path: Path):
-    media = tmp_path / "a.mp4"
-    media.write_bytes(b"video")
-
-    assert _should_try_next_engine(1, "", []) is True
-    assert _should_try_next_engine(0, "", []) is False
-    assert _should_try_next_engine(1, str(media), [str(media)]) is False
 
 
 def test_ytdlp_engine_progress_and_path_parsing():

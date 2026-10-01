@@ -56,9 +56,9 @@ from backend.app.db.repositories.formats import (
     merge_learned_formats_payload,
     save_learned_formats_payload,
 )
-from backend.app.db.repositories.redirects import (
-    load_learned_redirects_payload,
-    record_redirect_observation,
+from backend.app.db.repositories.routes import (
+    load_route_facts_payload,
+    record_route_observation,
 )
 from backend.app.db.repositories.settings import (
     load_naming_snapshots_payload,
@@ -144,8 +144,8 @@ __all__ = [
     "load_history_row_ids",
     "load_history_rows",
     "load_learned_formats_payload",
-    "load_learned_redirects_payload",
     "load_naming_snapshots_payload",
+    "load_route_facts_payload",
     "load_settings_payload",
     "load_task_payload",
     "load_task_rows",
@@ -160,7 +160,7 @@ __all__ = [
     "only_seen_tracker_entry_urls",
     "next_pending_task_payload",
     "open_rename_journal_entries",
-    "record_redirect_observation",
+    "record_route_observation",
     "record_tracker_entry_rows",
     "relink_tracker_download",
     "reorder_source_cookies",

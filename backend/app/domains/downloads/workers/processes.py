@@ -30,7 +30,7 @@ class TaskDeferred(BaseException):
     """
 
     def __init__(
-        self, source_key: str, *, engine: int = 0, walled: bool = False, failures: Sequence[str] = ()
+        self, source_key: str, *, engine: str = "", walled: bool = False, failures: Sequence[str] = ()
     ) -> None:
         super().__init__(source_key)
         self.source_key = source_key
