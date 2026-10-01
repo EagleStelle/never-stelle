@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import backend.app.domains.downloads.enrich as enrich
-import backend.app.domains.downloads.formats as formats
-import backend.app.domains.downloads.gallerydl as gallerydl
-import backend.app.domains.downloads.ytdlp as ytdlp
-from backend.app.domains.downloads import default_engine
-from backend.app.domains.downloads.access import AccessIdentity
+import backend.app.domains.downloads.engines.gallerydl as gallerydl
+import backend.app.domains.downloads.engines.ytdlp as ytdlp
+import backend.app.domains.downloads.links.formats as formats
+import backend.app.domains.downloads.metadata.scraper as enrich
+from backend.app.domains.access.pool import CookieLease
+from backend.app.domains.access.rotation import AccessIdentity
 from backend.app.domains.downloads.constants import (
     PROGRESS_RE,
     audio_format_selector,
@@ -24,7 +24,7 @@ from backend.app.domains.downloads.constants import (
     template_tokens,
     video_format_selector,
 )
-from backend.app.domains.downloads.engine import all_engines
+from backend.app.domains.downloads.engines.engine import all_engines, default_engine
 from backend.app.domains.downloads.workers.progress import (
     DOWNLOAD_END,
     FINALIZE_END,
@@ -32,7 +32,7 @@ from backend.app.domains.downloads.workers.progress import (
     TaskProgress,
 )
 from backend.app.domains.downloads.workers.runner import _count_progress
-from backend.app.domains.settings import CookieLease, CookiePolicy
+from backend.app.domains.settings import CookiePolicy
 from tests.support import engine_by_name
 
 

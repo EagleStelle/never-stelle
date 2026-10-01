@@ -8,9 +8,10 @@ from fastapi import FastAPI
 from backend.app.db import close_database, initialize_database
 from backend.app.domains.auth import ensure_auth_settings
 from backend.app.domains.downloads.slideshow import clear_slideshow_archives
-from backend.app.domains.downloads.worker import ensure_enrichment_worker, ensure_worker
+from backend.app.domains.downloads.workers.enrichment import ensure_enrichment_worker
+from backend.app.domains.downloads.workers.scheduler import ensure_worker
 from backend.app.domains.settings import get_effective_source_profiles, queue_icons
-from backend.app.domains.trackers.scheduler import ensure_tracker_worker
+from backend.app.domains.trackers.checker import ensure_tracker_worker
 from backend.app.integrations.swaratelle import breaker as swaratelle_breaker
 from backend.app.integrations.swaratelle import client as swaratelle_client
 from backend.app.runtime.scratch import cleanup_media_staging, cleanup_runtime_scratch

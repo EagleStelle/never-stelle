@@ -15,18 +15,18 @@ from queue import Empty, Queue
 from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
-from backend.app.domains.settings import BrowserIdentity, browser_identity, lease_cookie, release_cookie
-from backend.app.runtime.scratch import remove_scratch_path, scratch_temp_dir
-
-from .enrich import _load_cookie_jar
-from .probe import low_priority_command
-from .workers.processes import (
+from backend.app.domains.access.pool import lease_cookie, release_cookie
+from backend.app.domains.downloads.metadata.scraper import _load_cookie_jar
+from backend.app.domains.settings import BrowserIdentity, browser_identity
+from backend.app.runtime.processes import (
     _kill_process_tree,
     _register_process,
     _unregister_process,
     current_task_id,
+    low_priority_command,
     raise_if_cancelled,
 )
+from backend.app.runtime.scratch import remove_scratch_path, scratch_temp_dir
 
 # The image ships the browser compressed; arches and checkouts without it list static pages only.
 _BUNDLE_DIR = Path("/opt/chrome")

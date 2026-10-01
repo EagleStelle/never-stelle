@@ -15,15 +15,14 @@ from backend.app.db.repositories import (
     list_source_cookies,
     reorder_source_cookies,
 )
-from backend.app.runtime.scratch import remove_scratch_path, write_scratch_file
-
-from .browser_identity import browser_identity, desktop_chrome_user_agent
-from .profiles import (
+from backend.app.domains.settings.cookies.identity import browser_identity, desktop_chrome_user_agent
+from backend.app.domains.settings.profiles import (
     get_effective_source_profiles,
     get_source_profile_for_url,
     require_settings_managed_source,
     settings_managed_profiles,
 )
+from backend.app.runtime.scratch import remove_scratch_path, write_scratch_file
 
 # A source holds any number of cookie jars; the pool rotates between them.
 MAX_COOKIE_UPLOAD_BYTES = 5 * 1024 * 1024
@@ -124,7 +123,7 @@ async def save_ytdlp_cookies_upload(uploaded: UploadFile, source_key: str, user_
     filename = _stored_cookie_filename(source_key)
     user_agent = desktop_chrome_user_agent(user_agent)
     add_source_cookie(cookie_id, source_key, filename, raw, user_agent)
-    from .cookie_pool import invalidate_cookie_pool
+    from backend.app.domains.access.pool import invalidate_cookie_pool
 
     invalidate_cookie_pool(source_key)
     return _cookie_entry({"id": cookie_id, "filename": filename, "user_agent": user_agent})
@@ -144,7 +143,7 @@ def clear_ytdlp_cookie(source_key: str, cookie_id: str) -> None:
     if not stored or normalize_cookie_source(stored.get("source_key")) != source_key:
         raise ValueError("That cookies file no longer exists.")
     delete_source_cookie(stored["id"])
-    from .cookie_pool import invalidate_cookie_pool
+    from backend.app.domains.access.pool import invalidate_cookie_pool
 
     invalidate_cookie_pool(source_key)
 
@@ -153,6 +152,6 @@ def clear_ytdlp_cookies_upload(source_key: str) -> None:
     require_settings_managed_source(source_key)
     source_key = normalize_cookie_source(source_key)
     delete_source_cookies(source_key)
-    from .cookie_pool import invalidate_cookie_pool
+    from backend.app.domains.access.pool import invalidate_cookie_pool
 
     invalidate_cookie_pool(source_key)

@@ -17,27 +17,23 @@ from backend.app.core.paths import path_key as _path_key
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
-from backend.app.domains.settings import (
-    get_effective_title_cleaning,
-    iter_resolved_source_locations,
-)
-
-from .constants import CREATOR_FIELDS, MEDIA_EXTENSIONS, TEMPLATE_RE
-from .files import chapter_folder, payload_path_string, recover_task_path
-from .formats import (
+from backend.app.domains.downloads.constants import CREATOR_FIELDS, MEDIA_EXTENSIONS, TEMPLATE_RE
+from backend.app.domains.downloads.files import chapter_folder, payload_path_string, recover_task_path
+from backend.app.domains.downloads.library.rename import recover_interrupted_renames, rows_needing_resolve
+from backend.app.domains.downloads.links.formats import (
     conflicts_with_source,
     guess_sources,
     media_id_from_url,
     reconstruct_url_candidates,
     url_in_format,
 )
-from .naming import (
+from backend.app.domains.downloads.naming.naming import (
     clean_template_display_filename,
     strip_numbered_suffix,
     template_literal_pattern,
 )
-from .rename import recover_interrupted_renames, rows_needing_resolve
-from .store import (
+from backend.app.domains.downloads.naming.template_rows import template_row_fields, template_settings_from_row
+from backend.app.domains.downloads.store import (
     load_history,
     load_learned_formats,
     load_task_store,
@@ -46,7 +42,10 @@ from .store import (
     save_history_entry_rows,
     sync_history_resolve_flags,
 )
-from .templates import template_row_fields, template_settings_from_row
+from backend.app.domains.settings import (
+    get_effective_title_cleaning,
+    iter_resolved_source_locations,
+)
 
 _scan_lock = threading.Lock()
 # Set only by a scan: the lock is also held by writers that are not one.
@@ -513,7 +512,7 @@ def _scan_slug_tokens_map() -> dict[str, list[dict[str, str]]]:
     # Per-source {part, token} URL-part rules the user configured; used to capture named
     # URL parts from filenames and reconstruct links generically (no platform logic).
     try:
-        from backend.app.domains.downloads.enrich import active_slug_rules_for_key
+        from backend.app.domains.downloads.metadata.scraper import active_slug_rules_for_key
         from backend.app.domains.downloads.store import load_learned_formats
 
         slug_map = _scan_settings_section("source_slug_tokens")

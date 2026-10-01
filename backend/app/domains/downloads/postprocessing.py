@@ -36,12 +36,12 @@ from backend.app.domains.downloads.constants import (
     post_processing_requested,
 )
 from backend.app.domains.downloads.files import chapter_folder, prune_empty_parents
-from backend.app.domains.downloads.naming import (
+from backend.app.domains.downloads.naming.naming import (
     detect_ffmpeg_location,
     named_title,
     sanitize_filename_component,
 )
-from backend.app.domains.downloads.workers.processes import (
+from backend.app.runtime.processes import (
     cancel_on_request,
     raise_if_cancelled,
     run_task_subprocess,

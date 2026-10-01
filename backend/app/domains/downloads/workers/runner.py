@@ -5,15 +5,15 @@ import subprocess
 from pathlib import Path
 
 from backend.app.core.paths import path_key as _path_key
-from backend.app.domains.downloads.engine import Engine
+from backend.app.domains.downloads.engines.engine import Engine
 from backend.app.domains.downloads.store import append_task_log, record_task_progress, update_task
 from backend.app.domains.downloads.workers.pathing import _is_audio_path, _preferred_output_path
-from backend.app.domains.downloads.workers.processes import (
+from backend.app.domains.downloads.workers.progress import TaskProgress
+from backend.app.runtime.processes import (
     _kill_process_tree,
     _register_process,
     _unregister_process,
 )
-from backend.app.domains.downloads.workers.progress import TaskProgress
 
 
 def _unknown_total_curve(done: int) -> float:

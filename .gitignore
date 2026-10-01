@@ -2,7 +2,6 @@ __pycache__/
 data/
 media/
 scratch/
-library/
 settings.json
 config.json
 PRODUCT.md

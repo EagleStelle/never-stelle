@@ -8,7 +8,8 @@ from typing import Any
 
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key, source_key_from_url
-from backend.app.domains.downloads.access import (
+from backend.app.domains.access.pool import cookie_ready_in, looks_antibot_walled, looks_rate_limited
+from backend.app.domains.access.rotation import (
     AccessIdentity,
     access_env,
     access_rotation,
@@ -21,16 +22,19 @@ from backend.app.domains.downloads.constants import (
     post_processing_requested,
     quality_needs_ffmpeg,
 )
-from backend.app.domains.downloads.engine import ENGINE_WINDOW, Engine, engine_fact, engine_order
-from backend.app.domains.downloads.formats import (
+from backend.app.domains.downloads.engines.engine import ENGINE_WINDOW, Engine, engine_fact, engine_order
+from backend.app.domains.downloads.library.history import save_history_entry
+from backend.app.domains.downloads.links.formats import (
     creator_from_url,
     match_template,
     media_id_from_url,
     reconstruct_url_candidates,
 )
-from backend.app.domains.downloads.history import save_history_entry
-from backend.app.domains.downloads.learning import learn_formats
-from backend.app.domains.downloads.naming import detect_ffmpeg_location
+from backend.app.domains.downloads.links.learned_routes import route_shape
+from backend.app.domains.downloads.links.urls import canonicalize_source_url, detect_source_key
+from backend.app.domains.downloads.metadata.learned_fields import learn_formats
+from backend.app.domains.downloads.naming.naming import detect_ffmpeg_location
+from backend.app.domains.downloads.naming.template_rows import template_row_fields, template_settings_from_row
 from backend.app.domains.downloads.postprocessing import (
     apply_finalized_post_processing,
     ensure_container_codec_compatibility,
@@ -38,7 +42,6 @@ from backend.app.domains.downloads.postprocessing import (
     metadata_sidecars_for,
     scratch_payload_index,
 )
-from backend.app.domains.downloads.routes import route_shape
 from backend.app.domains.downloads.store import (
     append_task_log,
     learn_route,
@@ -48,19 +51,17 @@ from backend.app.domains.downloads.store import (
     remove_task_record,
     update_task,
 )
-from backend.app.domains.downloads.templates import template_row_fields, template_settings_from_row
-from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
 from backend.app.domains.downloads.workers.completion.finalize import _finalize_completed_output
-from backend.app.domains.downloads.workers.completion.learning import (
-    _format_sample,
-    _learn_field_roles_from_download,
-)
 from backend.app.domains.downloads.workers.completion.outputs import (
     _attempt_output_paths,
     _child_task_id,
     _download_groups,
     _existing_output_paths,
     _has_output_media,
+)
+from backend.app.domains.downloads.workers.completion.samples import (
+    _format_sample,
+    _learn_field_roles_from_download,
 )
 from backend.app.domains.downloads.workers.completion.sidecars import (
     _extractor_metadata_fields,
@@ -70,22 +71,16 @@ from backend.app.domains.downloads.workers.completion.sidecars import (
     _with_ytdlp_media_fields,
 )
 from backend.app.domains.downloads.workers.enrichment import enqueue_completion_enrichment
-from backend.app.domains.downloads.workers.processes import (
+from backend.app.domains.downloads.workers.progress import TaskProgress
+from backend.app.domains.downloads.workers.runner import _run_engine_to_task
+from backend.app.domains.settings import detect_cookie_source, get_effective_fields
+from backend.app.runtime.processes import (
     TaskCancelled,
     TaskDeferred,
     _cancel_pending,
     current_task_id,
     raise_if_cancelled,
     task_execution,
-)
-from backend.app.domains.downloads.workers.progress import TaskProgress
-from backend.app.domains.downloads.workers.runner import _run_engine_to_task
-from backend.app.domains.settings import (
-    cookie_ready_in,
-    detect_cookie_source,
-    get_effective_fields,
-    looks_antibot_walled,
-    looks_rate_limited,
 )
 from backend.app.runtime.scratch import (
     remove_scratch_path,
@@ -239,7 +234,7 @@ def run_task(
 def _run_task(
     task_id: str, task: dict[str, Any], *, mark_running: bool = True, resume: TaskDeferred | None = None
 ) -> None:
-    from backend.app.domains.downloads.enrich import configured_tokens
+    from backend.app.domains.downloads.metadata.scraper import configured_tokens
 
     source_url = canonicalize_source_url(str(task.get("source_url") or ""))
     output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()

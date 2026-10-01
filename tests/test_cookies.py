@@ -10,7 +10,7 @@ from fastapi import UploadFile
 import backend.app.db.database as database_module
 import backend.app.runtime.scratch as scratch_module
 from backend.app.db import repositories
-from backend.app.domains.settings import cookies as cookies_module
+from backend.app.domains.settings.cookies import jars as cookies_module
 from tests.support import use_temp_db
 
 

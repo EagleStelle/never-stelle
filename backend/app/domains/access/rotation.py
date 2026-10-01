@@ -8,14 +8,8 @@ from contextlib import closing
 from dataclasses import dataclass
 from typing import Any
 
-from backend.app.domains.settings import (
-    CookieLease,
-    browser_identity,
-    cookie_rotation,
-    has_cookies_for_source,
-    looks_antibot_walled,
-    looks_rate_limited,
-)
+from backend.app.domains.access.pool import CookieLease, cookie_rotation, looks_antibot_walled, looks_rate_limited
+from backend.app.domains.settings import browser_identity, has_cookies_for_source
 
 _TARGET_LIST_TIMEOUT_SECONDS = 30
 # Directory holding the fingerprint backend (curl_cffi), kept off the default import path

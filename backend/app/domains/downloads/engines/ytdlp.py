@@ -5,10 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
-from backend.app.domains.settings import get_effective_fields, get_effective_title_cleaning
-
-from .access import AccessIdentity
-from .constants import (
+from backend.app.domains.access.rotation import AccessIdentity
+from backend.app.domains.downloads.constants import (
     FIELD_ROLE_CHAINS,
     SAFE_PREDOWNLOAD_TRIM_CHARS,
     TITLE_MAX_CHARS_DEFAULT,
@@ -27,20 +25,21 @@ from .constants import (
     video_recode_format,
     video_remux_format,
 )
-from .formats import (
+from backend.app.domains.downloads.links.formats import (
     derived_token_value,
     field_role_list,
     field_spec_parts,
     rendered_template_parts,
     substitute_template,
 )
-from .naming import (
+from backend.app.domains.downloads.naming.naming import (
     clean_filename_title,
     clean_social_title,
     detect_ffmpeg_location,
     sanitize_filename_component,
     sanitize_path_literal,
 )
+from backend.app.domains.settings import get_effective_fields, get_effective_title_cleaning
 
 # Re-exported so callers keep importing naming helpers from this module.
 __all__ = [

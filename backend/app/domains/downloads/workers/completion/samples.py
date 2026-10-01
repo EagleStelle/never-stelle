@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from backend.app.domains.downloads.constants import FIELD_CANDIDATES, field_roles_from_probe_fields
-from backend.app.domains.downloads.learning import (
+from backend.app.domains.downloads.library.scan import parse_filename_media_id
+from backend.app.domains.downloads.metadata.learned_fields import (
     has_learned_fields,
     save_learned_fields,
 )
-from backend.app.domains.downloads.scan import parse_filename_media_id
 
 
 def _format_sample(

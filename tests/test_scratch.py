@@ -211,7 +211,7 @@ def test_library_walkers_skip_staging_folders(tmp_path):
 
     import backend.app.core.config as config_module
     from backend.app.domains.downloads import files as files_module
-    from backend.app.domains.downloads import scan as scan_module
+    from backend.app.domains.downloads.library import scan as scan_module
 
     root = tmp_path / "media"
     kept = root / "youtube" / "Creator" / "clip.mp4"
@@ -230,7 +230,7 @@ def test_library_walkers_skip_staging_folders(tmp_path):
 
 
 def test_library_scan_skips_chapter_folders(tmp_path):
-    from backend.app.domains.downloads import scan as scan_module
+    from backend.app.domains.downloads.library import scan as scan_module
 
     creator = tmp_path / "media" / "youtube" / "Creator"
     full = creator / "Mix [abc].mp4"

@@ -14,7 +14,7 @@ from backend.app.api.schemas.trackers import (
     UpdateTrackerPayload,
 )
 from backend.app.domains.trackers import service
-from backend.app.domains.trackers.scheduler import ensure_tracker_worker
+from backend.app.domains.trackers.checker import ensure_tracker_worker
 
 router = APIRouter(
     prefix="/trackers",

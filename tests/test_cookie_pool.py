@@ -2,8 +2,8 @@ import threading
 import time
 from contextlib import closing
 
-import backend.app.domains.settings.cookie_pool as pool
-from backend.app.domains.downloads.workers.processes import (
+import backend.app.domains.access.pool as pool
+from backend.app.runtime.processes import (
     TaskCancelled,
     request_cancel,
     task_execution,

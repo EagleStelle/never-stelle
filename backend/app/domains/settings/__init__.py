@@ -1,27 +1,5 @@
-from backend.app.domains.settings.browser_identity import BrowserIdentity, browser_identity
-from backend.app.domains.settings.cookie_policy import (
-    DEFAULT_COOKIE_POLICY,
-    CookiePolicy,
-    builtin_cookie_policy_defaults,
-    cookie_policy_defaults,
-    cookie_policy_for_source,
-    get_effective_cookie_policies,
-    invalidate_cookie_policies,
-    normalize_default_cookie_policy,
-    normalize_source_cookie_policies,
-)
-from backend.app.domains.settings.cookie_pool import (
-    CookieLease,
-    cookie_ready_in,
-    cookie_rotation,
-    invalidate_cookie_pool,
-    lease_cookie,
-    looks_antibot_walled,
-    looks_rate_limited,
-    release_cookie,
-    reset_cookie_pool,
-)
-from backend.app.domains.settings.cookies import (
+from backend.app.domains.settings.cookies.identity import BrowserIdentity, browser_identity
+from backend.app.domains.settings.cookies.jars import (
     clear_ytdlp_cookie,
     clear_ytdlp_cookies_upload,
     detect_cookie_source,
@@ -32,6 +10,17 @@ from backend.app.domains.settings.cookies import (
     list_cookies_for_source,
     reorder_ytdlp_cookies,
     save_ytdlp_cookies_upload,
+)
+from backend.app.domains.settings.cookies.policy import (
+    DEFAULT_COOKIE_POLICY,
+    CookiePolicy,
+    builtin_cookie_policy_defaults,
+    cookie_policy_defaults,
+    cookie_policy_for_source,
+    get_effective_cookie_policies,
+    invalidate_cookie_policies,
+    normalize_default_cookie_policy,
+    normalize_source_cookie_policies,
 )
 from backend.app.domains.settings.fields import (
     get_effective_field_defaults,
@@ -111,7 +100,6 @@ __all__ = [
     "DEFAULT_COOKIE_POLICY",
     "TEMPLATE_KEYS",
     "BrowserIdentity",
-    "CookieLease",
     "CookiePolicy",
     "add_source_and_learn_format",
     "browser_identity",
@@ -121,8 +109,6 @@ __all__ = [
     "clear_ytdlp_cookies_upload",
     "cookie_policy_defaults",
     "cookie_policy_for_source",
-    "cookie_ready_in",
-    "cookie_rotation",
     "detect_cookie_source",
     "ensure_source_profile_for_url",
     "get_cookie_source_status",
@@ -149,17 +135,13 @@ __all__ = [
     "has_cookies_for_source",
     "has_cookies_for_url",
     "invalidate_cookie_policies",
-    "invalidate_cookie_pool",
     "is_scraper_field",
     "iter_resolved_source_locations",
-    "lease_cookie",
     "list_cookies_for_source",
     "load_saved_settings_file",
     "load_scrape_rules",
     "load_slug_tokens",
     "load_token_roles",
-    "looks_antibot_walled",
-    "looks_rate_limited",
     "merge_tracker_tabs",
     "normalize_default_cookie_policy",
     "normalize_default_fields",
@@ -181,10 +163,8 @@ __all__ = [
     "normalize_tracker_settings",
     "persist_settings",
     "queue_icons",
-    "release_cookie",
     "reorder_ytdlp_cookies",
     "require_settings_managed_source",
-    "reset_cookie_pool",
     "resolve_source_location",
     "save_saved_settings_file",
     "save_tracker_tabs",

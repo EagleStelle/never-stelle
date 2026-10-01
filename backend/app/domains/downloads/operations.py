@@ -10,17 +10,20 @@ from backend.app.core.time import utc_now
 from backend.app.db.repositories import unlink_tracker_downloads
 from backend.app.domains.settings import get_effective_saved_settings, get_effective_title_cleaning, queue_icons
 from backend.app.integrations.swaratelle import client as swaratelle
+from backend.app.runtime.processes import has_active_task, request_cancel
 
 from .constants import normalize_post_processing, normalize_quality_selection
-from .engine import default_engine
+from .engines.engine import default_engine
 from .files import find_numbered_media_siblings, payload_path_string, recover_task_path, remove_media
-from .formats import reconstruct_url_candidates
-from .history import find_active_by_source, find_history_by_id, find_history_by_source
-from .learning import learn_source_id_signature
-from .naming import clean_template_display_filename
+from .library.history import find_active_by_source, find_history_by_id, find_history_by_source
+from .library.resolve import entry_token_state, file_history_entry
+from .library.scan import history_write_lock, parse_filename_media_id
+from .links.formats import reconstruct_url_candidates
+from .links.urls import canonicalize_source_url, detect_source_key, resolve_redirect_url
+from .metadata.learned_fields import learn_source_id_signature
+from .naming.naming import clean_template_display_filename
+from .naming.template_rows import template_row_fields, template_settings_from_row
 from .planning import resolve_task_settings
-from .resolve import entry_token_state, file_history_entry
-from .scan import history_write_lock, parse_filename_media_id
 from .serializers import history_to_api, task_to_api
 from .slideshow import build_slideshow_archive
 from .store import (
@@ -35,9 +38,7 @@ from .store import (
     save_history_entry_row,
     update_task,
 )
-from .templates import template_row_fields, template_settings_from_row
-from .urls import canonicalize_source_url, detect_source_key, resolve_redirect_url
-from .worker import ensure_worker, has_active_task, request_cancel
+from .workers.scheduler import ensure_worker
 
 # How long a delete waits for a library scan to finish with the history.
 _HISTORY_LOCK_SECONDS = 5.0

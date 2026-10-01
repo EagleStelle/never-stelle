@@ -8,6 +8,10 @@ from typing import Any
 import httpx
 
 from backend.app.core.sources import normalize_source_key
+from backend.app.domains.access.rotation import access_rotation
+from backend.app.domains.downloads.links.formats import _canonical_shape, _prepare_url, extract_url_part, match_template
+from backend.app.domains.downloads.naming.naming import settings_tokens
+from backend.app.domains.downloads.naming.template_rows import template_row_fields
 from backend.app.domains.settings import (
     detect_cookie_source,
     load_scrape_rules,
@@ -16,11 +20,6 @@ from backend.app.domains.settings import (
     scraper_token_from_field,
     token_role_matches,
 )
-
-from .access import access_rotation
-from .formats import _canonical_shape, _prepare_url, extract_url_part, match_template
-from .naming import settings_tokens
-from .templates import template_row_fields
 
 # Per-platform user rules turn a page's own markup into filename/folder tokens,
 # for sites whose downloader leaves uploader/artist unextracted. Nothing here is
@@ -397,7 +396,7 @@ def active_slug_rules_for_key(slug_map: Any, source_key: str) -> list[dict[str, 
                 if part:
                     configured_by_part[part] = token
 
-    from backend.app.domains.downloads.formats import describe_learned_segments
+    from backend.app.domains.downloads.links.formats import describe_learned_segments
     from backend.app.domains.downloads.store import load_learned_formats
 
     out: list[dict[str, str]] = []

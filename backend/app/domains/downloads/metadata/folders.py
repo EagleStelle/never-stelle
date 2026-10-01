@@ -23,8 +23,8 @@ from backend.app.domains.downloads.metadata.values import (
     clean_creator_candidate,
     display_creator_candidate,
 )
-from backend.app.domains.downloads.naming import sanitize_path_literal
-from backend.app.domains.downloads.templates import template_row_fields
+from backend.app.domains.downloads.naming.naming import sanitize_path_literal
+from backend.app.domains.downloads.naming.template_rows import template_row_fields
 
 _PATH_SEPARATOR_RE = re.compile(r"[\\/]+")
 _NON_SEGMENTS = {".", ".."}

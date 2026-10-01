@@ -114,7 +114,7 @@ def possible_template_settings(source_key: str) -> dict[str, dict[str, str]]:
 
 def template_settings_for(options: dict[str, dict[str, str]], format_template: str) -> dict[str, str]:
     """The set ``options`` (as ``possible_template_settings`` returns them) holds for one format."""
-    from backend.app.domains.downloads.formats import select_for_format
+    from backend.app.domains.downloads.links.formats import select_for_format
 
     matched = select_for_format({fmt: value for fmt, value in options.items() if fmt}, format_template)
     return normalize_template_settings(matched if matched is not None else options[""])
@@ -122,7 +122,7 @@ def template_settings_for(options: dict[str, dict[str, str]], format_template: s
 
 def link_format(source_url: str) -> tuple[str, str]:
     """The source key and learned format a link resolves to."""
-    from backend.app.domains.downloads.formats import match_template
+    from backend.app.domains.downloads.links.formats import match_template
     from backend.app.domains.downloads.store import load_learned_formats
 
     key = get_source_profile_for_url(source_url, load_app_config(), load_saved_settings_file())["key"]

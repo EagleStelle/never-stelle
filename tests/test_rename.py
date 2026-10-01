@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-import backend.app.domains.downloads.rename as rename_module
-import backend.app.domains.downloads.scan as scan_module
+import backend.app.domains.downloads.library.rename as rename_module
+import backend.app.domains.downloads.library.scan as scan_module
 
 OLD_TEMPLATE = "{{username}} - {{title}} [{{id}}]"
 NEW_TEMPLATE = "{{title}} ({{username}}) [{{id}}]"

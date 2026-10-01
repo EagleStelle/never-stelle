@@ -7,9 +7,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from backend.app.domains.settings.templates import TEMPLATE_KEYS
-
-from .constants import (
+from backend.app.domains.downloads.constants import (
     CREATOR_FIELDS,
     SAFE_FILENAME_MAX_BYTES,
     TEMPLATE_RE,
@@ -17,6 +15,7 @@ from .constants import (
     normalize_title_cleaning,
     quality_label,
 )
+from backend.app.domains.settings.templates import TEMPLATE_KEYS
 
 # --- Shared character classes ---
 _INVALID_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f\u29f8\u29f9]')

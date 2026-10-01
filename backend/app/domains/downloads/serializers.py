@@ -20,8 +20,10 @@ from .constants import (
     normalize_quality_selection,
 )
 from .files import recover_task_path
-from .naming import clean_template_display_filename
-from .scan import parse_filename_media_id
+from .library.scan import parse_filename_media_id
+from .links.urls import detect_source_key
+from .naming.naming import clean_template_display_filename
+from .naming.template_rows import template_settings_from_row
 from .store import (
     active_counts_by_source_and_media,
     history_counts_by_source_and_media,
@@ -30,8 +32,6 @@ from .store import (
     spent_enrichment_job_ids,
     tracker_ids_for_downloads,
 )
-from .templates import template_settings_from_row
-from .urls import detect_source_key
 
 
 def _file_size(resolved_path: str, fallback: Any = 0) -> int:
@@ -417,8 +417,8 @@ def library_activity() -> dict[str, Any]:
     start and the spinner clears when the work is done, not when a request returned.
     ``resolve_pass`` rides along because the POST that starts one only queues it.
     """
-    from .resolve import resolve_activity, resolve_pass_reports
-    from .scan import scan_in_progress
+    from .library.resolve import resolve_activity, resolve_pass_reports
+    from .library.scan import scan_in_progress
 
     return {
         "scanning": int(scan_in_progress()),

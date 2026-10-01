@@ -9,7 +9,8 @@ from starlette.background import BackgroundTask
 from backend.app.api.deps import require_authenticated_session
 from backend.app.api.responses import attachment_content_disposition, local_download_response
 from backend.app.api.schemas.downloads import AddDownloadPayload, IdsPayload, ProbePayload, SetSourcePayload
-from backend.app.domains.downloads import operations, probe, serializers, slideshow
+from backend.app.domains.downloads import operations, serializers, slideshow
+from backend.app.domains.downloads.engines import probe
 from backend.app.integrations.swaratelle import client as swaratelle
 
 router = APIRouter(

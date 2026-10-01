@@ -26,6 +26,6 @@ def save_saved_settings_file(payload: dict[str, Any]) -> None:
     invalidate(SAVED_SETTINGS_KEY, "settings.", "core.")
     # Sole settings write path, so cached derivations can trust their entries
     # until this fires instead of re-reading the row per use.
-    from .cookie_policy import invalidate_cookie_policies
+    from .cookies.policy import invalidate_cookie_policies
 
     invalidate_cookie_policies()

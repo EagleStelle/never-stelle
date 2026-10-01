@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-import backend.app.domains.downloads.probe as probe_module
-from backend.app.domains.downloads.probe import (
+import backend.app.domains.downloads.engines.probe as probe_module
+import backend.app.runtime.processes as processes_module
+from backend.app.domains.downloads.engines.probe import (
     _candidate_probe_fields,
     _entry_url,
     _flatten_metadata,
@@ -249,7 +250,7 @@ def test_gallerydl_dumps_uses_tiktok_no_audio_probe_option(monkeypatch):
 
 def _stub_rotation(monkeypatch, paths, source_key="instagram"):
     """Hand the probe a fixed list of jars, in order, like the real rotation does."""
-    from backend.app.domains.settings import CookieLease
+    from backend.app.domains.access.pool import CookieLease
 
     leases = [
         CookieLease(cookie_id=f"jar-{index}", source_key=source_key, path=path, filename=f"jar{index}.txt")
@@ -260,7 +261,7 @@ def _stub_rotation(monkeypatch, paths, source_key="instagram"):
         assert key == source_key
         yield from leases
 
-    import backend.app.domains.downloads.access as access_module
+    import backend.app.domains.access.rotation as access_module
 
     monkeypatch.setattr(probe_module, "has_cookies_for_source", lambda key: key == source_key)
     monkeypatch.setattr(access_module, "has_cookies_for_source", lambda key: key == source_key)
@@ -315,7 +316,7 @@ def test_ytdlp_dumps_loads_the_fingerprint_backend_only_when_impersonating(monke
 
     monkeypatch.setattr(probe_module.subprocess, "run", fake_run)
     _stub_rotation(monkeypatch, [])
-    import backend.app.domains.downloads.access as access_module
+    import backend.app.domains.access.rotation as access_module
 
     monkeypatch.setattr(access_module, "_impersonation_families", lambda: ("chrome",))
     monkeypatch.setenv("NEVER_STELLE_IMPERSONATE_PATH", "/opt/impersonate")
@@ -340,8 +341,8 @@ def test_ytdlp_dumps_low_priority_uses_windows_priority_flag(monkeypatch):
 
         return Result()
 
-    monkeypatch.setattr(probe_module.os, "name", "nt", raising=False)
-    monkeypatch.setattr(probe_module.subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0x4000, raising=False)
+    monkeypatch.setattr(processes_module.os, "name", "nt", raising=False)
+    monkeypatch.setattr(processes_module.subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0x4000, raising=False)
     monkeypatch.setattr(probe_module.subprocess, "run", fake_run)
 
     url = "https://example.test/watch/abc123"

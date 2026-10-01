@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from backend.app.domains.downloads.workers.processes import raise_if_cancelled, run_task_subprocess
+from backend.app.runtime.processes import raise_if_cancelled, run_task_subprocess
 from backend.app.runtime.scratch import publish_staged_file, staging_file
 
 from .constants import (
@@ -12,7 +12,7 @@ from .constants import (
     is_lossless_audio,
     normalize_quality_selection,
 )
-from .naming import detect_ffmpeg_location
+from .naming.naming import detect_ffmpeg_location
 
 
 def _read_head(path: Path) -> bytes:

@@ -12,7 +12,7 @@ from .storage import load_saved_settings_file, save_saved_settings_file
 
 def get_learned_formats_for_ui() -> dict[str, dict[str, Any]]:
     # Read-only per-source learned URL shape + selectable segments for the Slug pane.
-    from backend.app.domains.downloads.formats import describe_learned_segments
+    from backend.app.domains.downloads.links.formats import describe_learned_segments
     from backend.app.domains.downloads.store import load_learned_formats
 
     out: dict[str, dict[str, Any]] = {}
@@ -28,8 +28,12 @@ def get_learned_formats_for_ui() -> dict[str, dict[str, Any]]:
 
 def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
     """Add a platform from a pasted link and learn its URL format in one step."""
-    from backend.app.domains.downloads.formats import match_template, media_id_from_url
-    from backend.app.domains.downloads.learning import learn_formats, probe_link_fields, save_missing_learned_fields
+    from backend.app.domains.downloads.links.formats import match_template, media_id_from_url
+    from backend.app.domains.downloads.metadata.learned_fields import (
+        learn_formats,
+        probe_link_fields,
+        save_missing_learned_fields,
+    )
     from backend.app.domains.downloads.store import load_learned_formats
 
     url = str(url_or_link or "").strip()
@@ -65,7 +69,7 @@ def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
 
 def set_learned_format_templates(source_key: str, templates: Any) -> dict[str, Any]:
     """Reorder or delete a source's learned URL templates."""
-    from backend.app.domains.downloads.formats import learned_templates_for
+    from backend.app.domains.downloads.links.formats import learned_templates_for
     from backend.app.domains.downloads.store import (
         forget_learned_format,
         load_learned_formats,

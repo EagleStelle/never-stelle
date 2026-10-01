@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import shutil
 import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import closing, suppress
@@ -11,18 +9,17 @@ from typing import Any
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
 
 from backend.app.core.sources import normalize_source_key, source_key_from_url
-from backend.app.domains.downloads.workers.processes import run_task_subprocess
-from backend.app.domains.settings import detect_cookie_source, has_cookies_for_source
-
-from .access import AccessIdentity, access_env, access_rotation
-from .constants import (
+from backend.app.domains.access.rotation import AccessIdentity, access_env, access_rotation
+from backend.app.domains.downloads.constants import (
     FIELD_CANDIDATES,
     field_roles_from_probe_fields,
     promote_field_roles,
 )
-from .formats import _prepare_url
-from .gallerydl import gallerydl_access_args
-from .ytdlp import ytdlp_access_args
+from backend.app.domains.downloads.engines.gallerydl import gallerydl_access_args
+from backend.app.domains.downloads.engines.ytdlp import ytdlp_access_args
+from backend.app.domains.downloads.links.formats import _prepare_url
+from backend.app.domains.settings import detect_cookie_source, has_cookies_for_source
+from backend.app.runtime.processes import low_priority_command, run_task_subprocess
 
 # YouTube mix/radio playlists carry an ``RD`` list id and are endless, so we
 # never expand them; we download only the video the link points at.
@@ -31,21 +28,6 @@ _PROBE_TIMEOUT_SECONDS = 90
 _MAX_ENTRIES = 500
 _GALLERYDL_TIKTOK_NO_AUDIO_OPTION = "extractor.tiktok.audio=false"
 _BLANK_RE = re.compile(r"\s*")
-
-
-def low_priority_command(cmd: list[str], kwargs: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
-    """The command and its process options, lowered below the downloads' CPU priority."""
-    run_cmd = list(cmd)
-    run_kwargs = dict(kwargs)
-    if os.name == "nt":
-        priority = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
-        if priority:
-            run_kwargs["creationflags"] = int(run_kwargs.get("creationflags", 0)) | priority
-    else:
-        nice = shutil.which("nice")
-        if nice:
-            run_cmd = [nice, "-n", "10", *run_cmd]
-    return run_cmd, run_kwargs
 
 
 def gallerydl_reads(url: str) -> bool | None:

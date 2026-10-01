@@ -6,10 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
-from backend.app.domains.settings import get_effective_title_cleaning
-
-from .access import AccessIdentity
-from .constants import (
+from backend.app.domains.access.rotation import AccessIdentity
+from backend.app.domains.downloads.constants import (
     FIELD_ROLE_CHAINS,
     MEDIA_EXTENSIONS,
     SAFE_PREDOWNLOAD_TRIM_CHARS,
@@ -29,7 +27,8 @@ from .constants import (
     video_recode_format,
     video_remux_format,
 )
-from .formats import (
+from backend.app.domains.downloads.engines.ytdlp import ytdlp_pacing_args
+from backend.app.domains.downloads.links.formats import (
     derived_token_value,
     field_role_list,
     field_spec_parts,
@@ -37,8 +36,8 @@ from .formats import (
     rendered_template_parts,
     substitute_template,
 )
-from .naming import detect_ffmpeg_location, sanitize_path_literal
-from .ytdlp import ytdlp_pacing_args
+from backend.app.domains.downloads.naming.naming import detect_ffmpeg_location, sanitize_path_literal
+from backend.app.domains.settings import get_effective_title_cleaning
 
 # gallery-dl keys are identifiers with optional [sub] nesting; reject anything else.
 _GALLERYDL_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\[[A-Za-z0-9_]+\])*$")

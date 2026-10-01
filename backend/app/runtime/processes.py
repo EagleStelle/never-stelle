@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
 import threading
@@ -16,6 +17,8 @@ _active_processes: dict[str, set[subprocess.Popen[Any]]] = {}
 _active_tasks: set[str] = set()
 _active_cancel_callbacks: dict[str, Callable[[], None]] = {}
 _current_task_id: ContextVar[str] = ContextVar("never_stelle_task_id", default="")
+# Called after every cancel, so waiters outside the task notice it.
+_cancel_listeners: list[Callable[[], None]] = []
 
 
 class TaskCancelled(BaseException):
@@ -67,9 +70,11 @@ def _kill_process_tree(process: subprocess.Popen[Any]) -> None:
             pass
 
 
-def request_cancel(task_id: str) -> None:
-    from backend.app.domains.settings.cookie_pool import wake_cookie_pool
+def add_cancel_listener(listener: Callable[[], None]) -> None:
+    _cancel_listeners.append(listener)
 
+
+def request_cancel(task_id: str) -> None:
     with _cancel_lock:
         if task_id not in _active_tasks:
             return
@@ -83,10 +88,11 @@ def request_cancel(task_id: str) -> None:
             callback()
         except Exception:
             pass
-    try:
-        wake_cookie_pool()
-    except Exception:
-        pass
+    for listener in list(_cancel_listeners):
+        try:
+            listener()
+        except Exception:
+            pass
 
 
 def has_active_task(task_id: str) -> bool:
@@ -225,3 +231,18 @@ def run_task_subprocess(
     if check:
         completed.check_returncode()
     return completed
+
+
+def low_priority_command(cmd: list[str], kwargs: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+    """The command and its process options, lowered below the downloads' CPU priority."""
+    run_cmd = list(cmd)
+    run_kwargs = dict(kwargs)
+    if os.name == "nt":
+        priority = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
+        if priority:
+            run_kwargs["creationflags"] = int(run_kwargs.get("creationflags", 0)) | priority
+    else:
+        nice = shutil.which("nice")
+        if nice:
+            run_cmd = [nice, "-n", "10", *run_cmd]
+    return run_cmd, run_kwargs

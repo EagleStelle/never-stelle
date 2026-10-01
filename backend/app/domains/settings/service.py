@@ -11,13 +11,13 @@ from backend.app.core.config import (
 )
 from backend.app.core.resolution import is_scoped, resolved
 
-from .cookie_policy import (
+from .cookies.jars import get_ytdlp_cookies_status
+from .cookies.policy import (
     builtin_cookie_policy_defaults,
     get_effective_cookie_policies,
     normalize_default_cookie_policy,
     normalize_source_cookie_policies,
 )
-from .cookies import get_ytdlp_cookies_status
 from .fields import (
     get_effective_naming_defaults,
     normalize_default_fields,

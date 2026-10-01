@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.app.domains.settings.browser_identity import browser_identity, desktop_chrome_user_agent
+from backend.app.domains.settings.cookies.identity import browser_identity, desktop_chrome_user_agent
 
 _ENGINE = "AppleWebKit/537.36 (KHTML, like Gecko)"
 _WINDOWS = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) {_ENGINE} Chrome/{{}}.0.0.0 Safari/537.36"

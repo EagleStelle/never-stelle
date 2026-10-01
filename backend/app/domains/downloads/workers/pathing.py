@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from backend.app.domains.downloads.constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
-from backend.app.domains.downloads.engine import Engine
+from backend.app.domains.downloads.engines.engine import Engine
 from backend.app.domains.downloads.files import numbered_suffix_value
 
 

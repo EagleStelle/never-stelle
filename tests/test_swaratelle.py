@@ -4,7 +4,7 @@ import pytest
 
 import backend.app.domains.downloads.operations as operations_module
 import backend.app.domains.downloads.serializers as serializers_module
-import backend.app.domains.settings.cookies as settings_cookies_module
+import backend.app.domains.settings.cookies.jars as settings_cookies_module
 import backend.app.domains.settings.profiles as settings_profiles_module
 import backend.app.domains.settings.service as settings_module
 from backend.app.integrations.swaratelle import client as swaratelle

@@ -18,14 +18,17 @@ from backend.app.domains.downloads.constants import (
     normalize_quality_selection,
     post_processing_requested,
 )
+from backend.app.domains.downloads.engines.probe import probe_link_metadata
 from backend.app.domains.downloads.files import is_media_file
-from backend.app.domains.downloads.learning import learn_missing_fields_for_format, save_missing_learned_fields
+from backend.app.domains.downloads.metadata.learned_fields import (
+    learn_missing_fields_for_format,
+    save_missing_learned_fields,
+)
 from backend.app.domains.downloads.postprocessing import (
     apply_finalized_post_processing,
     extractor_payload_from_sidecars,
     metadata_sidecars_for,
 )
-from backend.app.domains.downloads.probe import probe_link_metadata
 from backend.app.domains.downloads.store import (
     active_download_task_count,
     claim_next_enrichment_job,
@@ -120,7 +123,7 @@ def _downloads_active() -> bool:
 
 def _library_busy() -> bool:
     # A job's write would only wait behind a scan's hold on the history rows.
-    from backend.app.domains.downloads.scan import scan_in_progress
+    from backend.app.domains.downloads.library.scan import scan_in_progress
 
     return _downloads_active() or scan_in_progress()
 
@@ -154,7 +157,7 @@ def _retry_job(job: dict[str, Any], error: str) -> None:
     """Hand a job back to the queue; spending its last attempt is a result to report."""
     spent = retry_enrichment_job(str(job.get("id") or ""), error, max_attempts=_MAX_ATTEMPTS)
     if spent and str(job.get("kind") or "") == RESOLVE_JOB_KIND:
-        from backend.app.domains.downloads.resolve import record_resolve_outcome
+        from backend.app.domains.downloads.library.resolve import record_resolve_outcome
 
         payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
         record_resolve_outcome(payload.get("pass"), "failed")
@@ -252,7 +255,7 @@ def _run_enrichment_job(job: dict[str, Any]) -> None:
     task_id = str(payload.get("task_id") or "")
     if str(job.get("kind") or "") == RESOLVE_JOB_KIND:
         # Lazy: resolve reaches back through the scan, which this module already feeds.
-        from backend.app.domains.downloads.resolve import record_resolve_outcome, resolve_history_entry
+        from backend.app.domains.downloads.library.resolve import record_resolve_outcome, resolve_history_entry
 
         # Every path here reports: a row the pass never hears back about is a pass that
         # never finishes. A raise is left to _retry_job, since only a spent attempt is one.

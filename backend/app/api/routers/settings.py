@@ -16,7 +16,7 @@ from backend.app.api.schemas.settings import (
 )
 from backend.app.core.config import load_app_config
 from backend.app.core.sources import normalize_source_key, source_key_from_url
-from backend.app.domains.downloads.resolve import watch_naming_changes
+from backend.app.domains.downloads.library.resolve import watch_naming_changes
 from backend.app.domains.settings import (
     add_source_and_learn_format,
     build_settings_response,
@@ -80,8 +80,8 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
 
 @router.post("/scrape-test")
 def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
-    from backend.app.domains.downloads.enrich import fetch_html, normalize_scrape_rule, scrape_tokens
-    from backend.app.domains.downloads.urls import resolve_redirect_url
+    from backend.app.domains.downloads.links.urls import resolve_redirect_url
+    from backend.app.domains.downloads.metadata.scraper import fetch_html, normalize_scrape_rule, scrape_tokens
 
     url = resolve_redirect_url(payload.url.strip())
     if not url:
@@ -115,9 +115,9 @@ def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
 
 @router.post("/probe-fields")
 def probe_fields(payload: ProbeLinkPayload) -> dict[str, Any]:
-    from backend.app.domains.downloads.learning import save_learned_fields
-    from backend.app.domains.downloads.probe import probe_fields as probe_field_roles
-    from backend.app.domains.downloads.urls import resolve_redirect_url
+    from backend.app.domains.downloads.engines.probe import probe_fields as probe_field_roles
+    from backend.app.domains.downloads.links.urls import resolve_redirect_url
+    from backend.app.domains.downloads.metadata.learned_fields import save_learned_fields
 
     url = resolve_redirect_url(payload.url)
     try:
@@ -142,7 +142,7 @@ def probe_fields(payload: ProbeLinkPayload) -> dict[str, Any]:
 
 @router.post("/probe-tabs")
 def probe_tabs(payload: ProbeTabsPayload) -> dict[str, Any]:
-    from backend.app.domains.downloads.urls import resolve_redirect_url
+    from backend.app.domains.downloads.links.urls import resolve_redirect_url
     from backend.app.domains.trackers.listing import probe_tabs as probe_link_tabs
 
     url = resolve_redirect_url(payload.url.strip())
@@ -155,7 +155,7 @@ def probe_tabs(payload: ProbeTabsPayload) -> dict[str, Any]:
 
 @router.post("/learn-format")
 def learn_format(payload: LearnFormatPayload) -> dict[str, Any]:
-    from backend.app.domains.downloads.urls import resolve_redirect_url
+    from backend.app.domains.downloads.links.urls import resolve_redirect_url
 
     try:
         result = add_source_and_learn_format(resolve_redirect_url(payload.url))

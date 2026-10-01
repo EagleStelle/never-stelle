@@ -5,8 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from backend.app.core.time import utc_now_datetime
-
-from .formats import analyze_url
+from backend.app.domains.downloads.links.formats import analyze_url
 
 # How long a learned absence holds before one read re-checks it. A site can start doing
 # what a route never did (redirect it, carry captions on it), and without an expiry the last

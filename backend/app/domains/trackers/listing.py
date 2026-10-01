@@ -17,11 +17,20 @@ from typing import Any, Protocol
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlparse
 
 from backend.app.core.sources import apex_host, host_from_url, normalize_source_key, source_key_from_url
-from backend.app.domains.downloads.access import AccessIdentity, access_env
-from backend.app.domains.downloads.browser import BrowserSession
+from backend.app.domains.access.rotation import AccessIdentity, access_env
 from backend.app.domains.downloads.constants import FIELD_ROLE_CHAINS, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS
-from backend.app.domains.downloads.enrich import fetch_html
-from backend.app.domains.downloads.formats import (
+from backend.app.domains.downloads.engines.gallerydl import gallerydl_access_args
+from backend.app.domains.downloads.engines.probe import (
+    _flatten_metadata,
+    _probe_rotation,
+    _url_exact_values,
+    gallerydl_reads,
+    probe_metadata,
+    ytdlp_single_video,
+)
+from backend.app.domains.downloads.engines.ytdlp import ytdlp_access_args
+from backend.app.domains.downloads.library.history import find_history_by_source
+from backend.app.domains.downloads.links.formats import (
     _id_matches,
     _is_identifier_key,
     _is_route_segment,
@@ -34,33 +43,25 @@ from backend.app.domains.downloads.formats import (
     reconstruct_url_candidates,
     url_dedup_key,
 )
-from backend.app.domains.downloads.gallerydl import gallerydl_access_args
-from backend.app.domains.downloads.history import find_history_by_source
-from backend.app.domains.downloads.probe import (
-    _flatten_metadata,
-    _probe_rotation,
-    _url_exact_values,
-    gallerydl_reads,
-    low_priority_command,
-    probe_metadata,
-    ytdlp_single_video,
-)
+from backend.app.domains.downloads.links.urls import _is_strong_media_id
+from backend.app.domains.downloads.metadata.scraper import fetch_html
 from backend.app.domains.downloads.store import load_learned_formats
-from backend.app.domains.downloads.urls import _is_strong_media_id
-from backend.app.domains.downloads.workers.processes import (
+from backend.app.domains.settings.fields import get_effective_field_defaults, get_effective_fields
+from backend.app.domains.settings.trackers import merge_tracker_tabs, page_words, row_matches, same_label
+from backend.app.runtime.processes import (
     TaskCancelled,
     _kill_process_tree,
     _register_process,
     _unregister_process,
     cancel_on_request,
     current_task_id,
+    low_priority_command,
     raise_if_cancelled,
     request_cancel,
     task_execution,
 )
-from backend.app.domains.downloads.ytdlp import ytdlp_access_args
-from backend.app.domains.settings.fields import get_effective_field_defaults, get_effective_fields
-from backend.app.domains.settings.trackers import merge_tracker_tabs, page_words, row_matches, same_label
+
+from .browser import BrowserSession
 
 # A listing that prints nothing for this long is stuck, not slow.
 _IDLE_TIMEOUT_SECONDS = 300

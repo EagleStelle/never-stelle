@@ -6,19 +6,18 @@ from typing import Any
 from backend.app.core.coercion import safe_int
 from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
-
-from .constants import normalize_quality_selection
-from .formats import media_id_from_url, url_dedup_key
-from .scan import parse_filename_media_id
-from .store import (
+from backend.app.domains.downloads.constants import normalize_quality_selection
+from backend.app.domains.downloads.library.scan import parse_filename_media_id
+from backend.app.domains.downloads.links.formats import media_id_from_url, url_dedup_key
+from backend.app.domains.downloads.links.urls import detect_source_key
+from backend.app.domains.downloads.naming.template_rows import template_row_fields
+from backend.app.domains.downloads.store import (
     load_history,
     load_history_entries_for_media_id,
     load_history_entry,
     load_task_store,
     save_history_entry_row,
 )
-from .templates import template_row_fields
-from .urls import detect_source_key
 
 
 def _stored_file_size(task: dict[str, Any]) -> int:

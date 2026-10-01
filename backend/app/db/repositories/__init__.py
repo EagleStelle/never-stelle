@@ -56,7 +56,7 @@ from backend.app.db.repositories.formats import (
     merge_learned_formats_payload,
     save_learned_formats_payload,
 )
-from backend.app.db.repositories.routes import (
+from backend.app.db.repositories.learned_routes import (
     load_route_facts_payload,
     record_route_observation,
 )

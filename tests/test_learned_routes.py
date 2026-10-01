@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-import backend.app.domains.downloads.probe as probe_module
-import backend.app.domains.downloads.routes as routes_module
+import backend.app.domains.downloads.engines.probe as probe_module
+import backend.app.domains.downloads.links.learned_routes as routes_module
 import backend.app.domains.downloads.workers.completion.sidecars as sidecars_module
 import backend.app.domains.downloads.workers.execution as worker_module
 from backend.app.domains.downloads import store as store_module
 from backend.app.domains.downloads.constants import normalize_post_processing
-from backend.app.domains.downloads.engine import ENGINE_WINDOW, engine_order
+from backend.app.domains.downloads.engines.engine import ENGINE_WINDOW, engine_order
 from backend.app.domains.downloads.workers.completion.finalize import FinalizedCompletionOutput
 from tests.support import engine_by_name
 

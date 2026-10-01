@@ -6,13 +6,14 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from .cookie_policy import DEFAULT_COOKIE_POLICY, CookiePolicy, cookie_policy_for_source
-from .cookies import (
+from backend.app.domains.settings.cookies.jars import (
     drop_materialized_cookie,
     list_cookies_for_source,
     materialize_cookie,
     normalize_cookie_source,
 )
+from backend.app.domains.settings.cookies.policy import DEFAULT_COOKIE_POLICY, CookiePolicy, cookie_policy_for_source
+from backend.app.runtime.processes import add_cancel_listener, raise_if_cancelled
 
 # Site responses that mean "this jar is burnt for now" rather than "this link is bad".
 RATE_LIMIT_MARKERS = (
@@ -183,6 +184,9 @@ def wake_cookie_pool() -> None:
         _CONDITION.notify_all()
 
 
+add_cancel_listener(wake_cookie_pool)
+
+
 def lease_cookie(
     source_key: str,
     *,
@@ -205,8 +209,6 @@ def lease_cookie(
     deadline = time.monotonic() + budget
     with _CONDITION:
         while True:
-            from backend.app.domains.downloads.workers.processes import raise_if_cancelled
-
             raise_if_cancelled()
             listed = _listed_entries(source_key)
             entries = {cookie_id: entry for cookie_id, entry in listed.items() if cookie_id not in skip}

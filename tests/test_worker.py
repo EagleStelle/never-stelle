@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from backend.app.domains.downloads import volatile
-from backend.app.domains.downloads.ytdlp import YTDLP_NICKNAME_FIELD, build_ytdlp_command
-from backend.app.domains.downloads.ytdlp import read_creator_sidecar as _read_creator_sidecar
+from backend.app.domains.downloads.engines.ytdlp import YTDLP_NICKNAME_FIELD, build_ytdlp_command
+from backend.app.domains.downloads.engines.ytdlp import read_creator_sidecar as _read_creator_sidecar
 
 
 def test_read_creator_sidecar_returns_last_non_empty_line(tmp_path: Path):
@@ -63,7 +63,7 @@ def test_build_ytdlp_command_omits_print_without_sidecar():
 
 
 def _stub_worker_cookie_rotation(monkeypatch, worker_module, paths=("/tmp/cookies-jar1.txt",), *, target=""):
-    from backend.app.domains.settings import CookieLease
+    from backend.app.domains.access.pool import CookieLease
 
     leases = [
         CookieLease(cookie_id=f"jar-{index}", source_key="youtube", path=path, filename=f"jar{index}.txt")
@@ -78,7 +78,7 @@ def _stub_worker_cookie_rotation(monkeypatch, worker_module, paths=("/tmp/cookie
 
 
 def _stub_access(monkeypatch, rotation, *, target=""):
-    import backend.app.domains.downloads.access as access_module
+    import backend.app.domains.access.rotation as access_module
     import backend.app.domains.downloads.workers.execution as worker_module
 
     monkeypatch.setattr(access_module, "has_cookies_for_source", lambda source_key: True)
@@ -88,7 +88,7 @@ def _stub_access(monkeypatch, rotation, *, target=""):
 
 
 def _run_attempts(worker_module, **options):
-    from backend.app.domains.downloads.engine import YtdlpEngine
+    from backend.app.domains.downloads.engines.engine import YtdlpEngine
 
     return worker_module._run_engine_attempts(
         YtdlpEngine(),
@@ -280,7 +280,7 @@ def _stub_busy_jars(monkeypatch, worker_module, ready_in, tail="ERROR: Unsupport
 )
 def test_run_engine_attempts_defers_the_task_when_every_jar_is_busy(monkeypatch, tail, walled):
     import backend.app.domains.downloads.workers.execution as worker_module
-    from backend.app.domains.downloads.workers.processes import TaskDeferred
+    from backend.app.runtime.processes import TaskDeferred
 
     first_waits = _stub_busy_jars(monkeypatch, worker_module, ready_in=4.0, tail=tail)
 

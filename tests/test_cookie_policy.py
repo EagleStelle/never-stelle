@@ -1,4 +1,4 @@
-import backend.app.domains.settings.cookie_policy as policy_module
+import backend.app.domains.settings.cookies.policy as policy_module
 from backend.app.domains.settings import (
     DEFAULT_COOKIE_POLICY,
     cookie_policy_for_source,

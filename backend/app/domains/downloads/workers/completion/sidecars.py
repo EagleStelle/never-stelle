@@ -7,34 +7,31 @@ from typing import Any
 from urllib.parse import urlparse
 
 from backend.app.core.paths import path_key as _path_key
+from backend.app.domains.access.pool import looks_antibot_walled, looks_rate_limited
 from backend.app.domains.downloads.constants import (
     CREATOR_FIELDS,
     FIELD_DEFAULTS,
     IMAGE_EXTENSIONS,
     MEDIA_ONLY_POST_PROCESSING_FEATURES,
 )
-from backend.app.domains.downloads.engine import Engine
+from backend.app.domains.downloads.engines.engine import Engine
+from backend.app.domains.downloads.engines.probe import probe_link_metadata
 from backend.app.domains.downloads.files import is_media_file
-from backend.app.domains.downloads.formats import field_role_list
+from backend.app.domains.downloads.library.scan import parse_filename_media_id
+from backend.app.domains.downloads.links.formats import field_role_list
+from backend.app.domains.downloads.links.learned_routes import absence_settled, route_shape
 from backend.app.domains.downloads.metadata.creators import configured_field_value
 from backend.app.domains.downloads.metadata.values import clean_creator_candidate, metadata_title
-from backend.app.domains.downloads.naming import (
+from backend.app.domains.downloads.naming.naming import (
     field_value,
     filename_template_fields,
     settings_tokens,
     strip_repeated_media_id,
 )
+from backend.app.domains.downloads.naming.template_rows import template_row_fields
 from backend.app.domains.downloads.postprocessing import _thumbnail_url
-from backend.app.domains.downloads.probe import probe_link_metadata
-from backend.app.domains.downloads.routes import absence_settled, route_shape
-from backend.app.domains.downloads.scan import parse_filename_media_id
 from backend.app.domains.downloads.store import learn_route, load_route_facts
-from backend.app.domains.downloads.templates import template_row_fields
-from backend.app.domains.settings import (
-    get_effective_fields,
-    looks_antibot_walled,
-    looks_rate_limited,
-)
+from backend.app.domains.settings import get_effective_fields
 
 
 def _template_needs_probe_metadata(template_settings: dict[str, str] | None) -> bool:
@@ -221,7 +218,7 @@ def _learn_read(shape: str, features: list[str], payload: dict[str, Any], info: 
 
 
 def _read_media_info(url: str, source_key: str) -> tuple[dict[str, Any], str]:
-    from backend.app.domains.downloads.probe import probe_media_info
+    from backend.app.domains.downloads.engines.probe import probe_media_info
 
     try:
         return probe_media_info(url, cookie_source_key=source_key)

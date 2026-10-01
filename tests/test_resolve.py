@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
+import backend.app.domains.downloads.library.rename as rename_module
+import backend.app.domains.downloads.library.resolve as resolve_module
+import backend.app.domains.downloads.library.scan as scan_module
 import backend.app.domains.downloads.metadata.pipeline as pipeline_module
 import backend.app.domains.downloads.operations as operations_module
-import backend.app.domains.downloads.rename as rename_module
-import backend.app.domains.downloads.resolve as resolve_module
-import backend.app.domains.downloads.scan as scan_module
 import backend.app.domains.downloads.workers.enrichment as enrichment_module
 from backend.app.db.repositories import load_enrichment_jobs_payload as load_enrichment_jobs
 from backend.app.db.repositories import load_naming_snapshots_payload
@@ -483,7 +483,7 @@ def test_filing_a_row_deleted_mid_resolve_leaves_it_deleted(tmp_path: Path, monk
 
 
 def _configured(monkeypatch: pytest.MonkeyPatch, *, slug: dict | None = None, scraped: dict | None = None):
-    import backend.app.domains.downloads.enrich as enrich_module
+    import backend.app.domains.downloads.metadata.scraper as enrich_module
 
     monkeypatch.setattr(enrich_module, "resolve_slug_tokens", lambda *a, **k: dict(slug or {}))
     monkeypatch.setattr(enrich_module, "resolve_scraped_tokens", lambda *a, **k: dict(scraped or {}))

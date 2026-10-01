@@ -12,24 +12,24 @@ import pytest
 from yt_dlp import YoutubeDL
 
 import backend.app.db.repositories as repositories
+import backend.app.domains.downloads.engines.gallerydl as gallerydl_module
+import backend.app.domains.downloads.engines.probe as probe_module
 import backend.app.domains.downloads.files as files_module
-import backend.app.domains.downloads.gallerydl as gallerydl_module
-import backend.app.domains.downloads.history as history_module
+import backend.app.domains.downloads.library.history as history_module
+import backend.app.domains.downloads.library.scan as scan_module
+import backend.app.domains.downloads.links.learned_routes as routes_module
+import backend.app.domains.downloads.links.urls as urls_module
 import backend.app.domains.downloads.metadata.creators as creators_module
 import backend.app.domains.downloads.metadata.folders as folders_module
 import backend.app.domains.downloads.metadata.pipeline as pipeline_module
 import backend.app.domains.downloads.metadata.values as values_module
 import backend.app.domains.downloads.operations as operations_module
 import backend.app.domains.downloads.postprocessing as postprocessing_module
-import backend.app.domains.downloads.probe as probe_module
-import backend.app.domains.downloads.routes as routes_module
-import backend.app.domains.downloads.scan as scan_module
 import backend.app.domains.downloads.serializers as serializers_module
 import backend.app.domains.downloads.slideshow as slideshow_module
-import backend.app.domains.downloads.urls as urls_module
 import backend.app.domains.downloads.workers.completion.finalize as finalize_module
-import backend.app.domains.downloads.workers.completion.learning as learning_module
 import backend.app.domains.downloads.workers.completion.outputs as outputs_module
+import backend.app.domains.downloads.workers.completion.samples as learning_module
 import backend.app.domains.downloads.workers.completion.sidecars as sidecars_module
 import backend.app.domains.downloads.workers.enrichment as enrichment_module
 import backend.app.domains.downloads.workers.execution as worker_module
@@ -37,18 +37,19 @@ import backend.app.domains.downloads.workers.runner as runner_module
 import backend.app.runtime.scratch as scratch_module
 from backend.app.core.paths import path_key
 from backend.app.core.sources import source_label_from_key
-from backend.app.domains.downloads import (
-    canonicalize_source_url,
-    convert_template_to_ytdlp,
-    detect_source_key,
-    extract_downloaded_path,
-    is_media_file,
-    parse_filename_media_id,
-)
 from backend.app.domains.downloads import store as store_module
 from backend.app.domains.downloads.constants import normalize_post_processing
-from backend.app.domains.downloads.engine import Engine
-from backend.app.domains.downloads.formats import (
+from backend.app.domains.downloads.engines.engine import Engine
+from backend.app.domains.downloads.engines.ytdlp import (
+    YTDLP_NICKNAME_FIELD,
+    YTDLP_USERNAME_FIELD,
+    clean_filename_title,
+    clean_social_title,
+    convert_template_to_ytdlp,
+)
+from backend.app.domains.downloads.files import extract_downloaded_path, is_media_file
+from backend.app.domains.downloads.library.scan import parse_filename_media_id
+from backend.app.domains.downloads.links.formats import (
     conflicts_with_source,
     creator_from_url,
     describe_learned_segments,
@@ -65,8 +66,9 @@ from backend.app.domains.downloads.formats import (
     select_for_format,
     url_dedup_key,
 )
-from backend.app.domains.downloads.learning import learn_formats
-from backend.app.domains.downloads.naming import (
+from backend.app.domains.downloads.links.urls import canonicalize_source_url, detect_source_key
+from backend.app.domains.downloads.metadata.learned_fields import learn_formats
+from backend.app.domains.downloads.naming.naming import (
     clean_template_filename,
     filename_template_title,
     sanitize_filename_component,
@@ -77,12 +79,6 @@ from backend.app.domains.downloads.naming import (
 )
 from backend.app.domains.downloads.serializers import history_to_api, task_to_api
 from backend.app.domains.downloads.workers.completion.finalize import FinalizedCompletionOutput
-from backend.app.domains.downloads.ytdlp import (
-    YTDLP_NICKNAME_FIELD,
-    YTDLP_USERNAME_FIELD,
-    clean_filename_title,
-    clean_social_title,
-)
 from tests.support import engine_by_name, use_temp_db
 
 
@@ -3773,9 +3769,9 @@ def test_worker_resumes_a_deferred_task_at_the_cookie_stage_of_the_engine_that_f
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    import backend.app.domains.downloads.access as access_module
-    from backend.app.domains.downloads.workers.processes import TaskDeferred
-    from backend.app.domains.settings import CookieLease
+    import backend.app.domains.access.rotation as access_module
+    from backend.app.domains.access.pool import CookieLease
+    from backend.app.runtime.processes import TaskDeferred
 
     video = tmp_path / "Creator - Clip [abc123].mp4"
     video.write_bytes(b"video")

@@ -9,12 +9,12 @@ from types import SimpleNamespace
 
 import pytest
 
-import backend.app.domains.downloads.enrich as enrich_module
+import backend.app.domains.downloads.metadata.scraper as enrich_module
 import backend.app.domains.downloads.operations as operations_module
 import backend.app.domains.downloads.postprocessing as postprocessing_module
 import backend.app.domains.downloads.workers.execution as execution_module
-import backend.app.domains.downloads.workers.processes as processes_module
 import backend.app.domains.downloads.workers.scheduler as scheduler_module
+import backend.app.runtime.processes as processes_module
 import backend.app.runtime.scratch as scratch_module
 from backend.app.db import repositories
 

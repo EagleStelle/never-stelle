@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
 from backend.app.core.sources import normalize_source_key, source_key_from_url
+from backend.app.domains.downloads.constants import FIELD_DEFAULTS, TEMPLATE_RE, normalize_title_cleaning, quality_label
 from backend.app.domains.settings import (
     get_effective_fields,
     get_effective_template_settings,
@@ -15,8 +16,6 @@ from backend.app.domains.settings import (
     is_scraper_field,
     normalize_template_settings,
 )
-
-from .constants import FIELD_DEFAULTS, TEMPLATE_RE, normalize_title_cleaning, quality_label
 
 _ID_TOKEN = "{id}"
 _CREATOR_TOKEN = "{creator}"

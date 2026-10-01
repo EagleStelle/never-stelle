@@ -8,15 +8,16 @@ from urllib.parse import unquote, urlparse
 import httpx
 
 from backend.app.core.sources import apex_host, host_from_url, source_key_from_url
-from backend.app.domains.downloads.enrich import _load_cookie_jar
-from backend.app.domains.downloads.formats import (
+from backend.app.domains.access.pool import cookie_rotation
+from backend.app.domains.downloads.links.formats import (
     _prepare_url,
     canonicalize_url,
     media_id_from_url,
 )
-from backend.app.domains.downloads.routes import absence_settled, route_shape
+from backend.app.domains.downloads.links.learned_routes import absence_settled, route_shape
+from backend.app.domains.downloads.metadata.scraper import _load_cookie_jar
 from backend.app.domains.downloads.store import learn_route, load_route_facts
-from backend.app.domains.settings import browser_identity, cookie_rotation, detect_cookie_source
+from backend.app.domains.settings import browser_identity, detect_cookie_source
 
 _REDIRECT_TIMEOUT_SECONDS = 8.0
 _REDIRECT_UA = "Mozilla/5.0"

@@ -8,10 +8,10 @@ import backend.app.db.database as database_module
 import backend.app.db.repositories.downloads as downloads_repository_module
 from backend.app.core.paths import path_key
 from backend.app.db import repositories
-from backend.app.domains.downloads import history as history_module
 from backend.app.domains.downloads import serializers
-from backend.app.domains.downloads.formats import learn_download
-from backend.app.domains.downloads.templates import template_row_fields, template_settings_from_row
+from backend.app.domains.downloads.library import history as history_module
+from backend.app.domains.downloads.links.formats import learn_download
+from backend.app.domains.downloads.naming.template_rows import template_row_fields, template_settings_from_row
 from tests.support import use_temp_db
 
 

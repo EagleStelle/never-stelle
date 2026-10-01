@@ -6,14 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from backend.app.api.deps import require_authenticated_session
 from backend.app.api.schemas.library import RenamePayload, ResolvePayload
-from backend.app.domains.downloads.resolve import (
+from backend.app.domains.downloads.library.resolve import (
     rename_counts,
     resolve_scope_counts,
     start_renames,
     start_resolve,
     stop_resolve,
 )
-from backend.app.domains.downloads.scan import scan_media_library, stop_scan
+from backend.app.domains.downloads.library.scan import scan_media_library, stop_scan
 from backend.app.integrations.swaratelle import client as swaratelle
 
 router = APIRouter(

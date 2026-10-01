@@ -10,8 +10,9 @@ import types
 from pathlib import Path
 from queue import Queue
 
-import backend.app.domains.downloads.browser as browser_module
-from backend.app.domains.settings import CookieLease, CookiePolicy
+import backend.app.domains.trackers.browser as browser_module
+from backend.app.domains.access.pool import CookieLease
+from backend.app.domains.settings import CookiePolicy
 
 PAGE_URL = "https://example.test/u/alice"
 _CHROME_140 = (

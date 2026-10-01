@@ -4,10 +4,10 @@ from contextlib import closing
 import httpx
 import pytest
 
-import backend.app.domains.downloads.access as access_module
-import backend.app.domains.downloads.enrich as enrich
-import backend.app.domains.settings.cookie_pool as pool
-from backend.app.domains.settings import CookieLease
+import backend.app.domains.access.pool as pool
+import backend.app.domains.access.rotation as access_module
+import backend.app.domains.downloads.metadata.scraper as enrich
+from backend.app.domains.access.pool import CookieLease
 
 _CLOUDFLARE = "ERROR: [generic] Got HTTP Error 403 caused by Cloudflare anti-bot challenge; try again"
 _DDOS_GUARD = "[example][error] ChallengeError: DDoS-Guard challenge (403 Forbidden) for 'https://example.test/'"

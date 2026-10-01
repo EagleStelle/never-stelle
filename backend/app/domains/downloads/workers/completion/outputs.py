@@ -8,7 +8,7 @@ from typing import Any
 from backend.app.core.paths import path_key as _path_key
 from backend.app.domains.downloads.audio import audio_container_matches, convert_audio_output
 from backend.app.domains.downloads.constants import audio_output_extension
-from backend.app.domains.downloads.engine import Engine
+from backend.app.domains.downloads.engines.engine import Engine
 from backend.app.domains.downloads.files import (
     find_newest_media_file,
     find_numbered_media_siblings,
@@ -17,19 +17,23 @@ from backend.app.domains.downloads.files import (
     rename_path,
     unique_sibling_path,
 )
-from backend.app.domains.downloads.formats import media_id_from_url
+from backend.app.domains.downloads.library.scan import parse_filename_media_id
+from backend.app.domains.downloads.links.formats import media_id_from_url
+from backend.app.domains.downloads.links.urls import detect_source_key
 from backend.app.domains.downloads.metadata.creators import filename_media_id
 from backend.app.domains.downloads.metadata.pipeline import distinct_metadata_item_url
 from backend.app.domains.downloads.metadata.values import display_creator_candidate
-from backend.app.domains.downloads.naming import clean_template_filename, numbered_suffix_of, strip_numbered_suffix
-from backend.app.domains.downloads.scan import parse_filename_media_id
+from backend.app.domains.downloads.naming.naming import (
+    clean_template_filename,
+    numbered_suffix_of,
+    strip_numbered_suffix,
+)
+from backend.app.domains.downloads.naming.template_rows import template_row_fields
 from backend.app.domains.downloads.store import (
     load_history_entries_for_media_id,
     load_history_entry_for_path,
     remove_history_records,
 )
-from backend.app.domains.downloads.templates import template_row_fields
-from backend.app.domains.downloads.urls import detect_source_key
 from backend.app.domains.downloads.workers.pathing import _media_kind, _preferred_output_path
 from backend.app.domains.settings import get_effective_title_cleaning
 

@@ -6,6 +6,7 @@ from collections.abc import Collection
 from typing import Any
 
 from backend.app.core.config import download_concurrency
+from backend.app.domains.access.pool import cookie_ready_in
 from backend.app.domains.downloads.store import (
     defer_task,
     fail_running_task_records,
@@ -13,8 +14,7 @@ from backend.app.domains.downloads.store import (
     pending_task_count,
 )
 from backend.app.domains.downloads.workers.execution import run_task
-from backend.app.domains.downloads.workers.processes import TaskCancelled, TaskDeferred, task_execution
-from backend.app.domains.settings import cookie_ready_in
+from backend.app.runtime.processes import TaskCancelled, TaskDeferred, task_execution
 
 _worker_lock = threading.Lock()
 _worker_started = False

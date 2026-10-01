@@ -9,7 +9,7 @@ import backend.app.domains.settings.service as settings_module
 import backend.app.domains.settings.storage as settings_storage_module
 import backend.app.domains.settings.templates as settings_templates_module
 from backend.app.core.config import MEDIA_DIR
-from backend.app.domains.downloads.learning import (
+from backend.app.domains.downloads.metadata.learned_fields import (
     learn_missing_fields_for_format,
     save_learned_fields,
     save_missing_learned_fields,
@@ -125,8 +125,8 @@ def test_normalize_source_slug_tokens_validates_parts_and_dedupes():
 
 def test_active_slug_rules_exposes_implicit_var_tokens_from_learned_segments(monkeypatch):
     import backend.app.domains.downloads.store as store_mod
-    from backend.app.domains.downloads.enrich import active_slug_rules_for_key
-    from backend.app.domains.downloads.formats import learn_download
+    from backend.app.domains.downloads.links.formats import learn_download
+    from backend.app.domains.downloads.metadata.scraper import active_slug_rules_for_key
 
     learned = learn_download(
         {},
@@ -140,8 +140,8 @@ def test_active_slug_rules_exposes_implicit_var_tokens_from_learned_segments(mon
 
 def test_blank_source_slug_token_disables_default_slug_mapping(monkeypatch):
     import backend.app.domains.downloads.store as store_mod
-    from backend.app.domains.downloads.enrich import active_slug_rules_for_key
-    from backend.app.domains.downloads.formats import learn_download
+    from backend.app.domains.downloads.links.formats import learn_download
+    from backend.app.domains.downloads.metadata.scraper import active_slug_rules_for_key
 
     learned = learn_download(
         {},
@@ -161,8 +161,8 @@ def test_blank_source_slug_token_disables_default_slug_mapping(monkeypatch):
 
 def test_resolve_slug_tokens_uses_implicit_var_and_explicit_custom_name(monkeypatch):
     import backend.app.domains.downloads.store as store_mod
-    from backend.app.domains.downloads.enrich import resolve_slug_tokens
-    from backend.app.domains.downloads.formats import learn_download
+    from backend.app.domains.downloads.links.formats import learn_download
+    from backend.app.domains.downloads.metadata.scraper import resolve_slug_tokens
 
     learned = learn_download(
         {},
@@ -194,7 +194,7 @@ def test_resolve_slug_tokens_uses_implicit_var_and_explicit_custom_name(monkeypa
 
 def test_resolve_slug_tokens_ignores_raw_template_token_when_role_assigned(monkeypatch):
     import backend.app.domains.downloads.store as store_mod
-    from backend.app.domains.downloads.enrich import resolve_slug_tokens
+    from backend.app.domains.downloads.metadata.scraper import resolve_slug_tokens
 
     monkeypatch.setattr(store_mod, "load_learned_formats", lambda: {})
     url = "https://rule34video.com/video/3238394/wsds-minus8/"
@@ -213,7 +213,7 @@ def test_resolve_slug_tokens_maps_url_part_to_role_and_custom_token(monkeypatch)
     import backend.app.domains.downloads.store as store_mod
     monkeypatch.setattr(store_mod, "load_learned_formats", lambda: {})
 
-    from backend.app.domains.downloads.enrich import resolve_slug_tokens
+    from backend.app.domains.downloads.metadata.scraper import resolve_slug_tokens
 
     slug_map = {
         "rule34video": [
@@ -240,7 +240,7 @@ def test_resolve_slug_tokens_maps_url_part_to_role_and_custom_token(monkeypatch)
 
 
 def test_scrape_tokens_keep_the_characters_only_paths_replace():
-    from backend.app.domains.downloads.enrich import normalize_scrape_rule, scrape_tokens
+    from backend.app.domains.downloads.metadata.scraper import normalize_scrape_rule, scrape_tokens
 
     rule = normalize_scrape_rule({"token": "headline", "selector": "h1"})
 
@@ -465,7 +465,7 @@ def test_learned_url_creator_defaults_do_not_promote_saved_field_roles(monkeypat
 
 
 def test_add_source_and_learn_format_returns_matched_template(tmp_path, monkeypatch):
-    import backend.app.domains.downloads.learning as learning_mod
+    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
 
     use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setattr(
@@ -517,7 +517,7 @@ def test_clearing_last_format_clears_source_fields(tmp_path, monkeypatch):
 
 
 def test_save_learned_fields_persists_only_real_probe_fields(monkeypatch):
-    import backend.app.domains.downloads.learning as learning_mod
+    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
 
     payload: dict = {}
     saved: list[dict] = []
@@ -538,7 +538,7 @@ def test_save_learned_fields_persists_only_real_probe_fields(monkeypatch):
 
 
 def test_save_learned_fields_ignores_url_creator_hint(monkeypatch):
-    import backend.app.domains.downloads.learning as learning_mod
+    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
 
     payload: dict = {}
     saved: list[dict] = []
@@ -556,7 +556,7 @@ def test_save_learned_fields_ignores_url_creator_hint(monkeypatch):
 
 
 def test_save_learned_fields_drops_roles_matching_global_defaults(monkeypatch):
-    import backend.app.domains.downloads.learning as learning_mod
+    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
 
     payload = {"default_fields": {"username": ["uploader_id"]}}
     saved: list[dict] = []
@@ -575,7 +575,7 @@ def test_save_learned_fields_drops_roles_matching_global_defaults(monkeypatch):
 
 
 def test_learned_field_roles_merges_without_clobbering_existing(monkeypatch):
-    import backend.app.domains.downloads.learning as learning_mod
+    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
 
     payload = {"source_fields": {"youtube": {"username": ["channel"]}}}
     saved: list[dict] = []
@@ -594,7 +594,7 @@ def test_learned_field_roles_merges_without_clobbering_existing(monkeypatch):
 
 
 def test_missing_field_roles_append_without_reordering_existing(monkeypatch):
-    import backend.app.domains.downloads.learning as learning_mod
+    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
 
     payload = {
         "source_fields": {
@@ -625,8 +625,8 @@ def test_missing_field_roles_append_without_reordering_existing(monkeypatch):
 
 
 def test_format_field_probe_does_not_touch_existing_fields_when_all_present(monkeypatch):
-    import backend.app.domains.downloads.learning as learning_mod
-    import backend.app.domains.downloads.probe as probe_mod
+    import backend.app.domains.downloads.engines.probe as probe_mod
+    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
 
     existing = {
         "username": ["uploader", "author[uniqueId]"],
@@ -655,7 +655,7 @@ def test_format_field_probe_does_not_touch_existing_fields_when_all_present(monk
 
 
 def test_format_field_probe_writes_no_format(tmp_path, monkeypatch):
-    import backend.app.domains.downloads.probe as probe_mod
+    import backend.app.domains.downloads.engines.probe as probe_mod
     from backend.app.db import repositories
 
     use_temp_db(tmp_path, monkeypatch)
@@ -676,7 +676,7 @@ def test_format_field_probe_writes_no_format(tmp_path, monkeypatch):
 
 
 def test_adding_a_link_learns_its_format_from_one_probe(tmp_path, monkeypatch):
-    import backend.app.domains.downloads.learning as learning_mod
+    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
     from backend.app.db import repositories
 
     use_temp_db(tmp_path, monkeypatch)

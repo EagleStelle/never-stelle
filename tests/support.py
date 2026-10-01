@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import backend.app.db.database as database_module
-from backend.app.domains.downloads.engine import Engine, all_engines
+from backend.app.domains.downloads.engines.engine import Engine, all_engines
 
 
 def engine_by_name(name: str) -> Engine:

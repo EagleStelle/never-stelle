@@ -4,8 +4,8 @@ import threading
 import time
 
 import backend.app.domains.downloads.operations as operations_module
-import backend.app.domains.downloads.workers.processes as processes_module
 import backend.app.domains.downloads.workers.scheduler as scheduler_module
+import backend.app.runtime.processes as processes_module
 from backend.app.db import repositories
 
 

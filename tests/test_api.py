@@ -5,7 +5,7 @@ import zipfile
 
 from fastapi.testclient import TestClient
 
-import backend.app.domains.downloads.scan as scan_module
+import backend.app.domains.downloads.library.scan as scan_module
 from backend.app.api.routers import sources as sources_router
 from backend.app.api.routers import trackers as trackers_router
 from backend.app.db import repositories
@@ -181,7 +181,7 @@ def test_library_resolve_scope_reports_both_choices(tmp_path, monkeypatch):
 
 def test_library_resolve_queues_only_the_flagged_rows(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.domains.downloads.resolve as resolve_module
+    import backend.app.domains.downloads.library.resolve as resolve_module
 
     monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     repositories.save_history_row("disk:abc123", {"media_id": "abc123", "needs_resolve": True})
@@ -201,7 +201,7 @@ def test_library_resolve_rejects_an_unknown_scope(tmp_path, monkeypatch):
 
 def test_library_resolve_task_ids_override_the_scope(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.domains.downloads.resolve as resolve_module
+    import backend.app.domains.downloads.library.resolve as resolve_module
 
     monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     repositories.save_history_row("disk:abc123", {"media_id": "abc123"})
@@ -217,7 +217,7 @@ def test_library_resolve_task_ids_override_the_scope(tmp_path, monkeypatch):
 
 def test_library_stop_reports_what_it_stopped(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.domains.downloads.resolve as resolve_module
+    import backend.app.domains.downloads.library.resolve as resolve_module
 
     monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     repositories.save_history_row("disk:abc123", {"media_id": "abc123"})
@@ -231,7 +231,7 @@ def test_library_stop_reports_what_it_stopped(tmp_path, monkeypatch):
 
 def test_a_template_saved_through_settings_is_offered_as_a_rename(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.domains.downloads.resolve as resolve_module
+    import backend.app.domains.downloads.library.resolve as resolve_module
     import backend.app.domains.downloads.workers.enrichment as enrichment_module
 
     monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
@@ -416,7 +416,7 @@ def test_add_task_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
 
 def test_probe_fields_saves_field_roles_without_url_priority_hint(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.domains.downloads.probe as probe_module
+    import backend.app.domains.downloads.engines.probe as probe_module
     from backend.app.db import repositories
 
     format_template = "https://www.tiktok.com/@{creator}/video/{id}"

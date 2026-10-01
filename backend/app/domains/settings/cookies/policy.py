@@ -5,8 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.app.core.sources import normalize_source_key
-
-from .storage import load_saved_settings_file
+from backend.app.domains.settings.storage import load_saved_settings_file
 
 
 @dataclass(frozen=True)

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import gallerydl, ytdlp
-from .access import AccessIdentity
-from .constants import PROGRESS_RE
-from .files import extract_downloaded_path
-from .formats import media_id_from_url
-from .probe import gallerydl_reads, ytdlp_single_video
-from .store import load_route_facts
+from backend.app.domains.access.rotation import AccessIdentity
+from backend.app.domains.downloads.constants import PROGRESS_RE
+from backend.app.domains.downloads.engines import gallerydl, ytdlp
+from backend.app.domains.downloads.engines.probe import gallerydl_reads, ytdlp_single_video
+from backend.app.domains.downloads.files import extract_downloaded_path
+from backend.app.domains.downloads.links.formats import media_id_from_url
+from backend.app.domains.downloads.store import load_route_facts
 
 
 class Engine:

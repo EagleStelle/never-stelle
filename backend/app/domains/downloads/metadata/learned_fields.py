@@ -4,6 +4,8 @@ from collections.abc import Iterable
 from typing import Any
 
 from backend.app.core.sources import normalize_source_key
+from backend.app.domains.downloads.links.formats import learn_download, learn_media_id
+from backend.app.domains.downloads.store import merge_learned_formats
 from backend.app.domains.settings import (
     get_effective_fields,
     get_source_profile_for_url,
@@ -12,9 +14,6 @@ from backend.app.domains.settings import (
     normalize_source_fields,
     save_saved_settings_file,
 )
-
-from .formats import learn_download, learn_media_id
-from .store import merge_learned_formats
 
 
 def _resolved_field_source_key(
@@ -173,7 +172,7 @@ def probe_link_fields(source_url: str, source_key: str = "", *, low_priority: bo
     if not str(source_url or "").strip():
         return {}
     try:
-        from .probe import probe_fields
+        from backend.app.domains.downloads.engines.probe import probe_fields
 
         if low_priority:
             return probe_fields(source_url, source_key, low_priority=True, stop_after_first_with_roles=True)

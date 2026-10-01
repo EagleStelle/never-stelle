@@ -10,38 +10,30 @@ from typing import Any
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
-from backend.app.domains.settings import (
-    detect_cookie_source,
-    get_effective_fields,
-    get_effective_source_fields,
-    get_effective_template_settings,
-    possible_template_settings,
-    template_settings_for,
-)
-from backend.app.domains.settings.fields import FIELD_ROLES
-
-from .constants import RESOLVE_JOB_KIND, NamingKind, ResolveScope, enrichment_job_id
-from .enrich import configured_tokens
-from .files import is_media_file, payload_path_string
-from .formats import (
+from backend.app.domains.downloads.constants import RESOLVE_JOB_KIND, NamingKind, ResolveScope, enrichment_job_id
+from backend.app.domains.downloads.engines.probe import probe_link_metadata
+from backend.app.domains.downloads.files import is_media_file, payload_path_string
+from backend.app.domains.downloads.library.rename import apply_history_renames, download_location, plan_history_renames
+from backend.app.domains.downloads.library.scan import history_write_lock
+from backend.app.domains.downloads.links.formats import (
     format_covers,
     learned_templates_for,
     match_template,
     reconstruct_url_candidates,
     select_for_format,
 )
-from .metadata.pipeline import naming_values
-from .naming import (
+from backend.app.domains.downloads.links.urls import detect_source_key
+from backend.app.domains.downloads.metadata.pipeline import naming_values
+from backend.app.domains.downloads.metadata.scraper import configured_tokens
+from backend.app.domains.downloads.naming.naming import (
     numbered_suffix_of,
     row_template_fields,
     row_with_tokens,
     settings_tokens,
     unsatisfied_tokens,
 )
-from .probe import probe_link_metadata
-from .rename import apply_history_renames, download_location, plan_history_renames
-from .scan import history_write_lock
-from .store import (
+from backend.app.domains.downloads.naming.template_rows import template_row_fields
+from backend.app.domains.downloads.store import (
     drop_pending_enrichment_jobs,
     enqueue_enrichment_jobs,
     history_counts_by_source_and_media,
@@ -57,9 +49,16 @@ from .store import (
     spent_enrichment_job_ids,
     unfinished_enrichment_jobs,
 )
-from .templates import template_row_fields
-from .urls import detect_source_key
-from .workers.enrichment import ensure_enrichment_worker
+from backend.app.domains.downloads.workers.enrichment import ensure_enrichment_worker
+from backend.app.domains.settings import (
+    detect_cookie_source,
+    get_effective_fields,
+    get_effective_source_fields,
+    get_effective_template_settings,
+    possible_template_settings,
+    template_settings_for,
+)
+from backend.app.domains.settings.fields import FIELD_ROLES
 
 # Each probe is a network round-trip, so a row tries this many links at most.
 _MAX_PROBE_CANDIDATES = 2
