@@ -16,15 +16,15 @@ from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
 from backend.app.domains.access.pool import lease_cookie, release_cookie
-from backend.app.domains.downloads.metadata.scraper import _load_cookie_jar
+from backend.app.domains.access.rotation import load_cookie_jar
 from backend.app.domains.settings import BrowserIdentity, browser_identity
 from backend.app.runtime.processes import (
-    _kill_process_tree,
-    _register_process,
-    _unregister_process,
     current_task_id,
+    kill_process_tree,
     low_priority_command,
     raise_if_cancelled,
+    register_process,
+    unregister_process,
 )
 from backend.app.runtime.scratch import remove_scratch_path, scratch_temp_dir
 
@@ -239,11 +239,11 @@ class BrowserSession:
     def close(self) -> None:
         process, self._process = self._process, None
         if process:
-            _unregister_process(self._task_id, process)
+            unregister_process(self._task_id, process)
             with suppress(Exception):
                 if process.stdin:
                     process.stdin.close()
-            _kill_process_tree(process)
+            kill_process_tree(process)
             process.wait()
         self._cookies = []
         if self._profile:
@@ -285,7 +285,7 @@ class BrowserSession:
             return False
         # Cancelling the task the walk runs in kills the browser.
         self._task_id = current_task_id()
-        _register_process(self._task_id, self._process)
+        register_process(self._task_id, self._process)
         threading.Thread(target=self._read, name="never-stelle-browser-reader", daemon=True).start()
         return True
 
@@ -298,7 +298,7 @@ class BrowserSession:
         """
         lease = lease_cookie(self.source_key)
         try:
-            jar = _load_cookie_jar(lease.path) if lease else None
+            jar = load_cookie_jar(lease.path) if lease else None
         finally:
             release_cookie(lease)
         if not jar:

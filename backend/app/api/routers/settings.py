@@ -117,7 +117,7 @@ def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
 def probe_fields(payload: ProbeLinkPayload) -> dict[str, Any]:
     from backend.app.domains.downloads.engines.probe import probe_fields as probe_field_roles
     from backend.app.domains.downloads.links.urls import resolve_redirect_url
-    from backend.app.domains.downloads.metadata.learned_fields import save_learned_fields
+    from backend.app.domains.settings.learned_fields import save_learned_fields
 
     url = resolve_redirect_url(payload.url)
     try:

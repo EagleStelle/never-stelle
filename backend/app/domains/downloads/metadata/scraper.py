@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import http.cookiejar
 import re
 from contextlib import closing
 from typing import Any
@@ -8,8 +7,8 @@ from typing import Any
 import httpx
 
 from backend.app.core.sources import normalize_source_key
-from backend.app.domains.access.rotation import access_rotation
-from backend.app.domains.downloads.links.formats import _canonical_shape, _prepare_url, extract_url_part, match_template
+from backend.app.domains.access.rotation import access_rotation, load_cookie_jar
+from backend.app.domains.downloads.links.formats import canonical_shape, extract_url_part, match_template, prepare_url
 from backend.app.domains.downloads.naming.naming import settings_tokens
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
 from backend.app.domains.settings import (
@@ -214,19 +213,8 @@ def scrape_tokens(html_text: str, rules: list[dict[str, Any]]) -> dict[str, str]
 
 
 # --- Page fetch ---
-def _load_cookie_jar(path: str) -> http.cookiejar.CookieJar | None:
-    if not path:
-        return None
-    try:
-        jar = http.cookiejar.MozillaCookieJar(path)
-        jar.load(ignore_discard=True, ignore_expires=True)
-        return jar
-    except Exception:
-        return None
-
-
 def fetch_html(url: str, cookie_source_key: str = "") -> str:
-    url = _prepare_url(url)
+    url = prepare_url(url)
     if not url.startswith(("http://", "https://")):
         return ""
     # Some sites serve a page's data only to a request that asks for HTML.
@@ -240,7 +228,7 @@ def fetch_html(url: str, cookie_source_key: str = "") -> str:
     rotation = access_rotation(lambda: cookie_source_key or detect_cookie_source(url), fingerprint=False)
     with closing(rotation):
         for access in rotation:
-            jar = _load_cookie_jar(access.cookies_file)
+            jar = load_cookie_jar(access.cookies_file)
             if access.cookies_file and not jar:
                 continue
             try:
@@ -368,11 +356,11 @@ def resolve_scraped_tokens(
         return {}
     learned = learned_formats if isinstance(learned_formats, dict) else {}
     matched = match_template(learned, source_key, source_url)
-    canonical_matched = _canonical_shape(matched)
+    canonical_matched = canonical_shape(matched)
     rules = [
         rule
         for rule in rules
-        if _canonical_shape(str(rule.get("format") or "")) == canonical_matched
+        if canonical_shape(str(rule.get("format") or "")) == canonical_matched
     ]
     if not rules:
         return {}

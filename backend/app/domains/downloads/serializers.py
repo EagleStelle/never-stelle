@@ -20,9 +20,8 @@ from .constants import (
     normalize_quality_selection,
 )
 from .files import recover_task_path
-from .library.scan import parse_filename_media_id
 from .links.urls import detect_source_key
-from .naming.naming import clean_template_display_filename
+from .naming.naming import clean_template_display_filename, parse_filename_media_id
 from .naming.template_rows import template_settings_from_row
 from .store import (
     active_counts_by_source_and_media,

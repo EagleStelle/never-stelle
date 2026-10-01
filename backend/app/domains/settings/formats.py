@@ -6,6 +6,7 @@ from backend.app.core.config import load_app_config
 from backend.app.core.sources import normalize_source_key, source_key_from_url
 
 from .fields import normalize_source_fields
+from .learned_fields import save_missing_learned_fields
 from .profiles import ensure_source_profile_for_url, get_effective_source_profiles
 from .storage import load_saved_settings_file, save_saved_settings_file
 
@@ -28,12 +29,8 @@ def get_learned_formats_for_ui() -> dict[str, dict[str, Any]]:
 
 def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
     """Add a platform from a pasted link and learn its URL format in one step."""
-    from backend.app.domains.downloads.links.formats import match_template, media_id_from_url
-    from backend.app.domains.downloads.metadata.learned_fields import (
-        learn_formats,
-        probe_link_fields,
-        save_missing_learned_fields,
-    )
+    from backend.app.domains.downloads.engines.probe import probe_link_fields
+    from backend.app.domains.downloads.links.formats import learn_formats, match_template, media_id_from_url
     from backend.app.domains.downloads.store import load_learned_formats
 
     url = str(url_or_link or "").strip()

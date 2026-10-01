@@ -538,7 +538,7 @@ def _metadata_cover_art_candidates(payload: dict[str, Any]) -> list[tuple[int, s
     return candidates
 
 
-def _thumbnail_url(payload: dict[str, Any], *, prefer_cover_art: bool = False) -> str:
+def thumbnail_url(payload: dict[str, Any], *, prefer_cover_art: bool = False) -> str:
     candidates = _metadata_cover_art_candidates(payload) if prefer_cover_art else []
     if not candidates:
         candidates = [
@@ -573,7 +573,7 @@ def _fetch_thumbnail(ydl: Any, payload: dict[str, Any], *, prefer_cover_art: boo
     from yt_dlp.networking import Request
     from yt_dlp.utils import YoutubeDLError
 
-    url = _thumbnail_url(payload, prefer_cover_art=prefer_cover_art)
+    url = thumbnail_url(payload, prefer_cover_art=prefer_cover_art)
     if not url or urlparse(url).scheme.lower() not in {"http", "https"}:
         return b"", ""
     try:

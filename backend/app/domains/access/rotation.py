@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.cookiejar
 import os
 import subprocess
 import threading
@@ -149,3 +150,14 @@ def access_rotation(
     with closing(cookie_rotation(cookie_source_key, first_wait=first_cookie_wait)) as rotation:
         for lease in rotation:
             yield AccessIdentity(impersonate=impersonate, lease=lease)
+
+
+def load_cookie_jar(path: str) -> http.cookiejar.CookieJar | None:
+    if not path:
+        return None
+    try:
+        jar = http.cookiejar.MozillaCookieJar(path)
+        jar.load(ignore_discard=True, ignore_expires=True)
+        return jar
+    except Exception:
+        return None

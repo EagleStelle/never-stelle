@@ -141,7 +141,7 @@ def test_callers_without_a_fingerprint_go_straight_to_cookies_after_a_wall(monke
 )
 def test_fetch_html_rests_a_jar_on_a_block_but_not_on_a_cloudflare_challenge(monkeypatch, headers, banned):
     leases = _stub(monkeypatch, jars=["a"])
-    monkeypatch.setattr(enrich, "_load_cookie_jar", lambda path: {"session": "1"} if path else None)
+    monkeypatch.setattr(enrich, "load_cookie_jar", lambda path: {"session": "1"} if path else None)
     requests = []
     monkeypatch.setattr(
         enrich.httpx,
@@ -158,7 +158,7 @@ def test_fetch_html_rests_a_jar_on_a_block_but_not_on_a_cloudflare_challenge(mon
 def test_fetch_html_sends_the_jars_browser_only_with_the_jar(monkeypatch):
     leases = _stub(monkeypatch, jars=["a"])
     leases[0].user_agent = _CHROME_140
-    monkeypatch.setattr(enrich, "_load_cookie_jar", lambda path: {"session": "1"} if path else None)
+    monkeypatch.setattr(enrich, "load_cookie_jar", lambda path: {"session": "1"} if path else None)
     agents = []
     monkeypatch.setattr(
         enrich.httpx,

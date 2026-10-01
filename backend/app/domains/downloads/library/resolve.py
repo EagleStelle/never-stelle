@@ -49,7 +49,6 @@ from backend.app.domains.downloads.store import (
     spent_enrichment_job_ids,
     unfinished_enrichment_jobs,
 )
-from backend.app.domains.downloads.workers.enrichment import ensure_enrichment_worker
 from backend.app.domains.settings import (
     detect_cookie_source,
     get_effective_fields,
@@ -299,8 +298,6 @@ def enqueue_resolve(jobs: dict[str, bool], naming: dict[str, str] | None = None)
         ],
     )
     _size_pass(pass_id, queued)
-    if queued:
-        ensure_enrichment_worker()
     return {"queued": queued, "pass_id": pass_id if queued else 0}
 
 

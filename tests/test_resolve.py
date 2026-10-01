@@ -175,7 +175,6 @@ def test_resolve_queues_only_the_flagged_rows(tmp_path: Path, monkeypatch: pytes
     _pin_template(monkeypatch)
     _seed(tmp_path, task_id="gallerydl:1")
     _seed(tmp_path, task_id="gallerydl:2", creator="Creator")
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
 
     assert resolve_module.start_resolve()["queued"] == 1
@@ -187,7 +186,6 @@ def test_resolve_everything_queues_every_row(tmp_path: Path, monkeypatch: pytest
     _pin_template(monkeypatch)
     _seed(tmp_path, task_id="gallerydl:1")
     _seed(tmp_path, task_id="gallerydl:2", creator="Creator")
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
 
     assert resolve_module.start_resolve("all")["queued"] == 2
     jobs = load_enrichment_jobs()
@@ -201,7 +199,6 @@ def test_resolve_one_row_queues_only_that_row(tmp_path: Path, monkeypatch: pytes
     _pin_template(monkeypatch)
     _seed(tmp_path, task_id="gallerydl:1")
     _seed(tmp_path, task_id="gallerydl:2")
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
 
     assert resolve_module.start_resolve(task_ids=["gallerydl:2"])["queued"] == 1
     jobs = load_enrichment_jobs()
@@ -270,7 +267,6 @@ def test_a_link_that_never_answers_stops_being_probed(tmp_path: Path, monkeypatc
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     calls = _probe_recorder(monkeypatch, {})
 
@@ -302,7 +298,6 @@ def test_a_spent_row_stops_being_offered_by_the_flagged_count(tmp_path: Path, mo
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {})
     _spend_the_retries()
@@ -316,7 +311,6 @@ def test_forcing_one_row_hands_back_its_spent_retries(tmp_path: Path, monkeypatc
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {})
     _spend_the_retries()
@@ -340,7 +334,6 @@ def test_resolving_everything_hands_back_spent_retries(tmp_path: Path, monkeypat
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {})
     _spend_the_retries()
@@ -355,7 +348,6 @@ def test_requeueing_an_unspent_job_keeps_the_attempts_it_has_used(
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {})
 
@@ -373,7 +365,6 @@ def test_a_crashed_run_is_handed_back_to_the_queue(tmp_path: Path, monkeypatch: 
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {})
 
@@ -392,7 +383,6 @@ def test_the_worker_routes_a_resolve_job_to_the_resolver(tmp_path: Path, monkeyp
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
 
@@ -432,7 +422,6 @@ def test_a_spent_row_says_so_on_its_own_row(tmp_path: Path, monkeypatch: pytest.
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {})
 
@@ -463,7 +452,6 @@ def test_deleting_a_history_row_takes_its_jobs_with_it(tmp_path: Path, monkeypat
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {})
     _spend_the_retries()
@@ -559,7 +547,6 @@ def test_activity_reports_queued_resolves_until_they_finish(tmp_path: Path, monk
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
 
@@ -592,7 +579,6 @@ def test_the_pass_report_counts_a_filled_row(tmp_path: Path, monkeypatch: pytest
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
 
@@ -608,7 +594,6 @@ def test_a_row_that_no_longer_needs_anything_counts_as_skipped(tmp_path: Path, m
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     started = resolve_module.start_resolve()
     # Named by the current template in the meantime, so nothing is left to fill or move.
@@ -628,7 +613,6 @@ def test_a_dead_link_counts_once_its_retries_are_spent(tmp_path: Path, monkeypat
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {})
 
@@ -647,7 +631,6 @@ def test_a_partly_filled_row_is_not_reported_as_resolved(tmp_path: Path, monkeyp
     # Wants a series the filename never carried, and only the creator ever comes back.
     _pin_template(monkeypatch, "{{username}} - {{title}} [{{id}}] {{series}}")
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
 
@@ -666,7 +649,6 @@ def test_each_click_reports_its_own_pass(tmp_path: Path, monkeypatch: pytest.Mon
     _pin_template(monkeypatch)
     _seed(tmp_path, task_id="gallerydl:1")
     _seed(tmp_path, task_id="gallerydl:2")
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
 
     first = resolve_module.start_resolve(task_ids=["gallerydl:1"])
@@ -682,7 +664,6 @@ def test_a_row_already_running_is_not_queued_twice(tmp_path: Path, monkeypatch: 
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
 
     resolve_module.start_resolve(task_ids=["gallerydl:1"])
@@ -703,7 +684,6 @@ def test_activity_carries_the_pass_reports(tmp_path: Path, monkeypatch: pytest.M
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
 
     started = resolve_module.start_resolve(task_ids=["gallerydl:1"])
 
@@ -715,7 +695,6 @@ def test_stopping_drops_the_queued_rows_and_reports_them(tmp_path: Path, monkeyp
     _pin_template(monkeypatch)
     for index in range(1, 4):
         _seed(tmp_path, task_id=f"gallerydl:{index}", name=f"Clip {index} [abc123].mp4")
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Creator"}})
 
     started = resolve_module.start_resolve(task_ids=["gallerydl:1", "gallerydl:2", "gallerydl:3"])
@@ -743,7 +722,6 @@ def test_a_spent_resolve_is_not_reported_as_still_running(tmp_path: Path, monkey
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
     _refresh(load_history()["entries"])
     _probe_recorder(monkeypatch, {})
     _spend_the_retries()
@@ -819,7 +797,6 @@ def _save_naming(
     with resolve_module.watch_naming_changes():
         _pin_template(monkeypatch, template, **templates)
         monkeypatch.setattr(resolve_module, "get_effective_source_fields", lambda source_key: dict(fields or {}))
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
 
 
 def _pending(kind: str, source_key: str = "example", format_template: str = "") -> int:
@@ -1051,7 +1028,6 @@ def test_a_row_whose_format_kept_its_templates_is_not_renamed(tmp_path: Path, mo
     formats = ["https://example.com/p/{id}", "https://example.com/v/{id}"]
     monkeypatch.setattr(resolve_module, "learned_templates_for", lambda learned, key: formats)
     monkeypatch.setattr(resolve_module, "match_template", lambda learned, key, url: formats[0])
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
 
     base = {"folder_template": "{{username}}", "filename_template": STORED_TEMPLATE}
     with resolve_module.watch_naming_changes():
@@ -1206,7 +1182,6 @@ def test_a_change_to_one_source_renames_only_its_files(tmp_path: Path, monkeypat
         title="Other",
         media_id="def456",
     )
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
 
     def settings(source_url: str = "") -> dict[str, str]:
         template = CURRENT_TEMPLATE if "example.com" in source_url else STORED_TEMPLATE
@@ -1243,7 +1218,6 @@ def test_a_fields_order_change_to_one_source_looks_up_only_its_files(tmp_path: P
         filename_template=CURRENT_TEMPLATE,
     )
     monkeypatch.setattr(resolve_module, "get_effective_source_fields", lambda source_key: {})
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
 
     with resolve_module.watch_naming_changes():
         monkeypatch.setattr(

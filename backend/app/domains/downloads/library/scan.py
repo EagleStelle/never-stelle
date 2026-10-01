@@ -28,7 +28,9 @@ from backend.app.domains.downloads.links.formats import (
     url_in_format,
 )
 from backend.app.domains.downloads.naming.naming import (
+    UNRECOVERABLE_MEDIA_IDS,
     clean_template_display_filename,
+    parse_filename_media_id,
     strip_numbered_suffix,
     template_literal_pattern,
 )
@@ -95,8 +97,6 @@ def history_write_lock(timeout: float = -1) -> Iterator[None]:
         _scan_lock.release()
 
 
-FILENAME_ID_RE = re.compile(r"^(.*) \[([A-Za-z0-9_-]+)\](?:_\d+)?$")
-UNRECOVERABLE_MEDIA_IDS = {"", "na", "n-a", "n/a", "none", "null", "unknown"}
 _ID_TOKENS = {"id"}
 _EXT_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$")
 
@@ -194,19 +194,6 @@ def _match_template(pattern: re.Pattern[str] | None, text: str) -> dict[str, str
         if match:
             return {key: group.strip() for key, group in match.groupdict().items() if group and group.strip()}
     return {}
-
-
-def parse_filename_media_id(filename: str | Path) -> tuple[str, str]:
-    """Return ``(media_id, title)`` from a ``Title [id].ext`` filename."""
-    path = Path(str(filename))
-    stem = path.stem.strip()
-    match = FILENAME_ID_RE.match(stem)
-    if not match:
-        return "", stem
-    media_id = match.group(2).strip()
-    if media_id.strip().lower() in UNRECOVERABLE_MEDIA_IDS:
-        return "", stem
-    return media_id, (match.group(1).strip() or stem)
 
 
 def _payload_media_id(payload: dict[str, Any]) -> str:

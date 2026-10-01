@@ -17,7 +17,6 @@ from backend.app.domains.downloads.constants import (
 from backend.app.domains.downloads.engines.engine import Engine
 from backend.app.domains.downloads.engines.probe import probe_link_metadata
 from backend.app.domains.downloads.files import is_media_file
-from backend.app.domains.downloads.library.scan import parse_filename_media_id
 from backend.app.domains.downloads.links.formats import field_role_list
 from backend.app.domains.downloads.links.learned_routes import absence_settled, route_shape
 from backend.app.domains.downloads.metadata.creators import configured_field_value
@@ -25,11 +24,12 @@ from backend.app.domains.downloads.metadata.values import clean_creator_candidat
 from backend.app.domains.downloads.naming.naming import (
     field_value,
     filename_template_fields,
+    parse_filename_media_id,
     settings_tokens,
     strip_repeated_media_id,
 )
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
-from backend.app.domains.downloads.postprocessing import _thumbnail_url
+from backend.app.domains.downloads.postprocessing import thumbnail_url
 from backend.app.domains.downloads.store import learn_route, load_route_facts
 from backend.app.domains.settings import get_effective_fields
 
@@ -192,14 +192,14 @@ def _thumbnail_field(payload: dict[str, Any], info: dict[str, Any]) -> str:
 def _with_learned_thumbnail(payload: dict[str, Any], facts: dict[str, dict[str, Any]]) -> dict[str, Any]:
     field = str((facts.get(_info_fact("thumbnail")) or {}).get("value") or "")
     value = _payload_value(payload, field) if field else None
-    if isinstance(value, str) and value and not _thumbnail_url(payload):
+    if isinstance(value, str) and value and not thumbnail_url(payload):
         return {**payload, "thumbnail": value}
     return payload
 
 
 def _payload_covers(payload: dict[str, Any], feature: str) -> bool:
     if feature == "thumbnail":
-        return bool(_thumbnail_url(payload))
+        return bool(thumbnail_url(payload))
     return _has_value(payload.get(_INFO_KEYS[feature]))
 
 

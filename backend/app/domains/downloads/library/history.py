@@ -7,9 +7,9 @@ from backend.app.core.coercion import safe_int
 from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
 from backend.app.domains.downloads.constants import normalize_quality_selection
-from backend.app.domains.downloads.library.scan import parse_filename_media_id
 from backend.app.domains.downloads.links.formats import media_id_from_url, url_dedup_key
 from backend.app.domains.downloads.links.urls import detect_source_key
+from backend.app.domains.downloads.naming.naming import parse_filename_media_id
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
 from backend.app.domains.downloads.store import (
     load_history,

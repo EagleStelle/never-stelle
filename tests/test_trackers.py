@@ -333,7 +333,7 @@ def _fake_catalog(monkeypatch, classes: list[type], posts: dict[str, list]) -> l
         run.returncode = 0 if cmd[-1] in posts else 1
 
     monkeypatch.setattr(listing_module, "_stream", fake_stream)
-    monkeypatch.setattr(listing_module, "_probe_rotation", lambda url, key: _generate([AccessIdentity()]))
+    monkeypatch.setattr(listing_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
     return probed
 
 
@@ -573,7 +573,7 @@ def _fake_engines(monkeypatch, outputs: dict[str, tuple[list, int, list[str]]]) 
         run.returncode = returncode
 
     monkeypatch.setattr(listing_module, "_stream", fake_stream)
-    monkeypatch.setattr(listing_module, "_probe_rotation", lambda url, key: _generate([AccessIdentity()]))
+    monkeypatch.setattr(listing_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
     return ran
 
 
@@ -635,7 +635,7 @@ def test_sub_collections_are_listed_in_turn(temp_db, monkeypatch):
         run.returncode = 0
 
     monkeypatch.setattr(listing_module, "_stream", fake_stream)
-    monkeypatch.setattr(listing_module, "_probe_rotation", lambda url, key: _generate([AccessIdentity()]))
+    monkeypatch.setattr(listing_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
 
     entries = list(listing_module.iter_entries(TRACKER_URL, "example"))
 
@@ -658,7 +658,7 @@ def test_sibling_tabs_sharing_the_handle_are_all_listed(temp_db, monkeypatch):
         run.returncode = 0
 
     monkeypatch.setattr(listing_module, "_stream", fake_stream)
-    monkeypatch.setattr(listing_module, "_probe_rotation", lambda url, key: _generate([AccessIdentity()]))
+    monkeypatch.setattr(listing_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
 
     entries = list(listing_module.iter_entries(tracker, "example"))
 
@@ -683,7 +683,7 @@ def _tabs_engine(monkeypatch, posts_tab: list) -> None:
         run.note("[example][error] HttpError: '403 Forbidden'" if cmd[0] == "gallery-dl" else "ERROR: Unsupported URL")
 
     monkeypatch.setattr(listing_module, "_stream", fake_stream)
-    monkeypatch.setattr(listing_module, "_probe_rotation", lambda url, key: _generate([AccessIdentity()]))
+    monkeypatch.setattr(listing_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
 
 
 def test_a_failing_tab_leaves_its_siblings_listed(temp_db, monkeypatch):
@@ -1173,7 +1173,7 @@ def _engines_by_page(monkeypatch, pages: dict[str, list]) -> list[str]:
         run.returncode, run.log = (0, []) if messages is not None else (1, ["ERROR: Unsupported URL"])
 
     monkeypatch.setattr(listing_module, "_stream", fake_stream)
-    monkeypatch.setattr(listing_module, "_probe_rotation", lambda url, key: _generate([AccessIdentity()]))
+    monkeypatch.setattr(listing_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
     return listed
 
 

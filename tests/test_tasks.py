@@ -48,7 +48,6 @@ from backend.app.domains.downloads.engines.ytdlp import (
     convert_template_to_ytdlp,
 )
 from backend.app.domains.downloads.files import extract_downloaded_path, is_media_file
-from backend.app.domains.downloads.library.scan import parse_filename_media_id
 from backend.app.domains.downloads.links.formats import (
     conflicts_with_source,
     creator_from_url,
@@ -57,6 +56,7 @@ from backend.app.domains.downloads.links.formats import (
     format_covers,
     guess_sources,
     learn_download,
+    learn_formats,
     learn_media_id,
     learned_templates_for,
     match_template,
@@ -67,10 +67,10 @@ from backend.app.domains.downloads.links.formats import (
     url_dedup_key,
 )
 from backend.app.domains.downloads.links.urls import canonicalize_source_url, detect_source_key
-from backend.app.domains.downloads.metadata.learned_fields import learn_formats
 from backend.app.domains.downloads.naming.naming import (
     clean_template_filename,
     filename_template_title,
+    parse_filename_media_id,
     sanitize_filename_component,
     sanitize_path_literal,
     shorten_filename_title,
@@ -767,8 +767,8 @@ def test_music_cover_art_precedes_scraped_thumbnail_and_has_a_fallback():
         ],
     }
 
-    assert postprocessing_module._thumbnail_url(payload, prefer_cover_art=True) == cover
-    assert postprocessing_module._thumbnail_url(payload) == scraped
+    assert postprocessing_module.thumbnail_url(payload, prefer_cover_art=True) == cover
+    assert postprocessing_module.thumbnail_url(payload) == scraped
 
 
 def test_thumbnail_sidecar_uses_the_final_media_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

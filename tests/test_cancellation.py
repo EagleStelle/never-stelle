@@ -144,7 +144,7 @@ def test_request_cancel_ignores_a_task_no_worker_owns():
 
     processes_module.request_cancel(task_id)
 
-    assert not processes_module._cancel_pending(task_id)
+    assert not processes_module.cancel_pending(task_id)
     with processes_module.task_execution(task_id):
         processes_module.raise_if_cancelled(task_id)
 

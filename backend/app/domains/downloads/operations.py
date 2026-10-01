@@ -17,11 +17,10 @@ from .engines.engine import default_engine
 from .files import find_numbered_media_siblings, payload_path_string, recover_task_path, remove_media
 from .library.history import find_active_by_source, find_history_by_id, find_history_by_source
 from .library.resolve import entry_token_state, file_history_entry
-from .library.scan import history_write_lock, parse_filename_media_id
-from .links.formats import reconstruct_url_candidates
+from .library.scan import history_write_lock
+from .links.formats import learn_source_id_signature, reconstruct_url_candidates
 from .links.urls import canonicalize_source_url, detect_source_key, resolve_redirect_url
-from .metadata.learned_fields import learn_source_id_signature
-from .naming.naming import clean_template_display_filename
+from .naming.naming import clean_template_display_filename, parse_filename_media_id
 from .naming.template_rows import template_row_fields, template_settings_from_row
 from .planning import resolve_task_settings
 from .serializers import history_to_api, task_to_api

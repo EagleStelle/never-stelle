@@ -181,9 +181,9 @@ def test_library_resolve_scope_reports_both_choices(tmp_path, monkeypatch):
 
 def test_library_resolve_queues_only_the_flagged_rows(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.domains.downloads.library.resolve as resolve_module
+    import backend.app.api.routers.library as library_router
 
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    monkeypatch.setattr(library_router, "ensure_enrichment_worker", lambda: None)
     repositories.save_history_row("disk:abc123", {"media_id": "abc123", "needs_resolve": True})
     repositories.save_history_row("disk:def456", {"media_id": "def456"})
 
@@ -201,9 +201,9 @@ def test_library_resolve_rejects_an_unknown_scope(tmp_path, monkeypatch):
 
 def test_library_resolve_task_ids_override_the_scope(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.domains.downloads.library.resolve as resolve_module
+    import backend.app.api.routers.library as library_router
 
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    monkeypatch.setattr(library_router, "ensure_enrichment_worker", lambda: None)
     repositories.save_history_row("disk:abc123", {"media_id": "abc123"})
     repositories.save_history_row("disk:def456", {"media_id": "def456"})
 
@@ -217,9 +217,9 @@ def test_library_resolve_task_ids_override_the_scope(tmp_path, monkeypatch):
 
 def test_library_stop_reports_what_it_stopped(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.domains.downloads.library.resolve as resolve_module
+    import backend.app.api.routers.library as library_router
 
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    monkeypatch.setattr(library_router, "ensure_enrichment_worker", lambda: None)
     repositories.save_history_row("disk:abc123", {"media_id": "abc123"})
     repositories.save_history_row("disk:def456", {"media_id": "def456"})
     client.post("/api/library/resolve", json={"scope": "all"})
@@ -231,10 +231,10 @@ def test_library_stop_reports_what_it_stopped(tmp_path, monkeypatch):
 
 def test_a_template_saved_through_settings_is_offered_as_a_rename(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.domains.downloads.library.resolve as resolve_module
+    import backend.app.api.routers.library as library_router
     import backend.app.domains.downloads.workers.enrichment as enrichment_module
 
-    monkeypatch.setattr(resolve_module, "ensure_enrichment_worker", lambda: None)
+    monkeypatch.setattr(library_router, "ensure_enrichment_worker", lambda: None)
     path = tmp_path / "Clip.mp4"
     path.write_bytes(b"video")
     repositories.save_history_row(

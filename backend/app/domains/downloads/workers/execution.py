@@ -26,13 +26,13 @@ from backend.app.domains.downloads.engines.engine import ENGINE_WINDOW, Engine, 
 from backend.app.domains.downloads.library.history import save_history_entry
 from backend.app.domains.downloads.links.formats import (
     creator_from_url,
+    learn_formats,
     match_template,
     media_id_from_url,
     reconstruct_url_candidates,
 )
 from backend.app.domains.downloads.links.learned_routes import route_shape
 from backend.app.domains.downloads.links.urls import canonicalize_source_url, detect_source_key
-from backend.app.domains.downloads.metadata.learned_fields import learn_formats
 from backend.app.domains.downloads.naming.naming import detect_ffmpeg_location
 from backend.app.domains.downloads.naming.template_rows import template_row_fields, template_settings_from_row
 from backend.app.domains.downloads.postprocessing import (
@@ -77,7 +77,7 @@ from backend.app.domains.settings import detect_cookie_source, get_effective_fie
 from backend.app.runtime.processes import (
     TaskCancelled,
     TaskDeferred,
-    _cancel_pending,
+    cancel_pending,
     current_task_id,
     raise_if_cancelled,
     task_execution,
@@ -190,7 +190,7 @@ def _run_engine_attempts(
                     task_id, f"[never-stelle] Blocked by an anti-bot wall; retrying as {access.impersonate}..."
                 )
             rc, last_dest, emitted_paths = _attempt(access)
-            if rc == 0 or _has_output_media(last_dest, emitted_paths) or _cancel_pending(task_id):
+            if rc == 0 or _has_output_media(last_dest, emitted_paths) or cancel_pending(task_id):
                 return rc, last_dest, emitted_paths
             access.report(_task_log_tail(task_id))
             if access.walled and not access.impersonate and not walled and not impersonation_target():
@@ -286,7 +286,7 @@ def _run_task(
             (index for index, engine in enumerate(candidates) if resume and engine.name == resume.engine), 0
         )
         for index, engine in enumerate(candidates[first_engine:], start=first_engine):
-            if _cancel_pending(task_id):
+            if cancel_pending(task_id):
                 break
             if engine.needs_ffmpeg and quality_needs_ffmpeg(quality):
                 ffmpeg_location = detect_ffmpeg_location()
@@ -342,7 +342,7 @@ def _run_task(
                 # Resumes at this engine's cookie stage; nothing already tried runs again.
                 deferred.engine, deferred.failures = engine.name, failure_details
                 raise
-            if _cancel_pending(task_id):
+            if cancel_pending(task_id):
                 break
             # Only a run without media hands over, so every output path belongs to this engine.
             output_paths = [Path(path) for path in _attempt_output_paths(last_dest, emitted_paths)]
@@ -547,7 +547,7 @@ def _run_task(
     except TaskCancelled:
         raise
     except Exception as exc:
-        if _cancel_pending(task_id):
+        if cancel_pending(task_id):
             remove_task_record(task_id)
         else:
             update_task(task_id, status="failed", error=str(exc))

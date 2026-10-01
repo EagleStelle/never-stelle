@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any
@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunpa
 
 from backend.app.core.sources import normalize_source_key, source_key_from_url
 from backend.app.domains.downloads.constants import FIELD_DEFAULTS, TEMPLATE_RE, normalize_title_cleaning, quality_label
+from backend.app.domains.downloads.store import merge_learned_formats
 from backend.app.domains.settings import (
     get_effective_fields,
     get_effective_template_settings,
@@ -70,7 +71,7 @@ def _id_classes(value: str) -> set[str]:
     return classes
 
 
-def _prepare_url(source_url: str) -> str:
+def prepare_url(source_url: str) -> str:
     url = str(source_url or "").strip()
     if url and "://" not in url:
         url = f"https://{url}"
@@ -81,7 +82,7 @@ def _path_segments(path: str) -> list[str]:
     return [unquote(part).strip() for part in str(path or "").split("/") if part.strip()]
 
 
-def _is_route_segment(value: str) -> bool:
+def is_route_segment(value: str) -> bool:
     value = unquote(str(value or "")).strip()
     return bool(_ROUTE_SEGMENT_RE.fullmatch(value))
 
@@ -102,7 +103,7 @@ def _is_var_cell(value: str) -> bool:
     return _without_at(value) == _VAR_TOKEN
 
 
-def _normalized(value: Any) -> str:
+def alnum_fold(value: Any) -> str:
     return "".join(ch for ch in str(value).casefold() if ch.isalnum())
 
 
@@ -110,7 +111,7 @@ def _merged_prefixed_token(a: str, b: str, token: str) -> str:
     return f"@{token}" if str(a or "").startswith("@") and str(b or "").startswith("@") else token
 
 
-def _is_identifier_key(key: str) -> bool:
+def is_identifier_key(key: str) -> bool:
     key = str(key or "").strip().lower()
     return key == "v" or bool(_IDENTIFIER_KEY_RE.search(key))
 
@@ -121,7 +122,7 @@ def _identifier_score(value: str, key: str = "", *, path_context: bool = False) 
         return 0
     classes = _id_classes(token)
     score = 0
-    if _is_identifier_key(key):
+    if is_identifier_key(key):
         score += 3
     if any(ch.isdigit() for ch in token):
         score += 1
@@ -135,7 +136,7 @@ def _identifier_score(value: str, key: str = "", *, path_context: bool = False) 
         score += 1
     if classes & {"-", "_"}:
         score += 1
-    if token.isdigit() and not _is_identifier_key(key):
+    if token.isdigit() and not is_identifier_key(key):
         # A bare number is a strong id well below 10 digits (tube-site /video/<id>/).
         score += 1 if len(token) >= 6 else -1
     # Hyphenated segments joining real words are descriptive title slugs, not ids,
@@ -144,9 +145,9 @@ def _identifier_score(value: str, key: str = "", *, path_context: bool = False) 
     parts = [part for part in re.split(r"[-_]", token) if part]
     word_runs = re.findall(r"[a-z]{2,}", token.lower())
     is_wordy_slug = len(parts) >= 2 and len(word_runs) >= 2
-    if is_wordy_slug and not _is_identifier_key(key):
+    if is_wordy_slug and not is_identifier_key(key):
         score -= 4
-    if _is_route_segment(token) and not _is_identifier_key(key):
+    if is_route_segment(token) and not is_identifier_key(key):
         score -= 2
     if path_context and token.startswith("@"):
         score -= 2
@@ -172,7 +173,7 @@ def _infer_path_id_index(segments: list[str], media_id: str = "") -> int | None:
         after = segments[index + 1] if index + 1 < len(segments) else ""
         if not (_looks_like_slug(before) or _looks_like_slug(after)):
             continue
-        route_context = int(_is_route_segment(before) or _is_route_segment(after))
+        route_context = int(is_route_segment(before) or is_route_segment(after))
         if route_context or len(token) >= 6:
             numeric_slug_anchors.append((route_context, len(token), -index))
     if numeric_slug_anchors:
@@ -183,7 +184,7 @@ def _infer_path_id_index(segments: list[str], media_id: str = "") -> int | None:
     if scored:
         return sorted(scored, key=lambda item: (item[0], item[1]))[-1][1]
 
-    if len(segments) >= 2 and segments[-1] and _is_route_segment(segments[-2]):
+    if len(segments) >= 2 and segments[-1] and is_route_segment(segments[-2]):
         return len(segments) - 1
     return None
 
@@ -198,7 +199,7 @@ def _infer_query_id_key(query: str, media_id: str = "") -> str:
     for key, value in pairs:
         score = _identifier_score(value, key)
         # The first id a key names is the item; later ones narrow it, as its owner or a comment on it.
-        if score >= 3 and not named and (_is_identifier_key(key) or key.lower().endswith("id")):
+        if score >= 3 and not named and (is_identifier_key(key) or key.lower().endswith("id")):
             named = key
         if score > best[0]:
             best = (score, key)
@@ -222,7 +223,7 @@ def _canonical_query(query: str, media_id: str = "") -> str:
 
 
 def canonicalize_url(source_url: str, media_id: str = "") -> str:
-    url = _prepare_url(source_url)
+    url = prepare_url(source_url)
     if not url:
         return ""
     try:
@@ -245,7 +246,7 @@ def _creator_index_for_path_id(segments: list[str], id_index: int | None) -> int
     if id_index is None:
         return None
     candidate = id_index - 1
-    while candidate >= 0 and _is_route_segment(segments[candidate]):
+    while candidate >= 0 and is_route_segment(segments[candidate]):
         candidate -= 1
     return candidate if candidate >= 0 and segments[candidate] else None
 
@@ -290,12 +291,12 @@ def _metadata_bindings(metadata: dict[str, Any] | None, roles: dict[str, Any] | 
         for name in fields:
             if value := _creator_exact_value(metadata.get(name)):
                 exact.setdefault(value, set()).add(role)
-                creator.add(_normalized(value))
+                creator.add(alnum_fold(value))
     for name, value in metadata.items():
         # A link field echoes the URL itself, so it proves nothing about it.
         if name in role_fields or "url" in str(name).lower():
             continue
-        if len(normalized := _normalized(value)) >= _MIN_BOUND_LENGTH:
+        if len(normalized := alnum_fold(value)) >= _MIN_BOUND_LENGTH:
             other.add(normalized)
     return _Bindings(exact, creator, other)
 
@@ -313,11 +314,11 @@ def _bound_cell(cell: str, bindings: _Bindings) -> str:
     elif matched:
         token = _USERNAME_TOKEN if "username" in matched else _NICKNAME_TOKEN
     else:
-        normalized = _normalized(value)
+        normalized = alnum_fold(value)
         if len(normalized) < _MIN_BOUND_LENGTH:
             return ""
         # A route-shaped word matches only a person, never a field like the file's type.
-        if normalized not in bindings.creator and (normalized not in bindings.other or _is_route_segment(value)):
+        if normalized not in bindings.creator and (normalized not in bindings.other or is_route_segment(value)):
             return ""
         token = _VAR_TOKEN
     return f"@{token}" if str(cell).startswith("@") else token
@@ -385,7 +386,7 @@ def extract_url_part(source_url: str, part: str) -> str:
     if part.startswith("query:"):
         key = part.split(":", 1)[1]
         try:
-            parsed = urlparse(_prepare_url(source_url))
+            parsed = urlparse(prepare_url(source_url))
         except Exception:
             return ""
         return dict(parse_qsl(parsed.query)).get(key, "")
@@ -905,7 +906,7 @@ def reconstruct_url(
     return candidates[0] if candidates else ""
 
 
-def _id_matches(entry: dict[str, Any], media_id: str) -> bool:
+def id_matches(entry: dict[str, Any], media_id: str) -> bool:
     value = str(media_id or "").strip()
     if not value:
         return False
@@ -919,18 +920,18 @@ def _id_matches(entry: dict[str, Any], media_id: str) -> bool:
 
 
 def guess_sources(learned: dict[str, Any], media_id: str) -> list[str]:
-    return [key for key, entry in learned.items() if _id_matches(entry, media_id)]
+    return [key for key, entry in learned.items() if id_matches(entry, media_id)]
 
 
 def conflicts_with_source(learned: dict[str, Any], source_key: str, media_id: str) -> bool:
     entry = learned.get(normalize_source_key(source_key))
-    return bool(entry) and not _id_matches(entry, media_id)
+    return bool(entry) and not id_matches(entry, media_id)
 
 
 _ROLE_CREATOR_RE = re.compile(r"\{(?:creator|username|nickname)\}")
 
 
-def _canonical_shape(template: str) -> str:
+def canonical_shape(template: str) -> str:
     # Collapse every creator-role marker to one token so a display template ({username})
     # and a URL-derived shape ({creator}) compare equal regardless of the learned role.
     return _ROLE_CREATOR_RE.sub(_CREATOR_TOKEN, str(template or ""))
@@ -985,7 +986,7 @@ def _cell_covers(a: str, b: str) -> bool:
 def format_covers(template: str, saved: str) -> bool:
     """Whether a saved format key names ``template``, as it is or from before learning
     generalized it: literal cells turned into tokens, optional parameters left out."""
-    left, right = _canonical_shape(template), _canonical_shape(saved)
+    left, right = canonical_shape(template), canonical_shape(saved)
     return left == right or _shape_fits(left, right, _cell_covers)
 
 
@@ -993,16 +994,16 @@ def select_for_format(mapping: Any, format_template: str) -> Any:
     """The entry a format-keyed per-source setting holds for one learned template.
 
     Callers key their settings by the learned template string (source_templates,
-    source_locations); this looks the matched template up through ``_canonical_shape`` so a
+    source_locations); this looks the matched template up through ``canonical_shape`` so a
     stored ``{username}`` key still matches a ``{creator}``-shaped template, and a key saved
     before the template generalized still finds it. Returns None when the source has nothing
     configured for that format, so callers apply their own default.
     """
     if not isinstance(mapping, dict) or not mapping:
         return None
-    canonical = _canonical_shape(format_template)
+    canonical = canonical_shape(format_template)
     for fmt, value in mapping.items():
-        if _canonical_shape(fmt) == canonical:
+        if canonical_shape(fmt) == canonical:
             return value
     return next((value for fmt, value in mapping.items() if format_covers(format_template, fmt)), None)
 
@@ -1023,9 +1024,9 @@ def match_template(learned: dict[str, Any], source_key: str, source_url: str, me
     shape = _url_shape(canonicalize_url(source_url, mid), mid)
     if not shape:
         return ""
-    canonical_shape = _canonical_shape(shape)
+    link_shape = canonical_shape(shape)
     for template in templates:
-        if _shape_matches_template(_canonical_shape(template), canonical_shape):
+        if _shape_matches_template(canonical_shape(template), link_shape):
             return template
     return ""
 
@@ -1034,3 +1035,35 @@ def url_in_format(learned: dict[str, Any], source_key: str, source_url: str, for
     """Whether a URL belongs to the learned template a saved format key names."""
     matched = match_template(learned, source_key, source_url)
     return bool(matched) and format_covers(matched, format_template)
+
+
+def _templates(formats: dict[str, Any]) -> dict[str, Any]:
+    return {key: entry.get("templates") for key, entry in formats.items()}
+
+
+def learn_formats(samples: Iterable[tuple[str, str, dict[str, Any] | None]]) -> bool:
+    """Fold item links into the stored formats in one write; True when a template changed.
+
+    Each sample is ``(source_url, media_id, metadata)`` from a link that was saved by hand
+    or downloaded successfully. The fields holding the creator are resolved first, since
+    the write holds the database lock.
+    """
+    prepared: dict[tuple[str, str], tuple[dict[str, Any] | None, dict[str, list[str]]]] = {}
+    for source_url, media_id, metadata in samples:
+        source_url, media_id = str(source_url or "").strip(), str(media_id or "").strip()
+        if source_url and media_id and (source_url, media_id) not in prepared:
+            prepared[(source_url, media_id)] = (metadata, get_effective_fields(source_url))
+    if not prepared:
+        return False
+
+    def update(learned: dict[str, Any]) -> dict[str, Any]:
+        for (source_url, media_id), (metadata, roles) in prepared.items():
+            learned = learn_download(learned, source_url, media_id, metadata, roles)
+        return learned
+
+    before, after = merge_learned_formats(update)
+    return _templates(before) != _templates(after)
+
+
+def learn_source_id_signature(source_key: str, media_id: str) -> None:
+    merge_learned_formats(lambda learned: learn_media_id(learned, source_key, media_id))

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from backend.app.domains.downloads.constants import FIELD_CANDIDATES, field_roles_from_probe_fields
-from backend.app.domains.downloads.library.scan import parse_filename_media_id
-from backend.app.domains.downloads.metadata.learned_fields import (
+from backend.app.domains.downloads.naming.naming import parse_filename_media_id
+from backend.app.domains.settings.learned_fields import (
     has_learned_fields,
     save_learned_fields,
 )

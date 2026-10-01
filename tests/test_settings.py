@@ -9,11 +9,7 @@ import backend.app.domains.settings.service as settings_module
 import backend.app.domains.settings.storage as settings_storage_module
 import backend.app.domains.settings.templates as settings_templates_module
 from backend.app.core.config import MEDIA_DIR
-from backend.app.domains.downloads.metadata.learned_fields import (
-    learn_missing_fields_for_format,
-    save_learned_fields,
-    save_missing_learned_fields,
-)
+from backend.app.domains.downloads.engines.probe import learn_missing_fields_for_format
 from backend.app.domains.settings import (
     BUILTIN_FILENAME_TEMPLATE,
     BUILTIN_FOLDER_TEMPLATE,
@@ -32,6 +28,7 @@ from backend.app.domains.settings import (
     normalize_source_token_roles,
     normalize_template_settings,
 )
+from backend.app.domains.settings.learned_fields import save_learned_fields, save_missing_learned_fields
 from tests.support import use_temp_db
 
 
@@ -465,7 +462,7 @@ def test_learned_url_creator_defaults_do_not_promote_saved_field_roles(monkeypat
 
 
 def test_add_source_and_learn_format_returns_matched_template(tmp_path, monkeypatch):
-    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
+    import backend.app.domains.downloads.engines.probe as probe_mod
 
     use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setattr(
@@ -477,7 +474,7 @@ def test_add_source_and_learn_format_returns_matched_template(tmp_path, monkeypa
             ]
         },
     )
-    monkeypatch.setattr(learning_mod, "probe_link_fields", lambda *args, **kwargs: {})
+    monkeypatch.setattr(probe_mod, "probe_link_fields", lambda *args, **kwargs: {})
 
     result = settings_formats_module.add_source_and_learn_format(
         "https://www.facebook.com/reel/800000000000002"
@@ -517,7 +514,7 @@ def test_clearing_last_format_clears_source_fields(tmp_path, monkeypatch):
 
 
 def test_save_learned_fields_persists_only_real_probe_fields(monkeypatch):
-    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
+    import backend.app.domains.settings.learned_fields as learning_mod
 
     payload: dict = {}
     saved: list[dict] = []
@@ -538,7 +535,7 @@ def test_save_learned_fields_persists_only_real_probe_fields(monkeypatch):
 
 
 def test_save_learned_fields_ignores_url_creator_hint(monkeypatch):
-    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
+    import backend.app.domains.settings.learned_fields as learning_mod
 
     payload: dict = {}
     saved: list[dict] = []
@@ -556,7 +553,7 @@ def test_save_learned_fields_ignores_url_creator_hint(monkeypatch):
 
 
 def test_save_learned_fields_drops_roles_matching_global_defaults(monkeypatch):
-    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
+    import backend.app.domains.settings.learned_fields as learning_mod
 
     payload = {"default_fields": {"username": ["uploader_id"]}}
     saved: list[dict] = []
@@ -575,7 +572,7 @@ def test_save_learned_fields_drops_roles_matching_global_defaults(monkeypatch):
 
 
 def test_learned_field_roles_merges_without_clobbering_existing(monkeypatch):
-    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
+    import backend.app.domains.settings.learned_fields as learning_mod
 
     payload = {"source_fields": {"youtube": {"username": ["channel"]}}}
     saved: list[dict] = []
@@ -594,7 +591,7 @@ def test_learned_field_roles_merges_without_clobbering_existing(monkeypatch):
 
 
 def test_missing_field_roles_append_without_reordering_existing(monkeypatch):
-    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
+    import backend.app.domains.settings.learned_fields as learning_mod
 
     payload = {
         "source_fields": {
@@ -626,7 +623,7 @@ def test_missing_field_roles_append_without_reordering_existing(monkeypatch):
 
 def test_format_field_probe_does_not_touch_existing_fields_when_all_present(monkeypatch):
     import backend.app.domains.downloads.engines.probe as probe_mod
-    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
+    import backend.app.domains.settings.learned_fields as learning_mod
 
     existing = {
         "username": ["uploader", "author[uniqueId]"],
@@ -676,7 +673,7 @@ def test_format_field_probe_writes_no_format(tmp_path, monkeypatch):
 
 
 def test_adding_a_link_learns_its_format_from_one_probe(tmp_path, monkeypatch):
-    import backend.app.domains.downloads.metadata.learned_fields as learning_mod
+    import backend.app.domains.downloads.engines.probe as probe_mod
     from backend.app.db import repositories
 
     use_temp_db(tmp_path, monkeypatch)
@@ -690,7 +687,7 @@ def test_adding_a_link_learns_its_format_from_one_probe(tmp_path, monkeypatch):
             "metadata": {"author[uniqueId]": "alice"},
         }
 
-    monkeypatch.setattr(learning_mod, "probe_link_fields", probe)
+    monkeypatch.setattr(probe_mod, "probe_link_fields", probe)
 
     result = settings_formats_module.add_source_and_learn_format("https://example.test/alice/post/22222222")
 

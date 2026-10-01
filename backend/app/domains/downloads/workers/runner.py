@@ -10,9 +10,9 @@ from backend.app.domains.downloads.store import append_task_log, record_task_pro
 from backend.app.domains.downloads.workers.pathing import _is_audio_path, _preferred_output_path
 from backend.app.domains.downloads.workers.progress import TaskProgress
 from backend.app.runtime.processes import (
-    _kill_process_tree,
-    _register_process,
-    _unregister_process,
+    kill_process_tree,
+    register_process,
+    unregister_process,
 )
 
 
@@ -71,7 +71,7 @@ def _run_engine_to_task(
             start_new_session=(os.name != "nt"),
             env=env,
         )
-        _register_process(task_id, process)
+        register_process(task_id, process)
         if process.stdout is not None:
             # The bar and the log tail are memory, so every line updates both at once.
             # Only a new output path is durable state, and that writes immediately.
@@ -113,6 +113,6 @@ def _run_engine_to_task(
         return process.wait(), last_dest, emitted_paths
     finally:
         if process:
-            _unregister_process(task_id, process)
+            unregister_process(task_id, process)
         if process and process.poll() is None:
-            _kill_process_tree(process)
+            kill_process_tree(process)

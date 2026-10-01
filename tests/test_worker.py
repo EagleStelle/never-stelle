@@ -354,8 +354,8 @@ def _stream_engine_progress(
     volatile.forget(task_id)
     monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *a, **k: _FakeProcess(iter(lines)))
     monkeypatch.setattr(runner_module, "update_task", lambda task_id, **updates: writes.append(updates))
-    monkeypatch.setattr(runner_module, "_register_process", lambda task_id, process: None)
-    monkeypatch.setattr(runner_module, "_unregister_process", lambda task_id, process: None)
+    monkeypatch.setattr(runner_module, "register_process", lambda task_id, process: None)
+    monkeypatch.setattr(runner_module, "unregister_process", lambda task_id, process: None)
 
     rc, dest, paths = runner_module._run_engine_to_task(
         engine_by_name(engine_name),

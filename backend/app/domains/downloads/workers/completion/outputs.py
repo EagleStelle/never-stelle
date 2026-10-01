@@ -17,7 +17,6 @@ from backend.app.domains.downloads.files import (
     rename_path,
     unique_sibling_path,
 )
-from backend.app.domains.downloads.library.scan import parse_filename_media_id
 from backend.app.domains.downloads.links.formats import media_id_from_url
 from backend.app.domains.downloads.links.urls import detect_source_key
 from backend.app.domains.downloads.metadata.creators import filename_media_id
@@ -26,6 +25,7 @@ from backend.app.domains.downloads.metadata.values import display_creator_candid
 from backend.app.domains.downloads.naming.naming import (
     clean_template_filename,
     numbered_suffix_of,
+    parse_filename_media_id,
     strip_numbered_suffix,
 )
 from backend.app.domains.downloads.naming.template_rows import template_row_fields

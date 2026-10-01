@@ -9,13 +9,13 @@ import httpx
 
 from backend.app.core.sources import apex_host, host_from_url, source_key_from_url
 from backend.app.domains.access.pool import cookie_rotation
+from backend.app.domains.access.rotation import load_cookie_jar
 from backend.app.domains.downloads.links.formats import (
-    _prepare_url,
     canonicalize_url,
     media_id_from_url,
+    prepare_url,
 )
 from backend.app.domains.downloads.links.learned_routes import absence_settled, route_shape
-from backend.app.domains.downloads.metadata.scraper import _load_cookie_jar
 from backend.app.domains.downloads.store import learn_route, load_route_facts
 from backend.app.domains.settings import browser_identity, detect_cookie_source
 
@@ -35,7 +35,7 @@ def detect_source_key(source_url: str) -> str:
 
 def _fetchable(source_url: str) -> str:
     """The prepared URL, or "" when it is not something that can be fetched."""
-    url = _prepare_url(source_url)
+    url = prepare_url(source_url)
     return url if url.startswith(("http://", "https://")) else ""
 
 
@@ -43,7 +43,7 @@ def _apex(url: str) -> str:
     return apex_host(host_from_url(url))
 
 
-def _is_strong_media_id(media_id: str) -> bool:
+def is_strong_media_id(media_id: str) -> bool:
     # A token that is either long or numeric names a post; a short word is a route segment.
     return bool(media_id) and (len(media_id) >= _MIN_STRONG_ID_LEN or any(ch.isdigit() for ch in media_id))
 
@@ -113,7 +113,7 @@ def _resolve_redirect_request(url: str, jar=None, headers: dict[str, str] | None
     if final_url == url:
         return _Attempt("", True)
     # Adopt only a target carrying a substantive media id, so login/consent walls never win.
-    if not _is_strong_media_id(media_id_from_url(final_url)):
+    if not is_strong_media_id(media_id_from_url(final_url)):
         return _INCONCLUSIVE
     return _Attempt(final_url, False)
 
@@ -122,7 +122,7 @@ def _resolve_with_cookies(url: str) -> _Attempt:
     # Walk the source's cookie jars until one gets past whatever blocked the anonymous read.
     with closing(cookie_rotation(detect_cookie_source(url))) as rotation:
         for lease in rotation:
-            jar = _load_cookie_jar(lease.path)
+            jar = load_cookie_jar(lease.path)
             if not jar:
                 continue
             attempt = _resolve_redirect_request(url, jar=jar, headers=browser_identity(lease.user_agent).headers())

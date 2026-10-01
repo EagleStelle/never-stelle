@@ -65,7 +65,8 @@ TITLE_MAX_CHARS = TITLE_MAX_CHARS_DEFAULT
 # --- Filename and template patterns ---
 _NUMBERED_SUFFIX_RE = re.compile(r"_\d+$")
 _ROW_TOKEN_FIELDS = {"title": "title", "id": "media_id", "username": "creator"}
-_DISPLAY_FILENAME_ID_RE = re.compile(r"^(?P<title>.*) \[(?P<id>[A-Za-z0-9_-]+)\](?:_\d+)?$")
+_FILENAME_ID_RE = re.compile(r"^(?P<title>.*) \[(?P<id>[A-Za-z0-9_-]+)\](?:_\d+)?$")
+UNRECOVERABLE_MEDIA_IDS = {"", "na", "n-a", "n/a", "none", "null", "unknown"}
 _EXT_TEMPLATE_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$", re.IGNORECASE)
 _EMPTY_BRACKETS_RE = re.compile(r"\[\s*\]|\(\s*\)|\{\s*\}")
 _ID_TEMPLATE_FIELDS = {"id"}
@@ -155,6 +156,19 @@ def strip_numbered_suffix(stem: str) -> str:
 
 def numbered_suffix_of(stem: str) -> str:
     return stem[len(strip_numbered_suffix(stem)) :]
+
+
+def parse_filename_media_id(filename: str | Path) -> tuple[str, str]:
+    """Return ``(media_id, title)`` from a ``Title [id].ext`` filename."""
+    path = Path(str(filename))
+    stem = path.stem.strip()
+    match = _FILENAME_ID_RE.match(stem)
+    if not match:
+        return "", stem
+    media_id = match.group("id").strip()
+    if media_id.strip().lower() in UNRECOVERABLE_MEDIA_IDS:
+        return "", stem
+    return media_id, (match.group("title").strip() or stem)
 
 
 # --- Filename styling ---
@@ -758,7 +772,7 @@ def clean_template_filename(
     flags = normalize_title_cleaning(cleaning)
     fields, numbered_suffix = _match_template_fields(path.stem, filename_template)
     raw_title = field_value(fields, "title")
-    fallback_match = _DISPLAY_FILENAME_ID_RE.match(path.stem.strip())
+    fallback_match = _FILENAME_ID_RE.match(path.stem.strip())
     fallback_media_id = _text(media_id) or (fallback_match.group("id").strip() if fallback_match else "")
     fallback_username = _clean_creator_token(creator, flags)
     fallback_nickname = _clean_creator_token(nickname, flags)

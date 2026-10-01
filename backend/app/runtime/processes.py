@@ -42,7 +42,7 @@ class TaskDeferred(BaseException):
         self.failures = list(failures)
 
 
-def _kill_process_tree(process: subprocess.Popen[Any]) -> None:
+def kill_process_tree(process: subprocess.Popen[Any]) -> None:
     # Kill descendants too; a surviving ffmpeg child holds the stdout pipe open.
     if process.poll() is not None:
         return
@@ -82,7 +82,7 @@ def request_cancel(task_id: str) -> None:
         processes = list(_active_processes.get(task_id, ()))
         callback = _active_cancel_callbacks.get(task_id)
     for process in processes:
-        _kill_process_tree(process)
+        kill_process_tree(process)
     if callback:
         try:
             callback()
@@ -100,12 +100,12 @@ def has_active_task(task_id: str) -> bool:
         return task_id in _active_tasks
 
 
-def _cancel_pending(task_id: str) -> bool:
+def cancel_pending(task_id: str) -> bool:
     with _cancel_lock:
         return task_id in _cancel_requested
 
 
-def _register_process(task_id: str, process: subprocess.Popen[Any]) -> None:
+def register_process(task_id: str, process: subprocess.Popen[Any]) -> None:
     # Outside a task nothing can cancel the process.
     if not task_id:
         return
@@ -115,10 +115,10 @@ def _register_process(task_id: str, process: subprocess.Popen[Any]) -> None:
     # Close the check/register race: a cancellation recorded just before this
     # subprocess appeared must still terminate it.
     if cancelled:
-        _kill_process_tree(process)
+        kill_process_tree(process)
 
 
-def _unregister_process(task_id: str, process: subprocess.Popen[Any]) -> None:
+def unregister_process(task_id: str, process: subprocess.Popen[Any]) -> None:
     with _cancel_lock:
         processes = _active_processes.get(task_id)
         if processes is not None:
@@ -138,7 +138,7 @@ def current_task_id() -> str:
 
 def raise_if_cancelled(task_id: str = "") -> None:
     active_id = task_id or current_task_id()
-    if active_id and _cancel_pending(active_id):
+    if active_id and cancel_pending(active_id):
         raise TaskCancelled()
 
 
@@ -158,7 +158,7 @@ def task_execution(task_id: str) -> Iterator[None]:
             _active_cancel_callbacks.pop(task_id, None)
             _cancel_requested.discard(task_id)
         for process in processes:
-            _kill_process_tree(process)
+            kill_process_tree(process)
         _current_task_id.reset(token)
 
 
@@ -213,18 +213,18 @@ def run_task_subprocess(
         run_kwargs.setdefault("start_new_session", True)
 
     process = subprocess.Popen(args, **run_kwargs)
-    _register_process(task_id, process)
+    register_process(task_id, process)
     try:
         try:
             stdout, stderr = process.communicate(input=input_value, timeout=timeout)
         except subprocess.TimeoutExpired as exc:
-            _kill_process_tree(process)
+            kill_process_tree(process)
             stdout, stderr = process.communicate()
             exc.output = stdout
             exc.stderr = stderr
             raise
     finally:
-        _unregister_process(task_id, process)
+        unregister_process(task_id, process)
 
     raise_if_cancelled(task_id)
     completed = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)

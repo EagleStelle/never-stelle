@@ -7,10 +7,10 @@ import backend.app.runtime.processes as processes_module
 from backend.app.domains.downloads.engines.probe import (
     _candidate_probe_fields,
     _entry_url,
-    _flatten_metadata,
     _gallerydl_richest_metadata,
     _radio_single_url,
     _strip_playlist_param,
+    flatten_metadata,
     probe_fields,
     probe_url,
 )
@@ -175,7 +175,7 @@ def test_probe_url_bad_link_raises_value_error(monkeypatch):
 
 
 def test_flatten_metadata_expands_one_level_and_drops_non_scalars():
-    flat = _flatten_metadata(
+    flat = flatten_metadata(
         {
             "uploader": "Alice",
             "view_count": 12,

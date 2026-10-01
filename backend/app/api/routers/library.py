@@ -14,6 +14,7 @@ from backend.app.domains.downloads.library.resolve import (
     stop_resolve,
 )
 from backend.app.domains.downloads.library.scan import scan_media_library, stop_scan
+from backend.app.domains.downloads.workers.enrichment import ensure_enrichment_worker
 from backend.app.integrations.swaratelle import client as swaratelle
 
 router = APIRouter(
@@ -21,6 +22,13 @@ router = APIRouter(
     tags=["library"],
     dependencies=[Depends(require_authenticated_session)],
 )
+
+
+def _with_worker(queued: dict[str, int]) -> dict[str, int]:
+    # A pass that queued rows needs the background worker running.
+    if queued["queued"]:
+        ensure_enrichment_worker()
+    return queued
 
 
 @router.post("/scan")
@@ -58,7 +66,7 @@ def resolve_history(payload: ResolvePayload) -> dict[str, int]:
     # Queues background probes; the count is what will be probed, not what succeeded.
     # ``pass_id`` is how the caller finds this pass's outcome on the task poll.
     try:
-        return start_resolve(payload.scope, payload.task_ids)
+        return _with_worker(start_resolve(payload.scope, payload.task_ids))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -79,6 +87,6 @@ def rename_scope() -> dict[str, dict[str, Any]]:
 def rename_history(payload: RenamePayload) -> dict[str, int]:
     # Queues a resolve pass; ``pass_id`` is how the caller finds its outcome.
     try:
-        return start_renames(payload.source_key, payload.kind, payload.format_template)
+        return _with_worker(start_renames(payload.source_key, payload.kind, payload.format_template))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -17,8 +17,9 @@ from backend.app.domains.downloads.constants import (
 )
 from backend.app.domains.downloads.engines.gallerydl import gallerydl_access_args
 from backend.app.domains.downloads.engines.ytdlp import ytdlp_access_args
-from backend.app.domains.downloads.links.formats import _prepare_url
+from backend.app.domains.downloads.links.formats import prepare_url
 from backend.app.domains.settings import detect_cookie_source, has_cookies_for_source
+from backend.app.domains.settings.learned_fields import save_missing_learned_fields
 from backend.app.runtime.processes import low_priority_command, run_task_subprocess
 
 # YouTube mix/radio playlists carry an ``RD`` list id and are endless, so we
@@ -103,7 +104,7 @@ def _probe_cookie_source(url: str, source_key: str = "") -> str:
     return ""
 
 
-def _probe_rotation(url: str, source_key: str = "", *, with_cookies: bool = True) -> Iterator[AccessIdentity]:
+def probe_rotation(url: str, source_key: str = "", *, with_cookies: bool = True) -> Iterator[AccessIdentity]:
     return access_rotation(lambda: _probe_cookie_source(url, source_key) if with_cookies else "")
 
 
@@ -158,7 +159,7 @@ def _flat_playlist(url: str) -> dict[str, Any]:
         )
 
     # Anonymous read first; a fingerprint or cookie is only spent when the public listing fails.
-    with closing(_probe_rotation(url)) as rotation:
+    with closing(probe_rotation(url)) as rotation:
         for access in rotation:
             result = _exec(access)
             if result.returncode == 0:
@@ -177,7 +178,7 @@ def probe_url(source_url: str) -> dict[str, Any]:
     Radios resolve to just their current video. Playlists return their ordered
     entries so the UI can ask which to download.
     """
-    url = _prepare_url(source_url)
+    url = prepare_url(source_url)
     if not url:
         raise ValueError("Paste a URL first.")
 
@@ -218,7 +219,7 @@ def _scalar(value: Any) -> str:
     return str(value).strip() if isinstance(value, str | int | float) else ""
 
 
-def _flatten_metadata(data: Any) -> dict[str, str]:
+def flatten_metadata(data: Any) -> dict[str, str]:
     # Expose one level of nesting as key[sub] to match how the template addresses fields.
     out: dict[str, str] = {}
     if not isinstance(data, dict):
@@ -250,9 +251,9 @@ def _candidate_probe_fields(flat: dict[str, str], engine: str) -> list[dict[str,
     return fields
 
 
-def _url_exact_values(source_url: str) -> set[str]:
+def url_exact_values(source_url: str) -> set[str]:
     try:
-        parsed = urlparse(_prepare_url(source_url))
+        parsed = urlparse(prepare_url(source_url))
     except Exception:
         return set()
     values: set[str] = set()
@@ -272,7 +273,7 @@ def _exact_url_field_roles(
     fields_by_role: dict[str, list[str]],
     values_by_field: dict[str, str],
 ) -> dict[str, list[str]]:
-    url_values = _url_exact_values(source_url)
+    url_values = url_exact_values(source_url)
     if not url_values:
         return {}
     promoted: dict[str, list[str]] = {}
@@ -321,7 +322,7 @@ def _walk_probe_rotation(
     error = ""
     if not urls:
         return found, error
-    with closing(_probe_rotation(urls[0], cookie_source_key, with_cookies=with_cookies)) as rotation:
+    with closing(probe_rotation(urls[0], cookie_source_key, with_cookies=with_cookies)) as rotation:
         for access in rotation:
             attempt, attempt_error = read(access, [url for url in urls if url not in found])
             found.update(attempt)
@@ -483,7 +484,7 @@ def probe_metadata(
     configured field-priority order. Links sharing their engine order and cookie source
     are read together, one process per engine.
     """
-    prepared = {source_url: _prepare_url(source_url) for source_url in source_urls}
+    prepared = {source_url: prepare_url(source_url) for source_url in source_urls}
     options: dict[str, Any] = {
         "with_cookies": with_cookies,
         "cookie_source_key": cookie_source_key,
@@ -503,7 +504,7 @@ def probe_metadata(
         for dump in dumps[::-1] if gallerydl_first else dumps:
             if pending := [url for url in group if url not in found]:
                 found.update(dump(pending))
-    return {source_url: _flatten_metadata(found[url]) for source_url, url in prepared.items() if url in found}
+    return {source_url: flatten_metadata(found[url]) for source_url, url in prepared.items() if url in found}
 
 
 def probe_link_metadata(source_url: str, source_key: str = "", *, low_priority: bool = False) -> dict[str, str] | None:
@@ -521,7 +522,7 @@ def probe_media_info(
     cookie_source_key: str = "",
 ) -> tuple[dict[str, Any], str]:
     """yt-dlp's full info dict for one item, subtitles included; ``{}`` and the last failure's output when none."""
-    url = _prepare_url(source_url)
+    url = prepare_url(source_url)
     if not url:
         return {}, ""
     # Extractors only collect subtitles when asked to write them; --no-download still writes nothing.
@@ -551,7 +552,7 @@ def _probe_field_metadata(
         low_priority=low_priority,
     )
     if info := found.get(url):
-        flat = _flatten_metadata(info)
+        flat = flatten_metadata(info)
         probed.append(("ytdlp", flat))
         if stop_after_first_with_roles and _candidate_probe_fields(flat, "ytdlp"):
             return probed, errors
@@ -565,7 +566,7 @@ def _probe_field_metadata(
         low_priority=low_priority,
     ).get(url)
     if metadata:
-        probed.append(("gallerydl", _flatten_metadata(metadata)))
+        probed.append(("gallerydl", flatten_metadata(metadata)))
     return probed, errors
 
 
@@ -586,7 +587,7 @@ def probe_fields(
     each returns, so the user sees whichever engine's fields apply to this source.
     ``metadata`` holds every flat field the engines returned, first engine first.
     """
-    url = _prepare_url(source_url)
+    url = prepare_url(source_url)
     if not url:
         raise ValueError("Paste a URL first.")
     resolved_key = _resolved_probe_source_key(url, source_key)
@@ -642,3 +643,29 @@ def probe_fields(
         "field_roles": field_roles,
         "metadata": metadata,
     }
+
+
+def probe_link_fields(source_url: str, source_key: str = "", *, low_priority: bool = False) -> dict[str, Any]:
+    """One probe of a link's fields and metadata; ``{}`` when no engine reads it."""
+    if not str(source_url or "").strip():
+        return {}
+    try:
+        if low_priority:
+            return probe_fields(source_url, source_key, low_priority=True, stop_after_first_with_roles=True)
+        return probe_fields(source_url, source_key)
+    except Exception:
+        return {}
+
+
+def learn_missing_fields_for_format(
+    source_url: str,
+    source_key: str = "",
+    *,
+    low_priority: bool = False,
+) -> dict[str, list[str]]:
+    """Probe a newly learned URL format and append any missing fields."""
+    result = probe_link_fields(source_url, source_key, low_priority=low_priority)
+    if not result:
+        return {}
+    key = str(result.get("source_key") or source_key)
+    return save_missing_learned_fields(source_url, key, result.get("field_roles"))

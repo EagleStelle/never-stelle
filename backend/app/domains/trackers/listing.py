@@ -21,44 +21,44 @@ from backend.app.domains.access.rotation import AccessIdentity, access_env
 from backend.app.domains.downloads.constants import FIELD_ROLE_CHAINS, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS
 from backend.app.domains.downloads.engines.gallerydl import gallerydl_access_args
 from backend.app.domains.downloads.engines.probe import (
-    _flatten_metadata,
-    _probe_rotation,
-    _url_exact_values,
+    flatten_metadata,
     gallerydl_reads,
     probe_metadata,
+    probe_rotation,
+    url_exact_values,
     ytdlp_single_video,
 )
 from backend.app.domains.downloads.engines.ytdlp import ytdlp_access_args
 from backend.app.domains.downloads.library.history import find_history_by_source
 from backend.app.domains.downloads.links.formats import (
-    _id_matches,
-    _is_identifier_key,
-    _is_route_segment,
-    _normalized,
-    _prepare_url,
+    alnum_fold,
     canonicalize_url,
+    id_matches,
+    is_identifier_key,
+    is_route_segment,
     learn_download,
     match_template,
     media_id_from_url,
+    prepare_url,
     reconstruct_url_candidates,
     url_dedup_key,
 )
-from backend.app.domains.downloads.links.urls import _is_strong_media_id
+from backend.app.domains.downloads.links.urls import is_strong_media_id
 from backend.app.domains.downloads.metadata.scraper import fetch_html
 from backend.app.domains.downloads.store import load_learned_formats
 from backend.app.domains.settings.fields import get_effective_field_defaults, get_effective_fields
 from backend.app.domains.settings.trackers import merge_tracker_tabs, page_words, row_matches, same_label
 from backend.app.runtime.processes import (
     TaskCancelled,
-    _kill_process_tree,
-    _register_process,
-    _unregister_process,
     cancel_on_request,
     current_task_id,
+    kill_process_tree,
     low_priority_command,
     raise_if_cancelled,
+    register_process,
     request_cancel,
     task_execution,
+    unregister_process,
 )
 
 from .browser import BrowserSession
@@ -215,7 +215,7 @@ def _stream(cmd: list[str], access: AccessIdentity, run: _Run) -> Iterator[Any]:
         **kwargs,
     )
     task_id = current_task_id()
-    _register_process(task_id, process)
+    register_process(task_id, process)
     last_output = [time.monotonic()]
     # Set while the caller handles a message, so slow probing is not taken for a silent listing.
     handling = threading.Event()
@@ -225,7 +225,7 @@ def _stream(cmd: list[str], access: AccessIdentity, run: _Run) -> Iterator[Any]:
         while not done.wait(5):
             if not handling.is_set() and time.monotonic() - last_output[0] > _IDLE_TIMEOUT_SECONDS:
                 run.log.append("Listing stopped responding.")
-                _kill_process_tree(process)
+                kill_process_tree(process)
                 return
 
     threading.Thread(target=watchdog, name="never-stelle-listing-watchdog", daemon=True).start()
@@ -254,8 +254,8 @@ def _stream(cmd: list[str], access: AccessIdentity, run: _Run) -> Iterator[Any]:
         raise_if_cancelled()
     finally:
         done.set()
-        _unregister_process(task_id, process)
-        _kill_process_tree(process)
+        unregister_process(task_id, process)
+        kill_process_tree(process)
         process.wait()
 
 
@@ -334,7 +334,7 @@ def _link_placeholders(url: str) -> dict[str, str]:
 
 
 def _is_id_placeholder(text: str) -> bool:
-    return any(ch.isdigit() for ch in text) or _is_identifier_key(text)
+    return any(ch.isdigit() for ch in text) or is_identifier_key(text)
 
 
 def _catalog_candidates(
@@ -388,7 +388,7 @@ def _listed_files(messages: Iterator[Any], max_directories: int) -> Iterator[tup
         if kind == _GALLERYDL_DIRECTORY:
             directories += 1
         elif kind == _GALLERYDL_URL and len(message) > 2 and isinstance(message[2], dict):
-            files.append(_flatten_metadata(message[2]))
+            files.append(flatten_metadata(message[2]))
         if directories > max_directories or len(files) > _MAX_POST_FILES:
             break
     if seen:
@@ -415,7 +415,7 @@ def _visit_key(url: str) -> str:
     # One page under any host prefix (www, m) and with or without a trailing slash; every query field
     # counts, since tabs can differ by query alone.
     parsed = urlparse(canonicalize_url(url))
-    query = urlencode(sorted(parse_qsl(urlparse(_prepare_url(url)).query)))
+    query = urlencode(sorted(parse_qsl(urlparse(prepare_url(url)).query)))
     return parsed._replace(scheme="https", netloc=apex_host(parsed.netloc), query=query).geturl()
 
 
@@ -440,7 +440,7 @@ class _Resolver:
         self.settled = settled or self.known
         self.apex = apex_host(host_from_url(tracker_url))
         self.tracker_canonical = canonicalize_url(tracker_url)
-        self.tracker_tokens = _url_exact_values(tracker_url)
+        self.tracker_tokens = url_exact_values(tracker_url)
         self.source_key = normalize_source_key(source_key)
         # Learned formats are stored under the link's own host key.
         self.learned_key = source_key_from_url(tracker_url)
@@ -506,21 +506,21 @@ class _Resolver:
         key = source_key_from_url(url)
         if match_template(self.learned, key, url, media_id):
             return True
-        if _is_route_segment(media_id) or _ROUTE_WORDS_RE.fullmatch(media_id):
+        if is_route_segment(media_id) or _ROUTE_WORDS_RE.fullmatch(media_id):
             entry = self.learned.get(key) or {}
-            return bool(entry.get("id_classes")) and _id_matches(entry, media_id)
-        return _is_strong_media_id(media_id)
+            return bool(entry.get("id_classes")) and id_matches(entry, media_id)
+        return is_strong_media_id(media_id)
 
     def _id_fields(self, flat: dict[str, str]) -> Iterator[tuple[str, str]]:
         for key, value in flat.items():
             words = set(_WORD_RE.findall(key.lower()))
-            if "[" not in key and _is_identifier_key(key) and not words & self.role_words:
+            if "[" not in key and is_identifier_key(key) and not words & self.role_words:
                 yield key, value
 
     def _person_names(self, flat: dict[str, str]) -> set[str]:
         # Normalized values of fields keyed by a person: names, handles and their ids.
         values = (value for key, value in flat.items() if set(_WORD_RE.findall(key.lower())) & self.role_words)
-        return {name for name in map(_normalized, values) if len(name) >= _MIN_NAME_LENGTH}
+        return {name for name in map(alnum_fold, values) if len(name) >= _MIN_NAME_LENGTH}
 
     def _linked_url(self, flat: dict[str, str], file_url: str) -> str:
         links: list[str] = []
@@ -543,7 +543,7 @@ class _Resolver:
             return ""
         kind = (flat.get("category", ""), flat.get("subcategory", ""))
         for id_key, value in self._id_fields(flat):
-            if not _id_matches(entry, value):
+            if not id_matches(entry, value):
                 continue
             candidates = reconstruct_url_candidates(self.learned, self.learned_key, value, creator=creator)
             url = self._route([candidate for candidate in candidates if self.is_item(candidate)], kind, id_key, value)
@@ -586,7 +586,7 @@ class _Resolver:
         kind = (flat.get("category", ""), flat.get("subcategory", ""))
         ids: dict[str, str] = {}
         for key, value in self._id_fields(flat):
-            if _is_strong_media_id(value) and value not in self.tracker_tokens and value not in ids.values():
+            if is_strong_media_id(value) and value not in self.tracker_tokens and value not in ids.values():
                 ids[key] = value
         if not kind[0] or kind in self.catalog_tried or not ids:
             return ""
@@ -622,7 +622,7 @@ class _Resolver:
 
     def file_entry(self, file_url: str, kwdict: dict[str, Any], *, judged: bool = False) -> Entry | None:
         # A file's metadata carries its post's fields, so files of one post resolve to one link.
-        flat = _flatten_metadata(kwdict)
+        flat = flatten_metadata(kwdict)
         username = _field_value(flat, self.username_fields)
         url = (
             self._linked_url(flat, file_url)
@@ -647,8 +647,8 @@ class _Resolver:
 
     def owns(self, link: str, flat: dict[str, str]) -> bool:
         """Whether the link names the creator or its metadata carries a name or id the creator's own files do."""
-        own = self.names | {name for name in map(_normalized, self.creators()) if len(name) >= _MIN_NAME_LENGTH}
-        return bool(_url_exact_values(link) & self.creators()) or bool(self._person_names(flat) & own)
+        own = self.names | {name for name in map(alnum_fold, self.creators()) if len(name) >= _MIN_NAME_LENGTH}
+        return bool(url_exact_values(link) & self.creators()) or bool(self._person_names(flat) & own)
 
     def readable(self, link: str) -> bool:
         """Whether a learned format or an engine reads the link as an item."""
@@ -681,7 +681,7 @@ class _Resolver:
         if key in self.groups:
             return self.groups[key]
         # A link naming the creator is already the post; others may sit inside one.
-        if self.known(key) or not _is_image(flat) or _url_exact_values(entry.url) & self.creators():
+        if self.known(key) or not _is_image(flat) or url_exact_values(entry.url) & self.creators():
             return entry
         media_id = media_id_from_url(entry.url)
         scope = key.rpartition("#")[0]
@@ -700,7 +700,7 @@ class _Resolver:
                     name
                     for file in files
                     for name, value in file.items()
-                    if value == media_id and _is_identifier_key(name)
+                    if value == media_id and is_identifier_key(name)
                 ),
                 "",
             )
@@ -714,7 +714,7 @@ class _Resolver:
 
     def _may_hold(self, link: str, item_key: str) -> bool:
         return (
-            bool(_url_exact_values(link) & self.creators())
+            bool(url_exact_values(link) & self.creators())
             and url_dedup_key(link) != item_key
             and _is_item_link(link, self)
         )
@@ -768,7 +768,7 @@ def _ytdlp_entries(
         if not (resolver.is_item(url) if single is None else single):
             sub_collections.append(url)
             continue
-        flat = _flatten_metadata(info)
+        flat = flatten_metadata(info)
         yield resolver.named(url, flat, not judged or resolver.owns(url, flat))
 
 
@@ -805,7 +805,7 @@ def _engine_entries(
     outcome = _Run()
 
     def entries() -> Iterator[Any]:
-        with closing(_probe_rotation(url, source_key)) as rotation:
+        with closing(probe_rotation(url, source_key)) as rotation:
             for access in rotation:
                 run = _Run()
                 yield from parse(_stream([*command(access), url], access, run), sub_collections)
@@ -1042,7 +1042,7 @@ def _tab_owner(resolver: _Resolver, links: list[str]) -> _Resolver:
     owners = [
         _Resolver(link, resolver.source_key)
         for link in candidates
-        if _on_site(link, resolver) and _url_exact_values(link) & resolver.tracker_tokens
+        if _on_site(link, resolver) and url_exact_values(link) & resolver.tracker_tokens
     ]
     counts = [sum(map(owner.is_tab, links)) for owner in owners]
     return owners[counts.index(max(counts))] if counts and max(counts) else resolver
@@ -1418,7 +1418,7 @@ def iter_entries(
     ``stats.found_tabs`` reports them for the source to keep. A source without rows starts from the link
     itself, left to the engines when they read it.
     """
-    url = _prepare_url(source_url)
+    url = prepare_url(source_url)
     stats = stats if stats is not None else ListingStats()
     stats.tab_pages = dict(pages or {})
     stats.ended = set(ended or [])
