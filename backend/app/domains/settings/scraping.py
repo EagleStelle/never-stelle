@@ -24,7 +24,7 @@ def _format_scope_key(template: Any) -> str:
 
 
 def _learned_format_templates(learned_formats: Any = None) -> dict[str, list[str]]:
-    from backend.app.domains.downloads.links.formats import learned_templates_for
+    from backend.app.domains.downloads.links.matching import learned_templates_for
 
     if learned_formats is None:
         from backend.app.domains.downloads.store import load_learned_formats
@@ -49,7 +49,7 @@ def _coerce_scrape_rule_format(rule_format: Any, templates: list[str]) -> str:
     if not value:
         return templates[0]
 
-    from backend.app.domains.downloads.links.formats import format_covers
+    from backend.app.domains.downloads.links.matching import format_covers
 
     # Also finds the template a rule's format became once learning generalized it.
     scope = _format_scope_key(value)

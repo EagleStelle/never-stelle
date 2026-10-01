@@ -8,8 +8,9 @@ import httpx
 
 from backend.app.core.sources import normalize_source_key
 from backend.app.domains.access.rotation import access_rotation, load_cookie_jar
-from backend.app.domains.downloads.links.formats import canonical_shape, extract_url_part, match_template, prepare_url
-from backend.app.domains.downloads.naming.naming import settings_tokens
+from backend.app.domains.downloads.links.analysis import extract_url_part, prepare_url
+from backend.app.domains.downloads.links.matching import canonical_shape, match_template
+from backend.app.domains.downloads.naming.render import settings_tokens
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
 from backend.app.domains.settings import (
     detect_cookie_source,
@@ -384,7 +385,7 @@ def active_slug_rules_for_key(slug_map: Any, source_key: str) -> list[dict[str, 
                 if part:
                     configured_by_part[part] = token
 
-    from backend.app.domains.downloads.links.formats import describe_learned_segments
+    from backend.app.domains.downloads.links.learned_formats import describe_learned_segments
     from backend.app.domains.downloads.store import load_learned_formats
 
     out: list[dict[str, str]] = []

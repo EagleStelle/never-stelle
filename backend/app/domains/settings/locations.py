@@ -14,7 +14,7 @@ from .templates import link_format
 
 def _learned_templates(source_key: str) -> list[str]:
     # Lazy import so a settings read never hard-depends on the downloads domain.
-    from backend.app.domains.downloads.links.formats import learned_templates_for
+    from backend.app.domains.downloads.links.matching import learned_templates_for
     from backend.app.domains.downloads.store import load_learned_formats
 
     return learned_templates_for(load_learned_formats(), source_key)
@@ -44,7 +44,7 @@ def normalize_source_location_selection(
 
     A format with nothing saved gets "", the source root.
     """
-    from backend.app.domains.downloads.links.formats import select_for_format
+    from backend.app.domains.downloads.links.matching import select_for_format
 
     source_profiles = settings_managed_profiles(
         source_profiles if source_profiles is not None else get_effective_source_profiles(cfg)
@@ -66,7 +66,7 @@ def normalize_source_location_selection(
 
 def resolve_source_location(locations: Any, source_key: str, format_template: str = "") -> str:
     """The absolute download folder for one source/format pair."""
-    from backend.app.domains.downloads.links.formats import select_for_format
+    from backend.app.domains.downloads.links.matching import select_for_format
 
     key = normalize_source_key(source_key)
     if not key:

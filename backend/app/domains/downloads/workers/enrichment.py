@@ -8,25 +8,16 @@ from typing import Any
 from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
 from backend.app.domains.downloads.cache import drop_file_cache
-from backend.app.domains.downloads.constants import (
-    COMPLETION_JOB_KIND,
-    FIELD_CANDIDATES,
-    RESOLVE_JOB_KIND,
-    enrichment_job_id,
-    field_roles_from_probe_fields,
-    normalize_post_processing,
-    normalize_quality_selection,
-    post_processing_requested,
-)
+from backend.app.domains.downloads.constants import COMPLETION_JOB_KIND, RESOLVE_JOB_KIND, enrichment_job_id
 from backend.app.domains.downloads.engines.probe import learn_missing_fields_for_format, probe_link_metadata
+from backend.app.domains.downloads.field_roles import FIELD_CANDIDATES, field_roles_from_probe_fields
 from backend.app.domains.downloads.files import is_media_file
 from backend.app.domains.downloads.library.resolve import record_resolve_outcome, resolve_history_entry
 from backend.app.domains.downloads.library.scan import scan_in_progress
-from backend.app.domains.downloads.postprocessing import (
-    apply_finalized_post_processing,
-    extractor_payload_from_sidecars,
-    metadata_sidecars_for,
-)
+from backend.app.domains.downloads.postprocessing.embed import apply_finalized_post_processing
+from backend.app.domains.downloads.postprocessing.options import normalize_post_processing, post_processing_requested
+from backend.app.domains.downloads.postprocessing.payloads import extractor_payload_from_sidecars, metadata_sidecars_for
+from backend.app.domains.downloads.quality import normalize_quality_selection
 from backend.app.domains.downloads.store import (
     active_download_task_count,
     claim_next_enrichment_job,

@@ -8,28 +8,21 @@ from urllib.parse import urlparse
 
 from backend.app.core.paths import path_key as _path_key
 from backend.app.domains.access.pool import looks_antibot_walled, looks_rate_limited
-from backend.app.domains.downloads.constants import (
-    CREATOR_FIELDS,
-    FIELD_DEFAULTS,
-    IMAGE_EXTENSIONS,
-    MEDIA_ONLY_POST_PROCESSING_FEATURES,
-)
+from backend.app.domains.downloads.constants import CREATOR_FIELDS, IMAGE_EXTENSIONS
 from backend.app.domains.downloads.engines.engine import Engine
 from backend.app.domains.downloads.engines.probe import probe_link_metadata
+from backend.app.domains.downloads.field_roles import FIELD_DEFAULTS
 from backend.app.domains.downloads.files import is_media_file
-from backend.app.domains.downloads.links.formats import field_role_list
+from backend.app.domains.downloads.links.analysis import field_role_list
 from backend.app.domains.downloads.links.learned_routes import absence_settled, route_shape
 from backend.app.domains.downloads.metadata.creators import configured_field_value
 from backend.app.domains.downloads.metadata.values import clean_creator_candidate, metadata_title
-from backend.app.domains.downloads.naming.naming import (
-    field_value,
-    filename_template_fields,
-    parse_filename_media_id,
-    settings_tokens,
-    strip_repeated_media_id,
-)
+from backend.app.domains.downloads.naming.filenames import parse_filename_media_id
+from backend.app.domains.downloads.naming.render import field_value, filename_template_fields, settings_tokens
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
-from backend.app.domains.downloads.postprocessing import thumbnail_url
+from backend.app.domains.downloads.naming.titles import strip_repeated_media_id
+from backend.app.domains.downloads.postprocessing.options import MEDIA_ONLY_POST_PROCESSING_FEATURES
+from backend.app.domains.downloads.postprocessing.thumbnails import thumbnail_url
 from backend.app.domains.downloads.store import learn_route, load_route_facts
 from backend.app.domains.settings import get_effective_fields
 

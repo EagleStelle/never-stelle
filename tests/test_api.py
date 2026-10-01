@@ -448,7 +448,7 @@ def test_probe_fields_saves_field_roles_without_url_priority_hint(tmp_path, monk
 
 def test_probe_tabs_joins_a_links_pages_to_its_sources_rows(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.domains.trackers.listing as listing_module
+    import backend.app.domains.trackers.listing.walk as walk_module
 
     captured: list[tuple[str, str]] = []
 
@@ -459,7 +459,7 @@ def test_probe_tabs_joins_a_links_pages_to_its_sources_rows(tmp_path, monkeypatc
             {"tab": "shorts_tab", "label": "Shorts", "variants": [{"name": "shorts_tab", "field": ""}], "engine": True},
         ]
 
-    monkeypatch.setattr(listing_module, "probe_tabs", probe_tabs)
+    monkeypatch.setattr(walk_module, "probe_tabs", probe_tabs)
     saved = {"youtube": [{"tab": "shorts", "label": "", "enabled": True}], "other": [{"tab": "clips", "enabled": True}]}
 
     response = client.post(

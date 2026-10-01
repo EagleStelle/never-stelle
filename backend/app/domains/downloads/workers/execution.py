@@ -16,32 +16,24 @@ from backend.app.domains.access.rotation import (
     impersonation_target,
 )
 from backend.app.domains.downloads.cache import drop_file_cache
-from backend.app.domains.downloads.constants import (
-    normalize_post_processing,
-    normalize_quality_selection,
-    post_processing_requested,
-    quality_needs_ffmpeg,
-)
 from backend.app.domains.downloads.engines.engine import ENGINE_WINDOW, Engine, engine_fact, engine_order
 from backend.app.domains.downloads.library.history import save_history_entry
-from backend.app.domains.downloads.links.formats import (
-    creator_from_url,
-    learn_formats,
-    match_template,
-    media_id_from_url,
-    reconstruct_url_candidates,
-)
+from backend.app.domains.downloads.links.analysis import creator_from_url, media_id_from_url
+from backend.app.domains.downloads.links.learned_formats import learn_formats, reconstruct_url_candidates
 from backend.app.domains.downloads.links.learned_routes import route_shape
+from backend.app.domains.downloads.links.matching import match_template
 from backend.app.domains.downloads.links.urls import canonicalize_source_url, detect_source_key
-from backend.app.domains.downloads.naming.naming import detect_ffmpeg_location
 from backend.app.domains.downloads.naming.template_rows import template_row_fields, template_settings_from_row
-from backend.app.domains.downloads.postprocessing import (
-    apply_finalized_post_processing,
-    ensure_container_codec_compatibility,
+from backend.app.domains.downloads.postprocessing.containers import ensure_container_codec_compatibility
+from backend.app.domains.downloads.postprocessing.embed import apply_finalized_post_processing
+from backend.app.domains.downloads.postprocessing.ffmpeg import detect_ffmpeg_location
+from backend.app.domains.downloads.postprocessing.options import normalize_post_processing, post_processing_requested
+from backend.app.domains.downloads.postprocessing.payloads import (
     extractor_payload_from_sidecars,
     metadata_sidecars_for,
     scratch_payload_index,
 )
+from backend.app.domains.downloads.quality import normalize_quality_selection, quality_needs_ffmpeg
 from backend.app.domains.downloads.store import (
     append_task_log,
     learn_route,

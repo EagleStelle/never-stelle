@@ -5,26 +5,24 @@ from pathlib import Path
 
 import backend.app.domains.downloads.engines.gallerydl as gallerydl
 import backend.app.domains.downloads.engines.ytdlp as ytdlp
-import backend.app.domains.downloads.links.formats as formats
+import backend.app.domains.downloads.links.analysis as analysis_module
 import backend.app.domains.downloads.metadata.scraper as enrich
 from backend.app.domains.access.pool import CookieLease
 from backend.app.domains.access.rotation import AccessIdentity
-from backend.app.domains.downloads.constants import (
-    PROGRESS_RE,
+from backend.app.domains.downloads.constants import PROGRESS_RE, template_tokens
+from backend.app.domains.downloads.engines.engine import all_engines, default_engine
+from backend.app.domains.downloads.postprocessing.options import normalize_post_processing, post_processing_requested
+from backend.app.domains.downloads.quality import (
     audio_format_selector,
     container_acodec_filter,
     container_vcodec_filter,
     merge_output_format,
     merged_audio_track,
-    normalize_post_processing,
     normalize_quality_defaults,
     normalize_quality_selection,
-    post_processing_requested,
     quality_options,
-    template_tokens,
     video_format_selector,
 )
-from backend.app.domains.downloads.engines.engine import all_engines, default_engine
 from backend.app.domains.downloads.workers.progress import (
     DOWNLOAD_END,
     FINALIZE_END,
@@ -655,7 +653,7 @@ def test_gallerydl_nickname_field_uses_configured_list_authoritatively():
 
 
 def test_build_output_template_applies_per_source_fields(monkeypatch):
-    monkeypatch.setattr(formats, "get_effective_fields", lambda url: {"username": ["channel"]})
+    monkeypatch.setattr(analysis_module, "get_effective_fields", lambda url: {"username": ["channel"]})
     template = ytdlp.build_output_template(
         "https://example.com/watch?v=x",
         "/media/out",
@@ -1554,7 +1552,7 @@ def test_downloader_commands_impersonate_only_when_asked():
 
 
 def test_every_engine_and_path_paces_a_cookie_run_with_the_sources_one_wait():
-    from backend.app.domains.trackers import listing
+    import backend.app.domains.trackers.listing.streams as streams_module
 
     access = AccessIdentity(lease=_lease(interval=12))
     ytdlp_pacing = [
@@ -1581,12 +1579,12 @@ def test_every_engine_and_path_paces_a_cookie_run_with_the_sources_one_wait():
     # Downloads, tracker listings and probes all take the access args, so they all wait alike.
     for cmd in (
         ytdlp.build_ytdlp_command("https://example.test/v/1", "/usr/bin/ffmpeg", "/o", access=access),
-        listing._ytdlp_command(access),
+        streams_module._ytdlp_command(access),
     ):
         assert has(cmd, ytdlp_pacing)
     for cmd in (
         gallerydl.build_gallerydl_command("https://example.test/p/1", "/media", "clip.{extension}", access=access),
-        listing._gallerydl_command(access),
+        streams_module._gallerydl_command(access),
     ):
         assert has(cmd, gallery_pacing)
         # gallery-dl hands its streams to yt-dlp with the very same waits.

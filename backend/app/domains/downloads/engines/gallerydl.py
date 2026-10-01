@@ -7,28 +7,10 @@ from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
 from backend.app.domains.access.rotation import AccessIdentity
-from backend.app.domains.downloads.constants import (
-    FIELD_ROLE_CHAINS,
-    MEDIA_EXTENSIONS,
-    SAFE_PREDOWNLOAD_TRIM_CHARS,
-    TITLE_MAX_CHARS_DEFAULT,
-    VIDEO_CODEC_PRESETS,
-    artwork_extractor_args,
-    audio_postprocess_format,
-    audio_postprocess_quality,
-    normalize_post_processing,
-    normalize_quality_selection,
-    normalize_title_cleaning,
-    post_processing_requested,
-    quality_format_selector,
-    video_merge_output_format,
-    video_merger_args,
-    video_recode_args,
-    video_recode_format,
-    video_remux_format,
-)
-from backend.app.domains.downloads.engines.ytdlp import ytdlp_pacing_args
-from backend.app.domains.downloads.links.formats import (
+from backend.app.domains.downloads.constants import MEDIA_EXTENSIONS
+from backend.app.domains.downloads.engines.ytdlp import artwork_extractor_args, ytdlp_pacing_args
+from backend.app.domains.downloads.field_roles import FIELD_ROLE_CHAINS
+from backend.app.domains.downloads.links.analysis import (
     derived_token_value,
     field_role_list,
     field_spec_parts,
@@ -36,7 +18,26 @@ from backend.app.domains.downloads.links.formats import (
     rendered_template_parts,
     substitute_template,
 )
-from backend.app.domains.downloads.naming.naming import detect_ffmpeg_location, sanitize_path_literal
+from backend.app.domains.downloads.naming.filenames import sanitize_path_literal
+from backend.app.domains.downloads.naming_rules import (
+    SAFE_PREDOWNLOAD_TRIM_CHARS,
+    TITLE_MAX_CHARS_DEFAULT,
+    normalize_title_cleaning,
+)
+from backend.app.domains.downloads.postprocessing.ffmpeg import detect_ffmpeg_location
+from backend.app.domains.downloads.postprocessing.options import normalize_post_processing, post_processing_requested
+from backend.app.domains.downloads.quality import (
+    VIDEO_CODEC_PRESETS,
+    audio_postprocess_format,
+    audio_postprocess_quality,
+    normalize_quality_selection,
+    quality_format_selector,
+    video_merge_output_format,
+    video_merger_args,
+    video_recode_args,
+    video_recode_format,
+    video_remux_format,
+)
 from backend.app.domains.settings import get_effective_title_cleaning
 
 # gallery-dl keys are identifiers with optional [sub] nesting; reject anything else.

@@ -62,7 +62,7 @@ def resolve_task_settings(
         effective.get("source_token_roles"),
     )
 
-    from backend.app.domains.downloads.links.formats import match_template, select_for_format
+    from backend.app.domains.downloads.links.matching import match_template, select_for_format
     from backend.app.domains.downloads.store import load_learned_formats
 
     # One format match drives both the folder and the naming templates for this link.

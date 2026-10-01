@@ -18,11 +18,10 @@ from backend.app.domains.downloads.files import (
     prune_empty_parents,
 )
 from backend.app.domains.downloads.metadata.folders import render_template_folder
-from backend.app.domains.downloads.naming.naming import (
-    numbered_suffix_of,
+from backend.app.domains.downloads.naming.filenames import numbered_suffix_of, strip_numbered_suffix
+from backend.app.domains.downloads.naming.render import (
     render_template_filename,
     row_template_fields,
-    strip_numbered_suffix,
     unsatisfied_tokens,
 )
 from backend.app.domains.downloads.naming.template_rows import template_row_fields

@@ -15,18 +15,18 @@ from backend.app.domains.downloads.engines.probe import probe_link_metadata
 from backend.app.domains.downloads.files import is_media_file, payload_path_string
 from backend.app.domains.downloads.library.rename import apply_history_renames, download_location, plan_history_renames
 from backend.app.domains.downloads.library.scan import history_write_lock
-from backend.app.domains.downloads.links.formats import (
+from backend.app.domains.downloads.links.learned_formats import reconstruct_url_candidates
+from backend.app.domains.downloads.links.matching import (
     format_covers,
     learned_templates_for,
     match_template,
-    reconstruct_url_candidates,
     select_for_format,
 )
 from backend.app.domains.downloads.links.urls import detect_source_key
 from backend.app.domains.downloads.metadata.pipeline import naming_values
 from backend.app.domains.downloads.metadata.scraper import configured_tokens
-from backend.app.domains.downloads.naming.naming import (
-    numbered_suffix_of,
+from backend.app.domains.downloads.naming.filenames import numbered_suffix_of
+from backend.app.domains.downloads.naming.render import (
     row_template_fields,
     row_with_tokens,
     settings_tokens,

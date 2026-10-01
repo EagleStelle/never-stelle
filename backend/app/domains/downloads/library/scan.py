@@ -20,20 +20,19 @@ from backend.app.core.time import utc_now
 from backend.app.domains.downloads.constants import CREATOR_FIELDS, MEDIA_EXTENSIONS, TEMPLATE_RE
 from backend.app.domains.downloads.files import chapter_folder, payload_path_string, recover_task_path
 from backend.app.domains.downloads.library.rename import recover_interrupted_renames, rows_needing_resolve
-from backend.app.domains.downloads.links.formats import (
+from backend.app.domains.downloads.links.analysis import media_id_from_url
+from backend.app.domains.downloads.links.learned_formats import (
     conflicts_with_source,
     guess_sources,
-    media_id_from_url,
     reconstruct_url_candidates,
-    url_in_format,
 )
-from backend.app.domains.downloads.naming.naming import (
+from backend.app.domains.downloads.links.matching import url_in_format
+from backend.app.domains.downloads.naming.filenames import (
     UNRECOVERABLE_MEDIA_IDS,
-    clean_template_display_filename,
     parse_filename_media_id,
     strip_numbered_suffix,
-    template_literal_pattern,
 )
+from backend.app.domains.downloads.naming.render import clean_template_display_filename, template_literal_pattern
 from backend.app.domains.downloads.naming.template_rows import template_row_fields, template_settings_from_row
 from backend.app.domains.downloads.store import (
     load_history,

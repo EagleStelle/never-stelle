@@ -5,7 +5,14 @@ from pathlib import Path
 
 import pytest
 
-import backend.app.domains.downloads.postprocessing as postprocessing_module
+import backend.app.domains.downloads.postprocessing.chapters as chapters_module
+import backend.app.domains.downloads.postprocessing.containers as containers_module
+import backend.app.domains.downloads.postprocessing.embed as embed_module
+import backend.app.domains.downloads.postprocessing.payloads as payloads_module
+import backend.app.domains.downloads.postprocessing.subtitles as subtitles_module
+import backend.app.domains.downloads.postprocessing.tags as tags_module
+import backend.app.domains.downloads.postprocessing.thumbnails as thumbnails_module
+import backend.app.domains.downloads.postprocessing.xmp as xmp_module
 from backend.app.domains.downloads.workers.completion.finalize import FinalizedCompletionOutput
 
 ALL_ENABLED = {
@@ -42,32 +49,35 @@ def embed_harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     sidecars: list[str] = []
     outcome = {"ok": True}
 
-    monkeypatch.setattr(postprocessing_module, "detect_ffmpeg_location", lambda: "ffmpeg")
-    monkeypatch.setattr(postprocessing_module, "_ffprobe_streams", lambda *args, **kwargs: [])
-    monkeypatch.setattr(postprocessing_module, "publish_staged_file", lambda *args, **kwargs: None)
-    monkeypatch.setattr(postprocessing_module, "_ytdlp_session", nullcontext)
-    monkeypatch.setattr(postprocessing_module, "_fetch_thumbnail", lambda *args, **kwargs: (b"cover", ".jpg"))
+    monkeypatch.setattr(embed_module, "detect_ffmpeg_location", lambda: "ffmpeg")
+    for module in (embed_module, subtitles_module):
+        monkeypatch.setattr(module, "_ffprobe_streams", lambda *args, **kwargs: [])
+    for module in (chapters_module, embed_module, payloads_module):
+        monkeypatch.setattr(module, "publish_staged_file", lambda *args, **kwargs: None)
+    monkeypatch.setattr(embed_module, "_ytdlp_session", nullcontext)
+    monkeypatch.setattr(embed_module, "_fetch_thumbnail", lambda *args, **kwargs: (b"cover", ".jpg"))
     monkeypatch.setattr(
-        postprocessing_module,
+        embed_module,
         "_subtitle_tracks",
         lambda *args, **kwargs: [{"language": "en", "automatic": False, "extension": "vtt", "data": b"WEBVTT\n"}],
     )
     monkeypatch.setattr(
-        postprocessing_module,
+        embed_module,
         "_chapters",
         lambda payload: [{"start_time": 0, "end_time": 1, "title": "Intro"}],
     )
     monkeypatch.setattr(
-        postprocessing_module,
+        embed_module,
         "finalized_metadata_payload",
         lambda payload, finalized: {"title": "Title", "artist": "Creator"},
     )
     # The verification probe must see the tracks an embed command claims to add.
-    monkeypatch.setattr(
-        postprocessing_module,
-        "_subtitle_stream_count",
-        lambda ffmpeg, path: 99 if Path(path).name.startswith("nvs-embed-") else 0,
-    )
+    for module in (embed_module, subtitles_module):
+        monkeypatch.setattr(
+            module,
+            "_subtitle_stream_count",
+            lambda ffmpeg, path: 99 if Path(path).name.startswith("nvs-embed-") else 0,
+        )
 
     def fake_run(cmd, output_path):
         commands.append(list(cmd))
@@ -80,11 +90,13 @@ def embed_harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             sidecars.append(kind)
         return target
 
-    monkeypatch.setattr(postprocessing_module, "_run_ffmpeg", fake_run)
-    monkeypatch.setattr(postprocessing_module, "_publish_bytes", record_sidecar)
+    for module in (chapters_module, embed_module, subtitles_module, thumbnails_module):
+        monkeypatch.setattr(module, "_run_ffmpeg", fake_run)
+    for module in (chapters_module, embed_module, payloads_module, subtitles_module, xmp_module):
+        monkeypatch.setattr(module, "_publish_bytes", record_sidecar)
 
     def run(post_processing: dict) -> None:
-        postprocessing_module.apply_finalized_post_processing(
+        embed_module.apply_finalized_post_processing(
             [media],
             {},
             _finalized(media),
@@ -216,11 +228,12 @@ _THREE_CHAPTERS = [
 
 
 def test_split_chapters_copies_each_chapter_into_the_chapter_folder(embed_harness, monkeypatch):
-    monkeypatch.setattr(postprocessing_module, "_chapters", lambda payload: _THREE_CHAPTERS)
+    monkeypatch.setattr(embed_module, "_chapters", lambda payload: _THREE_CHAPTERS)
     published: list[Path] = []
-    monkeypatch.setattr(
-        postprocessing_module, "publish_staged_file", lambda source, target, **kwargs: published.append(target)
-    )
+    for module in (chapters_module, containers_module, embed_module, payloads_module):
+        monkeypatch.setattr(
+            module, "publish_staged_file", lambda source, target, **kwargs: published.append(target)
+        )
 
     embed_harness["run"]({"split_chapters": True})
 
@@ -235,7 +248,7 @@ def test_split_chapters_copies_each_chapter_into_the_chapter_folder(embed_harnes
 
 
 def test_split_chapters_copies_the_embedded_file(embed_harness, monkeypatch):
-    monkeypatch.setattr(postprocessing_module, "_chapters", lambda payload: _THREE_CHAPTERS)
+    monkeypatch.setattr(embed_module, "_chapters", lambda payload: _THREE_CHAPTERS)
 
     embed_harness["run"]({"metadata": "embed", "split_chapters": True})
 
@@ -251,7 +264,7 @@ def test_fewer_than_two_chapters_never_split(embed_harness):
 
 
 def _run_real(media: Path, payload: dict, post_processing: dict) -> None:
-    postprocessing_module.apply_finalized_post_processing(
+    embed_module.apply_finalized_post_processing(
         [media],
         payload,
         _finalized(media),
@@ -264,8 +277,8 @@ def _run_real(media: Path, payload: dict, post_processing: dict) -> None:
 def test_images_never_split(tmp_path, monkeypatch):
     image = tmp_path / "post [abc].jpg"
     image.write_bytes(b"image")
-    monkeypatch.setattr(postprocessing_module, "_chapters", lambda payload: _THREE_CHAPTERS)
-    monkeypatch.setattr(postprocessing_module, "_split_chapter_files", pytest.fail)
+    monkeypatch.setattr(embed_module, "_chapters", lambda payload: _THREE_CHAPTERS)
+    monkeypatch.setattr(embed_module, "_split_chapter_files", pytest.fail)
 
     _run_real(image, {}, {"split_chapters": True})
 
@@ -294,7 +307,7 @@ def test_mtime_stamps_the_media_and_its_sidecars(tmp_path):
     ],
 )
 def test_upload_moment_needs_at_least_a_full_day(payload, expected):
-    moment = postprocessing_module._upload_moment(payload)
+    moment = tags_module._upload_moment(payload)
     assert (moment.isoformat() if moment else None) == expected
 
 

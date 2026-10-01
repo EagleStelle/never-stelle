@@ -122,7 +122,7 @@ def test_normalize_source_slug_tokens_validates_parts_and_dedupes():
 
 def test_active_slug_rules_exposes_implicit_var_tokens_from_learned_segments(monkeypatch):
     import backend.app.domains.downloads.store as store_mod
-    from backend.app.domains.downloads.links.formats import learn_download
+    from backend.app.domains.downloads.links.learned_formats import learn_download
     from backend.app.domains.downloads.metadata.scraper import active_slug_rules_for_key
 
     learned = learn_download(
@@ -137,7 +137,7 @@ def test_active_slug_rules_exposes_implicit_var_tokens_from_learned_segments(mon
 
 def test_blank_source_slug_token_disables_default_slug_mapping(monkeypatch):
     import backend.app.domains.downloads.store as store_mod
-    from backend.app.domains.downloads.links.formats import learn_download
+    from backend.app.domains.downloads.links.learned_formats import learn_download
     from backend.app.domains.downloads.metadata.scraper import active_slug_rules_for_key
 
     learned = learn_download(
@@ -158,7 +158,7 @@ def test_blank_source_slug_token_disables_default_slug_mapping(monkeypatch):
 
 def test_resolve_slug_tokens_uses_implicit_var_and_explicit_custom_name(monkeypatch):
     import backend.app.domains.downloads.store as store_mod
-    from backend.app.domains.downloads.links.formats import learn_download
+    from backend.app.domains.downloads.links.learned_formats import learn_download
     from backend.app.domains.downloads.metadata.scraper import resolve_slug_tokens
 
     learned = learn_download(
@@ -731,7 +731,7 @@ def test_get_effective_title_cleaning_falls_back_to_configured_defaults(monkeypa
 
 
 def test_get_effective_field_defaults_prefers_configured_order(monkeypatch):
-    from backend.app.domains.downloads.constants import field_defaults
+    from backend.app.domains.downloads.field_roles import field_defaults
 
     assert get_effective_field_defaults({}) == field_defaults()
     configured = get_effective_field_defaults(

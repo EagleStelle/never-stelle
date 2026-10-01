@@ -11,7 +11,8 @@ import pytest
 
 import backend.app.domains.downloads.metadata.scraper as enrich_module
 import backend.app.domains.downloads.operations as operations_module
-import backend.app.domains.downloads.postprocessing as postprocessing_module
+import backend.app.domains.downloads.postprocessing.ffmpeg as ffmpeg_module
+import backend.app.domains.downloads.postprocessing.thumbnails as thumbnails_module
 import backend.app.domains.downloads.workers.execution as execution_module
 import backend.app.domains.downloads.workers.scheduler as scheduler_module
 import backend.app.runtime.processes as processes_module
@@ -74,11 +75,11 @@ def test_cancelled_thumbnail_conversion_removes_its_temporary_output(tmp_path, m
         processes_module.request_cancel(task_id)
         processes_module.raise_if_cancelled(task_id)
 
-    monkeypatch.setattr(postprocessing_module, "run_task_subprocess", cancel_ffmpeg)
+    monkeypatch.setattr(ffmpeg_module, "run_task_subprocess", cancel_ffmpeg)
 
     with pytest.raises(processes_module.TaskCancelled):
         with processes_module.task_execution(task_id):
-            postprocessing_module._convert_thumbnail_for_embedding("ffmpeg", thumbnail)
+            thumbnails_module._convert_thumbnail_for_embedding("ffmpeg", thumbnail)
 
     assert list(scratch_root.iterdir()) == []
 

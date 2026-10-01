@@ -6,38 +6,34 @@ from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
 from backend.app.domains.access.rotation import AccessIdentity
-from backend.app.domains.downloads.constants import (
-    FIELD_ROLE_CHAINS,
-    SAFE_PREDOWNLOAD_TRIM_CHARS,
-    TITLE_MAX_CHARS_DEFAULT,
-    VIDEO_CODEC_PRESETS,
-    artwork_extractor_args,
-    audio_postprocess_format,
-    audio_postprocess_quality,
-    normalize_post_processing,
-    normalize_quality_selection,
-    normalize_title_cleaning,
-    post_processing_requested,
-    quality_format_selector,
-    video_merge_output_format,
-    video_merger_args,
-    video_recode_args,
-    video_recode_format,
-    video_remux_format,
-)
-from backend.app.domains.downloads.links.formats import (
+from backend.app.domains.downloads.field_roles import FIELD_ROLE_CHAINS
+from backend.app.domains.downloads.links.analysis import (
     derived_token_value,
     field_role_list,
     field_spec_parts,
     rendered_template_parts,
     substitute_template,
 )
-from backend.app.domains.downloads.naming.naming import (
-    clean_filename_title,
-    clean_social_title,
-    detect_ffmpeg_location,
-    sanitize_filename_component,
-    sanitize_path_literal,
+from backend.app.domains.downloads.naming.filenames import sanitize_filename_component, sanitize_path_literal
+from backend.app.domains.downloads.naming.titles import clean_filename_title, clean_social_title
+from backend.app.domains.downloads.naming_rules import (
+    SAFE_PREDOWNLOAD_TRIM_CHARS,
+    TITLE_MAX_CHARS_DEFAULT,
+    normalize_title_cleaning,
+)
+from backend.app.domains.downloads.postprocessing.ffmpeg import detect_ffmpeg_location
+from backend.app.domains.downloads.postprocessing.options import normalize_post_processing, post_processing_requested
+from backend.app.domains.downloads.quality import (
+    VIDEO_CODEC_PRESETS,
+    audio_postprocess_format,
+    audio_postprocess_quality,
+    normalize_quality_selection,
+    quality_format_selector,
+    video_merge_output_format,
+    video_merger_args,
+    video_recode_args,
+    video_recode_format,
+    video_remux_format,
 )
 from backend.app.domains.settings import get_effective_fields, get_effective_title_cleaning
 
@@ -309,3 +305,23 @@ def build_ytdlp_command(
     cmd.extend(ytdlp_access_args(access or AccessIdentity()))
     cmd.extend(["--output", final_output_template, source_url])
     return cmd
+
+
+# Extractor clients exposing artwork a site's default client omits. Downloaders
+# ignore args for extractors a URL does not use, so builders send the whole table
+# instead of matching the platform themselves.
+ARTWORK_EXTRACTOR_ARGS: dict[str, dict[str, tuple[str, ...]]] = {
+    "youtube": {"player_client": ("default", "web_music")},
+}
+
+
+def artwork_extractor_args(quality: Any = None, post_processing: Any = None) -> dict[str, dict[str, list[str]]]:
+    """Extractor args worth requesting when a run pairs audio artwork with metadata."""
+    selection = normalize_quality_selection(quality)
+    processing = normalize_post_processing(post_processing)
+    if selection["mode"] != "audio" or "off" in (processing["metadata"], processing["thumbnail"]):
+        return {}
+    return {
+        extractor: {key: list(values) for key, values in args.items()}
+        for extractor, args in ARTWORK_EXTRACTOR_ARGS.items()
+    }

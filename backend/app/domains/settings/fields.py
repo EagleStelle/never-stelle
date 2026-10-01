@@ -89,7 +89,7 @@ def normalize_default_fields(raw: Any) -> dict[str, list[str]]:
 
 def get_effective_field_defaults(payload: dict[str, Any] | None = None) -> dict[str, list[str]]:
     """Configured global order per role, falling back to the built-in role priors."""
-    from backend.app.domains.downloads.constants import field_defaults
+    from backend.app.domains.downloads.field_roles import field_defaults
 
     payload = payload if isinstance(payload, dict) else load_saved_settings_file()
     configured = normalize_default_fields(payload.get("default_fields"))
@@ -99,21 +99,21 @@ def get_effective_field_defaults(payload: dict[str, Any] | None = None) -> dict[
 
 def normalize_default_naming(raw: Any) -> dict[str, Any]:
     """The global naming defaults, kept sparse: only what differs from the built-ins."""
-    from backend.app.domains.downloads.constants import normalize_naming_overrides
+    from backend.app.domains.downloads.naming_rules import normalize_naming_overrides
 
     return normalize_naming_overrides(raw)
 
 
 def get_effective_naming_defaults(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Every naming flag at the value an unconfigured source inherits."""
-    from backend.app.domains.downloads.constants import normalize_title_cleaning
+    from backend.app.domains.downloads.naming_rules import normalize_title_cleaning
 
     payload = payload if isinstance(payload, dict) else load_saved_settings_file()
     return normalize_title_cleaning(normalize_default_naming(payload.get("default_naming")))
 
 
 def normalize_source_title_cleaning(raw: Any, defaults: Any = None) -> dict[str, dict[str, Any]]:
-    from backend.app.domains.downloads.constants import normalize_naming_overrides
+    from backend.app.domains.downloads.naming_rules import normalize_naming_overrides
 
     source = raw if isinstance(raw, dict) else {}
     out: dict[str, dict[str, Any]] = {}
@@ -240,7 +240,7 @@ def _source_title_cleaning(
     mapping: dict[str, dict[str, Any]],
     defaults: dict[str, Any],
 ) -> dict[str, Any]:
-    from backend.app.domains.downloads.constants import normalize_title_cleaning
+    from backend.app.domains.downloads.naming_rules import normalize_title_cleaning
 
     # A full set, so downstream re-normalization can't fall back past the configured defaults.
     return normalize_title_cleaning(mapping.get(source_key, {}), defaults)

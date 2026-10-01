@@ -14,10 +14,17 @@ import backend.app.db.database as database_module
 import backend.app.db.repositories.trackers as tracker_rows
 import backend.app.domains.downloads.files as files_module
 import backend.app.domains.downloads.library.scan as scan_module
+import backend.app.domains.downloads.links.analysis as analysis_module
 import backend.app.domains.downloads.operations as operations_module
 import backend.app.domains.settings.trackers as settings_trackers_module
 import backend.app.domains.trackers.checker as scheduler_module
-import backend.app.domains.trackers.listing as listing_module
+import backend.app.domains.trackers.listing.candidates as candidates_module
+import backend.app.domains.trackers.listing.collection as collection_module
+import backend.app.domains.trackers.listing.entries as entries_module
+import backend.app.domains.trackers.listing.models as models_module
+import backend.app.domains.trackers.listing.pages as pages_module
+import backend.app.domains.trackers.listing.streams as streams_module
+import backend.app.domains.trackers.listing.walk as walk_module
 import backend.app.domains.trackers.service as service_module
 from backend.app.core.time import utc_now_datetime
 from backend.app.db import repositories
@@ -31,7 +38,7 @@ from backend.app.domains.settings import (
     normalize_tracker_settings,
     save_saved_settings_file,
 )
-from backend.app.domains.trackers.listing import Entry, ListingStats
+from backend.app.domains.trackers.listing.models import Entry, ListingStats
 from tests.support import use_temp_db
 
 TRACKER_URL = "https://example.test/u/alice"
@@ -49,10 +56,12 @@ def _entry(number: int) -> Entry:
 @pytest.fixture
 def temp_db(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
-    monkeypatch.setattr(listing_module, "load_learned_formats", lambda: {})
-    monkeypatch.setattr(listing_module, "fetch_html", lambda url, cookie_source_key="": "")
-    monkeypatch.setattr(listing_module, "probe_metadata", lambda urls, **options: {})
-    monkeypatch.setattr(listing_module, "BrowserSession", _Browser().open)
+    monkeypatch.setattr(entries_module, "load_learned_formats", lambda: {})
+    for module in (entries_module, walk_module):
+        monkeypatch.setattr(module, "fetch_html", lambda url, cookie_source_key="": "")
+    monkeypatch.setattr(entries_module, "probe_metadata", lambda urls, **options: {})
+    for module in (pages_module, walk_module):
+        monkeypatch.setattr(module, "BrowserSession", _Browser().open)
     monkeypatch.setattr(service_module, "resolve_redirect_url", lambda url: url)
     monkeypatch.setattr(service_module, "_asked", set())
     yield tmp_path
@@ -136,10 +145,10 @@ def _ticking_clock(monkeypatch) -> None:
 
 
 # --- Listing ---
-def _resolver(learned: dict | None = None, monkeypatch=None) -> listing_module._Resolver:
+def _resolver(learned: dict | None = None, monkeypatch=None) -> entries_module._Resolver:
     if learned is not None:
-        monkeypatch.setattr(listing_module, "load_learned_formats", lambda: learned)
-    return listing_module._Resolver(TRACKER_URL, "example")
+        monkeypatch.setattr(entries_module, "load_learned_formats", lambda: learned)
+    return entries_module._Resolver(TRACKER_URL, "example")
 
 
 def test_gallerydl_queue_messages_are_entries_or_sub_collections(temp_db):
@@ -149,14 +158,14 @@ def test_gallerydl_queue_messages_are_entries_or_sub_collections(temp_db):
         [6, "https://example.test/u/alice/media", {}],
     ]
 
-    entries = list(listing_module._gallerydl_entries(iter(messages), _resolver(), ListingStats(), subs))
+    entries = list(collection_module._gallerydl_entries(iter(messages), _resolver(), ListingStats(), subs))
 
     assert entries == [Entry(url="https://example.test/post/12345678")]
     assert subs == ["https://example.test/u/alice/media"]
 
 
 def test_gallerydl_file_resolves_to_a_same_site_post_link(temp_db, monkeypatch):
-    monkeypatch.setattr(listing_module, "_engine_supports", lambda url: True)
+    monkeypatch.setattr(entries_module, "_engine_supports", lambda url: True)
     kwdict = {
         "author": {"name": "alice"},
         "file_url": "https://cdn.other.test/x/99999999.jpg",
@@ -168,7 +177,7 @@ def test_gallerydl_file_resolves_to_a_same_site_post_link(temp_db, monkeypatch):
         [3, "https://cdn.other.test/x/99999998.jpg", kwdict],
     ]
 
-    entries = list(listing_module._gallerydl_entries(iter(messages), _resolver(), ListingStats(), []))
+    entries = list(collection_module._gallerydl_entries(iter(messages), _resolver(), ListingStats(), []))
 
     assert [entry.url for entry in entries] == ["https://www.example.test/post/55555555"] * 2
 
@@ -183,7 +192,7 @@ def test_gallerydl_file_resolves_to_a_same_site_post_link(temp_db, monkeypatch):
     ],
 )
 def test_gallerydl_file_resolves_to_its_post_over_other_pages_it_links(temp_db, monkeypatch, learned, read):
-    monkeypatch.setattr(listing_module, "_engine_supports", lambda url: read in url)
+    monkeypatch.setattr(entries_module, "_engine_supports", lambda url: read in url)
     kwdict = {
         "post_id": "22222222",
         "place_url": "https://example.test/explore/places/1234567890123456/on-fire/",
@@ -191,7 +200,7 @@ def test_gallerydl_file_resolves_to_its_post_over_other_pages_it_links(temp_db, 
     }
 
     entries = list(
-        listing_module._gallerydl_entries(
+        collection_module._gallerydl_entries(
             iter([[3, "https://cdn.other.test/a.jpg", kwdict]]), _resolver(learned, monkeypatch), ListingStats(), []
         )
     )
@@ -214,7 +223,7 @@ def test_gallerydl_file_reconstructs_a_link_from_the_learned_format(temp_db, mon
     stats = ListingStats()
 
     entries = list(
-        listing_module._gallerydl_entries(
+        collection_module._gallerydl_entries(
             iter([[3, "https://cdn.other.test/a.jpg", kwdict]]), _resolver(learned, monkeypatch), stats, []
         )
     )
@@ -229,7 +238,7 @@ def test_gallerydl_file_without_any_link_counts_as_unresolved(temp_db):
     stats = ListingStats()
 
     entries = list(
-        listing_module._gallerydl_entries(
+        collection_module._gallerydl_entries(
             iter([[3, "https://cdn.other.test/a.jpg", {"post_id": "22222222"}]]), _resolver(), stats, []
         )
     )
@@ -240,7 +249,7 @@ def test_gallerydl_file_without_any_link_counts_as_unresolved(temp_db):
 
 def test_collection_tabs_and_the_tracked_link_are_never_items(temp_db):
     resolver = _resolver()
-    handle = listing_module._Resolver("https://example.test/profile/alice.example.social", "example")
+    handle = entries_module._Resolver("https://example.test/profile/alice.example.social", "example")
 
     assert not resolver.is_item(TRACKER_URL)
     assert not resolver.is_item("https://example.test/u/alice/timeline")
@@ -252,7 +261,7 @@ def test_collection_tabs_and_the_tracked_link_are_never_items(temp_db):
 
 
 def test_a_link_naming_its_page_by_query_has_tabs_one_query_field_apart(temp_db):
-    resolver = listing_module._Resolver("https://example.test/profile.php?id=11111111", "example")
+    resolver = entries_module._Resolver("https://example.test/profile.php?id=11111111", "example")
 
     assert resolver.is_tab("https://example.test/profile.php?id=11111111&sk=reels_tab")
     assert not resolver.is_tab("https://example.test/profile.php?id=22222222&sk=reels_tab")
@@ -261,11 +270,11 @@ def test_a_link_naming_its_page_by_query_has_tabs_one_query_field_apart(temp_db)
 
 
 def test_gallerydl_dispatcher_queue_is_a_sub_collection(temp_db, monkeypatch):
-    monkeypatch.setattr(listing_module, "_is_dispatch", lambda url: True)
+    monkeypatch.setattr(collection_module, "_is_dispatch", lambda url: True)
     subs: list[str] = []
 
     entries = list(
-        listing_module._gallerydl_entries(
+        collection_module._gallerydl_entries(
             iter([[6, "https://example.test/post/12345678", {}]]), _resolver(), ListingStats(), subs
         )
     )
@@ -275,7 +284,7 @@ def test_gallerydl_dispatcher_queue_is_a_sub_collection(temp_db, monkeypatch):
 
 
 def test_gallerydl_wrapped_page_and_relative_permalink_resolve_to_posts(temp_db, monkeypatch):
-    monkeypatch.setattr(listing_module, "_engine_supports", lambda url: True)
+    monkeypatch.setattr(entries_module, "_engine_supports", lambda url: True)
     messages = [
         [3, "ytdl:https://example.test/post/12345678", {"title": "Clip"}],
         [
@@ -285,7 +294,7 @@ def test_gallerydl_wrapped_page_and_relative_permalink_resolve_to_posts(temp_db,
         ],
     ]
 
-    entries = list(listing_module._gallerydl_entries(iter(messages), _resolver(), ListingStats(), []))
+    entries = list(collection_module._gallerydl_entries(iter(messages), _resolver(), ListingStats(), []))
 
     assert [entry.url for entry in entries] == [
         "https://example.test/post/12345678",
@@ -332,8 +341,8 @@ def _fake_catalog(monkeypatch, classes: list[type], posts: dict[str, list]) -> l
             yield message
         run.returncode = 0 if cmd[-1] in posts else 1
 
-    monkeypatch.setattr(listing_module, "_stream", fake_stream)
-    monkeypatch.setattr(listing_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
+    monkeypatch.setattr(streams_module, "_stream", fake_stream)
+    monkeypatch.setattr(streams_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
     return probed
 
 
@@ -357,7 +366,7 @@ def test_catalog_learns_the_post_link_from_one_verified_post(temp_db, monkeypatc
     resolver = _resolver()
 
     entries = list(
-        listing_module._gallerydl_entries(
+        collection_module._gallerydl_entries(
             iter([_catalog_file("22222222"), _catalog_file("33333333")]), resolver, stats, []
         )
     )
@@ -380,13 +389,13 @@ def test_catalog_that_verifies_nothing_learns_nothing_and_stops_probing(temp_db,
     resolver = _resolver()
 
     entries = list(
-        listing_module._gallerydl_entries(
+        collection_module._gallerydl_entries(
             iter([_catalog_file("22222222"), _catalog_file("33333333")]), resolver, stats, []
         )
     )
 
     assert entries == []
-    assert len(probed) == listing_module._MAX_PROBES
+    assert len(probed) == entries_module._MAX_PROBES
     assert resolver.learned == {}
     assert stats.unresolved == 2
 
@@ -395,7 +404,7 @@ def test_a_listing_reports_its_files_once_it_answered():
     file = [3, "https://cdn.other.test/a.jpg", {"post_id": "22222222"}]
 
     def listed(messages):
-        return list(listing_module._listed_files(iter(messages), 1))
+        return list(entries_module._listed_files(iter(messages), 1))
 
     assert listed([[2, {}], file]) == [([{"post_id": "22222222"}], 1)]
     # A second directory ends the read: the link lists several posts.
@@ -416,7 +425,7 @@ def test_learned_routes_are_confirmed_once_per_kind_of_file(temp_db, monkeypatch
     probed = _fake_catalog(monkeypatch, [], {photo: [[2, {}], _catalog_file("22222222")]})
 
     entries = list(
-        listing_module._gallerydl_entries(
+        collection_module._gallerydl_entries(
             iter([_catalog_file("22222222"), _catalog_file("33333333")]),
             _resolver(learned, monkeypatch),
             ListingStats(),
@@ -434,7 +443,7 @@ def test_a_single_learned_route_of_another_kind_of_file_is_not_used(temp_db, mon
     probed = _fake_catalog(monkeypatch, [_list_extractor("photo")], {photo: [[2, {}], _catalog_file("22222222")]})
 
     entries = list(
-        listing_module._gallerydl_entries(
+        collection_module._gallerydl_entries(
             iter([_catalog_file("22222222"), _catalog_file("33333333")]),
             _resolver(learned, monkeypatch),
             ListingStats(),
@@ -462,8 +471,8 @@ def test_an_image_resolves_to_the_post_its_page_links(temp_db, monkeypatch, post
         fetched.append(url)
         return f'"{post}" "{post}" "https://example.test/photo?fbid=99999999"'
 
-    monkeypatch.setattr(listing_module, "fetch_html", fake_fetch)
-    monkeypatch.setattr(listing_module, "_engine_supports", lambda url: True)
+    monkeypatch.setattr(entries_module, "fetch_html", fake_fetch)
+    monkeypatch.setattr(entries_module, "_engine_supports", lambda url: True)
     _fake_catalog(
         monkeypatch,
         [],
@@ -476,7 +485,7 @@ def test_an_image_resolves_to_the_post_its_page_links(temp_db, monkeypatch, post
             ]
         },
     )
-    monkeypatch.setattr(listing_module, "_link_placeholders", lambda url: {"USER": creator})
+    monkeypatch.setattr(entries_module, "_link_placeholders", lambda url: {"USER": creator})
     messages = [
         [3, "https://cdn.other.test/a.jpg", {"id": "22222222", "extension": "jpg", "link": photo}],
         [
@@ -486,10 +495,10 @@ def test_an_image_resolves_to_the_post_its_page_links(temp_db, monkeypatch, post
         ],
     ]
 
-    entries = list(listing_module._gallerydl_entries(iter(messages), _resolver(), ListingStats(), []))
+    entries = list(collection_module._gallerydl_entries(iter(messages), _resolver(), ListingStats(), []))
 
     assert [entry.url for entry in entries] == [post, post]
-    assert listing_module.url_dedup_key(post) == "example#pfbid0abc123XYZ"
+    assert analysis_module.url_dedup_key(post) == "example#pfbid0abc123XYZ"
     assert entries[0].members == ("example#22222222", "example#33333333")
     # The second photo is already known to sit in the post.
     assert fetched == [photo]
@@ -497,7 +506,8 @@ def test_an_image_resolves_to_the_post_its_page_links(temp_db, monkeypatch, post
 
 def test_ytdlp_extractor_answer_decides_item_or_collection(temp_db, monkeypatch):
     answers = {"Tab": False, "Video": True}
-    monkeypatch.setattr(listing_module, "ytdlp_single_video", lambda url, ie_key="": answers.get(ie_key))
+    for module in (collection_module, entries_module):
+        monkeypatch.setattr(module, "ytdlp_single_video", lambda url, ie_key="": answers.get(ie_key))
     subs: list[str] = []
     lines = [
         {"url": "https://example.test/post/12345678", "ie_key": "Tab"},
@@ -505,7 +515,7 @@ def test_ytdlp_extractor_answer_decides_item_or_collection(temp_db, monkeypatch)
         {"url": "https://example.test/post/87654321", "ie_key": "Other"},
     ]
 
-    entries = list(listing_module._ytdlp_entries(iter(lines), _resolver(), subs))
+    entries = list(collection_module._ytdlp_entries(iter(lines), _resolver(), subs))
 
     assert [entry.url for entry in entries] == [
         "https://example.test/u/alice/latest",
@@ -522,7 +532,7 @@ def test_ytdlp_lines_become_entries(temp_db):
         {"id": "no-link"},
     ]
 
-    entries = list(listing_module._ytdlp_entries(iter(lines), _resolver(), subs))
+    entries = list(collection_module._ytdlp_entries(iter(lines), _resolver(), subs))
 
     assert entries == [Entry(url="https://example.test/post/12345678", collection="Alice")]
     assert subs == ["https://example.test/u/alice/shorts"]
@@ -543,7 +553,7 @@ def test_listed_entries_are_named_by_the_fields_order(temp_db):
         }
     ]
 
-    entries = list(listing_module._ytdlp_entries(iter(lines), _resolver(), []))
+    entries = list(collection_module._ytdlp_entries(iter(lines), _resolver(), []))
 
     assert entries[0].collection == "Alice Films"
 
@@ -572,8 +582,8 @@ def _fake_engines(monkeypatch, outputs: dict[str, tuple[list, int, list[str]]]) 
             run.note(line)
         run.returncode = returncode
 
-    monkeypatch.setattr(listing_module, "_stream", fake_stream)
-    monkeypatch.setattr(listing_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
+    monkeypatch.setattr(streams_module, "_stream", fake_stream)
+    monkeypatch.setattr(streams_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
     return ran
 
 
@@ -586,7 +596,7 @@ def test_unsupported_link_falls_through_to_ytdlp(temp_db, monkeypatch):
         },
     )
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example"))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example"))
 
     assert ran == ["gallery-dl", "yt-dlp"]
     assert [entry.url for entry in entries] == ["https://example.test/post/12345678"]
@@ -611,7 +621,7 @@ def test_items_an_engine_could_not_read_are_left_to_the_next(temp_db, monkeypatc
     ran = _fake_engines(monkeypatch, {"gallery-dl": ([[6, _entry(1).url, {}]], 0, [_UNREADABLE]), "yt-dlp": ytdlp})
     stats = ListingStats()
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example", stats))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example", stats))
 
     assert ran == ["gallery-dl", "yt-dlp"]
     assert [entry.url for entry in entries] == urls
@@ -634,10 +644,10 @@ def test_sub_collections_are_listed_in_turn(temp_db, monkeypatch):
             yield message
         run.returncode = 0
 
-    monkeypatch.setattr(listing_module, "_stream", fake_stream)
-    monkeypatch.setattr(listing_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
+    monkeypatch.setattr(streams_module, "_stream", fake_stream)
+    monkeypatch.setattr(streams_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example"))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example"))
 
     assert calls == [TRACKER_URL, "https://example.test/u/alice/media"]
     assert [entry.url for entry in entries] == ["https://example.test/post/12345678"]
@@ -657,10 +667,10 @@ def test_sibling_tabs_sharing_the_handle_are_all_listed(temp_db, monkeypatch):
             yield message
         run.returncode = 0
 
-    monkeypatch.setattr(listing_module, "_stream", fake_stream)
-    monkeypatch.setattr(listing_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
+    monkeypatch.setattr(streams_module, "_stream", fake_stream)
+    monkeypatch.setattr(streams_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
 
-    entries = list(listing_module.iter_entries(tracker, "example"))
+    entries = list(walk_module.iter_entries(tracker, "example"))
 
     assert [entry.url for entry in entries] == [
         "https://example.test/post/11111111",
@@ -682,14 +692,14 @@ def _tabs_engine(monkeypatch, posts_tab: list) -> None:
         run.returncode = 0 if cmd[0] == "gallery-dl" else 1
         run.note("[example][error] HttpError: '403 Forbidden'" if cmd[0] == "gallery-dl" else "ERROR: Unsupported URL")
 
-    monkeypatch.setattr(listing_module, "_stream", fake_stream)
-    monkeypatch.setattr(listing_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
+    monkeypatch.setattr(streams_module, "_stream", fake_stream)
+    monkeypatch.setattr(streams_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
 
 
 def test_a_failing_tab_leaves_its_siblings_listed(temp_db, monkeypatch):
     _tabs_engine(monkeypatch, [[6, "https://example.test/post/12345678", {}]])
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example"))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example"))
 
     assert [entry.url for entry in entries] == ["https://example.test/post/12345678"]
 
@@ -698,7 +708,7 @@ def test_tabs_that_all_fail_raise_the_engine_that_tried(temp_db, monkeypatch):
     _tabs_engine(monkeypatch, [])
 
     with pytest.raises(ValueError, match="403 Forbidden"):
-        list(listing_module.iter_entries(TRACKER_URL, "example"))
+        list(walk_module.iter_entries(TRACKER_URL, "example"))
 
 
 def test_a_listing_stops_after_a_run_of_known_entries(temp_db, monkeypatch):
@@ -709,7 +719,7 @@ def test_a_listing_stops_after_a_run_of_known_entries(temp_db, monkeypatch):
     )
     known = {service_module.url_dedup_key(_entry(n).url) for n in range(1, 31)}
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example", known=known.__contains__, caught_up_after=5))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example", known=known.__contains__, caught_up_after=5))
 
     assert [entry.url for entry in entries] == [_entry(n).url for n in numbers[:7]]
 
@@ -725,7 +735,7 @@ def test_entries_recorded_earlier_in_the_pass_do_not_stop_a_listing(temp_db, mon
     earlier = {service_module.url_dedup_key(_entry(n).url) for n in range(50, 60)}
 
     entries = list(
-        listing_module.iter_entries(
+        walk_module.iter_entries(
             TRACKER_URL,
             "example",
             known=(this_pass | earlier).__contains__,
@@ -740,15 +750,15 @@ def test_entries_recorded_earlier_in_the_pass_do_not_stop_a_listing(temp_db, mon
 def test_stream_idle_clock_ignores_time_the_caller_spends_on_a_message(monkeypatch):
     import sys
 
-    monkeypatch.setattr(listing_module, "_IDLE_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(streams_module, "_IDLE_TIMEOUT_SECONDS", 0.2)
     real_wait = threading.Event.wait
     # The watchdog polls every 5 seconds; poll faster so the test sees a kill if one happens.
     monkeypatch.setattr(threading.Event, "wait", lambda self, timeout=None: real_wait(self, min(timeout or 0.05, 0.05)))
-    run = listing_module._Run()
+    run = streams_module._Run()
     cmd = [sys.executable, "-c", "print('[1]', flush=True); print('[2]', flush=True)"]
     messages = []
 
-    for message in listing_module._stream(cmd, AccessIdentity(), run):
+    for message in streams_module._stream(cmd, AccessIdentity(), run):
         messages.append(message)
         time.sleep(0.6)
 
@@ -769,19 +779,20 @@ def test_page_links_add_the_creators_items_and_mark_foreign_ones(temp_db, monkey
         "https://example.test/reel/22222222": {"uploader": "Someone Else", "ext": "mp4"},
         "https://example.test/reel/33333333": {"ext": "mp4"},
     }
-    monkeypatch.setattr(listing_module, "fetch_html", lambda url, cookie_source_key="": pages.get(url, ""))
+    for module in (entries_module, walk_module):
+        monkeypatch.setattr(module, "fetch_html", lambda url, cookie_source_key="": pages.get(url, ""))
     monkeypatch.setattr(
-        listing_module,
+        entries_module,
         "probe_metadata",
         lambda urls, **options: {url: metadata[url] for url in urls if url in metadata},
     )
-    monkeypatch.setattr(listing_module, "_engine_supports", lambda url: "/reel/" in url)
+    monkeypatch.setattr(entries_module, "_engine_supports", lambda url: "/reel/" in url)
     _fake_engines(
         monkeypatch,
         {"gallery-dl": ([], 64, ["Unsupported URL"]), "yt-dlp": ([], 1, ["ERROR: Unsupported URL"])},
     )
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example"))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example"))
 
     # The help link is no item an engine reads, and the reel without names waits for a later check.
     assert [(entry.url, entry.owned) for entry in entries] == [
@@ -858,16 +869,18 @@ class _Browser:
 
 def _browser(monkeypatch, *batches: list[str]) -> _Browser:
     session = _Browser([list(batch) for batch in batches])
-    monkeypatch.setattr(listing_module, "BrowserSession", session.open)
+    for module in (pages_module, walk_module):
+        monkeypatch.setattr(module, "BrowserSession", session.open)
     return session
 
 
 def _reel_page(monkeypatch, html: str, engine_messages: list | None = None) -> None:
     pages = {TRACKER_URL: html}
     listed = bool(engine_messages)
-    monkeypatch.setattr(listing_module, "fetch_html", lambda url, cookie_source_key="": pages.get(url, ""))
-    monkeypatch.setattr(listing_module, "probe_metadata", _probe_answering({"uploader": "Alice", "ext": "mp4"}))
-    monkeypatch.setattr(listing_module, "_engine_supports", lambda url: "/reel/" in url)
+    for module in (entries_module, walk_module):
+        monkeypatch.setattr(module, "fetch_html", lambda url, cookie_source_key="": pages.get(url, ""))
+    monkeypatch.setattr(entries_module, "probe_metadata", _probe_answering({"uploader": "Alice", "ext": "mp4"}))
+    monkeypatch.setattr(entries_module, "_engine_supports", lambda url: "/reel/" in url)
     _fake_engines(
         monkeypatch,
         {
@@ -881,7 +894,7 @@ def test_scrolling_adds_the_items_a_page_only_loads_as_it_grows(temp_db, monkeyp
     _reel_page(monkeypatch, '"https://example.test/reel/11111111"')
     browser = _browser(monkeypatch, ["https://example.test/reel/22222222"], ["https://example.test/reel/33333333"])
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example"))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example"))
 
     assert [entry.url for entry in entries] == [
         "https://example.test/reel/11111111",
@@ -908,10 +921,10 @@ def test_items_are_listed_while_the_page_still_scrolls(temp_db, monkeypatch):
     _reel_page(monkeypatch, f'"{reels[0]}"')
     browser = _browser(monkeypatch, *([reel] for reel in reels[1:]))
     _slow_scroll(browser, 0.05)
-    backlog = listing_module._WalkBacklog()
+    backlog = models_module._WalkBacklog()
     stats = ListingStats()
 
-    entries = listing_module.iter_entries(TRACKER_URL, "example", stats, backlog=backlog)
+    entries = walk_module.iter_entries(TRACKER_URL, "example", stats, backlog=backlog)
     with closing(entries):
         collected = [next(entries), next(entries)]
 
@@ -933,12 +946,12 @@ def test_a_link_the_app_already_downloaded_is_not_probed(temp_db, monkeypatch):
         probed.extend(urls)
         return {url: {"uploader": "Alice", "ext": "mp4"} for url in urls}
 
-    monkeypatch.setattr(listing_module, "probe_metadata", probe)
+    monkeypatch.setattr(entries_module, "probe_metadata", probe)
     monkeypatch.setattr(
-        listing_module, "find_history_by_source", lambda url: ("h1", {}) if url == reels[1] else (None, None)
+        candidates_module, "find_history_by_source", lambda url: ("h1", {}) if url == reels[1] else (None, None)
     )
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example"))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example"))
 
     assert [entry.url for entry in entries] == reels
     assert probed == [reels[0], reels[2]]
@@ -957,13 +970,13 @@ def test_a_page_scrolls_past_what_the_app_already_downloaded_without_filling_its
         return {url: {"uploader": "Alice", "ext": "mp4"} for url in urls}
 
     downloaded = {*reels[:3], elsewhere}
-    monkeypatch.setattr(listing_module, "probe_metadata", probe)
+    monkeypatch.setattr(entries_module, "probe_metadata", probe)
     monkeypatch.setattr(
-        listing_module, "find_history_by_source", lambda url: ("h1", {}) if url in downloaded else (None, None)
+        candidates_module, "find_history_by_source", lambda url: ("h1", {}) if url in downloaded else (None, None)
     )
     stats = ListingStats()
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example", stats, batch=2))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example", stats, batch=2))
 
     assert [entry.url for entry in entries] == reels[:5]
     assert probed == reels[3:5]
@@ -993,9 +1006,9 @@ class _HeldResolver:
 
 def test_links_shown_while_a_probe_run_is_busy_are_read_together(monkeypatch):
     reels = [f"https://example.test/reel/{n}1111111" for n in range(1, 5)]
-    monkeypatch.setattr(listing_module, "_downloaded", lambda link: False)
+    monkeypatch.setattr(candidates_module, "_downloaded", lambda link: False)
     resolver = _HeldResolver()
-    probes = listing_module._Probes(resolver, listing_module._WalkBacklog())
+    probes = candidates_module._Probes(resolver, models_module._WalkBacklog())
     try:
         probes.add(reels[:1])
         assert resolver.started.wait(timeout=5)
@@ -1011,11 +1024,11 @@ def test_links_shown_while_a_probe_run_is_busy_are_read_together(monkeypatch):
 
 
 def test_closing_a_walk_stops_its_running_probe_run(monkeypatch):
-    monkeypatch.setattr(listing_module, "_downloaded", lambda link: False)
+    monkeypatch.setattr(candidates_module, "_downloaded", lambda link: False)
     cancelled: list[str] = []
-    monkeypatch.setattr(listing_module, "request_cancel", cancelled.append)
+    monkeypatch.setattr(candidates_module, "request_cancel", cancelled.append)
     resolver = _HeldResolver()
-    probes = listing_module._Probes(resolver, listing_module._WalkBacklog())
+    probes = candidates_module._Probes(resolver, models_module._WalkBacklog())
     try:
         probes.add(["https://example.test/reel/11111111"])
         assert resolver.started.wait(timeout=5)
@@ -1035,10 +1048,10 @@ def test_items_probed_ahead_keep_their_page_order(temp_db, monkeypatch):
         return {url: {"uploader": "Alice", "ext": "mp4"} for url in urls}
 
     _reel_page(monkeypatch, " ".join(f'"{reel}"' for reel in reels))
-    monkeypatch.setattr(listing_module, "probe_metadata", probe)
-    monkeypatch.setattr(listing_module, "_LINKS_PER_PROBE", 1)
+    monkeypatch.setattr(entries_module, "probe_metadata", probe)
+    monkeypatch.setattr(candidates_module, "_LINKS_PER_PROBE", 1)
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example"))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example"))
 
     assert [entry.url for entry in entries] == reels
 
@@ -1048,7 +1061,7 @@ def test_a_page_that_links_no_items_is_still_scrolled(temp_db, monkeypatch):
     _reel_page(monkeypatch, '<script>var base = "https://example.test/reel/";</script>')
     browser = _browser(monkeypatch, ["https://example.test/reel/11111111"])
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example"))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example"))
 
     assert [entry.url for entry in entries] == ["https://example.test/reel/11111111"]
     assert browser.walks == [TRACKER_URL]
@@ -1062,14 +1075,14 @@ def test_items_an_earlier_page_showed_still_end_a_caught_up_scroll(temp_db, monk
     pages = [f"{TRACKER_URL}/reels", TRACKER_URL]
 
     list(
-        listing_module.iter_entries(
+        walk_module.iter_entries(
             TRACKER_URL,
             "example",
             known=earlier.__contains__,
             caught_up_after=2,
             tabs=[_row("reels"), _row("")],
             pages={"": TRACKER_URL},
-            ended=[listing_module._visit_key(page) for page in pages],
+            ended=[entries_module._visit_key(page) for page in pages],
         )
     )
 
@@ -1082,9 +1095,10 @@ def test_a_walk_scrolls_the_tabs_it_finds_on_the_link_in_one_browser(temp_db, mo
         TRACKER_URL: '<a href="/u/alice/reels">Reels</a>',
         f"{TRACKER_URL}/reels": '"https://example.test/reel/11111111"',
     }
-    monkeypatch.setattr(listing_module, "fetch_html", lambda url, cookie_source_key="": pages.get(url, ""))
-    monkeypatch.setattr(listing_module, "probe_metadata", _probe_answering({"uploader": "Alice", "ext": "mp4"}))
-    monkeypatch.setattr(listing_module, "_engine_supports", lambda url: "/reel/" in url)
+    for module in (entries_module, walk_module):
+        monkeypatch.setattr(module, "fetch_html", lambda url, cookie_source_key="": pages.get(url, ""))
+    monkeypatch.setattr(entries_module, "probe_metadata", _probe_answering({"uploader": "Alice", "ext": "mp4"}))
+    monkeypatch.setattr(entries_module, "_engine_supports", lambda url: "/reel/" in url)
     _fake_engines(
         monkeypatch,
         {"gallery-dl": ([], 64, ["Unsupported URL"]), "yt-dlp": ([], 1, ["ERROR: Unsupported URL"])},
@@ -1092,7 +1106,7 @@ def test_a_walk_scrolls_the_tabs_it_finds_on_the_link_in_one_browser(temp_db, mo
     browser = _browser(monkeypatch, ["https://example.test/reel/22222222"])
     stats = ListingStats()
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example", stats))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example", stats))
 
     # The tracked link links only a tab, so its own items come from scrolling; the tab adds its own.
     assert [entry.url for entry in entries] == [
@@ -1109,10 +1123,11 @@ def test_tabs_that_differ_by_query_alone_are_each_walked(temp_db, monkeypatch):
     tab = f"{tracked}&sk=reels_tab"
     pages = {tracked: f'<a href="{tab}">Reels</a>', tab: '"https://example.test/reel/22222222"'}
     _reel_page(monkeypatch, "")
-    monkeypatch.setattr(listing_module, "fetch_html", lambda url, cookie_source_key="": pages.get(url, ""))
+    for module in (entries_module, walk_module):
+        monkeypatch.setattr(module, "fetch_html", lambda url, cookie_source_key="": pages.get(url, ""))
     browser = _browser(monkeypatch)
 
-    entries = list(listing_module.iter_entries(tracked, "example"))
+    entries = list(walk_module.iter_entries(tracked, "example"))
 
     assert [entry.url for entry in entries] == ["https://example.test/reel/22222222"]
     assert browser.walks == [tracked, tab]
@@ -1131,7 +1146,8 @@ def _tabbed_pages(monkeypatch) -> list[str]:
         return pages.get(url, "")
 
     _reel_page(monkeypatch, "")
-    monkeypatch.setattr(listing_module, "fetch_html", fetch)
+    for module in (entries_module, walk_module):
+        monkeypatch.setattr(module, "fetch_html", fetch)
     return fetched
 
 
@@ -1144,7 +1160,7 @@ def test_a_rendered_pages_navigation_picks_the_tabs_to_walk(temp_db, monkeypatch
         (f"{TRACKER_URL}/reels", "Reels", False),
     ]
 
-    list(listing_module.iter_entries(TRACKER_URL, "example"))
+    list(walk_module.iter_entries(TRACKER_URL, "example"))
 
     assert fetched == [TRACKER_URL, f"{TRACKER_URL}/reels"]
 
@@ -1172,8 +1188,8 @@ def _engines_by_page(monkeypatch, pages: dict[str, list]) -> list[str]:
             yield message
         run.returncode, run.log = (0, []) if messages is not None else (1, ["ERROR: Unsupported URL"])
 
-    monkeypatch.setattr(listing_module, "_stream", fake_stream)
-    monkeypatch.setattr(listing_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
+    monkeypatch.setattr(streams_module, "_stream", fake_stream)
+    monkeypatch.setattr(streams_module, "probe_rotation", lambda url, key: _generate([AccessIdentity()]))
     return listed
 
 
@@ -1188,12 +1204,13 @@ def test_ticked_pages_are_scrolled_and_unticked_ones_left_to_the_engines_that_li
         },
     )
     # An engine reads the notes page itself; none reads the about page.
-    monkeypatch.setattr(listing_module, "_engine_reads", lambda url: url == notes)
+    for module in (pages_module, walk_module):
+        monkeypatch.setattr(module, "_engine_reads", lambda url: url == notes)
     browser = _browser(monkeypatch)
     browser.navigation[TRACKER_URL] = [(clips, "Clips", False)]
     tabs = [_row(""), _row("clips"), _row("notes", enabled=False), _row("about", enabled=False)]
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example", tabs=tabs))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example", tabs=tabs))
 
     assert [entry.url for entry in entries] == [
         "https://example.test/post/11111111",
@@ -1218,7 +1235,7 @@ def test_a_row_is_found_on_a_link_of_another_shape_by_a_name_learned_elsewhere(t
     stats = ListingStats()
 
     entries = list(
-        listing_module.iter_entries(
+        walk_module.iter_entries(
             tracked,
             "example",
             stats,
@@ -1247,7 +1264,7 @@ def test_a_page_that_is_no_longer_the_rows_gives_way_to_a_tab_the_link_offers(te
     stats = ListingStats()
 
     entries = list(
-        listing_module.iter_entries(
+        walk_module.iter_entries(
             TRACKER_URL,
             "example",
             stats,
@@ -1270,7 +1287,7 @@ def test_a_row_no_page_turns_out_to_be_is_reported(temp_db, monkeypatch):
     stats = ListingStats()
 
     list(
-        listing_module.iter_entries(
+        walk_module.iter_entries(
             TRACKER_URL, "example", stats, tabs=[_row("", enabled=False), _row("clips", label="Clips")]
         )
     )
@@ -1288,13 +1305,13 @@ def test_a_link_whose_pages_are_all_unticked_is_loaded_on_its_first_walk_only(te
     stats = ListingStats()
 
     with pytest.raises(ValueError, match="Unsupported URL"):
-        list(listing_module.iter_entries(TRACKER_URL, "example", stats, tabs=tabs))
+        list(walk_module.iter_entries(TRACKER_URL, "example", stats, tabs=tabs))
 
     # The first walk loads the link to learn its pages, and marks it loaded.
     assert (browser.walks, stats.tab_pages) == ([TRACKER_URL], {"": TRACKER_URL})
 
     with pytest.raises(ValueError, match="Unsupported URL"):
-        list(listing_module.iter_entries(TRACKER_URL, "example", tabs=tabs, pages=stats.tab_pages))
+        list(walk_module.iter_entries(TRACKER_URL, "example", tabs=tabs, pages=stats.tab_pages))
 
     # A later walk loads nothing, not even to read the link's menu.
     assert (browser.walks, fetched) == ([TRACKER_URL], [])
@@ -1309,7 +1326,7 @@ def test_a_first_walk_scrolls_the_link_itself_first_when_its_row_is_ticked(temp_
     browser.addresses = {"Clips": clips}
     stats = ListingStats()
 
-    list(listing_module.iter_entries(TRACKER_URL, "example", stats, tabs=[_row("reels", label="Reels"), _row("")]))
+    list(walk_module.iter_entries(TRACKER_URL, "example", stats, tabs=[_row("reels", label="Reels"), _row("")]))
 
     # Scrolling the link teaches its pages without loading it twice; the new clips page is scrolled too.
     assert browser.walks == [TRACKER_URL, reels, clips]
@@ -1319,12 +1336,13 @@ def test_a_first_walk_scrolls_the_link_itself_first_when_its_row_is_ticked(temp_
 def test_a_source_without_rows_whose_link_the_engines_read_has_its_menu_read_once(temp_db, monkeypatch):
     reels = f"{TRACKER_URL}/reels"
     _engines_by_page(monkeypatch, {TRACKER_URL: [[6, "https://example.test/post/12345678", {}]]})
-    monkeypatch.setattr(listing_module, "_engine_reads", lambda url: url == TRACKER_URL)
+    for module in (pages_module, walk_module):
+        monkeypatch.setattr(module, "_engine_reads", lambda url: url == TRACKER_URL)
     browser = _browser(monkeypatch)
     browser.navigation[TRACKER_URL] = [(reels, "Reels", False)]
     stats = ListingStats()
 
-    list(listing_module.iter_entries(TRACKER_URL, "example", stats))
+    list(walk_module.iter_entries(TRACKER_URL, "example", stats))
 
     # The link itself is left to the engines, so its menu is read for the pages they do not list.
     assert [(row["tab"], row["engine"]) for row in stats.found_tabs] == [("", True), ("reels", False)]
@@ -1337,7 +1355,7 @@ def test_tabs_the_engines_hand_out_are_left_to_them_even_when_their_listing_fail
     _engines_by_page(monkeypatch, {TRACKER_URL: [[6, reels, {}], [6, "https://example.test/post/12345678", {}]]})
     stats = ListingStats()
 
-    list(listing_module.iter_entries(TRACKER_URL, "example", stats))
+    list(walk_module.iter_entries(TRACKER_URL, "example", stats))
 
     assert stats.engine_tabs == {"reels"}
     # The page the engines hand out joins unticked, so only the others are scrolled.
@@ -1361,11 +1379,12 @@ def test_items_a_row_page_lists_are_the_creators_only_when_they_carry_the_creato
             ],
         },
     )
-    monkeypatch.setattr(listing_module, "_engine_supports", lambda url: True)
-    monkeypatch.setattr(listing_module, "_engine_reads", lambda url: url == tagged)
+    monkeypatch.setattr(entries_module, "_engine_supports", lambda url: True)
+    for module in (pages_module, walk_module):
+        monkeypatch.setattr(module, "_engine_reads", lambda url: url == tagged)
     _browser(monkeypatch)
 
-    entries = list(listing_module.iter_entries(TRACKER_URL, "example", tabs=[_row("tagged", enabled=False)]))
+    entries = list(walk_module.iter_entries(TRACKER_URL, "example", tabs=[_row("tagged", enabled=False)]))
 
     # The link's own listing is the creator's; the tagged page's items are theirs only by a name or id they carry.
     assert [(entry.url, entry.owned) for entry in entries] == [
@@ -1376,26 +1395,26 @@ def test_items_a_row_page_lists_are_the_creators_only_when_they_carry_the_creato
 
 
 def test_only_an_engine_reading_a_page_itself_lists_it(monkeypatch):
-    monkeypatch.setattr(listing_module, "ytdlp_single_video", lambda url: None)
+    monkeypatch.setattr(pages_module, "ytdlp_single_video", lambda url: None)
     # A dispatcher matching the page only hands out other pages.
     for reads, expected in [(True, True), (False, False), (None, False)]:
-        monkeypatch.setattr(listing_module, "gallerydl_reads", lambda url, reads=reads: reads)
-        assert listing_module._engine_reads(TRACKER_URL) is expected
-    monkeypatch.setattr(listing_module, "ytdlp_single_video", lambda url: False)
-    assert listing_module._engine_reads(TRACKER_URL)
+        monkeypatch.setattr(pages_module, "gallerydl_reads", lambda url, reads=reads: reads)
+        assert pages_module._engine_reads(TRACKER_URL) is expected
+    monkeypatch.setattr(pages_module, "ytdlp_single_video", lambda url: False)
+    assert pages_module._engine_reads(TRACKER_URL)
 
 
 def test_a_page_name_builds_the_page_in_the_shape_of_each_link():
     tracked = "https://example.test/profile.php?id=11111111"
 
-    assert listing_module.page_variant(tracked, f"{tracked}&view=clips_list") == ("clips_list", "view")
-    assert listing_module.page_variant(TRACKER_URL, f"{TRACKER_URL}/clips_list/") == ("clips_list", "")
-    assert listing_module.page_variant(TRACKER_URL, f"{TRACKER_URL}/") == ("", "")
-    assert listing_module._page_url(tracked, "clips_list", "view") == f"{tracked}&view=clips_list"
-    assert listing_module._page_url(TRACKER_URL, "clips_list", "view") == f"{TRACKER_URL}/clips_list"
-    assert listing_module._page_url(tracked, "", "") == tracked
+    assert pages_module.page_variant(tracked, f"{tracked}&view=clips_list") == ("clips_list", "view")
+    assert pages_module.page_variant(TRACKER_URL, f"{TRACKER_URL}/clips_list/") == ("clips_list", "")
+    assert pages_module.page_variant(TRACKER_URL, f"{TRACKER_URL}/") == ("", "")
+    assert pages_module._page_url(tracked, "clips_list", "view") == f"{tracked}&view=clips_list"
+    assert pages_module._page_url(TRACKER_URL, "clips_list", "view") == f"{TRACKER_URL}/clips_list"
+    assert pages_module._page_url(tracked, "", "") == tracked
     # A link naming its page by query needs the field the name goes in.
-    assert listing_module._page_url(tracked, "clips_list", "") == ""
+    assert pages_module._page_url(tracked, "clips_list", "") == ""
 
 
 def test_probing_tabs_lists_the_link_then_the_tabs_its_navigation_offers(temp_db, monkeypatch):
@@ -1410,7 +1429,7 @@ def test_probing_tabs_lists_the_link_then_the_tabs_its_navigation_offers(temp_db
         (clips, "Clips", False),
     ]
 
-    tabs = listing_module.probe_tabs(TRACKER_URL, "example")
+    tabs = walk_module.probe_tabs(TRACKER_URL, "example")
 
     assert [(tab["tab"], tab["label"], tab["variants"], tab["engine"]) for tab in tabs] == [
         ("", "All", [{"name": "", "field": ""}], False),
@@ -1434,7 +1453,7 @@ def test_probing_a_link_whose_menu_names_it_another_way_lists_the_tabs_of_that_n
         (f"{own}&view=clips_list", "Clips", False),
     ]
 
-    tabs = listing_module.probe_tabs(landed, "example")
+    tabs = walk_module.probe_tabs(landed, "example")
 
     assert [(tab["tab"], tab["label"], tab["variants"]) for tab in tabs] == [
         ("", "Posts", [{"name": "", "field": ""}]),
@@ -1454,7 +1473,7 @@ def test_a_row_is_found_through_the_menu_of_a_link_that_names_itself_another_way
     }
     stats = ListingStats()
 
-    list(listing_module.iter_entries(tracked, "example", stats, tabs=[_row(""), _row("clips")]))
+    list(walk_module.iter_entries(tracked, "example", stats, tabs=[_row(""), _row("clips")]))
 
     assert browser.walks == [tracked, clips]
     assert stats.tab_pages["clips"] == clips
@@ -1464,7 +1483,8 @@ def test_a_walk_clicks_and_asks_the_engines_only_about_the_pages_its_rows_still_
     _reel_page(monkeypatch, "", engine_messages=[[6, "https://example.test/post/12345678", {}]])
     reels, notes = f"{TRACKER_URL}/reels_tab", f"{TRACKER_URL}/notes"
     asked: list[str] = []
-    monkeypatch.setattr(listing_module, "_engine_reads", lambda url: asked.append(url) or False)
+    for module in (pages_module, walk_module):
+        monkeypatch.setattr(module, "_engine_reads", lambda url: asked.append(url) or False)
     clips = f"{TRACKER_URL}/clips"
     browser = _browser(monkeypatch)
     # The clips page's menu shows every tab, the others switching the page in script.
@@ -1479,7 +1499,7 @@ def test_a_walk_clicks_and_asks_the_engines_only_about_the_pages_its_rows_still_
     ]
     stats = ListingStats()
 
-    list(listing_module.iter_entries(TRACKER_URL, "example", stats, tabs=tabs, pages={"": TRACKER_URL, "clips": clips}))
+    list(walk_module.iter_entries(TRACKER_URL, "example", stats, tabs=tabs, pages={"": TRACKER_URL, "clips": clips}))
 
     # Unticked photos costs no click; the reels row has to find its page.
     assert browser.clicked == ["Reels", "Notes"]
@@ -1498,7 +1518,7 @@ def test_a_walk_clicks_and_asks_the_engines_only_about_the_pages_its_rows_still_
 def test_probing_tabs_without_a_browser_reads_the_tabs_the_markup_links(temp_db, monkeypatch):
     _tabbed_pages(monkeypatch)
 
-    assert [tab["tab"] for tab in listing_module.probe_tabs(TRACKER_URL, "example")] == ["", "about", "reels"]
+    assert [tab["tab"] for tab in walk_module.probe_tabs(TRACKER_URL, "example")] == ["", "about", "reels"]
 
 
 def test_a_probe_joins_the_rows_its_pages_already_have_and_adds_the_rest(temp_db):
@@ -1534,7 +1554,7 @@ def test_listing_that_no_engine_answers_raises(temp_db, monkeypatch):
     )
 
     with pytest.raises(ValueError, match="This account is private"):
-        list(listing_module.iter_entries(TRACKER_URL, "example"))
+        list(walk_module.iter_entries(TRACKER_URL, "example"))
 
 
 # --- Create ---
@@ -1782,7 +1802,7 @@ def test_new_posts_come_first_and_the_scroll_goes_on_where_the_last_walk_stopped
     stats = ListingStats()
 
     entries = list(
-        listing_module.iter_entries(
+        walk_module.iter_entries(
             TRACKER_URL,
             "example",
             stats,
@@ -1832,7 +1852,7 @@ def test_each_check_scrolls_one_batch_deeper_past_what_earlier_checks_found(temp
     assert (check(), browser.pulled) == (reels[6:], 3 + 6 + 7)
     tracker = repositories.load_tracker_row("t1")
     assert tracker["last_success_at"]
-    assert tracker["feeds"]["ended"] == [listing_module._visit_key(TRACKER_URL)]
+    assert tracker["feeds"]["ended"] == [entries_module._visit_key(TRACKER_URL)]
 
     # A page scrolled to its end only catches up: the new item leads, and two known ones stop the scroll.
     fresh = "https://example.test/reel/91111111"
@@ -1913,7 +1933,7 @@ def _check_in_background(monkeypatch) -> threading.Thread:
         yield _entry(1)
         started.set()
         command = [sys.executable, "-c", "import time; time.sleep(60)"]
-        yield from listing_module._stream(command, AccessIdentity(), listing_module._Run())
+        yield from streams_module._stream(command, AccessIdentity(), streams_module._Run())
 
     monkeypatch.setattr(service_module, "iter_entries", listing)
     monkeypatch.setattr(service_module, "queue_task", _Queue())

@@ -7,7 +7,6 @@ from typing import Any
 
 from backend.app.core.paths import path_key as _path_key
 from backend.app.domains.downloads.audio import audio_container_matches, convert_audio_output
-from backend.app.domains.downloads.constants import audio_output_extension
 from backend.app.domains.downloads.engines.engine import Engine
 from backend.app.domains.downloads.files import (
     find_newest_media_file,
@@ -17,18 +16,19 @@ from backend.app.domains.downloads.files import (
     rename_path,
     unique_sibling_path,
 )
-from backend.app.domains.downloads.links.formats import media_id_from_url
+from backend.app.domains.downloads.links.analysis import media_id_from_url
 from backend.app.domains.downloads.links.urls import detect_source_key
 from backend.app.domains.downloads.metadata.creators import filename_media_id
 from backend.app.domains.downloads.metadata.pipeline import distinct_metadata_item_url
 from backend.app.domains.downloads.metadata.values import display_creator_candidate
-from backend.app.domains.downloads.naming.naming import (
-    clean_template_filename,
+from backend.app.domains.downloads.naming.filenames import (
     numbered_suffix_of,
     parse_filename_media_id,
     strip_numbered_suffix,
 )
+from backend.app.domains.downloads.naming.render import clean_template_filename
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
+from backend.app.domains.downloads.quality import audio_output_extension
 from backend.app.domains.downloads.store import (
     load_history_entries_for_media_id,
     load_history_entry_for_path,

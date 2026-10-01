@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from backend.app.domains.downloads.constants import normalize_title_cleaning
+from backend.app.domains.downloads.naming_rules import normalize_title_cleaning
 from backend.app.domains.settings import get_effective_field_defaults, is_scraper_field
 
 

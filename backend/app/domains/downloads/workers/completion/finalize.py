@@ -10,7 +10,7 @@ from backend.app.domains.downloads.cache import drop_file_cache
 from backend.app.domains.downloads.files import find_numbered_media_siblings, is_media_file
 from backend.app.domains.downloads.metadata.folders import move_group_to_template_folder
 from backend.app.domains.downloads.metadata.pipeline import naming_values
-from backend.app.domains.downloads.naming.naming import row_with_tokens, settings_tokens
+from backend.app.domains.downloads.naming.render import row_with_tokens, settings_tokens
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
 from backend.app.domains.downloads.workers.completion.outputs import (
     _clean_resolved_filename,

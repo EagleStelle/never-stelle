@@ -9,7 +9,7 @@ from typing import Any
 from backend.app.core.config import MEDIA_DIR, STAGING_DIR_NAME, is_allowed_location
 
 from .constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS
-from .naming.naming import strip_numbered_suffix
+from .naming.filenames import strip_numbered_suffix
 from .store import update_task
 
 

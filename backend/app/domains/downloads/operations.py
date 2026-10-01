@@ -12,17 +12,19 @@ from backend.app.domains.settings import get_effective_saved_settings, get_effec
 from backend.app.integrations.swaratelle import client as swaratelle
 from backend.app.runtime.processes import has_active_task, request_cancel
 
-from .constants import normalize_post_processing, normalize_quality_selection
 from .engines.engine import default_engine
 from .files import find_numbered_media_siblings, payload_path_string, recover_task_path, remove_media
 from .library.history import find_active_by_source, find_history_by_id, find_history_by_source
 from .library.resolve import entry_token_state, file_history_entry
 from .library.scan import history_write_lock
-from .links.formats import learn_source_id_signature, reconstruct_url_candidates
+from .links.learned_formats import learn_source_id_signature, reconstruct_url_candidates
 from .links.urls import canonicalize_source_url, detect_source_key, resolve_redirect_url
-from .naming.naming import clean_template_display_filename, parse_filename_media_id
+from .naming.filenames import parse_filename_media_id
+from .naming.render import clean_template_display_filename
 from .naming.template_rows import template_row_fields, template_settings_from_row
 from .planning import resolve_task_settings
+from .postprocessing.options import normalize_post_processing
+from .quality import normalize_quality_selection
 from .serializers import history_to_api, task_to_api
 from .slideshow import build_slideshow_archive
 from .store import (

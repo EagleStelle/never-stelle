@@ -143,7 +143,7 @@ def probe_fields(payload: ProbeLinkPayload) -> dict[str, Any]:
 @router.post("/probe-tabs")
 def probe_tabs(payload: ProbeTabsPayload) -> dict[str, Any]:
     from backend.app.domains.downloads.links.urls import resolve_redirect_url
-    from backend.app.domains.trackers.listing import probe_tabs as probe_link_tabs
+    from backend.app.domains.trackers.listing.walk import probe_tabs as probe_link_tabs
 
     url = resolve_redirect_url(payload.url.strip())
     if not url:

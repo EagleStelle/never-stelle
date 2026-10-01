@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.paths import path_key as _path_key
-from backend.app.domains.downloads.constants import CREATOR_FIELDS, TEMPLATE_RE, quality_label
+from backend.app.domains.downloads.constants import CREATOR_FIELDS, TEMPLATE_RE
 from backend.app.domains.downloads.files import (
     find_numbered_media_siblings,
     prune_empty_parents,
@@ -23,8 +23,9 @@ from backend.app.domains.downloads.metadata.values import (
     clean_creator_candidate,
     display_creator_candidate,
 )
-from backend.app.domains.downloads.naming.naming import sanitize_path_literal
+from backend.app.domains.downloads.naming.filenames import sanitize_path_literal
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
+from backend.app.domains.downloads.quality import quality_label
 
 _PATH_SEPARATOR_RE = re.compile(r"[\\/]+")
 _NON_SEGMENTS = {".", ".."}
