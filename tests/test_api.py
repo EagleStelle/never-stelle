@@ -904,3 +904,24 @@ def test_download_files_streams_the_selected_files_under_unique_names(tmp_path, 
         assert archive.namelist() == ["clip [1].mp4", "clip [1] (2).mp4"]
         assert [archive.read(name) for name in archive.namelist()] == [b"two", b"one"]
     assert client.get("/api/downloads/files", params={"ids": "ytdlp:gone"}).status_code == 404
+
+
+def test_download_files_puts_every_file_of_a_multi_file_post_in_its_folder(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    folder = tmp_path / "media" / "post"
+    folder.mkdir(parents=True)
+    for index in (1, 2, 10):
+        (folder / f"post_{index}.jpg").write_bytes(str(index).encode())
+    single = tmp_path / "media" / "clip.mp4"
+    single.write_bytes(b"clip")
+    for task_id, path in (("ytdlp:post", folder / "post_1.jpg"), ("ytdlp:clip", single)):
+        repositories.save_history_row(
+            task_id,
+            {"source_url": f"https://example.test/{task_id}", "engine": "ytdlp", "resolved_full_path": str(path)},
+        )
+
+    response = client.get("/api/downloads/files", params=[("ids", "ytdlp:post"), ("ids", "ytdlp:clip")])
+
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert archive.namelist() == ["post_1/post_1.jpg", "post_1/post_2.jpg", "post_1/post_10.jpg", "clip.mp4"]
+        assert archive.read("post_1/post_10.jpg") == b"10"

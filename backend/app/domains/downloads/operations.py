@@ -358,7 +358,7 @@ def resolve_task_file(task_id: str) -> tuple[Path, str]:
 
 
 def archive_files(task_ids: list[str]) -> list[tuple[Path, str]]:
-    """Each finished download's file with its download name, in the order asked; a repeated name gets a number."""
+    """Each finished download's files with their download names, in the order asked; a repeated name gets a number."""
     ids = _unique(task_ids)
     entries = load_history_entries(ids)
     files: list[tuple[Path, str]] = []
@@ -368,12 +368,19 @@ def archive_files(task_ids: list[str]) -> list[tuple[Path, str]]:
         path = Path(payload_path_string(entry)) if entry else None
         if path is None or not path.is_file():
             continue
+        siblings = find_numbered_media_siblings(path)
+        grouped = len(siblings) > 1
         name = _download_name(_history_task(entry), path.name)
-        stem, suffix = Path(name).stem, Path(name).suffix
+        # A multi-file post is a folder, named as its single download's zip.
+        stem, suffix = Path(name).stem, "" if grouped else Path(name).suffix
+        name = f"{stem}{suffix}"
         copy = 1
         while name.casefold() in used:
             copy += 1
             name = f"{stem} ({copy}){suffix}"
         used.add(name.casefold())
-        files.append((path, name))
+        if grouped:
+            files.extend((sibling, f"{name}/{sibling.name}") for sibling in siblings)
+        else:
+            files.append((path, name))
     return files
