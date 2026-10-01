@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import FailureNote from "@/components/task/FailureNote.vue";
 import ItemActions from "@/components/task/ItemActions.vue";
 
 import { useDashboard } from "@/composables/useDashboard";
@@ -89,12 +90,7 @@ const { setTaskSource, taskActions } = useDashboard();
       <span v-else-if="props.task.source_url" class="truncate font-mono text-xs text-white/60 in-[.light-mode]:text-black/60">
         {{ props.task.source_url }}
       </span>
-      <div
-        v-if="props.task.status === 'failed' && props.task.error"
-        class="mt-1 wrap-break-word whitespace-pre-line text-sm"
-      >
-        {{ props.task.error }}
-      </div>
+      <FailureNote v-if="props.task.status === 'failed' && props.task.error" class="mt-1" :text="props.task.error" :subject="props.task.resolved_filename || props.task.source_url" />
     </CardContent>
   </Card>
 </template>

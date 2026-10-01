@@ -3,6 +3,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
 import { IconImage } from "@/components/ui/icon-image";
 import { TableCell, TableRow } from "@/components/ui/table";
+import FailureNote from "@/components/task/FailureNote.vue";
 import ItemActions from "@/components/task/ItemActions.vue";
 
 import { useDashboard } from "@/composables/useDashboard";
@@ -54,6 +55,7 @@ const { setTaskSource, taskActions } = useDashboard();
       <div :class="['text-white in-[.light-mode]:text-black', props.expanded ? 'break-all whitespace-normal' : 'truncate']" :title="taskTitle(props.task)">
         {{ taskTitle(props.task) }}
       </div>
+      <FailureNote v-if="props.task.status === 'failed' && props.task.error" class="mt-0.5" :text="props.task.error" :subject="props.task.resolved_filename || props.task.source_url" dense />
     </TableCell>
     <TableCell class="w-px max-w-40 md:max-w-60">
       <div class="truncate text-white in-[.light-mode]:text-black" :title="props.task.creator">

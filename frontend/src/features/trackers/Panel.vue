@@ -4,6 +4,7 @@ import { useElementSize } from "@vueuse/core";
 import { Link as IconLink } from "@lucide/vue";
 import IconSeen from "~icons/material-symbols/visibility";
 
+import FailureNote from "@/components/task/FailureNote.vue";
 import ItemActions from "@/components/task/ItemActions.vue";
 import SelectionBar from "@/components/task/SelectionBar.vue";
 import TaskCollection from "@/components/task/TaskCollection.vue";
@@ -224,8 +225,9 @@ async function confirmDelete(): Promise<void> {
           v-for="tracker in menuTrackers"
           :key="tracker.id"
           v-bind="trackerSelection.itemProps(tracker, () => showTracker(tracker.id))"
-          class="glass-rise cursor-pointer"
+          class="glass-rise task-progress-surface cursor-pointer"
           :data-state="trackerSelection.isSelected(tracker) ? 'selected' : undefined"
+          :data-task-state="tracker.last_error ? 'failed' : undefined"
         >
           <TableCell class="w-px" @click.stop>
             <Checkbox
@@ -242,9 +244,7 @@ async function confirmDelete(): Promise<void> {
                 {{ trackerStatus(tracker) }}
               </span>
             </div>
-            <div v-if="tracker.last_error" class="truncate text-xs text-destructive" :title="tracker.last_error">
-              {{ tracker.last_error }}
-            </div>
+            <FailureNote v-if="tracker.last_error" class="mt-0.5" :text="tracker.last_error" :subject="tracker.name" dense />
           </TableCell>
           <TableCell class="w-2/3 max-w-0 min-w-72">
             <div class="flex items-center gap-2">
@@ -280,11 +280,12 @@ async function confirmDelete(): Promise<void> {
         v-for="tracker in menuTrackers"
         :key="tracker.id"
         v-bind="trackerSelection.itemProps(tracker, () => showTracker(tracker.id))"
-        class="glass-rise glass-hoverable hover:-translate-y-0.5 cursor-pointer gap-2 py-3"
+        class="glass-rise glass-hoverable hover:-translate-y-0.5 task-progress-surface task-progress-card cursor-pointer gap-2 py-3"
         role="button"
         tabindex="0"
         :aria-label="`${trackerSelection.count ? 'Select' : 'Open'} ${tracker.name}`"
         :data-state="trackerSelection.isSelected(tracker) ? 'selected' : undefined"
+        :data-task-state="tracker.last_error ? 'failed' : undefined"
       >
         <CardHeader class="items-center px-4">
           <div class="flex items-center gap-2.5">
@@ -336,9 +337,7 @@ async function confirmDelete(): Promise<void> {
               {{ stat.value }}
             </span>
           </CardDescription>
-          <div v-if="tracker.last_error" class="mt-1 wrap-break-word whitespace-pre-line text-sm text-destructive">
-            {{ tracker.last_error }}
-          </div>
+          <FailureNote v-if="tracker.last_error" class="mt-1" :text="tracker.last_error" :subject="tracker.name" />
         </CardContent>
       </Card>
     </div>
@@ -386,9 +385,7 @@ async function confirmDelete(): Promise<void> {
               <strong>{{ stat.value }}</strong>
             </span>
           </div>
-          <div v-if="openTracker?.last_error" class="wrap-break-word whitespace-pre-line text-sm text-destructive">
-            {{ openTracker.last_error }}
-          </div>
+          <FailureNote v-if="openTracker?.last_error" :text="openTracker.last_error" :subject="openTracker.name" />
         </header>
 
         <div ref="itemsScroll" class="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 flex flex-col gap-6">
