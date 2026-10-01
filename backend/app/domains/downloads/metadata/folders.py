@@ -14,20 +14,20 @@ from typing import Any
 
 from backend.app.core.paths import path_key as _path_key
 from backend.app.domains.downloads.constants import CREATOR_FIELDS, TEMPLATE_RE, quality_label
-from backend.app.domains.downloads.files import find_numbered_media_siblings, prune_empty_parents
-from backend.app.domains.downloads.naming import sanitize_path_literal
-from backend.app.domains.downloads.workers.completion_values import (
-    _clean_creator_candidate,
-    _display_creator_candidate,
+from backend.app.domains.downloads.files import (
+    find_numbered_media_siblings,
+    prune_empty_parents,
+    unique_sibling_path,
 )
-from backend.app.domains.downloads.workers.pathing import _unique_sibling_path
+from backend.app.domains.downloads.metadata.values import (
+    clean_creator_candidate,
+    display_creator_candidate,
+)
+from backend.app.domains.downloads.naming import sanitize_path_literal
+from backend.app.domains.downloads.templates import template_row_fields
 
 _PATH_SEPARATOR_RE = re.compile(r"[\\/]+")
 _NON_SEGMENTS = {".", ".."}
-
-
-def _template(template_settings: dict[str, str] | None, key: str) -> str:
-    return str((template_settings or {}).get(key) or "").strip()
 
 
 class _FolderRenderer:
@@ -43,8 +43,8 @@ class _FolderRenderer:
         quality: dict[str, str] | None = None,
         title: str = "",
     ) -> None:
-        self._creator = _display_creator_candidate(creator, cleaning)
-        self._nickname = _display_creator_candidate(nickname, cleaning) or self._creator
+        self._creator = display_creator_candidate(creator, cleaning)
+        self._nickname = display_creator_candidate(nickname, cleaning) or self._creator
         self._media_id = str(media_id or "").strip()
         self._extra_tokens = extra_tokens or {}
         self._cleaning = cleaning
@@ -56,7 +56,7 @@ class _FolderRenderer:
         override = self._extra_tokens.get(field)
         if override is not None and str(override).strip():
             if field in CREATOR_FIELDS:
-                return _display_creator_candidate(str(override), self._cleaning)
+                return display_creator_candidate(str(override), self._cleaning)
             return str(override)
         if field == "nickname":
             return self._nickname
@@ -81,17 +81,18 @@ class _FolderRenderer:
         return [segment for segment in segments if segment and segment not in _NON_SEGMENTS]
 
     def has_folder(self, template_settings: dict[str, str] | None) -> bool:
-        return bool(self.segments(_template(template_settings, "folder_template")))
+        return bool(self.segments(template_row_fields(template_settings)["folder_template"]))
 
     def folder(self, base: Path, template_settings: dict[str, str] | None, grouped: bool) -> Path:
         """``base`` plus the rendered folder, and the subfolder for a multi-file post."""
-        segments = self.segments(_template(template_settings, "folder_template"))
+        templates = template_row_fields(template_settings)
+        segments = self.segments(templates["folder_template"])
         if grouped:
-            segments += self.segments(_template(template_settings, "subfolder_template"))
+            segments += self.segments(templates["subfolder_template"])
         return base.joinpath(*segments)
 
 
-def _render_template_folder(
+def render_template_folder(
     output_root: Path,
     template_settings: dict[str, str] | None,
     creator: str,
@@ -121,10 +122,10 @@ def _placeholder_creator_escape(selected_path: Path, output_root: Path) -> Path 
     parent = selected_path.parent
     if _path_key(parent.parent) != _path_key(output_root):
         return None
-    return None if _clean_creator_candidate(parent.name) else output_root
+    return None if clean_creator_candidate(parent.name) else output_root
 
 
-def _move_group_to_template_folder(
+def move_group_to_template_folder(
     selected_path: Path,
     output_root: Path,
     template_settings: dict[str, str] | None,
@@ -159,7 +160,7 @@ def _move_group_to_template_folder(
     selected = selected_path
     selected_key = _path_key(selected_path)
     for index, path in enumerate(paths):
-        target = _unique_sibling_path(target_dir / path.name)
+        target = unique_sibling_path(target_dir / path.name)
         if _path_key(path) == _path_key(target):
             moved = path
         else:

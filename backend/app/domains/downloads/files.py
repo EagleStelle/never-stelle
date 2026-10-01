@@ -79,9 +79,32 @@ def find_newest_media_file(root: Path, started_at: float) -> Path | None:
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
-def _numbered_suffix_value(stem: str) -> int:
+def numbered_suffix_value(stem: str) -> int:
     match = re.search(r"_(\d+)$", str(stem or ""))
     return int(match.group(1)) if match else 0
+
+
+def unique_sibling_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    for index in range(1, 1000):
+        candidate = path.with_name(f"{path.stem} ({index}){path.suffix}")
+        if not candidate.exists():
+            return candidate
+    return path
+
+
+def rename_path(path: Path, target_name: str) -> Path:
+    if not target_name or target_name == path.name:
+        return path
+    target = unique_sibling_path(path.with_name(target_name))
+    if target == path:
+        return path
+    try:
+        path.replace(target)
+        return target
+    except OSError:
+        return path
 
 
 def find_numbered_media_siblings(path: Path) -> list[Path]:
@@ -96,7 +119,7 @@ def find_numbered_media_siblings(path: Path) -> list[Path]:
         ]
     except OSError:
         return []
-    return sorted(candidates, key=lambda candidate: (_numbered_suffix_value(candidate.stem), candidate.name))
+    return sorted(candidates, key=lambda candidate: (numbered_suffix_value(candidate.stem), candidate.name))
 
 
 def media_companions(path: Path, entries: list[os.DirEntry[str]] | None = None) -> list[Path]:

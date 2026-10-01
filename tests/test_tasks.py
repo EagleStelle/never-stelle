@@ -15,6 +15,10 @@ import backend.app.db.repositories as repositories
 import backend.app.domains.downloads.files as files_module
 import backend.app.domains.downloads.gallerydl as gallerydl_module
 import backend.app.domains.downloads.history as history_module
+import backend.app.domains.downloads.metadata.creators as creators_module
+import backend.app.domains.downloads.metadata.folders as folders_module
+import backend.app.domains.downloads.metadata.pipeline as pipeline_module
+import backend.app.domains.downloads.metadata.values as values_module
 import backend.app.domains.downloads.operations as operations_module
 import backend.app.domains.downloads.postprocessing as postprocessing_module
 import backend.app.domains.downloads.probe as probe_module
@@ -23,11 +27,10 @@ import backend.app.domains.downloads.scan as scan_module
 import backend.app.domains.downloads.serializers as serializers_module
 import backend.app.domains.downloads.slideshow as slideshow_module
 import backend.app.domains.downloads.urls as urls_module
-import backend.app.domains.downloads.workers.completion as completion_module
-import backend.app.domains.downloads.workers.completion_finalization as completion_finalization_module
-import backend.app.domains.downloads.workers.completion_learning as completion_learning_module
-import backend.app.domains.downloads.workers.completion_metadata as completion_metadata_module
-import backend.app.domains.downloads.workers.completion_outputs as completion_outputs_module
+import backend.app.domains.downloads.workers.completion.finalize as finalize_module
+import backend.app.domains.downloads.workers.completion.learning as learning_module
+import backend.app.domains.downloads.workers.completion.outputs as outputs_module
+import backend.app.domains.downloads.workers.completion.sidecars as sidecars_module
 import backend.app.domains.downloads.workers.enrichment as enrichment_module
 import backend.app.domains.downloads.workers.execution as worker_module
 import backend.app.domains.downloads.workers.runner as runner_module
@@ -73,7 +76,7 @@ from backend.app.domains.downloads.naming import (
     strip_placeholder_title,
 )
 from backend.app.domains.downloads.serializers import history_to_api, task_to_api
-from backend.app.domains.downloads.workers.completion_finalization import FinalizedCompletionOutput
+from backend.app.domains.downloads.workers.completion.finalize import FinalizedCompletionOutput
 from backend.app.domains.downloads.ytdlp import (
     YTDLP_NICKNAME_FIELD,
     YTDLP_USERNAME_FIELD,
@@ -852,14 +855,14 @@ def test_gallerydl_video_payload_gains_ytdlp_artwork_and_captions(
     finalized = _finalized_for(tmp_path / "Creator - Title [abc].mp4")
     probed: dict = {}
 
-    payload = completion_metadata_module._with_ytdlp_media_fields(
+    payload = sidecars_module._with_ytdlp_media_fields(
         dict(_GALLERYDL_VIDEO_PAYLOAD),
         finalized,
         normalize_post_processing({"metadata": "embed", "thumbnail": "embed", "subtitles": "embed"}),
         probed,
         single_item=False,
     )
-    completion_metadata_module._with_ytdlp_media_fields(
+    sidecars_module._with_ytdlp_media_fields(
         dict(_GALLERYDL_VIDEO_PAYLOAD),
         finalized,
         normalize_post_processing({"thumbnail": "embed"}),
@@ -889,7 +892,7 @@ def test_ytdlp_media_fields_are_left_out_when_they_cannot_apply(
 ):
     _probe_media_info_calls(monkeypatch, {**_YTDLP_VIDEO_INFO, "id": info_id})
 
-    result = completion_metadata_module._with_ytdlp_media_fields(
+    result = sidecars_module._with_ytdlp_media_fields(
         dict(payload),
         _finalized_for(tmp_path / name),
         normalize_post_processing(processing),
@@ -2024,7 +2027,7 @@ def test_clean_template_filename_handle_at_cleanup_can_be_disabled():
 def test_filename_creator_ignores_nickname_token_for_handle():
     # A {{nickname}} filename must NOT feed the {{username}} handle with the display name.
     path = Path("/media/instagram/nasa/NASA - Cool Rocket [ABC123].jpg")
-    creator = completion_module._filename_creator(
+    creator = creators_module._filename_creator(
         path,
         "{{nickname}} - {{title}} [{{id}}]",
         {},
@@ -2036,7 +2039,7 @@ def test_filename_creator_ignores_nickname_token_for_handle():
 
 def test_username_folder_not_clobbered_by_nickname_filename():
     # No handle known -> {{username}} folder unresolved -> no move, keeping the engine's handle folder.
-    folder = completion_module._render_template_folder(
+    folder = folders_module.render_template_folder(
         Path("/media/instagram"),
         {"folder_template": "{{username}}"},
         creator="",
@@ -2047,7 +2050,7 @@ def test_username_folder_not_clobbered_by_nickname_filename():
 
 
 def test_render_template_folder_renders_nickname_distinct_from_username():
-    folder = completion_module._render_template_folder(
+    folder = folders_module.render_template_folder(
         Path("/media/instagram"),
         {"folder_template": "{{nickname}}"},
         creator="nasa",
@@ -2058,7 +2061,7 @@ def test_render_template_folder_renders_nickname_distinct_from_username():
 
 
 def test_render_template_folder_renders_selected_quality():
-    folder = completion_module._render_template_folder(
+    folder = folders_module.render_template_folder(
         Path("/media/rule34video"),
         {"folder_template": "{{quality}}/{{username}}"},
         creator="artist",
@@ -2073,9 +2076,9 @@ def test_render_template_folder_handle_at_cleanup_can_be_disabled():
     root = Path("/media/tiktok")
     template = {"folder_template": "{{username}}"}
 
-    assert completion_module._render_template_folder(root, template, "@alice", "abc123") == root / "alice"
+    assert folders_module.render_template_folder(root, template, "@alice", "abc123") == root / "alice"
     assert (
-        completion_module._render_template_folder(
+        folders_module.render_template_folder(
             root,
             template,
             "@alice",
@@ -2090,11 +2093,11 @@ def test_filename_nickname_recovers_display_name_from_gallerydl_folder():
     # gallery-dl ships no metadata; the display name only survives in the folder it wrote.
     root = Path("/media/instagram")
     path = root / "NASA" / "nasa - Cool Rocket [ABC123].jpg"
-    nickname = completion_module._filename_nickname(
+    nickname = creators_module._filename_nickname(
         path,
         "{{username}} - {{title}} [{{id}}]",
         "{{nickname}}",
-        completion_module._template_folder_text(root, path),
+        creators_module._template_folder_text(root, path),
         {},
     )
     assert nickname == "NASA"
@@ -2110,11 +2113,11 @@ def test_filename_nickname_skips_username_value_and_uses_display_metadata():
         "uploader_url": "https://www.tiktok.com/@fakeacc.com",
     }
 
-    nickname = completion_module._filename_nickname(
+    nickname = creators_module._filename_nickname(
         path,
         "{{nickname}} - {{title}} [{{id}}]",
         "{{username}}",
-        completion_module._template_folder_text(root, path),
+        creators_module._template_folder_text(root, path),
         metadata,
         "fakeacc.com",
     )
@@ -2139,22 +2142,22 @@ def test_username_folder_and_nickname_filename_stay_distinct_for_handle_metadata
         "uploader_url": "https://www.tiktok.com/@fakeacc.com",
     }
 
-    creator = completion_module._filename_creator(
+    creator = creators_module._filename_creator(
         raw_path,
         template_settings["filename_template"],
         metadata,
         source_url,
         media_id,
     )
-    nickname = completion_module._filename_nickname(
+    nickname = creators_module._filename_nickname(
         raw_path,
         template_settings["filename_template"],
         template_settings["folder_template"],
-        completion_module._template_folder_text(tmp_path, raw_path),
+        creators_module._template_folder_text(tmp_path, raw_path),
         metadata,
         creator,
     )
-    final_path, display_filename = completion_module._clean_resolved_filename(
+    final_path, display_filename = outputs_module._clean_resolved_filename(
         source_url,
         raw_path,
         template_settings,
@@ -2164,7 +2167,7 @@ def test_username_folder_and_nickname_filename_stay_distinct_for_handle_metadata
         nickname_hint=nickname,
         title_hint="Clip",
     )
-    final_path = completion_module._move_group_to_template_folder(
+    final_path = folders_module.move_group_to_template_folder(
         final_path,
         tmp_path,
         template_settings,
@@ -2224,7 +2227,7 @@ def test_metadata_creator_prefers_resolved_handle_over_display_name(monkeypatch)
         "uploader_id": "100000000000001",
         "original_url": "https://www.facebook.com/reel/800000000000001",
     }
-    assert completion_module._metadata_creator(metadata, "800000000000001") == "demopage"
+    assert creators_module._metadata_creator(metadata, "800000000000001") == "demopage"
 
 
 def test_metadata_creator_skips_mobile_host_wall(monkeypatch):
@@ -2240,7 +2243,7 @@ def test_metadata_creator_skips_mobile_host_wall(monkeypatch):
         "webpage_url": "https://m.facebook.com/watch/?v=1000000000000001",
         "original_url": "https://www.facebook.com/reel/1000000000000001",
     }
-    assert completion_module._metadata_creator(metadata, "1000000000000001") == "demopage"
+    assert creators_module._metadata_creator(metadata, "1000000000000001") == "demopage"
 
 
 def test_metadata_creator_prefers_at_handle_metadata():
@@ -2253,7 +2256,7 @@ def test_metadata_creator_prefers_at_handle_metadata():
         "webpage_url": "https://video.example/watch?v=YtDemoVid05",
     }
 
-    assert completion_module._metadata_creator(metadata, "YtDemoVid05") == "mock"
+    assert creators_module._metadata_creator(metadata, "YtDemoVid05") == "mock"
 
 
 def test_metadata_creator_rejects_opaque_id_metadata():
@@ -2264,7 +2267,7 @@ def test_metadata_creator_rejects_opaque_id_metadata():
         "webpage_url": "https://video.example/watch?v=YtDemoVid05",
     }
 
-    assert completion_module._metadata_creator(metadata, "YtDemoVid05") == ""
+    assert creators_module._metadata_creator(metadata, "YtDemoVid05") == ""
 
 
 def test_filename_creator_uses_handle_metadata_without_at():
@@ -2277,7 +2280,7 @@ def test_filename_creator_uses_handle_metadata_without_at():
         "webpage_url": "https://video.example/watch?v=YtDemoVid05",
     }
 
-    creator = completion_module._filename_creator(
+    creator = creators_module._filename_creator(
         Path("@mock - Glass Garden [YtDemoVid05].mp4"),
         "{{username}} - {{title}} [{{id}}]",
         metadata,
@@ -2289,7 +2292,7 @@ def test_filename_creator_uses_handle_metadata_without_at():
 
 
 def test_filename_creator_strips_at_from_filename_username():
-    creator = completion_module._filename_creator(
+    creator = creators_module._filename_creator(
         Path("@mock - Glass Garden [YtDemoVid05].mp4"),
         "{{username}} - {{title}} [{{id}}]",
         {},
@@ -2298,16 +2301,6 @@ def test_filename_creator_strips_at_from_filename_username():
     )
 
     assert creator == "mock"
-
-
-def test_role_creator_uses_scraped_token_role():
-    creator = completion_module._role_creator(
-        {"username": "Trace Artist"},
-        {"rule34video": {"artist": "username"}},
-        "rule34video",
-    )
-
-    assert creator == "Trace Artist"
 
 
 def test_clean_filename_title_drops_empty_title_sentinels():
@@ -2435,7 +2428,7 @@ def test_clean_resolved_filename_renames_real_file_using_settings_template(tmp_p
     media_file = tmp_path / "DemoVT - 2000000000000000001 - Video by DemoVT.mp4"
     media_file.write_bytes(b"video")
 
-    final_path, display_filename = completion_module._clean_resolved_filename(
+    final_path, display_filename = outputs_module._clean_resolved_filename(
         source_url,
         media_file,
         {"folder_template": "", "filename_template": "{{username}} - {{id}} - {{title}}"},
@@ -2454,7 +2447,7 @@ def test_clean_resolved_filename_rerenders_selected_quality(tmp_path: Path):
     media_file = tmp_path / "source - Video by Artist [4483553].mp4"
     media_file.write_bytes(b"video")
 
-    final_path, display_filename = completion_module._clean_resolved_filename(
+    final_path, display_filename = outputs_module._clean_resolved_filename(
         source_url,
         media_file,
         {"folder_template": "", "filename_template": "{{quality}} - {{title}} [{{id}}]"},
@@ -2478,12 +2471,12 @@ def test_finalization_runs_scraper_fields_templates_and_naming_in_order(
     raw = tmp_path / "Extractor title [abc123].mp4"
     raw.write_bytes(b"video")
     monkeypatch.setattr(
-        completion_finalization_module,
+        pipeline_module,
         "get_effective_title_cleaning",
         lambda source_url: {"strip_hashtags": True},
     )
 
-    finalized = completion_module._finalize_completed_output(
+    finalized = finalize_module._finalize_completed_output(
         source_url="https://example.test/watch/abc123",
         source_key="example",
         output_root=tmp_path,
@@ -2493,8 +2486,7 @@ def test_finalization_runs_scraper_fields_templates_and_naming_in_order(
             "folder_template": "{{title}}",
             "filename_template": "{{title}} [{{id}}]",
         },
-        extra_tokens={"page_title": "Scraped title #ignored"},
-        token_roles={"example": {"page_title": "title"}},
+        extra_tokens={"title": "Scraped title #ignored"},
         cache_dropper=None,
     )
 
@@ -2513,12 +2505,12 @@ def test_finalized_title_keeps_the_characters_only_the_filename_replaces(
     raw = tmp_path / "Extractor title [abc123].mp4"
     raw.write_bytes(b"video")
     monkeypatch.setattr(
-        completion_finalization_module,
+        pipeline_module,
         "get_effective_title_cleaning",
         lambda source_url: {"charset": "remove", "case": "capitalized"},
     )
 
-    finalized = completion_module._finalize_completed_output(
+    finalized = finalize_module._finalize_completed_output(
         source_url="https://example.test/watch/abc123",
         source_key="example",
         output_root=tmp_path,
@@ -2536,7 +2528,7 @@ def test_scraped_title_and_creator_reach_metadata_unreplaced(tmp_path: Path):
     raw = tmp_path / "Extractor title [abc123].mp4"
     raw.write_bytes(b"video")
 
-    finalized = completion_module._finalize_completed_output(
+    finalized = finalize_module._finalize_completed_output(
         source_url="https://example.test/watch/abc123",
         source_key="example",
         output_root=tmp_path,
@@ -2553,8 +2545,8 @@ def test_scraped_title_and_creator_reach_metadata_unreplaced(tmp_path: Path):
 
 
 def test_configured_title_fields_are_authoritative():
-    assert completion_module._metadata_title(
-        completion_module._extractor_metadata_fields(
+    assert values_module.metadata_title(
+        sidecars_module._extractor_metadata_fields(
             {"headline": "Configured headline", "title": "Extractor title"}
         ),
         ["headline", "title"],
@@ -2562,11 +2554,11 @@ def test_configured_title_fields_are_authoritative():
 
 
 def test_configured_title_fields_do_not_fall_through_to_extractor_title():
-    assert completion_module._metadata_title(
+    assert values_module.metadata_title(
         {"description": "Configured caption", "title": "20"},
         ["description"],
     ) == "Configured caption"
-    assert completion_module._metadata_title(
+    assert values_module.metadata_title(
         {"description": "", "title": "20"},
         ["description"],
     ) == ""
@@ -2578,7 +2570,7 @@ def test_coerce_audio_output_extension_prefers_postprocessed_target(tmp_path: Pa
     final.write_bytes(b"opus")
     group_paths = [raw]
 
-    result = completion_module._coerce_audio_output_extension(
+    result = outputs_module._coerce_audio_output_extension(
         raw,
         group_paths,
         {"mode": "audio", "audio_format": "opus"},
@@ -2592,13 +2584,13 @@ def test_coerce_audio_output_extension_renames_ytdlp_aac_m4a(tmp_path: Path, mon
     def fail(*args):
         raise AssertionError("already the target container")
 
-    monkeypatch.setattr(completion_outputs_module, "convert_audio_output", fail)
+    monkeypatch.setattr(outputs_module, "convert_audio_output", fail)
     # yt-dlp writes ADTS AAC under a `.m4a` name.
     raw = tmp_path / "clip.m4a"
     raw.write_bytes(b"\xff\xf1" + bytes(16))
     group_paths = [raw]
 
-    result = completion_module._coerce_audio_output_extension(
+    result = outputs_module._coerce_audio_output_extension(
         raw,
         group_paths,
         {"mode": "audio", "audio_format": "aac"},
@@ -2614,12 +2606,12 @@ def test_coerce_audio_output_extension_renames_ytdlp_aac_m4a(tmp_path: Path, mon
 def test_coerce_audio_output_extension_keeps_m4a_when_remux_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setattr(completion_outputs_module, "convert_audio_output", lambda *args: False)
+    monkeypatch.setattr(outputs_module, "convert_audio_output", lambda *args: False)
     raw = tmp_path / "clip.m4a"
     raw.write_bytes(bytes(4) + b"ftypM4A " + bytes(8))
     group_paths = [raw]
 
-    result = completion_module._coerce_audio_output_extension(
+    result = outputs_module._coerce_audio_output_extension(
         raw,
         group_paths,
         {"mode": "audio", "audio_format": "aac"},
@@ -2636,13 +2628,13 @@ def test_coerce_audio_output_extension_renames_relabeled_gallerydl_output(
     def fail(*args):
         raise AssertionError("already the target container")
 
-    monkeypatch.setattr(completion_outputs_module, "convert_audio_output", fail)
+    monkeypatch.setattr(outputs_module, "convert_audio_output", fail)
     # gallery-dl finalizes yt-dlp's converted Ogg Opus under the source extension.
     raw = tmp_path / "clip.webm"
     raw.write_bytes(b"OggS" + bytes(16))
     group_paths = [raw]
 
-    result = completion_module._coerce_audio_output_extension(
+    result = outputs_module._coerce_audio_output_extension(
         raw,
         group_paths,
         {"mode": "audio", "audio_format": "opus"},
@@ -2663,12 +2655,12 @@ def test_coerce_audio_output_extension_converts_unconverted_output(
         target.write_bytes(b"RIFF____WAVE")
         return True
 
-    monkeypatch.setattr(completion_outputs_module, "convert_audio_output", convert)
+    monkeypatch.setattr(outputs_module, "convert_audio_output", convert)
     raw = tmp_path / "clip.webm"
     raw.write_bytes(b"\x1a\x45\xdf\xa3" + bytes(16))
     group_paths = [raw]
 
-    result = completion_module._coerce_audio_output_extension(
+    result = outputs_module._coerce_audio_output_extension(
         raw,
         group_paths,
         {"mode": "audio", "audio_format": "wav"},
@@ -2686,7 +2678,7 @@ def test_clean_resolved_filename_rebuilds_sparse_gallerydl_name_from_title_hint(
     media_file = tmp_path / "[abc123]_1.jpg"
     media_file.write_bytes(b"image")
 
-    final_path, display_filename = completion_module._clean_resolved_filename(
+    final_path, display_filename = outputs_module._clean_resolved_filename(
         source_url,
         media_file,
         {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
@@ -2709,7 +2701,7 @@ def test_clean_resolved_filename_keeps_the_number_of_a_file_beside_its_post_sibl
     media_file.write_bytes(b"image")
     (tmp_path / "[abc123]_2.jpg").write_bytes(b"image")
 
-    final_path, display_filename = completion_module._clean_resolved_filename(
+    final_path, display_filename = outputs_module._clean_resolved_filename(
         "https://example.com/alice/post/abc123",
         media_file,
         {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
@@ -2729,7 +2721,7 @@ def test_clean_resolved_filename_title_only_template_falls_back_to_media_id(tmp_
     media_file = tmp_path / "Video by DemoVT.mp4"
     media_file.write_bytes(b"video")
 
-    final_path, display_filename = completion_module._clean_resolved_filename(
+    final_path, display_filename = outputs_module._clean_resolved_filename(
         source_url,
         media_file,
         {"folder_template": "", "filename_template": "{{title}}"},
@@ -2748,7 +2740,7 @@ def test_clean_resolved_filename_strips_at_from_username(tmp_path: Path):
     media_file = tmp_path / "@mock - Glass Garden [YtDemoVid05].mp4"
     media_file.write_bytes(b"video")
 
-    final_path, display_filename = completion_module._clean_resolved_filename(
+    final_path, display_filename = outputs_module._clean_resolved_filename(
         source_url,
         media_file,
         {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
@@ -2776,7 +2768,7 @@ def test_configured_field_value_honors_opaque_id_in_priority_order():
     }
 
     assert (
-        completion_module._configured_field_value(metadata, ["channel_id", "uploader"])
+        creators_module.configured_field_value(metadata, ["channel_id", "uploader"])
         == "UC-DemoChannel0000000001"
     )
 
@@ -2784,7 +2776,7 @@ def test_configured_field_value_honors_opaque_id_in_priority_order():
 def test_configured_field_value_empty_order_defers_to_heuristics():
     metadata = {"channel_id": "UC-DemoChannel0000000001", "uploader": "Mock"}
 
-    assert completion_module._configured_field_value(metadata, []) == ""
+    assert creators_module.configured_field_value(metadata, []) == ""
 
 
 def test_clean_resolved_filename_keeps_authoritative_creator_over_url_handle(tmp_path: Path):
@@ -2793,7 +2785,7 @@ def test_clean_resolved_filename_keeps_authoritative_creator_over_url_handle(tmp
     media_file = tmp_path / "UC1234567890 - Clip [7100000000000000001].mp4"
     media_file.write_bytes(b"video")
 
-    final_path, display_filename = completion_module._clean_resolved_filename(
+    final_path, display_filename = outputs_module._clean_resolved_filename(
         source_url,
         media_file,
         {"folder_template": "{{username}}", "filename_template": "{{username}} - {{title}} [{{id}}]"},
@@ -2930,7 +2922,7 @@ def test_gallerydl_sparse_single_output_probes_inline_and_repairs_only_an_unansw
         probed.append(url)
         return answer
 
-    monkeypatch.setattr(completion_metadata_module, "_probe_output_metadata", probe)
+    monkeypatch.setattr(sidecars_module, "probe_link_metadata", probe)
     monkeypatch.setattr(worker_module, "learn_formats", lambda samples: False)
     monkeypatch.setattr(worker_module, "_learn_field_roles_from_download", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker_module, "save_history_entry", lambda task_id, task: saved.update({task_id: dict(task)}))
@@ -2967,7 +2959,6 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
         quality={"mode": "merged", "video_quality": "720p"},
         output_root=str(tmp_path),
         extra_tokens={"artist": "creator"},
-        token_roles={"example": {"artist": "username"}},
         post_processing={"metadata": "sidecar"},
         needs_metadata_probe=True,
         needs_field_probe=True,
@@ -2993,7 +2984,6 @@ def test_enqueue_completion_enrichment_persists_minimal_dry_payload(
         "output_root": str(tmp_path),
         "metadata": {"id": "abc123", "username": "creator"},
         "extra_tokens": {"artist": "creator"},
-        "token_roles": {"example": {"artist": "username"}},
         "post_processing": {
             "metadata": "sidecar",
             "subtitles": "off",
@@ -3023,7 +3013,7 @@ def test_complete_sidecar_metadata_skips_completion_enrichment(tmp_path: Path):
     path = tmp_path / "ChannelHandle - Nice clip [abc123].mp4"
     path.write_bytes(b"video")
 
-    needed = completion_metadata_module._metadata_enrichment_needed(
+    needed = sidecars_module._metadata_enrichment_needed(
         [path],
         engine_by_name("gallerydl"),
         {
@@ -3056,7 +3046,7 @@ def _save_example_fields(**roles: list[str]) -> None:
 
 
 def _finalized_creator(tmp_path: Path, raw: Path, metadata: dict[str, str]) -> str:
-    return completion_module._finalize_completed_output(
+    return finalize_module._finalize_completed_output(
         source_url=_FIELDS_URL,
         source_key="example",
         output_root=tmp_path,
@@ -3076,12 +3066,12 @@ def test_probe_fills_the_top_field_the_engine_left_empty(tmp_path: Path, monkeyp
     # The engine carried an id but none of the names above it.
     metadata_by_path = {path_key(raw): {"filepath": str(raw), "id": "abc123", "username": "", "user_id": "1001"}}
     monkeypatch.setattr(
-        completion_metadata_module,
-        "_probe_output_metadata",
+        sidecars_module,
+        "probe_link_metadata",
         lambda url, key: {"uploader": "Alice Example", "uploader_id": "1001", "title": "Probed"},
     )
 
-    completion_metadata_module._probe_output_metadata_inline(
+    sidecars_module._probe_output_metadata_inline(
         [raw], engine_by_name("gallerydl"), metadata_by_path, _FIELDS_URL, "example", _FIELDS_TEMPLATES
     )
 
@@ -3110,7 +3100,7 @@ def test_a_field_outside_the_fields_order_does_not_skip_the_probe(tmp_path: Path
     path = tmp_path / "ChannelHandle - Nice clip [abc123].mp4"
     path.write_bytes(b"video")
 
-    needed = completion_metadata_module._metadata_enrichment_needed(
+    needed = sidecars_module._metadata_enrichment_needed(
         [path],
         engine_by_name("gallerydl"),
         {path_key(path): {"id": "abc123", "channel": "ChannelHandle", "title": "Nice clip"}},
@@ -3135,9 +3125,9 @@ def test_one_probe_names_every_output_of_a_multi_file_task(tmp_path: Path, monke
         probes.append(url)
         return {"uploader": "Alice Example", "title": "Post"}
 
-    monkeypatch.setattr(completion_metadata_module, "_probe_output_metadata", probe)
+    monkeypatch.setattr(sidecars_module, "probe_link_metadata", probe)
 
-    completion_metadata_module._probe_output_metadata_inline(
+    sidecars_module._probe_output_metadata_inline(
         paths, engine_by_name("gallerydl"), metadata_by_path, _FIELDS_URL, "example", _FIELDS_TEMPLATES
     )
 
@@ -3155,10 +3145,8 @@ def test_output_probe_reads_one_link_not_its_characters(monkeypatch: pytest.Monk
         return {url: {"title": "Clip"} for url in urls}
 
     monkeypatch.setattr(probe_module, "probe_metadata", probe_metadata)
-    monkeypatch.setattr(completion_metadata_module, "has_cookies_for_source", lambda key: False)
-    monkeypatch.setattr(completion_metadata_module, "has_cookies_for_url", lambda url: False)
 
-    assert completion_metadata_module._probe_output_metadata(_FIELDS_URL, "example") == {"title": "Clip"}
+    assert probe_module.probe_link_metadata(_FIELDS_URL, "example") == {"title": "Clip"}
     assert calls == [[_FIELDS_URL]]
 
 
@@ -3192,7 +3180,7 @@ def test_enrichment_repairs_sparse_creator_title_and_filename(
     )
     monkeypatch.setattr(
         enrichment_module,
-        "_probe_output_metadata",
+        "probe_link_metadata",
         lambda url, source_key="", **kwargs: {
             "id": media_id,
             "webpage_url": source_url,
@@ -3363,7 +3351,7 @@ def test_gallerydl_distinct_metadata_urls_split_rows_dynamically(tmp_path: Path)
         path_key(second): {"webpage_url": "https://www.example.test/item/asset-b"},
     }
 
-    groups = completion_module._download_groups(
+    groups = outputs_module._download_groups(
         [first, second],
         engine_by_name("gallerydl"),
         "{{username}} - {{title}} [{{id}}]",
@@ -3385,7 +3373,7 @@ def test_gallerydl_source_url_id_groups_distinct_child_metadata_urls(tmp_path: P
         path_key(second): {"webpage_url": "https://www.example.test/item/child-b"},
     }
 
-    groups = completion_module._download_groups(
+    groups = outputs_module._download_groups(
         [first, second],
         engine_by_name("gallerydl"),
         "{{username}} - {{title}} [{{id}}]",
@@ -3404,7 +3392,7 @@ def test_gallerydl_parent_group_keeps_pasted_source_url_for_child_metadata():
     }
 
     assert (
-        completion_module._item_source_url(source_url, "example", "root123", "poster", metadata)
+        pipeline_module._item_source_url(source_url, "example", "root123", "poster", metadata)
         == source_url
     )
 
@@ -3424,14 +3412,14 @@ def test_duplicate_library_cleanup_removes_history_row_for_duplicate_path(
         return ("disk:old-abc123", {"resolved_full_path": path}) if path == str(duplicate) else (None, None)
 
     monkeypatch.setattr(
-        completion_outputs_module,
+        outputs_module,
         "load_history_entry_for_path",
         fake_load_history_entry_for_path,
     )
-    monkeypatch.setattr(completion_outputs_module, "load_history_entries_for_media_id", lambda media_id: [])
-    monkeypatch.setattr(completion_outputs_module, "remove_history_records", removed.extend)
+    monkeypatch.setattr(outputs_module, "load_history_entries_for_media_id", lambda media_id: [])
+    monkeypatch.setattr(outputs_module, "remove_history_records", removed.extend)
 
-    completion_outputs_module._cleanup_duplicate_library_media(tmp_path, "abc123", [keep])
+    outputs_module._cleanup_duplicate_library_media(tmp_path, "abc123", [keep])
 
     assert queried == [str(duplicate)]
     assert removed == ["disk:old-abc123"]
@@ -3451,7 +3439,7 @@ def test_duplicate_library_cleanup_uses_history_index_for_different_folder(
     removed: list[str] = []
 
     monkeypatch.setattr(
-        completion_outputs_module,
+        outputs_module,
         "load_history_entries_for_media_id",
         lambda media_id: [
             (
@@ -3464,13 +3452,13 @@ def test_duplicate_library_cleanup_uses_history_index_for_different_folder(
         ],
     )
     monkeypatch.setattr(
-        completion_outputs_module,
+        outputs_module,
         "load_history_entry_for_path",
         lambda path: (_ for _ in ()).throw(AssertionError("sibling fallback should not be used")),
     )
-    monkeypatch.setattr(completion_outputs_module, "remove_history_records", removed.extend)
+    monkeypatch.setattr(outputs_module, "remove_history_records", removed.extend)
 
-    completion_outputs_module._cleanup_duplicate_library_media(tmp_path, "abc123", [keep])
+    outputs_module._cleanup_duplicate_library_media(tmp_path, "abc123", [keep])
 
     assert removed == ["disk:old-abc123"]
     assert not duplicate.exists()
@@ -3493,7 +3481,7 @@ def test_read_metadata_sidecar_accepts_gallerydl_jsonl(tmp_path: Path):
         encoding="utf-8",
     )
 
-    metadata = completion_metadata_module._read_metadata_sidecar(str(sidecar))
+    metadata = sidecars_module._read_metadata_sidecar(str(sidecar))
 
     row = metadata[path_key(media_file)]
     assert row["id"] == "child-a"
@@ -3507,7 +3495,7 @@ def test_after_move_metadata_path_wins_over_scratch_progress_paths(tmp_path: Pat
     final.write_bytes(b"video")
     missing_scratch_intermediate = tmp_path / "scratch" / "raw.f399.webm"
 
-    paths = completion_metadata_module._metadata_output_paths(
+    paths = sidecars_module._metadata_output_paths(
         {
             path_key(final): {
                 "filepath": str(final),
@@ -4353,24 +4341,6 @@ def test_worker_hands_an_engine_the_item_in_a_learned_format_it_takes(monkeypatc
     assert worker_module._engine_link(Engine(), photo) == photo
 
 
-def test_worker_resolved_task_creator_uses_engine_sidecar_not_url_creator(tmp_path: Path):
-    sidecar = tmp_path / "creator.txt"
-    sidecar.write_text("Some Display Name\n", encoding="utf-8")
-
-    class FakeEngine:
-        def read_creator(self, sidecar_path: str, source_url: str) -> str:
-            return "Some Display Name"
-
-    creator = completion_module._resolved_task_creator(
-        FakeEngine(),
-        str(sidecar),
-        "https://www.tiktok.com/@fakeacc.com/video/7100000000000000002",
-        "fakeacc.com - Clip [7100000000000000002].mp4",
-    )
-
-    assert creator == "Some Display Name"
-
-
 def test_scan_media_library_imports_history_from_filename(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     media_root = tmp_path / "media"
     artist_dir = media_root / "Trace Artist"
@@ -4588,7 +4558,7 @@ def test_reconstruct_url_candidates_returns_every_learned_route():
 def test_format_sample_reads_the_id_from_the_filename():
     url = "https://example.test/@alice/photo/7100000000000000002"
 
-    assert completion_learning_module._format_sample(url, "alice - [7100000000000000002].jpg") == (
+    assert learning_module._format_sample(url, "alice - [7100000000000000002].jpg") == (
         url,
         "7100000000000000002",
         None,
@@ -5895,6 +5865,41 @@ def test_history_preserves_completed_engine(monkeypatch: pytest.MonkeyPatch):
     assert api_task["quality"]["audio_format"] == "opus"
 
 
+@pytest.mark.parametrize(
+    ("folder_template", "folder", "resolved"),
+    [("{{username}} {{nickname}}", "handle Display", {"nickname": "Display"}), ("{{username}}", "handle", {})],
+)
+def test_a_download_records_the_tokens_it_was_filed_by(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, folder_template: str, folder: str, resolved: dict
+):
+    use_temp_db(tmp_path, monkeypatch)
+    _save_example_fields(username=["uploader_id"], nickname=["uploader"])
+    raw = tmp_path / "Clip [abc123].mp4"
+    raw.write_bytes(b"video")
+    saved: dict[str, dict] = {}
+    monkeypatch.setattr(
+        history_module,
+        "save_history_entry_row",
+        lambda task_id, payload: saved.update({task_id: payload}),
+    )
+
+    finalized = finalize_module._finalize_completed_output(
+        source_url=_FIELDS_URL,
+        source_key="example",
+        output_root=tmp_path,
+        raw_path=raw,
+        metadata={"uploader_id": "handle", "uploader": "Display", "title": "Clip"},
+        media_id="abc123",
+        template_settings={"folder_template": folder_template, "filename_template": "{{title}} [{{id}}]"},
+        cache_dropper=None,
+    )
+    history_module.save_history_entry("gallerydl:abc123", finalized.history_fields())
+
+    assert finalized.final_path == tmp_path / folder / "Clip [abc123].mp4"
+    row = saved["gallerydl:abc123"]
+    assert (row["creator"], row["title"], row["resolved_tokens"]) == ("handle", "Clip", resolved)
+
+
 def test_history_to_api_does_not_touch_filesystem(monkeypatch: pytest.MonkeyPatch):
     def fail_recovery(*args, **kwargs):
         raise AssertionError("History list serialization should not stat or recover files.")
@@ -6300,7 +6305,7 @@ def test_a_download_filed_under_a_placeholder_creator_moves_to_the_root(tmp_path
     path = stranded / "Clip [abc123].mp4"
     path.write_bytes(b"video")
 
-    final_path = completion_module._move_group_to_template_folder(
+    final_path = folders_module.move_group_to_template_folder(
         path,
         tmp_path,
         {"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"},
@@ -6319,7 +6324,7 @@ def test_a_real_creator_folder_is_left_alone(tmp_path: Path):
     path = kept / "Clip [abc123].mp4"
     path.write_bytes(b"video")
 
-    final_path = completion_module._move_group_to_template_folder(
+    final_path = folders_module.move_group_to_template_folder(
         path,
         tmp_path,
         {"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"},
@@ -6352,7 +6357,7 @@ def _downloaded_group(tmp_path: Path, names: list[str]) -> list[Path]:
 def test_a_multi_file_post_moves_into_its_own_subfolder(tmp_path: Path):
     paths = _downloaded_group(tmp_path, ["Cap [abc123]_1.jpg", "Cap [abc123]_2.jpg"])
 
-    final_path = completion_module._move_group_to_template_folder(
+    final_path = folders_module.move_group_to_template_folder(
         paths[0],
         tmp_path,
         _SUBFOLDER_TEMPLATES,
@@ -6372,7 +6377,7 @@ def test_a_multi_file_post_moves_into_its_own_subfolder(tmp_path: Path):
 def test_a_single_file_download_skips_the_subfolder(tmp_path: Path):
     paths = _downloaded_group(tmp_path, ["Clip [abc123].mp4"])
 
-    final_path = completion_module._move_group_to_template_folder(
+    final_path = folders_module.move_group_to_template_folder(
         paths[0],
         tmp_path,
         _SUBFOLDER_TEMPLATES,
@@ -6387,7 +6392,7 @@ def test_a_single_file_download_skips_the_subfolder(tmp_path: Path):
 def test_an_empty_subfolder_template_keeps_a_multi_file_post_flat(tmp_path: Path):
     paths = _downloaded_group(tmp_path, ["Cap [abc123]_1.jpg", "Cap [abc123]_2.jpg"])
 
-    final_path = completion_module._move_group_to_template_folder(
+    final_path = folders_module.move_group_to_template_folder(
         paths[0],
         tmp_path,
         {**_SUBFOLDER_TEMPLATES, "subfolder_template": ""},

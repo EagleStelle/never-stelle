@@ -7,12 +7,12 @@ import pytest
 
 import backend.app.domains.downloads.probe as probe_module
 import backend.app.domains.downloads.routes as routes_module
-import backend.app.domains.downloads.workers.completion_metadata as completion_metadata_module
+import backend.app.domains.downloads.workers.completion.sidecars as sidecars_module
 import backend.app.domains.downloads.workers.execution as worker_module
 from backend.app.domains.downloads import store as store_module
 from backend.app.domains.downloads.constants import normalize_post_processing
 from backend.app.domains.downloads.engine import ENGINE_WINDOW, engine_order
-from backend.app.domains.downloads.workers.completion_finalization import FinalizedCompletionOutput
+from backend.app.domains.downloads.workers.completion.finalize import FinalizedCompletionOutput
 from tests.support import engine_by_name
 
 _URL = "https://example.test/reel/abc123"
@@ -114,7 +114,7 @@ def _fill(tmp_path: Path, payload: dict = _PAYLOAD, processing: dict = _PROCESSI
         keep_paths=[media],
     )
     # A fresh cache per call, as every task starts with its own.
-    return completion_metadata_module._with_ytdlp_media_fields(
+    return sidecars_module._with_ytdlp_media_fields(
         dict(payload), finalized, processing, {}, single_item=True
     )
 

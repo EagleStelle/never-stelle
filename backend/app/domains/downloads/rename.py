@@ -22,6 +22,7 @@ from backend.app.domains.settings import (
 from backend.app.runtime.scratch import publish_staged_file, staging_file
 
 from .files import is_media_file, media_companions, payload_path_string, prune_empty_parents
+from .metadata.folders import render_template_folder
 from .naming import (
     numbered_suffix_of,
     render_template_filename,
@@ -38,7 +39,6 @@ from .store import (
     save_history_entry_rows,
 )
 from .templates import template_row_fields
-from .workers.completion_folders import _render_template_folder
 
 _WRITE_BATCH = 200
 
@@ -178,11 +178,11 @@ def _named_differently(
         yield _Renamable(str(task_id), payload, source_url, settings, old_path, fields)
 
 
-def _download_location(row: _Renamable) -> str:
+def download_location(payload: dict[str, Any]) -> str:
     """The download location a row belongs in: by its link, else by its source alone."""
-    if row.source_url:
-        return get_effective_source_location(row.source_url)
-    key = normalize_source_key(row.payload.get("source_key"))
+    if source_url := str(payload.get("source_url") or ""):
+        return get_effective_source_location(source_url)
+    key = normalize_source_key(payload.get("source_key"))
     return resolve_source_location(load_saved_settings_file().get("source_locations"), key) if key else ""
 
 
@@ -215,7 +215,7 @@ def plan_history_renames(
         missing = unsatisfied_tokens(row.settings, row.fields)
         if missing and not refile:
             continue
-        location = _download_location(row)
+        location = download_location(row.payload)
         inside = bool(location) and _path_key(row.old_path).startswith(f"{_path_key(location)}{os.sep}")
         moving_in = refile and bool(location) and not inside
         current = template_row_fields(row.settings)
@@ -251,7 +251,7 @@ def plan_history_renames(
         folder, root = row.old_path.parent, ""
         if inside or moving_in:
             root = location if inside else str(MEDIA_DIR)
-            folder = _render_template_folder(
+            folder = render_template_folder(
                 Path(location),
                 row.settings,
                 creator="",

@@ -129,12 +129,9 @@ def normalize_source_title_cleaning(raw: Any, defaults: Any = None) -> dict[str,
     return out
 
 
-def _is_token_role_matching_field_role(token_role: str, role: str) -> bool:
-    if token_role == role:
-        return True
-    if token_role == "creator" and role in ("username", "nickname"):
-        return True
-    return False
+def token_role_matches(token_role: str, role: str) -> bool:
+    """Whether a slug or scraper token's role feeds a Fields role."""
+    return token_role == role or (token_role == "creator" and role in ("username", "nickname"))
 
 
 def _scrape_rule_tokens(source_key: str, payload: dict[str, Any]) -> list[dict[str, str]]:
@@ -168,7 +165,7 @@ def _assigned_scraper_fields(source_key: str, role: str, payload: dict[str, Any]
             continue
         seen.add(token)
         token_role = str(roles.get(token) or "ignore")
-        if not _is_token_role_matching_field_role(token_role, role):
+        if not token_role_matches(token_role, role):
             continue
         field = scraper_field(token)
         if field:

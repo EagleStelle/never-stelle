@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 import backend.app.domains.downloads.postprocessing as postprocessing_module
-from backend.app.domains.downloads.workers.completion_finalization import FinalizedCompletionOutput
+from backend.app.domains.downloads.workers.completion.finalize import FinalizedCompletionOutput
 
 ALL_ENABLED = {
     "metadata": "embed",

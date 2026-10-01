@@ -9,46 +9,38 @@ from urllib.parse import urlparse
 from backend.app.core.paths import path_key as _path_key
 from backend.app.domains.downloads.constants import (
     CREATOR_FIELDS,
-    FIELD_ROLE_CHAINS,
+    FIELD_DEFAULTS,
     IMAGE_EXTENSIONS,
     MEDIA_ONLY_POST_PROCESSING_FEATURES,
-    TEMPLATE_RE,
 )
 from backend.app.domains.downloads.engine import Engine
 from backend.app.domains.downloads.files import is_media_file
 from backend.app.domains.downloads.formats import field_role_list
-from backend.app.domains.downloads.naming import filename_template_fields
+from backend.app.domains.downloads.metadata.creators import configured_field_value
+from backend.app.domains.downloads.metadata.values import clean_creator_candidate, metadata_title
+from backend.app.domains.downloads.naming import (
+    field_value,
+    filename_template_fields,
+    settings_tokens,
+    strip_repeated_media_id,
+)
 from backend.app.domains.downloads.postprocessing import _thumbnail_url
+from backend.app.domains.downloads.probe import probe_link_metadata
 from backend.app.domains.downloads.routes import absence_settled, route_shape
 from backend.app.domains.downloads.scan import parse_filename_media_id
 from backend.app.domains.downloads.store import learn_route, load_route_facts
-from backend.app.domains.downloads.workers.completion_creators import _configured_field_value
-from backend.app.domains.downloads.workers.completion_values import (
-    _clean_creator_candidate,
-    _field_value,
-    _metadata_title,
-)
+from backend.app.domains.downloads.templates import template_row_fields
 from backend.app.domains.settings import (
     get_effective_fields,
-    has_cookies_for_source,
-    has_cookies_for_url,
     looks_antibot_walled,
     looks_rate_limited,
 )
 
 
-def _filename_template(template_settings: dict[str, str] | None) -> str:
-    return str((template_settings or {}).get("filename_template") or "").strip()
-
-def _template_token_names(template_settings: dict[str, str] | None) -> set[str]:
-    settings = template_settings or {}
-    text = "\n".join(str(settings.get(key) or "") for key in ("folder_template", "filename_template"))
-    return {match.group(1).strip().lower() for match in TEMPLATE_RE.finditer(text)}
-
 def _template_needs_probe_metadata(template_settings: dict[str, str] | None) -> bool:
-    # id/quality can be recovered locally; other template tokens may require the
+    # The id can be recovered locally; other template tokens may require the
     # normal metadata probe when gallery-dl leaves only a sparse [id] filename.
-    return bool(_template_token_names(template_settings) - {"id", "quality", "ext"})
+    return bool(set(settings_tokens(template_row_fields(template_settings))) - {"id"})
 
 def _empty_metadata_value(value: str) -> bool:
     return str(value or "").strip(" \t\n\r\"'`").lower() in {
@@ -63,23 +55,13 @@ def _empty_metadata_value(value: str) -> bool:
     }
 
 def _metadata_title_has_value(value: str, media_id: str = "") -> bool:
-    value = str(value or "").strip()
-    if _empty_metadata_value(value):
-        return False
-    media_id = str(media_id or "").strip()
-    if len(media_id) < 4:
-        return True
-    pattern = re.compile(
-        rf"(?i)(?:^|[\s\-|:_]+)[\[\(\{{]?\s*{re.escape(media_id)}\s*[\]\)\}}]?\s*$"
-    )
-    stripped = pattern.sub("", value).strip(" -|,;:._")
-    return not _empty_metadata_value(stripped)
+    return not _empty_metadata_value(strip_repeated_media_id(value, media_id))
 
 def _configured_role_value(metadata: dict[str, str], role: str, fields: list[str]) -> str:
     """The value naming takes for a role: the first field in the Fields order that has one."""
     if role == "title":
-        return _metadata_title(metadata, fields)
-    return _configured_field_value(metadata, fields)
+        return metadata_title(metadata, fields)
+    return configured_field_value(metadata, fields)
 
 
 def _metadata_satisfies_template(
@@ -88,63 +70,44 @@ def _metadata_satisfies_template(
     template_settings: dict[str, str] | None,
     source_url: str = "",
 ) -> bool:
-    filename_template = _filename_template(template_settings)
-    tokens = _template_token_names(template_settings) - {"quality", "ext"}
+    templates = template_row_fields(template_settings)
+    tokens = settings_tokens(templates)
     if not tokens:
         return True
-    fields = filename_template_fields(path.name, filename_template) if filename_template else {}
+    fields = filename_template_fields(path.name, templates["filename_template"])
     parsed_media_id, parsed_title = parse_filename_media_id(path.name)
-    media_id = _field_value(fields, "id") or parsed_media_id
+    media_id = field_value(fields, "id") or parsed_media_id
     roles = get_effective_fields(source_url) if source_url else {}
 
-    def metadata_role_value(role: str) -> str:
-        candidates: list[str] = []
-        for chains in FIELD_ROLE_CHAINS.values():
-            candidates.extend(chains.get(role, ()))
-        if role in CREATOR_FIELDS:
-            other = "nickname" if role == "username" else "username"
-            for chains in FIELD_ROLE_CHAINS.values():
-                candidates.extend(chains.get(other, ()))
-        for field in dict.fromkeys(candidates):
-            value = (
-                _clean_creator_candidate(_field_value(metadata, field))
-                if role in CREATOR_FIELDS
-                else _field_value(metadata, field)
-            )
-            if value:
+    def metadata_creator_value(role: str) -> str:
+        # A creator token also takes the other creator role's fields.
+        other = "nickname" if role == "username" else "username"
+        for field in dict.fromkeys([*FIELD_DEFAULTS[role], *FIELD_DEFAULTS[other]]):
+            if value := clean_creator_candidate(field_value(metadata, field)):
                 return value
         return ""
 
     def has_token(token: str) -> bool:
         if token == "id":
-            return bool(_field_value(metadata, "id") or media_id)
+            return bool(field_value(metadata, "id") or media_id)
         if configured := field_role_list(roles, token):
             value = _configured_role_value(metadata, token, configured)
             return _metadata_title_has_value(value, media_id) if token == "title" else bool(value)
         if token == "title":
             return _metadata_title_has_value(
-                _field_value(metadata, "title", "fulltitle", "caption", "description", "alt_text")
-                or _field_value(fields, "title")
-                or parsed_title,
+                metadata_title(metadata) or field_value(fields, "title") or parsed_title,
                 media_id,
             )
         if token == "nickname":
             return bool(
-                metadata_role_value("nickname")
-                or _clean_creator_candidate(_field_value(fields, "nickname", "username"))
+                metadata_creator_value("nickname")
+                or clean_creator_candidate(field_value(fields, "nickname", "username"))
             )
         if token in CREATOR_FIELDS:
-            return bool(metadata_role_value(token) or _clean_creator_candidate(_field_value(fields, token)))
-        return bool(_field_value(metadata, token) or _field_value(fields, token))
+            return bool(metadata_creator_value(token) or clean_creator_candidate(field_value(fields, token)))
+        return bool(field_value(metadata, token) or field_value(fields, token))
 
     return all(has_token(token) for token in tokens)
-
-def _probe_access(source_url: str, source_key: str) -> dict[str, Any]:
-    cookie_source_key = source_key if source_key and has_cookies_for_source(source_key) else ""
-    return {
-        "with_cookies": bool(cookie_source_key) or has_cookies_for_url(source_url),
-        "cookie_source_key": cookie_source_key,
-    }
 
 
 # yt-dlp's cross-site shape for what post-processing reads beyond tags.
@@ -261,7 +224,7 @@ def _read_media_info(url: str, source_key: str) -> tuple[dict[str, Any], str]:
     from backend.app.domains.downloads.probe import probe_media_info
 
     try:
-        return probe_media_info(url, **_probe_access(url, source_key))
+        return probe_media_info(url, cookie_source_key=source_key)
     except Exception as exc:
         return {}, str(exc)
 
@@ -308,20 +271,6 @@ def _with_ytdlp_media_fields(
     return {**fields, **payload}
 
 
-def _probe_output_metadata(
-    source_url: str, source_key: str = "", *, low_priority: bool = False
-) -> dict[str, str] | None:
-    """The link's flat metadata from whichever engine answers; None when none did."""
-    from backend.app.domains.downloads.probe import probe_metadata
-
-    try:
-        return probe_metadata(
-            [source_url], **_probe_access(source_url, source_key), low_priority=low_priority
-        ).get(source_url)
-    except Exception:
-        return None
-
-
 def _merge_probe_metadata(metadata: dict[str, str], probed: dict[str, str]) -> dict[str, str]:
     """The probe fills what the engine's own metadata left empty; the engine's values win."""
     merged = {
@@ -336,8 +285,8 @@ def _merge_probe_metadata(metadata: dict[str, str], probed: dict[str, str]) -> d
 def _creator_field_lists(source_url: str, template_settings: dict[str, str] | None) -> list[list[str]]:
     """The Fields order of each creator role the templates use."""
     roles = get_effective_fields(source_url)
-    used = _template_token_names(template_settings)
-    return [fields for role in sorted(CREATOR_FIELDS & used) if (fields := field_role_list(roles, role))]
+    used = settings_tokens(template_row_fields(template_settings))
+    return [fields for role in sorted(CREATOR_FIELDS & set(used)) if (fields := field_role_list(roles, role))]
 
 
 def _metadata_enrichment_needed(
@@ -355,7 +304,7 @@ def _metadata_enrichment_needed(
         return not _metadata_satisfies_template(paths[0], metadata, template_settings, source_url)
     field_lists = _creator_field_lists(source_url, template_settings)
     return any(
-        not _configured_field_value(metadata_by_path.get(_path_key(path), {}), fields)
+        not configured_field_value(metadata_by_path.get(_path_key(path), {}), fields)
         for path in paths
         for fields in field_lists
     )
@@ -372,7 +321,7 @@ def _probe_output_metadata_inline(
     """Fill what the engine's metadata lacks from one lookup; True when that lookup got no answer."""
     if not _metadata_enrichment_needed(paths, engine, metadata_by_path, template_settings, source_url):
         return False
-    probed = _probe_output_metadata(source_url, source_key)
+    probed = probe_link_metadata(source_url, source_key)
     if probed is None:
         return True
     if len(paths) > 1:

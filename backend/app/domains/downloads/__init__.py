@@ -8,6 +8,7 @@ whole download stack at app startup.
 - access      : how each attempt reaches a site (anonymous, fingerprint, cookie jars)
 - store       : queue/history persistence + normalization
 - naming      : engine-agnostic title/filename cleaning + tool detection
+- metadata    : naming pipeline shared by downloads, resolve and rename
 - ytdlp       : yt-dlp output templates + command building
 - gallerydl   : gallery-dl output templates + command building
 - engine      : downloader-backend dispatch (yt-dlp / gallery-dl)

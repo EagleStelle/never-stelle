@@ -10,12 +10,17 @@ import httpx
 from backend.app.core.sources import normalize_source_key
 from backend.app.domains.settings import (
     detect_cookie_source,
+    load_scrape_rules,
+    load_slug_tokens,
+    load_token_roles,
     scraper_token_from_field,
+    token_role_matches,
 )
 
 from .access import access_rotation
-from .constants import TEMPLATE_RE
 from .formats import _canonical_shape, _prepare_url, extract_url_part, match_template
+from .naming import settings_tokens
+from .templates import template_row_fields
 
 # Per-platform user rules turn a page's own markup into filename/folder tokens,
 # for sites whose downloader leaves uploader/artist unextracted. Nothing here is
@@ -265,15 +270,6 @@ def _http_failure(response: httpx.Response) -> str:
     return f"HTTP Error {response.status_code}" + (" Cloudflare challenge" if challenge else "")
 
 
-def _template_token_names(template_settings: Any) -> set[str]:
-    settings = template_settings if isinstance(template_settings, dict) else {}
-    names: set[str] = set()
-    for key in ("folder_template", "filename_template"):
-        for match in TEMPLATE_RE.finditer(str(settings.get(key) or "")):
-            names.add(match.group(1).strip().lower())
-    return names
-
-
 def _scraper_role(value: Any) -> str:
     role = str(value or "").strip().lower()
     if role in ("creator", "username", "nickname"):
@@ -287,7 +283,7 @@ def _output_rules_for_template(
     template_settings: Any,
     field_roles: Any = None,
 ) -> list[tuple[dict[str, Any], str]]:
-    referenced = _template_token_names(template_settings)
+    referenced = settings_tokens(template_row_fields(template_settings))
     if not referenced:
         return []
     rule_by_token = {_normalize_token(rule.get("token")): rule for rule in rules}
@@ -330,15 +326,9 @@ def _leading_scraper_tokens_for_role(
         if not token:
             break
         assigned = _scraper_role(roles.get(token))
-        if token in rule_tokens and _role_matches_field(assigned, role) and token not in out:
+        if token in rule_tokens and token_role_matches(assigned, role) and token not in out:
             out.append(token)
     return out
-
-
-def _role_matches_field(assigned: str, role: str) -> bool:
-    if assigned == role:
-        return True
-    return assigned == "creator" and role in {"username", "nickname"}
 
 
 def _map_output_values(
@@ -469,3 +459,32 @@ def resolve_slug_tokens(
         if value:
             raw_values[token] = value
     return _map_output_values(output_rules, raw_values)
+
+
+def configured_tokens(
+    source_url: str,
+    source_key: str,
+    cookie_source_key: str,
+    template_settings: Any,
+    field_roles: Any,
+) -> dict[str, str]:
+    """Slug then scraper values for one link; the scraper wins a collision."""
+    from backend.app.domains.downloads.store import load_learned_formats
+
+    token_roles = load_token_roles()
+    tokens = resolve_slug_tokens(
+        source_url, source_key, template_settings, load_slug_tokens(), token_roles, field_roles
+    )
+    tokens.update(
+        resolve_scraped_tokens(
+            source_url,
+            source_key,
+            template_settings,
+            load_scrape_rules(),
+            token_roles,
+            cookie_source_key,
+            field_roles,
+            load_learned_formats(),
+        )
+    )
+    return tokens

@@ -1664,7 +1664,7 @@ def test_downloader_commands_route_parts_to_staging_and_extractor_payloads_to_ta
 
 
 def test_ytdlp_metadata_line_carries_every_field_the_fields_order_names(tmp_path: Path, monkeypatch):
-    from backend.app.domains.downloads.workers.completion_metadata import _read_metadata_sidecar
+    from backend.app.domains.downloads.workers.completion.sidecars import _read_metadata_sidecar
 
     monkeypatch.setattr(
         ytdlp,

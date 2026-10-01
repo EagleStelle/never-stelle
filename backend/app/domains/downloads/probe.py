@@ -524,6 +524,14 @@ def probe_metadata(
     return {source_url: _flatten_metadata(found[url]) for source_url, url in prepared.items() if url in found}
 
 
+def probe_link_metadata(source_url: str, source_key: str = "", *, low_priority: bool = False) -> dict[str, str] | None:
+    """One link's flat metadata from whichever engine answers; None when none did."""
+    try:
+        return probe_metadata([source_url], cookie_source_key=source_key, low_priority=low_priority).get(source_url)
+    except Exception:
+        return None
+
+
 def probe_media_info(
     source_url: str,
     *,

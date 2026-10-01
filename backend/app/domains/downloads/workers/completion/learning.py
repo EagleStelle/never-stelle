@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 from backend.app.domains.downloads.constants import FIELD_CANDIDATES, field_roles_from_probe_fields
 from backend.app.domains.downloads.learning import (
     has_learned_fields,
@@ -9,13 +7,6 @@ from backend.app.domains.downloads.learning import (
 )
 from backend.app.domains.downloads.scan import parse_filename_media_id
 
-
-def _cleanup_file(path: str) -> None:
-    try:
-        if path:
-            os.unlink(path)
-    except OSError:
-        pass
 
 def _format_sample(
     source_url: str,

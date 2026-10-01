@@ -50,21 +50,23 @@ from backend.app.domains.downloads.store import (
 )
 from backend.app.domains.downloads.templates import template_row_fields, template_settings_from_row
 from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
-from backend.app.domains.downloads.workers.completion import (
+from backend.app.domains.downloads.workers.completion.finalize import _finalize_completed_output
+from backend.app.domains.downloads.workers.completion.learning import (
+    _format_sample,
+    _learn_field_roles_from_download,
+)
+from backend.app.domains.downloads.workers.completion.outputs import (
     _attempt_output_paths,
     _child_task_id,
     _download_groups,
     _existing_output_paths,
-    _extractor_metadata_fields,
-    _filename_template,
-    _finalize_completed_output,
-    _format_sample,
     _has_output_media,
-    _learn_field_roles_from_download,
+)
+from backend.app.domains.downloads.workers.completion.sidecars import (
+    _extractor_metadata_fields,
     _metadata_output_paths,
     _probe_output_metadata_inline,
     _read_metadata_sidecar,
-    _resolved_task_creator,
     _with_ytdlp_media_fields,
 )
 from backend.app.domains.downloads.workers.enrichment import enqueue_completion_enrichment
@@ -82,9 +84,6 @@ from backend.app.domains.settings import (
     cookie_ready_in,
     detect_cookie_source,
     get_effective_fields,
-    load_scrape_rules,
-    load_slug_tokens,
-    load_token_roles,
     looks_antibot_walled,
     looks_rate_limited,
 )
@@ -240,7 +239,7 @@ def run_task(
 def _run_task(
     task_id: str, task: dict[str, Any], *, mark_running: bool = True, resume: TaskDeferred | None = None
 ) -> None:
-    from backend.app.domains.downloads.enrich import resolve_scraped_tokens, resolve_slug_tokens
+    from backend.app.domains.downloads.enrich import configured_tokens
 
     source_url = canonicalize_source_url(str(task.get("source_url") or ""))
     output_dir = str(task.get("output_dir") or task.get("resolved_folder") or "").strip()
@@ -266,29 +265,8 @@ def _run_task(
         update_task(task_id, status="running", error="", last_log_lines=[])
     record_task_progress(task_id, progress.prepare(0.25))
 
-    token_roles = load_token_roles()
-    field_roles = get_effective_fields(source_url)
-    # URL-part tokens (no fetch) plus page-scraped values, both mapped through the
-    # shared role pipeline. Scraper HTML wins on a name/role collision.
-    extra_tokens = resolve_slug_tokens(
-        source_url,
-        task_source_key,
-        template_settings,
-        load_slug_tokens(),
-        token_roles,
-        field_roles,
-    )
-    extra_tokens.update(
-        resolve_scraped_tokens(
-            source_url,
-            task_source_key,
-            template_settings,
-            load_scrape_rules(),
-            token_roles,
-            cookie_source_key,
-            field_roles,
-            load_learned_formats(),
-        )
+    extra_tokens = configured_tokens(
+        source_url, task_source_key, cookie_source_key, template_settings, get_effective_fields(source_url)
     )
 
     task_scratch = scratch_temp_dir(prefix="nvs-download-task-")
@@ -392,7 +370,7 @@ def _run_task(
         current_task = load_task(task_id)
         if rc == 0 or output_paths:
             raise_if_cancelled(task_id)
-            filename_template = _filename_template(template_settings)
+            filename_template = template_row_fields(template_settings)["filename_template"]
             metadata_by_path = _read_metadata_sidecar(metadata_sidecar)
             if not output_paths:
                 output_paths = _metadata_output_paths(metadata_by_path)
@@ -467,14 +445,8 @@ def _run_task(
                     template_settings=template_settings,
                     quality=quality,
                     extra_tokens=extra_tokens,
-                    token_roles=token_roles,
                     group_paths=raw_group_paths,
-                    creator_fallback=lambda item_url, filename: _resolved_task_creator(
-                        used_engine,
-                        creator_sidecar,
-                        item_url,
-                        filename,
-                    ),
+                    creator_fallback=lambda item_url: used_engine.read_creator(creator_sidecar, item_url),
                     cache_dropper=drop_file_cache,
                 )
                 if has_post_processing:
@@ -536,14 +508,7 @@ def _run_task(
                             "progress_pct": 100,
                             "error": "",
                             "engine": used_engine.name,
-                            "creator": finalized.creator,
-                            "media_id": finalized.media_id,
-                            "source_url": finalized.source_url,
-                            "source_key": finalized.source_key,
-                            "resolved_full_path": str(finalized.final_path),
-                            "resolved_folder": str(finalized.final_path.parent),
-                            "resolved_filename": finalized.display_filename,
-                            "title": finalized.title,
+                            **finalized.history_fields(),
                             "last_log_lines": [],
                             "output_dir": "",
                             "output_template": "",
@@ -571,7 +536,6 @@ def _run_task(
                     quality=quality,
                     output_root=str(output_root),
                     extra_tokens=extra_tokens,
-                    token_roles=token_roles,
                     post_processing=post_processing,
                     # A lookup that got no answer is tried once more later; an empty answer is final.
                     needs_metadata_probe=unanswered and len(output_paths) == 1,

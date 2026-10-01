@@ -50,6 +50,7 @@ def save_history_entry(task_id: str, task: dict[str, Any]) -> None:
             "resolved_filename": str(task.get("resolved_filename") or ""),
             "resolved_full_path": str(task.get("resolved_full_path") or ""),
             "title": str(task.get("title") or ""),
+            "resolved_tokens": dict(task.get("resolved_tokens") or {}),
             **template_row_fields(task),
             "file_size": _stored_file_size(task),
             "quality": normalize_quality_selection(task.get("quality")),

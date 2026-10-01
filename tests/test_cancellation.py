@@ -240,13 +240,9 @@ def test_run_task_cancellation_during_post_processing_removes_task_and_workspace
     monkeypatch.setattr(scratch_module, "SCRATCH_DIR", scratch_root)
     monkeypatch.setattr(execution_module, "scratch_temp_dir", make_workspace)
     monkeypatch.setattr(execution_module, "engine_order", lambda url: (FakeEngine(),))
-    monkeypatch.setattr(execution_module, "load_token_roles", lambda: {})
     monkeypatch.setattr(execution_module, "get_effective_fields", lambda value: {})
-    monkeypatch.setattr(execution_module, "load_slug_tokens", lambda: {})
-    monkeypatch.setattr(execution_module, "load_scrape_rules", lambda: {})
     monkeypatch.setattr(execution_module, "load_learned_formats", lambda: {})
-    monkeypatch.setattr(enrich_module, "resolve_slug_tokens", lambda *args, **kwargs: {})
-    monkeypatch.setattr(enrich_module, "resolve_scraped_tokens", lambda *args, **kwargs: {})
+    monkeypatch.setattr(enrich_module, "configured_tokens", lambda *args, **kwargs: {})
     monkeypatch.setattr(
         execution_module,
         "_run_engine_attempts",

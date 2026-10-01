@@ -14,8 +14,13 @@ from backend.app.domains.downloads.files import (
     find_numbered_media_siblings,
     is_media_file,
     recover_task_path,
+    rename_path,
+    unique_sibling_path,
 )
-from backend.app.domains.downloads.formats import learn_download, media_id_from_url, reconstruct_url
+from backend.app.domains.downloads.formats import media_id_from_url
+from backend.app.domains.downloads.metadata.creators import filename_media_id
+from backend.app.domains.downloads.metadata.pipeline import distinct_metadata_item_url
+from backend.app.domains.downloads.metadata.values import display_creator_candidate
 from backend.app.domains.downloads.naming import clean_template_filename, numbered_suffix_of, strip_numbered_suffix
 from backend.app.domains.downloads.scan import parse_filename_media_id
 from backend.app.domains.downloads.store import (
@@ -23,55 +28,11 @@ from backend.app.domains.downloads.store import (
     load_history_entry_for_path,
     remove_history_records,
 )
-from backend.app.domains.downloads.urls import canonicalize_source_url, detect_source_key
-from backend.app.domains.downloads.workers.completion_creators import (
-    _filename_media_id,
-)
-from backend.app.domains.downloads.workers.completion_metadata import _filename_template
-from backend.app.domains.downloads.workers.completion_values import _display_creator_candidate
-from backend.app.domains.downloads.workers.pathing import (
-    _media_kind,
-    _preferred_output_path,
-    _rename_path,
-    _unique_sibling_path,
-)
+from backend.app.domains.downloads.templates import template_row_fields
+from backend.app.domains.downloads.urls import detect_source_key
+from backend.app.domains.downloads.workers.pathing import _media_kind, _preferred_output_path
 from backend.app.domains.settings import get_effective_title_cleaning
 
-
-def _reconstruct_item_url(source_url: str, source_key: str, media_id: str, creator: str) -> str:
-    # Freshly learned from this one URL, so descriptive segments are still literals in
-    # the template (no {var}); {id}/{creator} fill is all that's needed.
-    learned = learn_download({}, source_url, media_id)
-    return reconstruct_url(learned, source_key, media_id, creator=creator)
-
-def _distinct_metadata_item_url(source_url: str, metadata: dict[str, str]) -> str:
-    source_url = canonicalize_source_url(source_url)
-    source_media_id = media_id_from_url(source_url)
-    for key in ("webpage_url", "original_url"):
-        candidate = canonicalize_source_url(str(metadata.get(key) or ""))
-        if not candidate or candidate == source_url:
-            continue
-        candidate_media_id = media_id_from_url(candidate)
-        if not candidate_media_id:
-            continue
-        if source_media_id and candidate_media_id == source_media_id:
-            continue
-        return candidate
-    return ""
-
-def _item_source_url(source_url: str, source_key: str, media_id: str, creator: str, metadata: dict[str, str]) -> str:
-    source_url = canonicalize_source_url(source_url)
-    source_media_id = media_id_from_url(source_url)
-    if source_media_id and str(media_id or "").strip() == source_media_id:
-        return source_url
-    candidate = _distinct_metadata_item_url(source_url, metadata)
-    if candidate:
-        return candidate
-    if media_id:
-        candidate = _reconstruct_item_url(source_url, source_key, media_id, creator)
-        if candidate:
-            return canonicalize_source_url(candidate)
-    return source_url
 
 def _existing_output_paths(
     paths: list[str],
@@ -259,8 +220,8 @@ def _coerce_audio_output_extension(path: Path, group_paths: list[Path], quality:
     # track keeps the source extension (Opus/WAV land as `.webm`) and only the
     # name is stale. yt-dlp itself writes ADTS AAC under a `.m4a` name.
     if audio_container_matches(path, expected_suffix):
-        return _adopt_audio_path(path, group_paths, _rename_path(path, sibling.name))
-    target = _unique_sibling_path(sibling)
+        return _adopt_audio_path(path, group_paths, rename_path(path, sibling.name))
+    target = unique_sibling_path(sibling)
     if convert_audio_output(path, target, quality):
         path.unlink(missing_ok=True)
         return _adopt_audio_path(path, group_paths, target)
@@ -281,14 +242,14 @@ def _download_groups(
     collapse_source_items = engine.bundles_post_files
     for path in paths:
         metadata = metadata_by_path.get(_path_key(path), {})
-        media_id = _filename_media_id(path, filename_template, metadata)
+        media_id = filename_media_id(path, filename_template, metadata)
         key_media_id = media_id
         key = media_id or _path_key(path)
         if collapse_source_items and source_media_id:
             key_media_id = source_media_id
             key = f"source:{source_media_id}"
         elif collapse_source_items:
-            item_url = _distinct_metadata_item_url(source_url, metadata)
+            item_url = distinct_metadata_item_url(source_url, metadata)
             if item_url:
                 key_media_id = media_id_from_url(item_url) or media_id
                 key = f"url:{item_url}"
@@ -347,7 +308,7 @@ def _rename_gallerydl_paths(
             )
         if not target_name:
             continue
-        target = _rename_path(path, target_name)
+        target = rename_path(path, target_name)
         paths[index] = target
         if is_selected:
             selected = target
@@ -368,17 +329,17 @@ def _clean_resolved_filename(
     creator_authoritative: bool = False,
     quality: dict[str, str] | None = None,
 ) -> tuple[Path, str]:
-    filename_template = _filename_template(template_settings)
+    filename_template = template_row_fields(template_settings)["filename_template"]
     source_key = source_key or detect_source_key(source_url)
     cleaning = cleaning if cleaning is not None else get_effective_title_cleaning(source_url)
     media_id_hint = str(media_id_hint or "").strip() or media_id_from_url(source_url)
     creator_hint = str(creator_hint or "").strip()
     display_creator_hint = (
-        _display_creator_candidate(creator_hint, cleaning) or creator_hint
+        display_creator_candidate(creator_hint, cleaning) or creator_hint
         if creator_authoritative and creator_hint
-        else _display_creator_candidate(creator_hint, cleaning)
+        else display_creator_candidate(creator_hint, cleaning)
     )
-    display_nickname_hint = _display_creator_candidate(nickname_hint, cleaning)
+    display_nickname_hint = display_creator_candidate(nickname_hint, cleaning)
     if filename_template:
         display_filename = clean_template_filename(
             path.name,
@@ -428,7 +389,7 @@ def _clean_resolved_filename(
                 # A post's only file carries no number.
                 if alone and numbered_suffix_of(path.stem) == "_1":
                     unnumbered = Path(disk_filename)
-                    renamed = _rename_path(
+                    renamed = rename_path(
                         path, display_filename or f"{strip_numbered_suffix(unnumbered.stem)}{unnumbered.suffix}"
                     )
                     return renamed, renamed.name
@@ -447,7 +408,7 @@ def _clean_resolved_filename(
                     quality=quality,
                 )
                 return renamed, display_filename or f"{strip_numbered_suffix(renamed.stem)}{renamed.suffix}"
-            renamed = _rename_path(path, disk_filename)
+            renamed = rename_path(path, disk_filename)
             return renamed, renamed.name
 
     return path, path.name

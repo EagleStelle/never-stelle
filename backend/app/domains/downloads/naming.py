@@ -65,7 +65,7 @@ TITLE_MAX_CHARS = TITLE_MAX_CHARS_DEFAULT
 
 # --- Filename and template patterns ---
 _NUMBERED_SUFFIX_RE = re.compile(r"_\d+$")
-_ROW_TOKEN_FIELDS = {"title": "title", "id": "media_id"}
+_ROW_TOKEN_FIELDS = {"title": "title", "id": "media_id", "username": "creator"}
 _DISPLAY_FILENAME_ID_RE = re.compile(r"^(?P<title>.*) \[(?P<id>[A-Za-z0-9_-]+)\](?:_\d+)?$")
 _EXT_TEMPLATE_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$", re.IGNORECASE)
 _EMPTY_BRACKETS_RE = re.compile(r"\[\s*\]|\(\s*\)|\{\s*\}")
@@ -284,7 +284,7 @@ def _maybe_strip_placeholder(title: str, media_id: str, source_key: str, flags: 
     )
 
 
-def _strip_repeated_media_id(title: str, media_id: str = "") -> str:
+def strip_repeated_media_id(title: str, media_id: str = "") -> str:
     value = _text(title)
     media_id = _text(media_id)
     # Each id compiles its own pattern, so a title without the id skips it.
@@ -446,7 +446,7 @@ def clean_filename_title(
     if not original or _is_empty_title(original):
         return ""
     original = _maybe_strip_placeholder(original, media_id, source_key, flags)
-    original = _strip_repeated_media_id(original, media_id)
+    original = strip_repeated_media_id(original, media_id)
     if not original:
         return ""
     prefix, separator, body = _split_known_creator_prefix(original, creator)
@@ -558,7 +558,7 @@ def filename_template_fields(filename: str, filename_template: str) -> dict[str,
 
 def filename_template_title(filename: str, filename_template: str) -> str:
     fields, numbered_suffix = _match_template_fields(Path(str(filename or "")).stem, filename_template)
-    title = _field_value(fields, "title")
+    title = field_value(fields, "title")
     if (
         title.isdecimal()
         and numbered_suffix.startswith("_")
@@ -569,7 +569,7 @@ def filename_template_title(filename: str, filename_template: str) -> str:
     return title
 
 
-def _field_value(fields: dict[str, str], *names: str) -> str:
+def field_value(fields: dict[str, str], *names: str) -> str:
     for name in names:
         value = _text(fields.get(name))
         if value:
@@ -613,7 +613,7 @@ def _render_template_stem(
             return styled(field, sanitize_path_literal(recorded, replacement) or _quality_token(quality))
         value = fields.get(field, "")
         if field in CREATOR_FIELDS:
-            value = _clean_creator_token(value or _field_value(fields, "username", "nickname"), flags)
+            value = _clean_creator_token(value or field_value(fields, "username", "nickname"), flags)
         return styled(field, sanitize_path_literal(value, replacement))
 
     value = TEMPLATE_RE.sub(replace, template)
@@ -633,10 +633,16 @@ def template_tokens(template: str) -> list[str]:
 
 
 def settings_tokens(template_settings: dict[str, str]) -> list[str]:
-    """The token names the folder, subfolder and filename templates reference, in order."""
+    """The tokens the folder, subfolder and filename templates need a value for, in order.
+
+    ``{{quality}}`` always has one: no selection and nothing recorded still names itself source.
+    """
     return list(
         dict.fromkeys(
-            token for key in TEMPLATE_KEYS for token in template_tokens(str(template_settings.get(key) or ""))
+            token
+            for key in TEMPLATE_KEYS
+            for token in template_tokens(str(template_settings.get(key) or ""))
+            if token != "quality"
         )
     )
 
@@ -644,18 +650,32 @@ def settings_tokens(template_settings: dict[str, str]) -> list[str]:
 def row_template_fields(payload: dict[str, Any], old_name: str) -> dict[str, str]:
     # Parsing the old name by the row's own template recovers tokens it has no column for.
     fields = dict(filename_template_fields(old_name, str(payload.get("filename_template") or "").strip()))
-    # Values a resolve probe recovered for those same column-less tokens.
-    resolved = payload.get("resolved_tokens")
-    if isinstance(resolved, dict):
-        fields.update({str(key): str(value) for key, value in resolved.items() if str(value or "").strip()})
-    creator = str(payload.get("creator") or "").strip()
-    if creator:
-        fields.update(dict.fromkeys(CREATOR_FIELDS, creator))
+    resolved = {
+        str(key): str(value).strip()
+        for key, value in dict(payload.get("resolved_tokens") or {}).items()
+        if str(value or "").strip()
+    }
+    fields.update(resolved)
     for token, key in _ROW_TOKEN_FIELDS.items():
         value = str(payload.get(key) or "").strip()
         if value:
             fields[token] = value
+    if creator := str(payload.get("creator") or "").strip():
+        fields["nickname"] = resolved.get("nickname") or creator
     return fields
+
+
+def row_with_tokens(payload: dict[str, Any], tokens: dict[str, str]) -> dict[str, Any]:
+    """``payload`` recording ``tokens`` where ``row_template_fields`` reads them back."""
+    row = dict(payload)
+    resolved = dict(payload.get("resolved_tokens") or {})
+    for token, value in tokens.items():
+        if key := _ROW_TOKEN_FIELDS.get(token):
+            row[key] = value
+        elif value:
+            resolved[token] = value
+    row["resolved_tokens"] = resolved
+    return row
 
 
 def unsatisfied_tokens(template_settings: dict[str, str], fields: dict[str, str]) -> list[str]:
@@ -667,9 +687,6 @@ def unsatisfied_tokens(template_settings: dict[str, str], fields: dict[str, str]
     missing: list[str] = []
     for token in settings_tokens(template_settings):
         if str(fields.get(token) or "").strip():
-            continue
-        # Quality always answers: no selection and nothing recorded still names itself source.
-        if token == "quality":
             continue
         # Either creator token stands in for the other: both name the same person.
         if token in CREATOR_FIELDS and any(str(fields.get(other) or "").strip() for other in CREATOR_FIELDS):
@@ -706,7 +723,7 @@ def _extra_tokens_change_fields(
     extra_tokens: dict[str, str] | None,
     quality: dict[str, str] | None = None,
 ) -> bool:
-    referenced = {match.group(1).strip().lower() for match in TEMPLATE_RE.finditer(str(filename_template or ""))}
+    referenced = set(template_tokens(filename_template))
     if quality is not None and "quality" in referenced:
         value = _quality_token(quality)
         if value and fields.get("quality", "") != value:
@@ -741,7 +758,7 @@ def clean_template_filename(
     path = Path(value)
     flags = normalize_title_cleaning(cleaning)
     fields, numbered_suffix = _match_template_fields(path.stem, filename_template)
-    raw_title = _field_value(fields, "title")
+    raw_title = field_value(fields, "title")
     fallback_match = _DISPLAY_FILENAME_ID_RE.match(path.stem.strip())
     fallback_media_id = _text(media_id) or (fallback_match.group("id").strip() if fallback_match else "")
     fallback_username = _clean_creator_token(creator, flags)
@@ -784,9 +801,9 @@ def clean_template_filename(
         )
     if not fields:
         return ""
-    original_media_id = _field_value(fields, "id")
-    raw_original_username = _field_value(fields, "username", "nickname")
-    raw_original_nickname = _field_value(fields, "nickname", "username")
+    original_media_id = field_value(fields, "id")
+    raw_original_username = field_value(fields, "username", "nickname")
+    raw_original_nickname = field_value(fields, "nickname", "username")
     original_username = _clean_creator_token(raw_original_username, flags)
     original_nickname = _clean_creator_token(raw_original_nickname, flags)
     resolved_media_id = _text(media_id) or original_media_id

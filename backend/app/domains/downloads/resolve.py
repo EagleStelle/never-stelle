@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
 
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
@@ -16,15 +15,13 @@ from backend.app.domains.settings import (
     get_effective_fields,
     get_effective_source_fields,
     get_effective_template_settings,
-    load_scrape_rules,
-    load_slug_tokens,
-    load_token_roles,
     possible_template_settings,
     template_settings_for,
 )
 from backend.app.domains.settings.fields import FIELD_ROLES
 
-from .constants import CREATOR_FIELDS, RESOLVE_JOB_KIND, NamingKind, ResolveScope, enrichment_job_id
+from .constants import RESOLVE_JOB_KIND, NamingKind, ResolveScope, enrichment_job_id
+from .enrich import configured_tokens
 from .files import is_media_file, payload_path_string
 from .formats import (
     format_covers,
@@ -33,13 +30,16 @@ from .formats import (
     reconstruct_url_candidates,
     select_for_format,
 )
+from .metadata.pipeline import naming_values
 from .naming import (
     numbered_suffix_of,
     row_template_fields,
+    row_with_tokens,
     settings_tokens,
     unsatisfied_tokens,
 )
-from .rename import apply_history_renames, plan_history_renames
+from .probe import probe_link_metadata
+from .rename import apply_history_renames, download_location, plan_history_renames
 from .scan import history_write_lock
 from .store import (
     drop_pending_enrichment_jobs,
@@ -59,14 +59,10 @@ from .store import (
 )
 from .templates import template_row_fields
 from .urls import detect_source_key
-from .workers.completion_metadata import _configured_role_value
 from .workers.enrichment import ensure_enrichment_worker
 
-# Tokens with no column of their own ride in the encoding blob.
-_TOKEN_COLUMNS = {"title": "title", "id": "media_id"}
 # Each probe is a network round-trip, so a row tries this many links at most.
 _MAX_PROBE_CANDIDATES = 2
-_EMPTY_VALUES = {"", "unknown", "none", "null", "undefined", "na", "n/a"}
 
 _OUTCOMES = ("resolved", "skipped", "failed", "stopped")
 # Passes are reported per click, so a few have to outlive their own completion for the
@@ -116,22 +112,6 @@ def resolve_pass_reports() -> dict[str, dict[str, int]]:
         return {str(pass_id): dict(counts) for pass_id, counts in _passes.items()}
 
 
-def _clean_probe_value(value: str) -> str:
-    value = unquote(str(value or "")).strip().lstrip("@").strip()
-    return "" if value.lower() in _EMPTY_VALUES else value
-
-
-def _probe_metadata(url: str, *, with_cookies: bool = False) -> dict[str, str]:
-    # Lazy import dodges a cycle; tests stub this to stay offline.
-    try:
-        from .probe import probe_metadata
-
-        # Rows are probed one after another, each a subprocess pair.
-        return probe_metadata([url], with_cookies=with_cookies, low_priority=True).get(url, {})
-    except Exception:
-        return {}
-
-
 def _probe_urls(entry: dict[str, Any]) -> list[str]:
     source_url = str(entry.get("source_url") or "").strip()
     urls = [source_url] if source_url else []
@@ -147,79 +127,47 @@ def _probe_urls(entry: dict[str, Any]) -> list[str]:
     return urls[:_MAX_PROBE_CANDIDATES]
 
 
-def _probe(urls: list[str]) -> tuple[dict[str, str], str]:
-    # Cookies are scarce and rate-limited, so each link is tried anonymously first.
+def _probe(urls: list[str], source_key: str) -> tuple[dict[str, str], str]:
     for url in urls:
-        flat = _probe_metadata(url) or _probe_metadata(url, with_cookies=True)
-        if flat:
-            return flat, url
+        if metadata := probe_link_metadata(url, source_key, low_priority=True):
+            return metadata, url
     return {}, ""
 
 
-def _configured_tokens(entry: dict[str, Any], source_url: str, order: dict[str, list[str]]) -> dict[str, str]:
-    """Slug and scraper values for one row, the same way a download resolves them.
+def _looked_up(entry: dict[str, Any], wanted: list[str]) -> tuple[dict[str, str], str] | None:
+    """``wanted`` tokens through the download's metadata pipeline, and the link that answered.
 
-    Both return {} without fetching when the source configures no rules.
+    None when nothing answered.
     """
-    from .enrich import resolve_scraped_tokens, resolve_slug_tokens
-
-    source_key = normalize_source_key(entry.get("source_key")) or detect_source_key(source_url)
-    template_settings = get_effective_template_settings(source_url)
-    token_roles = load_token_roles()
-    tokens = resolve_slug_tokens(
-        source_url, source_key, template_settings, load_slug_tokens(), token_roles, order
+    urls = _probe_urls(entry)
+    source_url = urls[0] if urls else ""
+    stored_key = normalize_source_key(entry.get("source_key"))
+    source_key = stored_key or detect_source_key(source_url)
+    configured = configured_tokens(
+        source_url,
+        source_key,
+        stored_key or detect_cookie_source(source_url),
+        get_effective_template_settings(source_url),
+        get_effective_fields(source_url),
     )
-    # Scraper HTML wins on a collision, matching the download path.
-    tokens.update(
-        resolve_scraped_tokens(
-            source_url,
-            source_key,
-            template_settings,
-            load_scrape_rules(),
-            token_roles,
-            normalize_source_key(entry.get("source_key")) or detect_cookie_source(source_url),
-            order,
-            load_learned_formats(),
-        )
+    # Configured rules outrank the probe, so it runs only for what they leave empty.
+    answered = all(str(configured.get(token) or "").strip() for token in wanted)
+    metadata, matched_url = ({}, "") if answered else _probe(urls, source_key)
+    if not metadata and not configured:
+        return None
+    path = Path(payload_path_string(entry))
+    values = naming_values(
+        source_url=matched_url or source_url,
+        source_key=source_key,
+        path=path,
+        output_root=Path(download_location(entry) or path.parent),
+        metadata=metadata,
+        media_id=str(entry.get("media_id") or ""),
+        template_settings=template_row_fields(entry),
+        extra_tokens=configured,
+        existing_creator=str(entry.get("creator") or ""),
     )
-    return tokens
-
-
-def _token_value(
-    token: str,
-    metadata: dict[str, str],
-    order: dict[str, list[str]],
-    configured: dict[str, str],
-) -> str:
-    # A configured scraper/slug rule is an explicit instruction, so it outranks whatever
-    # the probe happened to return, exactly as it does during a download.
-    value = _clean_probe_value(configured.get(token, ""))
-    if value:
-        return value
-    if token in FIELD_ROLES:
-        value = _configured_role_value(metadata, token, order.get(token) or [])
-        if value:
-            return value
-    return _clean_probe_value(metadata.get(token, ""))
-
-
-def _filled_entry(entry: dict[str, Any], filled: dict[str, str], matched_url: str) -> dict[str, Any]:
-    updated = dict(entry)
-    tokens = dict(updated.get("resolved_tokens") or {})
-    for token, value in filled.items():
-        column = _TOKEN_COLUMNS.get(token)
-        if column:
-            updated[column] = value
-        elif token in CREATOR_FIELDS:
-            updated["creator"] = value
-        else:
-            tokens[token] = value
-    if tokens:
-        updated["resolved_tokens"] = tokens
-    if matched_url and not str(updated.get("source_url") or "").strip():
-        updated["source_url"] = matched_url
-    updated["updated_at"] = utc_now()
-    return updated
+    return {token: value for token, value in values.tokens(wanted).items() if value}, matched_url
 
 
 def entry_token_state(payload: dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -273,25 +221,16 @@ def resolve_history_entry(task_id: str, *, force: bool = False) -> bool:
         if not wanted:
             return file_history_entry(task_id, {**entry, "needs_resolve": False})["renamed"] > 0
 
-        urls = _probe_urls(entry)
-        source_url = urls[0] if urls else ""
-        order = get_effective_fields(source_url)
-        # Configured rules can name a token the probe never carries, so a source that
-        # answers nothing is only dead once those come back empty too.
-        configured = _configured_tokens(entry, source_url, order)
-        # They also outrank the probe, so it runs only for what they leave empty.
-        answered = all(_clean_probe_value(configured.get(token, "")) for token in wanted)
-        metadata, matched_url = ({}, "") if answered else _probe(urls)
-        if not metadata and not configured:
+        looked_up = _looked_up(entry, wanted)
+        if looked_up is None:
             raise LookupError(f"Nothing answered for {task_id}.")
-
-        filled = {
-            token: value for token in wanted if (value := _token_value(token, metadata, order, configured))
-        }
+        filled, matched_url = looked_up
         if not filled:
             raise LookupError(f"Probe supplied none of {', '.join(wanted)} for {task_id}.")
 
-        updated = _filled_entry(entry, filled, matched_url)
+        updated = {**row_with_tokens(entry, filled), "updated_at": utc_now()}
+        if matched_url and not str(entry.get("source_url") or "").strip():
+            updated["source_url"] = matched_url
         # What came back may still not name the row; the flag follows that, not the fact
         # that something was filled.
         still_missing = entry_token_state(updated)[1]

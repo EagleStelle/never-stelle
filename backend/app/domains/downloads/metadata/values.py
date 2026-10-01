@@ -4,17 +4,8 @@ import re
 from typing import Any
 
 from backend.app.domains.downloads.constants import normalize_title_cleaning
-from backend.app.domains.settings import is_scraper_field
+from backend.app.domains.settings import get_effective_field_defaults, is_scraper_field
 
-_DEFAULT_TITLE_FIELDS = ("title", "fulltitle", "content", "caption", "description", "alt_text")
-
-
-def _field_value(fields: dict[str, str], *names: str) -> str:
-    for name in names:
-        value = str(fields.get(name) or "").strip()
-        if value:
-            return value
-    return ""
 
 def _ordered_metadata_value(metadata: dict[str, str], fields: tuple[str, ...] | list[str]) -> str:
     for field in fields:
@@ -25,10 +16,10 @@ def _ordered_metadata_value(metadata: dict[str, str], fields: tuple[str, ...] | 
     return ""
 
 
-def _metadata_title(metadata: dict[str, str], configured_fields: tuple[str, ...] | list[str] = ()) -> str:
-    return _ordered_metadata_value(metadata, configured_fields or _DEFAULT_TITLE_FIELDS)
+def metadata_title(metadata: dict[str, str], configured_fields: tuple[str, ...] | list[str] = ()) -> str:
+    return _ordered_metadata_value(metadata, configured_fields or get_effective_field_defaults()["title"])
 
-def _clean_creator_candidate(value: str, *, strip_at: bool = True) -> str:
+def clean_creator_candidate(value: str, *, strip_at: bool = True) -> str:
     value = str(value or "").strip()
     if strip_at:
         value = value.lstrip("@")
@@ -38,11 +29,11 @@ def _clean_creator_candidate(value: str, *, strip_at: bool = True) -> str:
 def _strip_handle_at_enabled(cleaning: dict[str, Any] | None = None) -> bool:
     return bool(normalize_title_cleaning(cleaning).get("strip_handle_at", True))
 
-def _display_creator_candidate(value: str, cleaning: dict[str, Any] | None = None) -> str:
-    return _clean_creator_candidate(value, strip_at=_strip_handle_at_enabled(cleaning))
+def display_creator_candidate(value: str, cleaning: dict[str, Any] | None = None) -> str:
+    return clean_creator_candidate(value, strip_at=_strip_handle_at_enabled(cleaning))
 
 def _creator_value_key(value: str) -> str:
-    return _clean_creator_candidate(value).casefold()
+    return clean_creator_candidate(value).casefold()
 
 def _same_creator_value(left: str, right: str) -> bool:
     left_key = _creator_value_key(left)
@@ -58,7 +49,7 @@ def _is_creatorish_key(key: str) -> bool:
     return any(token in key for token in ("channel", "uploader", "owner", "user", "creator", "author"))
 
 def _looks_like_opaque_identifier(value: str) -> bool:
-    value = _clean_creator_candidate(value)
+    value = clean_creator_candidate(value)
     if not value:
         return False
     if value.isdigit():
@@ -72,7 +63,7 @@ def _looks_like_opaque_identifier(value: str) -> bool:
 
 def _clean_handle_candidate(value: str, key: str = "") -> str:
     raw_value = str(value or "").strip()
-    value = _clean_creator_candidate(raw_value)
+    value = clean_creator_candidate(raw_value)
     key = str(key or "").strip().lower()
     if not value or any(ch.isspace() for ch in value) or _looks_like_opaque_identifier(value):
         return ""
@@ -91,7 +82,7 @@ def _looks_like_handle_value(value: str) -> bool:
     return bool(re.fullmatch(r"[a-z][a-z0-9]{1,39}", value))
 
 def _creator_candidate_score(key: str, value: str) -> int:
-    value = _clean_creator_candidate(value)
+    value = clean_creator_candidate(value)
     if not value or _looks_like_opaque_identifier(value):
         return -100
     key = str(key or "").lower()
@@ -120,7 +111,7 @@ def _best_creator_candidate(candidates: list[tuple[str, str]]) -> str:
     best_value = ""
     best_score = -100
     for key, raw_value in candidates:
-        value = _clean_creator_candidate(raw_value)
+        value = clean_creator_candidate(raw_value)
         score = _creator_candidate_score(key, value)
         if score > best_score:
             best_value = value

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import backend.app.domains.downloads.metadata.pipeline as pipeline_module
 import backend.app.domains.downloads.operations as operations_module
 import backend.app.domains.downloads.rename as rename_module
 import backend.app.domains.downloads.resolve as resolve_module
@@ -85,16 +86,23 @@ def _refresh(records: dict[str, dict]) -> list[str]:
     return needs_resolve
 
 
+def _fields(monkeypatch: pytest.MonkeyPatch, **roles: list[str]) -> None:
+    """The Fields order the resolve and the naming pipeline both read."""
+    order = roles or {"username": ["uploader"]}
+    monkeypatch.setattr(resolve_module, "get_effective_fields", lambda source_url="": order)
+    monkeypatch.setattr(pipeline_module, "get_effective_fields", lambda source_url="": order)
+
+
 def _probe_recorder(monkeypatch: pytest.MonkeyPatch, answers: dict[str, dict[str, str]]):
-    calls: list[tuple[str, bool]] = []
+    calls: list[str] = []
 
-    def probe(url: str, *, with_cookies: bool = False) -> dict[str, str]:
-        calls.append((url, with_cookies))
-        return dict(answers.get(url, {})) if not with_cookies else dict(answers.get(f"cookies:{url}", {}))
+    def probe(url: str, source_key: str = "", *, low_priority: bool = False) -> dict[str, str]:
+        calls.append(url)
+        return dict(answers.get(url, {}))
 
-    monkeypatch.setattr(resolve_module, "_probe_metadata", probe)
+    monkeypatch.setattr(resolve_module, "probe_link_metadata", probe)
     monkeypatch.setattr(resolve_module, "load_learned_formats", dict)
-    monkeypatch.setattr(resolve_module, "get_effective_fields", lambda source_url="": {"username": ["uploader"]})
+    _fields(monkeypatch)
     return calls
 
 
@@ -241,17 +249,6 @@ def test_resolve_rechecks_at_probe_time_and_never_probes_a_satisfied_row(
     assert path.with_name("Creator - Clip [abc123].mp4").is_file()
 
 
-def test_resolve_probes_anonymously_before_using_cookies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    use_temp_db(tmp_path, monkeypatch)
-    _pin_template(monkeypatch)
-    _seed(tmp_path)
-    url = "https://example.com/p/abc123"
-    calls = _probe_recorder(monkeypatch, {f"cookies:{url}": {"uploader": "Creator"}})
-
-    assert resolve_module.resolve_history_entry("gallerydl:1") is True
-    assert calls == [(url, False), (url, True)]
-
-
 def test_resolve_bounds_the_probes_per_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
@@ -266,8 +263,7 @@ def test_resolve_bounds_the_probes_per_row(tmp_path: Path, monkeypatch: pytest.M
     with pytest.raises(LookupError):
         resolve_module.resolve_history_entry("gallerydl:1")
 
-    # Two candidates, each probed anonymously then with cookies.
-    assert len({url for url, _ in calls}) == resolve_module._MAX_PROBE_CANDIDATES
+    assert len(calls) == resolve_module._MAX_PROBE_CANDIDATES
 
 
 def test_a_link_that_never_answers_stops_being_probed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -789,13 +785,13 @@ def test_the_probe_runs_outside_the_lock(tmp_path: Path, monkeypatch: pytest.Mon
     _refresh(load_history()["entries"])
     seen: list[bool] = []
 
-    def probe(url: str, *, with_cookies: bool = False) -> dict[str, str]:
+    def probe(url: str, source_key: str = "", *, low_priority: bool = False) -> dict[str, str]:
         seen.append(scan_module._scan_lock.locked())
         return {"uploader": "Creator"}
 
-    monkeypatch.setattr(resolve_module, "_probe_metadata", probe)
+    monkeypatch.setattr(resolve_module, "probe_link_metadata", probe)
     monkeypatch.setattr(resolve_module, "load_learned_formats", dict)
-    monkeypatch.setattr(resolve_module, "get_effective_fields", lambda source_url="": {"username": ["uploader"]})
+    _fields(monkeypatch)
 
     assert resolve_module.resolve_history_entry("gallerydl:1") is True
     # Holding the lock across a network round-trip would stall every refresh behind it.
@@ -854,7 +850,7 @@ def test_resolve_renames_a_row_on_its_template_when_the_order_picks_another_crea
         tmp_path, name="Old - Clip [abc123].mp4", creator="Old", filename_template=CURRENT_TEMPLATE
     )
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader": "Old", "channel": "New"}})
-    monkeypatch.setattr(resolve_module, "get_effective_fields", lambda source_url="": {"username": ["channel"]})
+    _fields(monkeypatch, username=["channel"])
 
     assert resolve_module.resolve_history_entry("gallerydl:1", force=True) is True
 
@@ -863,18 +859,87 @@ def test_resolve_renames_a_row_on_its_template_when_the_order_picks_another_crea
     assert not path.exists()
 
 
-def test_resolve_picks_the_creator_the_download_picks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def _downloaded_values(tmp_path: Path, metadata: dict[str, str], **templates: str):
+    """What a download of the seeded link records from ``metadata``."""
+    return pipeline_module.naming_values(
+        source_url="https://example.com/p/abc123",
+        source_key="example",
+        path=tmp_path / "media" / "Clip [abc123].mp4",
+        output_root=tmp_path / "media",
+        metadata=metadata,
+        template_settings={"folder_template": "{{username}}", "filename_template": STORED_TEMPLATE, **templates},
+    )
+
+
+def test_resolve_records_what_a_download_records(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     use_temp_db(tmp_path, monkeypatch)
     _pin_template(monkeypatch)
     _seed(tmp_path)
-    metadata = {"uploader": "@handle"}
+    metadata = {"uploader": "@handle", "title": "Clip #fun 12K views"}
     _probe_recorder(monkeypatch, {"https://example.com/p/abc123": metadata})
+    downloaded = _downloaded_values(tmp_path, metadata)
 
-    resolve_module.resolve_history_entry("gallerydl:1")
+    assert resolve_module.resolve_history_entry("gallerydl:1", force=True) is True
 
-    assert load_history_entry("gallerydl:1")["creator"] == resolve_module._configured_role_value(
-        metadata, "username", ["uploader"]
+    entry = load_history_entry("gallerydl:1")
+    assert (entry["creator"], entry["title"]) == (downloaded.creator, downloaded.named_title) == ("handle", "Clip")
+    assert Path(entry["resolved_full_path"]).name == "handle - Clip [abc123].mp4"
+
+
+def test_resolve_keeps_the_nickname_apart_from_the_username(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, "{{username}} - {{nickname}} [{{id}}]")
+    path, _row_payload = _seed(tmp_path)
+    _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader_id": "handle", "uploader": "Display"}})
+    _fields(monkeypatch, username=["uploader_id"], nickname=["uploader"])
+
+    assert resolve_module.resolve_history_entry("gallerydl:1") is True
+
+    entry = load_history_entry("gallerydl:1")
+    assert (entry["creator"], entry["resolved_tokens"]["nickname"]) == ("handle", "Display")
+    assert path.with_name("handle - Display [abc123].mp4").is_file()
+
+
+@pytest.mark.parametrize(
+    ("template", "creator", "resolved", "name"),
+    [
+        ("{{nickname}} - {{title}} [{{id}}]", "", {"nickname": "Display"}, "Display - Clip [abc123].mp4"),
+        (CURRENT_TEMPLATE, "handle", {}, "handle - Clip [abc123].mp4"),
+    ],
+)
+def test_resolve_records_only_the_creator_token_the_template_uses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, template: str, creator: str, resolved: dict, name: str
+):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, template, folder_template="")
+    path, _row_payload = _seed(tmp_path)
+    _probe_recorder(monkeypatch, {"https://example.com/p/abc123": {"uploader_id": "handle", "uploader": "Display"}})
+    _fields(monkeypatch, username=["uploader_id"], nickname=["uploader"])
+
+    assert resolve_module.resolve_history_entry("gallerydl:1") is True
+
+    entry = load_history_entry("gallerydl:1")
+    assert (entry["creator"], entry["resolved_tokens"]) == (creator, resolved)
+    assert path.with_name(name).is_file()
+
+
+def test_a_template_change_renames_by_the_recorded_nickname(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, CURRENT_TEMPLATE)
+    path, _row_payload = _seed(
+        tmp_path,
+        name="handle - Clip [abc123].mp4",
+        creator="handle",
+        filename_template=CURRENT_TEMPLATE,
+        resolved_tokens={"nickname": "Display"},
     )
+    calls = _probe_recorder(monkeypatch, {})
+    _save_naming(monkeypatch, "{{nickname}} - {{title}} [{{id}}]")
+
+    assert _resolve_platform("templates")["resolved"] == 1
+
+    assert path.with_name("Display - Clip [abc123].mp4").is_file()
+    assert calls == []
 
 
 def test_a_new_id_token_renames_without_a_lookup_when_the_row_knows_the_id(

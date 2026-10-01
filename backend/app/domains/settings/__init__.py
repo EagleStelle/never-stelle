@@ -47,6 +47,7 @@ from backend.app.domains.settings.fields import (
     normalize_source_title_cleaning,
     scraper_field,
     scraper_token_from_field,
+    token_role_matches,
 )
 from backend.app.domains.settings.formats import add_source_and_learn_format, set_learned_format_templates
 from backend.app.domains.settings.icons import queue_icons, stored_icon
@@ -192,4 +193,5 @@ __all__ = [
     "scraper_token_from_field",
     "set_learned_format_templates",
     "stored_icon",
+    "token_role_matches",
 ]

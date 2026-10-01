@@ -1,20 +1,10 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from backend.app.domains.downloads.constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
 from backend.app.domains.downloads.engine import Engine
-
-
-def _unique_sibling_path(path: Path) -> Path:
-    if not path.exists():
-        return path
-    for index in range(1, 1000):
-        candidate = path.with_name(f"{path.stem} ({index}){path.suffix}")
-        if not candidate.exists():
-            return candidate
-    return path
+from backend.app.domains.downloads.files import numbered_suffix_value
 
 
 def _is_audio_path(path: Path) -> bool:
@@ -32,13 +22,8 @@ def _media_kind(path: Path) -> str:
     return suffix or "media"
 
 
-def _numbered_suffix_value(stem: str) -> int:
-    match = re.search(r"_(\d+)$", str(stem or ""))
-    return int(match.group(1)) if match else 0
-
-
 def _is_first_numbered_image(path: Path) -> bool:
-    return path.suffix.lower() in IMAGE_EXTENSIONS and _numbered_suffix_value(path.stem) == 1
+    return path.suffix.lower() in IMAGE_EXTENSIONS and numbered_suffix_value(path.stem) == 1
 
 
 def _preferred_output_path(engine: Engine, current: str, candidate: Path) -> str:
@@ -48,16 +33,3 @@ def _preferred_output_path(engine: Engine, current: str, candidate: Path) -> str
     if _is_first_numbered_image(candidate) and not _is_first_numbered_image(Path(current)):
         return str(candidate)
     return current
-
-
-def _rename_path(path: Path, target_name: str) -> Path:
-    if not target_name or target_name == path.name:
-        return path
-    target = _unique_sibling_path(path.with_name(target_name))
-    if target == path:
-        return path
-    try:
-        path.replace(target)
-        return target
-    except OSError:
-        return path

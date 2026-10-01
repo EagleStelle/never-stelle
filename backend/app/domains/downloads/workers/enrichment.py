@@ -25,6 +25,7 @@ from backend.app.domains.downloads.postprocessing import (
     extractor_payload_from_sidecars,
     metadata_sidecars_for,
 )
+from backend.app.domains.downloads.probe import probe_link_metadata
 from backend.app.domains.downloads.store import (
     active_download_task_count,
     claim_next_enrichment_job,
@@ -36,13 +37,8 @@ from backend.app.domains.downloads.store import (
     retry_enrichment_job,
     save_history_entry_row,
 )
-from backend.app.domains.downloads.workers.completion_finalization import (
-    _finalize_completed_output,
-)
-from backend.app.domains.downloads.workers.completion_metadata import (
-    _merge_probe_metadata,
-    _probe_output_metadata,
-)
+from backend.app.domains.downloads.workers.completion.finalize import _finalize_completed_output
+from backend.app.domains.downloads.workers.completion.sidecars import _merge_probe_metadata
 
 _IDLE_SLEEP_SECONDS = 2.0
 _MAX_ATTEMPTS = 3
@@ -63,12 +59,6 @@ def _string_dict(value: Any) -> dict[str, str]:
     }
 
 
-def _nested_string_dict(value: Any) -> dict[str, dict[str, str]]:
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): _string_dict(item) for key, item in value.items() if str(key or "").strip()}
-
-
 def enqueue_completion_enrichment(
     task_id: str,
     *,
@@ -77,7 +67,6 @@ def enqueue_completion_enrichment(
     quality: dict[str, str] | None = None,
     output_root: str = "",
     extra_tokens: dict[str, str] | None = None,
-    token_roles: dict[str, dict[str, str]] | None = None,
     post_processing: dict[str, Any] | None = None,
     needs_metadata_probe: bool = False,
     needs_field_probe: bool = False,
@@ -91,7 +80,6 @@ def enqueue_completion_enrichment(
         "output_root": str(output_root or ""),
         "metadata": metadata or {},
         "extra_tokens": extra_tokens or {},
-        "token_roles": token_roles or {},
         "post_processing": normalize_post_processing(post_processing),
         "needs_metadata_probe": bool(needs_metadata_probe),
         "needs_field_probe": bool(needs_field_probe),
@@ -210,7 +198,7 @@ def _repair_history_metadata(task_id: str, entry: dict[str, Any], payload: dict[
         return {}
 
     sidecar_metadata = _string_dict(payload.get("metadata"))
-    probed = _probe_output_metadata(source_url, source_key, low_priority=True)
+    probed = probe_link_metadata(source_url, source_key, low_priority=True)
     if not probed:
         return sidecar_metadata
 
@@ -219,7 +207,6 @@ def _repair_history_metadata(task_id: str, entry: dict[str, Any], payload: dict[
     template_settings = _string_dict(payload.get("template_settings"))
     quality = normalize_quality_selection(payload.get("quality"))
     extra_tokens = _string_dict(payload.get("extra_tokens"))
-    token_roles = _nested_string_dict(payload.get("token_roles"))
     output_root = Path(str(payload.get("output_root") or entry.get("resolved_folder") or path.parent))
     post_processing = normalize_post_processing(payload.get("post_processing"))
     metadata_sidecars = metadata_sidecars_for(path) if post_processing_requested(post_processing) else []
@@ -233,7 +220,6 @@ def _repair_history_metadata(task_id: str, entry: dict[str, Any], payload: dict[
         template_settings=template_settings,
         quality=quality,
         extra_tokens=extra_tokens,
-        token_roles=token_roles,
         group_paths=[path],
         existing_creator=str(entry.get("creator") or ""),
         cache_dropper=drop_file_cache,
@@ -249,22 +235,15 @@ def _repair_history_metadata(task_id: str, entry: dict[str, Any], payload: dict[
     ):
         drop_file_cache(finalized.keep_paths)
 
-    updated = dict(entry)
-    updated.update(
+    save_history_entry_row(
+        task_id,
         {
-            "source_url": finalized.source_url,
-            "source_key": finalized.source_key,
-            "creator": finalized.creator,
-            "media_id": finalized.media_id,
-            "resolved_full_path": str(finalized.final_path),
-            "resolved_folder": str(finalized.final_path.parent),
-            "resolved_filename": finalized.display_filename,
-            "title": finalized.title,
+            **entry,
+            **finalized.history_fields(),
             "file_size": _history_file_size(finalized.final_path),
             "updated_at": utc_now(),
-        }
+        },
     )
-    save_history_entry_row(task_id, updated)
     return metadata
 
 
