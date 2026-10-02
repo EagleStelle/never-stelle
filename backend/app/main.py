@@ -16,7 +16,7 @@ from backend.app.core.resolution import resolution_scope
 from backend.app.runtime.lifespan import lifespan
 
 API_TITLE = "Never Stelle API"
-API_VERSION = "1.0.0"
+API_VERSION = "1.2.0"
 
 
 def create_app() -> FastAPI:
