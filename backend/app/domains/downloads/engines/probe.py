@@ -12,12 +12,12 @@ from backend.app.core.sources import normalize_source_key, source_key_from_url
 from backend.app.domains.access.rotation import AccessIdentity, access_env, access_rotation
 from backend.app.domains.downloads.engines.gallerydl import gallerydl_access_args
 from backend.app.domains.downloads.engines.ytdlp import ytdlp_access_args
-from backend.app.domains.downloads.field_roles import (
+from backend.app.domains.formats.analysis import prepare_url
+from backend.app.domains.options.field_roles import (
     FIELD_CANDIDATES,
     field_roles_from_probe_fields,
     promote_field_roles,
 )
-from backend.app.domains.downloads.links.analysis import prepare_url
 from backend.app.domains.settings import detect_cookie_source, has_cookies_for_source
 from backend.app.domains.settings.learned_fields import save_missing_learned_fields
 from backend.app.runtime.processes import low_priority_command, run_task_subprocess

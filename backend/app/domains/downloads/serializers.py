@@ -8,6 +8,7 @@ from typing import Any
 
 from backend.app.core.coercion import safe_int
 from backend.app.core.sources import normalize_source_key
+from backend.app.domains.options.quality import normalize_quality_selection
 from backend.app.domains.settings import get_effective_source_profiles, get_effective_title_cleaning
 from backend.app.integrations.swaratelle import client as swaratelle
 
@@ -17,7 +18,6 @@ from .links.urls import detect_source_key
 from .naming.filenames import parse_filename_media_id
 from .naming.render import clean_template_display_filename
 from .naming.template_rows import template_settings_from_row
-from .quality import normalize_quality_selection
 from .store import (
     active_counts_by_source_and_media,
     history_counts_by_source_and_media,

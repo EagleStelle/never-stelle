@@ -5,7 +5,7 @@ from contextlib import closing
 from typing import Any
 
 from backend.app.domains.downloads.engines.probe import flatten_metadata, ytdlp_single_video
-from backend.app.domains.downloads.links.analysis import url_dedup_key
+from backend.app.domains.formats.analysis import url_dedup_key
 from backend.app.domains.trackers.listing.entries import _GALLERYDL_URL, _is_dispatch, _Resolver, _visit_key
 from backend.app.domains.trackers.listing.models import Entry, ListingStats
 from backend.app.domains.trackers.listing.pages import page_variant

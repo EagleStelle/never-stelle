@@ -1,23 +1,12 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
 
 from backend.app.core.sources import source_key_from_url
-from backend.app.domains.downloads.constants import TEMPLATE_RE
-from backend.app.domains.downloads.field_roles import FIELD_DEFAULTS
-from backend.app.domains.downloads.naming_rules import normalize_title_cleaning
-from backend.app.domains.downloads.quality import quality_label
-from backend.app.domains.settings import (
-    get_effective_fields,
-    get_effective_template_settings,
-    get_effective_title_cleaning,
-    is_scraper_field,
-    normalize_template_settings,
-)
+from backend.app.domains.options.field_roles import FIELD_DEFAULTS
 
 _ID_TOKEN = "{id}"
 
@@ -270,11 +259,7 @@ def _creator_index_for_path_id(segments: list[str], id_index: int | None) -> int
     return candidate if candidate >= 0 and segments[candidate] else None
 
 
-def _strip_handle_at(cleaning: dict[str, Any] | None = None) -> bool:
-    return bool(normalize_title_cleaning(cleaning).get("strip_handle_at", True))
-
-
-def _clean_creator(value: str, *, strip_at: bool = True) -> str:
+def clean_creator(value: str, *, strip_at: bool = True) -> str:
     value = unquote(str(value or "")).strip().strip("/")
     if strip_at:
         value = value.lstrip("@")
@@ -374,7 +359,7 @@ def analyze_url(source_url: str, media_id: str = "", *, strip_creator_at: bool =
         id_part = f"query:{query_key}" if query_key else ""
 
     creator_index = _creator_index_for_path_id(segments, id_index)
-    creator = _clean_creator(segments[creator_index], strip_at=strip_creator_at) if creator_index is not None else ""
+    creator = clean_creator(segments[creator_index], strip_at=strip_creator_at) if creator_index is not None else ""
     return {
         "canonical": canonical,
         "host": parsed.netloc.lower(),
@@ -414,82 +399,6 @@ def extract_url_part(source_url: str, part: str) -> str:
 
 def creator_from_url(source_url: str, media_id: str = "", *, strip_at: bool = True) -> str:
     return str(analyze_url(source_url, media_id, strip_creator_at=strip_at).get("creator") or "")
-
-
-def derived_token_value(
-    field: str,
-    source_url: str = "",
-    quality: dict[str, str] | None = None,
-    extra_tokens: dict[str, str] | None = None,
-    cleaning: dict[str, Any] | None = None,
-) -> str | None:
-    """Value for a filename token that comes from the URL, the quality selection,
-    or scraped page metadata rather than the engine's own fields. Returns None when
-    the engine should resolve the token from its metadata fields instead ("" is a
-    real, empty value). Both engines share this so the logic lives in one place."""
-    field = str(field or "").strip().lower()
-    if extra_tokens:
-        # User scrape rules win over engine fields, so a broken/absent extractor
-        # value (uploader/artist) can be overridden with the page's own markup.
-        override = extra_tokens.get(field)
-        if override is not None and str(override).strip():
-            if field == "username":
-                return _clean_creator(str(override), strip_at=_strip_handle_at(cleaning))
-            return str(override)
-    if field == "quality":
-        # Selected combo label when threaded; None falls back to delivered format.
-        return quality_label(quality) if quality is not None else None
-    return None
-
-
-def field_role_list(field_roles: dict[str, Any] | None, role: str) -> list[str] | None:
-    """Configured fields for a creator role, minus scraper tokens no engine can fill."""
-    if not isinstance(field_roles, dict):
-        return None
-    values = field_roles.get(role)
-    if not isinstance(values, list) or not values:
-        return None
-    fields = [str(value) for value in values if not is_scraper_field(value)]
-    return fields or None
-
-
-def field_spec_parts(fields: tuple[str, ...] | list[str], pattern: re.Pattern[str]) -> list[str]:
-    """Ordered, deduplicated fields an engine's own template syntax accepts."""
-    clean = [
-        str(field).strip()
-        for field in fields
-        if not is_scraper_field(field) and pattern.match(str(field or "").strip())
-    ]
-    return list(dict.fromkeys(clean))
-
-
-def substitute_template(template: str, resolve: Callable[[str], str]) -> str:
-    value = str(template or "").strip()
-    if not value:
-        return ""
-    return TEMPLATE_RE.sub(lambda match: resolve(match.group(1)), value)
-
-
-def rendered_template_parts(
-    source_url: str,
-    template_settings: dict[str, str] | None,
-    quality: dict[str, str] | None,
-    extra_tokens: dict[str, str] | None,
-    convert: Callable[..., str],
-) -> tuple[str, str]:
-    """Folder and filename templates rendered through one engine's converter."""
-    settings = (
-        normalize_template_settings(template_settings)
-        if template_settings is not None
-        else get_effective_template_settings(source_url)
-    )
-    field_roles = get_effective_fields(source_url)
-    cleaning = get_effective_title_cleaning(source_url)
-
-    def render(template: str) -> str:
-        return convert(template, source_url, quality, extra_tokens, field_roles, cleaning)
-
-    return render(settings["folder_template"]), render(settings["filename_template"])
 
 
 def _media_id_from_analysis(analysis: dict[str, Any]) -> str:

@@ -16,7 +16,6 @@ from backend.app.domains.downloads.files import (
     rename_path,
     unique_sibling_path,
 )
-from backend.app.domains.downloads.links.analysis import media_id_from_url
 from backend.app.domains.downloads.links.urls import detect_source_key
 from backend.app.domains.downloads.metadata.creators import filename_media_id
 from backend.app.domains.downloads.metadata.pipeline import distinct_metadata_item_url
@@ -28,13 +27,14 @@ from backend.app.domains.downloads.naming.filenames import (
 )
 from backend.app.domains.downloads.naming.render import clean_template_filename
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
-from backend.app.domains.downloads.quality import audio_output_extension
 from backend.app.domains.downloads.store import (
     load_history_entries_for_media_id,
     load_history_entry_for_path,
     remove_history_records,
 )
 from backend.app.domains.downloads.workers.pathing import _media_kind, _preferred_output_path
+from backend.app.domains.formats.analysis import media_id_from_url
+from backend.app.domains.options.quality import audio_output_extension
 from backend.app.domains.settings import get_effective_title_cleaning
 
 

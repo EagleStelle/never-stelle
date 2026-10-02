@@ -6,8 +6,7 @@ from typing import Any
 
 from backend.app.core.config import SCRATCH_DIR
 from backend.app.domains.access.rotation import AccessIdentity
-from backend.app.domains.downloads.field_roles import FIELD_ROLE_CHAINS
-from backend.app.domains.downloads.links.analysis import (
+from backend.app.domains.downloads.engines.templates import (
     derived_token_value,
     field_role_list,
     field_spec_parts,
@@ -16,14 +15,15 @@ from backend.app.domains.downloads.links.analysis import (
 )
 from backend.app.domains.downloads.naming.filenames import sanitize_filename_component, sanitize_path_literal
 from backend.app.domains.downloads.naming.titles import clean_filename_title, clean_social_title
-from backend.app.domains.downloads.naming_rules import (
+from backend.app.domains.downloads.postprocessing.ffmpeg import detect_ffmpeg_location
+from backend.app.domains.options.field_roles import FIELD_ROLE_CHAINS
+from backend.app.domains.options.naming_rules import (
     SAFE_PREDOWNLOAD_TRIM_CHARS,
     TITLE_MAX_CHARS_DEFAULT,
     normalize_title_cleaning,
 )
-from backend.app.domains.downloads.postprocessing.ffmpeg import detect_ffmpeg_location
-from backend.app.domains.downloads.postprocessing.options import normalize_post_processing, post_processing_requested
-from backend.app.domains.downloads.quality import (
+from backend.app.domains.options.post_processing import normalize_post_processing, post_processing_requested
+from backend.app.domains.options.quality import (
     VIDEO_CODEC_PRESETS,
     audio_postprocess_format,
     audio_postprocess_quality,

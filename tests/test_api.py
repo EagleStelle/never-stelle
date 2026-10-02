@@ -268,12 +268,12 @@ def test_a_template_saved_through_settings_is_offered_as_a_rename(tmp_path, monk
 
 def test_settings_put_accepts_format_keyed_source_templates(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.domains.downloads.store as store_module
+    import backend.app.domains.formats.store as store_module
 
     format_template = "https://twitter.com/{creator}/status/{id}"
     monkeypatch.setattr(
         store_module,
-        "load_learned_formats",
+        "load_learned_formats_payload",
         lambda: {"twitter": {"templates": [format_template], "segments": []}},
     )
 
@@ -304,13 +304,13 @@ def test_settings_put_accepts_format_keyed_source_templates(tmp_path, monkeypatc
 
 def test_settings_put_accepts_format_keyed_source_locations(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.domains.downloads.store as store_module
+    import backend.app.domains.formats.store as store_module
 
     status_format = "https://twitter.com/{creator}/status/{id}"
     photo_format = "https://twitter.com/{creator}/status/{id}/photo/{var}"
     monkeypatch.setattr(
         store_module,
-        "load_learned_formats",
+        "load_learned_formats_payload",
         lambda: {"twitter": {"templates": [status_format, photo_format], "segments": []}},
     )
 
@@ -331,13 +331,13 @@ def test_settings_put_accepts_format_keyed_source_locations(tmp_path, monkeypatc
 
 def test_settings_put_rejects_an_absolute_source_location(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
-    import backend.app.domains.downloads.store as store_module
+    import backend.app.domains.formats.store as store_module
     from backend.app.core.config import MEDIA_DIR
 
     status_format = "https://twitter.com/{creator}/status/{id}"
     monkeypatch.setattr(
         store_module,
-        "load_learned_formats",
+        "load_learned_formats_payload",
         lambda: {"twitter": {"templates": [status_format], "segments": []}},
     )
 

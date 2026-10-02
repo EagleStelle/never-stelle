@@ -13,7 +13,7 @@ from backend.app.domains.downloads.naming.filenames import (
     apply_token_style,
     sanitize_filename_component,
 )
-from backend.app.domains.downloads.naming_rules import normalize_title_cleaning
+from backend.app.domains.options.naming_rules import normalize_title_cleaning
 
 _STRONG_SEPARATORS = r"|｜:·・—–\-"
 

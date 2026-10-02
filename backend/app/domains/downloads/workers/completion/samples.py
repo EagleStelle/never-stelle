@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from backend.app.domains.downloads.field_roles import FIELD_CANDIDATES, field_roles_from_probe_fields
+from collections.abc import Iterable
+
 from backend.app.domains.downloads.naming.filenames import parse_filename_media_id
-from backend.app.domains.settings.learned_fields import (
-    has_learned_fields,
-    save_learned_fields,
-)
+from backend.app.domains.options.field_roles import FIELD_CANDIDATES, field_roles_from_probe_fields
+from backend.app.domains.settings.learned_fields import save_missing_learned_fields
 
 
 def _format_sample(
@@ -17,22 +16,16 @@ def _format_sample(
     # One finished output, as learn_formats takes it.
     return source_url, str(media_id or "").strip() or parse_filename_media_id(filename)[0], metadata
 
-def _learn_field_roles_from_download(
-    source_url: str, source_key: str, engine_name: str, metadata: dict[str, str] | None
+
+def learn_field_roles(
+    source_url: str, source_key: str, metadata: dict[str, str] | None, engines: Iterable[str]
 ) -> bool:
-    # Teach Settings this source's field order from a real download's metadata,
-    # so the first download learns without a separate (and flaky) enqueue-time probe.
-    if has_learned_fields(source_url, source_key):
-        return True
+    """Save the field roles ``metadata`` shows for ``engines``, appending only fields not yet saved."""
     if not metadata:
         return False
-    engine_key = engine_name if engine_name in FIELD_CANDIDATES else "gallerydl"
-    present = [
-        field
-        for field in FIELD_CANDIDATES.get(engine_key, ())
-        if str(metadata.get(field) or "").strip()
-    ]
-    roles = field_roles_from_probe_fields({engine_key: present})
-    if roles:
-        return bool(save_learned_fields(source_url, source_key, roles, only_when_missing=True))
-    return False
+    fields_by_engine = {
+        engine: [field for field in FIELD_CANDIDATES.get(engine, ()) if str(metadata.get(field) or "").strip()]
+        for engine in engines
+    }
+    roles = field_roles_from_probe_fields(fields_by_engine)
+    return bool(roles) and bool(save_missing_learned_fields(source_url, source_key, roles))

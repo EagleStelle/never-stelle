@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlparse, urlunparse
 
 from backend.app.core.sources import normalize_source_key
-from backend.app.domains.downloads.links.analysis import (
+from backend.app.domains.formats.analysis import (
     _CREATOR_TOKEN,
     _ID_TOKEN,
     _VAR_TOKEN,

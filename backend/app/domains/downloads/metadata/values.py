@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from backend.app.domains.downloads.naming_rules import normalize_title_cleaning
+from backend.app.domains.options.naming_rules import normalize_title_cleaning
 from backend.app.domains.settings import get_effective_field_defaults, is_scraper_field
 
 
@@ -26,11 +26,11 @@ def clean_creator_candidate(value: str, *, strip_at: bool = True) -> str:
     empty_key = value.lstrip("@").lower()
     return "" if empty_key in {"", "unknown", "none", "null", "undefined", "na", "n/a"} else value
 
-def _strip_handle_at_enabled(cleaning: dict[str, Any] | None = None) -> bool:
+def strip_handle_at_enabled(cleaning: dict[str, Any] | None = None) -> bool:
     return bool(normalize_title_cleaning(cleaning).get("strip_handle_at", True))
 
 def display_creator_candidate(value: str, cleaning: dict[str, Any] | None = None) -> str:
-    return clean_creator_candidate(value, strip_at=_strip_handle_at_enabled(cleaning))
+    return clean_creator_candidate(value, strip_at=strip_handle_at_enabled(cleaning))
 
 def _creator_value_key(value: str) -> str:
     return clean_creator_candidate(value).casefold()

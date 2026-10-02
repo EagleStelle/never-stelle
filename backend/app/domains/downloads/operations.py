@@ -5,32 +5,44 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import is_allowed_location, load_app_config
-from backend.app.core.sources import normalize_source_key
+from backend.app.core.sources import normalize_source_key, source_key_from_url
 from backend.app.core.time import utc_now
 from backend.app.db.repositories import unlink_tracker_downloads
-from backend.app.domains.settings import get_effective_saved_settings, get_effective_title_cleaning, queue_icons
+from backend.app.domains.formats.analysis import media_id_from_url
+from backend.app.domains.formats.learning import learn_formats, learn_source_id_signature, reconstruct_url_candidates
+from backend.app.domains.formats.matching import match_template
+from backend.app.domains.formats.store import load_learned_formats
+from backend.app.domains.options.post_processing import normalize_post_processing
+from backend.app.domains.options.quality import normalize_quality_selection
+from backend.app.domains.settings import (
+    ensure_source_profile_for_url,
+    get_effective_fields,
+    get_effective_saved_settings,
+    get_effective_source_profiles,
+    get_effective_title_cleaning,
+    load_saved_settings_file,
+    queue_icons,
+)
+from backend.app.domains.settings.learned_fields import save_missing_learned_fields
 from backend.app.integrations.swaratelle import client as swaratelle
 from backend.app.runtime.processes import has_active_task, request_cancel
 
 from .engines.engine import default_engine
+from .engines.probe import probe_link_fields
 from .files import find_numbered_media_siblings, payload_path_string, recover_task_path, remove_media
 from .library.history import find_active_by_source, find_history_by_id, find_history_by_source
 from .library.resolve import entry_token_state, file_history_entry
 from .library.scan import history_write_lock
-from .links.learned_formats import learn_source_id_signature, reconstruct_url_candidates
 from .links.urls import canonicalize_source_url, detect_source_key, resolve_redirect_url
 from .naming.filenames import parse_filename_media_id
 from .naming.render import clean_template_display_filename
 from .naming.template_rows import template_row_fields, template_settings_from_row
 from .planning import resolve_task_settings
-from .postprocessing.options import normalize_post_processing
-from .quality import normalize_quality_selection
 from .serializers import history_to_api, task_to_api
 from .slideshow import build_slideshow_archive
 from .store import (
     load_active_task_store,
     load_history_entries,
-    load_learned_formats,
     load_task_store,
     load_tasks,
     remove_history_records,
@@ -294,6 +306,39 @@ def set_task_source(task_id: str, source_key: str) -> dict[str, Any]:
         _learn_confirmed_source(key, media_id)
         return {"source_key": key, "move_failed": counts["failed"] > 0}
     raise FileNotFoundError("Task was not found.")
+
+
+def add_source_and_learn_format(url_or_link: str) -> dict[str, Any]:
+    """Add a platform from a pasted link and learn its URL format in one step."""
+    url = str(url_or_link or "").strip()
+    if not url:
+        raise ValueError("Paste a link first.")
+    cfg = load_app_config()
+    payload = load_saved_settings_file()
+    profiles = get_effective_source_profiles(cfg, payload)
+    key = source_key_from_url(url, profiles)
+    if not key:
+        raise ValueError("Paste a valid link or domain first.")
+    existed = any(normalize_source_key(profile.get("key")) == key for profile in profiles)
+    ensure_source_profile_for_url(url)
+    media_id = media_id_from_url(url)
+    # The probe's metadata tells which parts of the link change per item.
+    probed = probe_link_fields(url, key) if media_id else {}
+    field_roles = (
+        save_missing_learned_fields(url, str(probed.get("source_key") or key), probed.get("field_roles"))
+        if probed
+        else {}
+    )
+    learned = learn_formats([(url, media_id, probed.get("metadata"), get_effective_fields(url))]) if media_id else False
+    format_template = match_template(load_learned_formats(), key, url, media_id) if media_id else ""
+    return {
+        "source_key": key,
+        "created": not existed,
+        "learned": learned,
+        "media_id": media_id,
+        "format_template": format_template,
+        "field_roles": field_roles,
+    }
 
 
 def _history_task(entry: dict[str, Any]) -> dict[str, Any]:

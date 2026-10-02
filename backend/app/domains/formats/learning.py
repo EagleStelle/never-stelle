@@ -5,7 +5,7 @@ from typing import Any
 from urllib.parse import parse_qsl, quote, unquote, urlparse, urlunparse
 
 from backend.app.core.sources import normalize_source_key, source_key_from_url
-from backend.app.domains.downloads.links.analysis import (
+from backend.app.domains.formats.analysis import (
     _CREATOR_TOKEN,
     _ID_TOKEN,
     _NICKNAME_TOKEN,
@@ -20,9 +20,8 @@ from backend.app.domains.downloads.links.analysis import (
     _without_at,
     analyze_url,
 )
-from backend.app.domains.downloads.links.matching import _entry_templates, _fold_templates, _url_shape, format_covers
-from backend.app.domains.downloads.store import merge_learned_formats
-from backend.app.domains.settings import get_effective_fields
+from backend.app.domains.formats.matching import _entry_templates, _fold_templates, _url_shape, format_covers
+from backend.app.domains.formats.store import merge_learned_formats
 
 
 def _record_id_signature(entry: dict[str, Any], media_id: str) -> None:
@@ -276,18 +275,18 @@ def _templates(formats: dict[str, Any]) -> dict[str, Any]:
     return {key: entry.get("templates") for key, entry in formats.items()}
 
 
-def learn_formats(samples: Iterable[tuple[str, str, dict[str, Any] | None]]) -> bool:
+def learn_formats(samples: Iterable[tuple[str, str, dict[str, Any] | None, dict[str, list[str]]]]) -> bool:
     """Fold item links into the stored formats in one write; True when a template changed.
 
-    Each sample is ``(source_url, media_id, metadata)`` from a link that was saved by hand
-    or downloaded successfully. The fields holding the creator are resolved first, since
-    the write holds the database lock.
+    Each sample is ``(source_url, media_id, metadata, roles)`` from a link that was saved by
+    hand or downloaded successfully. Callers resolve ``roles``, the fields holding the
+    creator, before calling, since the write holds the database lock.
     """
     prepared: dict[tuple[str, str], tuple[dict[str, Any] | None, dict[str, list[str]]]] = {}
-    for source_url, media_id, metadata in samples:
+    for source_url, media_id, metadata, roles in samples:
         source_url, media_id = str(source_url or "").strip(), str(media_id or "").strip()
         if source_url and media_id and (source_url, media_id) not in prepared:
-            prepared[(source_url, media_id)] = (metadata, get_effective_fields(source_url))
+            prepared[(source_url, media_id)] = (metadata, roles)
     if not prepared:
         return False
 

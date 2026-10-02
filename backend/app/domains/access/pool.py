@@ -11,6 +11,7 @@ from backend.app.domains.settings.cookies.jars import (
     list_cookies_for_source,
     materialize_cookie,
     normalize_cookie_source,
+    on_cookies_changed,
 )
 from backend.app.domains.settings.cookies.policy import DEFAULT_COOKIE_POLICY, CookiePolicy, cookie_policy_for_source
 from backend.app.runtime.processes import add_cancel_listener, raise_if_cancelled
@@ -105,6 +106,9 @@ def invalidate_cookie_pool(source_key: str = "") -> None:
             if state.source_key == key and cookie_id not in live:
                 del _STATES[cookie_id]
         _CONDITION.notify_all()
+
+
+on_cookies_changed(invalidate_cookie_pool)
 
 
 def _listed_entries(source_key: str) -> dict[str, dict[str, Any]]:

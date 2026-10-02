@@ -3,11 +3,16 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from backend.app.domains.options.quality import (
+    AUDIO_BITRATE_PRESETS,
+    audio_output_extension,
+    is_lossless_audio,
+    normalize_quality_selection,
+)
 from backend.app.runtime.processes import raise_if_cancelled, run_task_subprocess
 from backend.app.runtime.scratch import publish_staged_file, staging_file
 
 from .postprocessing.ffmpeg import detect_ffmpeg_location
-from .quality import AUDIO_BITRATE_PRESETS, audio_output_extension, is_lossless_audio, normalize_quality_selection
 
 
 def _read_head(path: Path) -> bytes:

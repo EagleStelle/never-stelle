@@ -6,8 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.core.sources import normalize_source_key
-from backend.app.domains.downloads.links.analysis import media_id_from_url
-from backend.app.domains.downloads.links.learned_formats import learn_download, reconstruct_url
 from backend.app.domains.downloads.links.urls import canonicalize_source_url, detect_source_key
 from backend.app.domains.downloads.metadata.creators import (
     _filename_creator,
@@ -24,6 +22,8 @@ from backend.app.domains.downloads.naming.filenames import parse_filename_media_
 from backend.app.domains.downloads.naming.render import field_value, filename_template_title
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
 from backend.app.domains.downloads.naming.titles import named_title
+from backend.app.domains.formats.analysis import media_id_from_url
+from backend.app.domains.formats.learning import learn_download, reconstruct_url
 from backend.app.domains.settings import get_effective_fields, get_effective_title_cleaning
 from backend.app.domains.settings.fields import FIELD_ROLES
 

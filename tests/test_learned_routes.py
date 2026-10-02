@@ -7,12 +7,13 @@ import pytest
 
 import backend.app.domains.downloads.engines.probe as probe_module
 import backend.app.domains.downloads.links.learned_routes as routes_module
+import backend.app.domains.downloads.links.urls as urls_module
 import backend.app.domains.downloads.workers.completion.sidecars as sidecars_module
 import backend.app.domains.downloads.workers.execution as worker_module
 from backend.app.domains.downloads import store as store_module
 from backend.app.domains.downloads.engines.engine import ENGINE_WINDOW, engine_order
-from backend.app.domains.downloads.postprocessing.options import normalize_post_processing
 from backend.app.domains.downloads.workers.completion.finalize import FinalizedCompletionOutput
+from backend.app.domains.options.post_processing import normalize_post_processing
 from tests.support import engine_by_name
 
 _URL = "https://example.test/reel/abc123"
@@ -172,3 +173,75 @@ def test_no_read_when_the_payload_covers_what_is_asked(tmp_path: Path, monkeypat
     )
 
     assert calls == []
+
+
+def _count_head(monkeypatch, final_url=None):
+    """Patch the redirect probe and return the list its calls are appended to."""
+    calls: list[str] = []
+
+    def fake_head(url, **kwargs):
+        calls.append(url)
+        return type("Resp", (), {"url": final_url if final_url is not None else url})()
+
+    monkeypatch.setattr(urls_module.httpx, "head", fake_head)
+    return calls
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        # The id is blanked, so one answer covers every post on the route.
+        ("https://www.instagram.com/reel/DDemoReel01/", "www.instagram.com/reel/{}"),
+        # The creator too, or every new account would re-probe a known route.
+        ("https://www.tiktok.com/@someone/video/7100000000000000001", "www.tiktok.com/{}/video/{}"),
+        ("https://www.youtube.com/watch?v=YtDemoVid04", "www.youtube.com/watch?v={}"),
+        # A short host must not fold into its apex: they redirect differently.
+        ("https://vt.tiktok.com/ZSDemo01A/", "vt.tiktok.com/{}"),
+        ("https://www.facebook.com/share/p/1aDemoAa1b/", "www.facebook.com/share/p/{}"),
+        # Nothing to blank: recording it would store a row nothing can match twice.
+        ("https://www.instagram.com/somebody/", ""),
+    ],
+)
+def test_route_shape_generalizes_route(url, expected):
+    assert routes_module.route_shape(url) == expected
+
+
+def test_resolve_redirect_stops_probing_a_route_that_never_redirects(monkeypatch):
+    calls = _count_head(monkeypatch)
+    # Same route, different posts: the second must answer from what the first learned.
+    for media_id in ("DDemoReel01", "CXabc123defg", "DZ9zzQQ11aa", "DYzz99QQ1bb"):
+        url = f"https://www.instagram.com/reel/{media_id}/"
+        assert urls_module.resolve_redirect_url(url) == url
+    assert len(calls) == urls_module._DIRECT_CONFIRMATIONS
+
+
+def test_resolve_redirect_keeps_following_a_route_known_to_redirect(monkeypatch):
+    target = "https://www.facebook.com/demopage/posts/pfbid02DemoPostAaDemoPostDemoPostDemoPostDemoPostDemoPostDemoPostDemoPos"
+    calls = _count_head(monkeypatch, target)
+    for token in ("1aDemoAa1b", "9zQQQaaBB1", "5xYYbbCC22"):
+        assert urls_module.resolve_redirect_url(f"https://www.facebook.com/share/p/{token}/") == target
+    # A share link hides a different target every time, so the answer is never reusable.
+    assert len(calls) == 3
+
+
+def test_resolve_redirect_does_not_learn_from_a_wall(monkeypatch):
+    calls = _count_head(monkeypatch, "https://www.instagram.com/accounts/login/")
+    for media_id in ("DDemoReel01", "CXabc123defg", "DZ9zzQQ11aa"):
+        url = f"https://www.instagram.com/reel/{media_id}/"
+        assert urls_module.resolve_redirect_url(url) == url
+    # A consent/login wall says nothing about the route, so it must not settle the answer.
+    assert len(calls) == 3
+    assert store_module.load_route_facts("www.instagram.com/reel/{}") == {}
+
+
+def test_resolve_redirect_rechecks_a_route_it_has_not_probed_in_a_month(monkeypatch):
+    calls = _count_head(monkeypatch)
+    url = "https://www.instagram.com/reel/DDemoReel01/"
+    for _ in range(urls_module._DIRECT_CONFIRMATIONS + 1):
+        urls_module.resolve_redirect_url(url)
+    assert len(calls) == urls_module._DIRECT_CONFIRMATIONS
+
+    # A site can start redirecting a route it used to serve directly.
+    monkeypatch.setattr(routes_module, "ANSWER_TRUST", timedelta(seconds=-1))
+    urls_module.resolve_redirect_url(url)
+    assert len(calls) == urls_module._DIRECT_CONFIRMATIONS + 1

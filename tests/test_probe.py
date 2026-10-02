@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 import pytest
 
 import backend.app.domains.downloads.engines.probe as probe_module
@@ -14,6 +17,7 @@ from backend.app.domains.downloads.engines.probe import (
     probe_fields,
     probe_url,
 )
+from tests.support import YTDLP_VIDEO_INFO
 
 
 def _stub_engines(monkeypatch, ytdlp=None, gallerydl=None):
@@ -775,3 +779,32 @@ def test_probe_fields_raises_when_both_engines_fail(monkeypatch):
     _stub_engines(monkeypatch, gallerydl=lambda url, **kwargs: None)
     with pytest.raises(ValueError):
         probe_fields("https://example.com/x")
+
+
+def test_media_info_probe_asks_extractors_for_subtitles(monkeypatch: pytest.MonkeyPatch):
+    commands: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        commands.append(cmd)
+        return SimpleNamespace(returncode=0, stdout=json.dumps(YTDLP_VIDEO_INFO), stderr="")
+
+    monkeypatch.setattr(probe_module, "_run_probe_command", fake_run)
+
+    info, _ = probe_module.probe_media_info("https://example.test/@creator/video/1", with_cookies=False)
+
+    assert info["subtitles"] == YTDLP_VIDEO_INFO["subtitles"]
+    assert "--write-subs" in commands[0] and "--write-auto-subs" in commands[0]
+    assert "--no-download" in commands[0]
+
+
+def test_output_probe_reads_one_link_not_its_characters(monkeypatch: pytest.MonkeyPatch):
+    calls: list[list[str]] = []
+
+    def probe_metadata(urls, **options):
+        calls.append(list(urls))
+        return {url: {"title": "Clip"} for url in urls}
+
+    monkeypatch.setattr(probe_module, "probe_metadata", probe_metadata)
+
+    assert probe_module.probe_link_metadata("https://example.test/watch/abc123", "example") == {"title": "Clip"}
+    assert calls == [["https://example.test/watch/abc123"]]

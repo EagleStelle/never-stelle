@@ -9,6 +9,9 @@ APP = ROOT / "backend" / "app"
 
 # Packages each package must not import from, function-level imports included.
 FORBIDDEN = {
+    "options": ("formats", "settings", "access", "auth", "downloads", "trackers"),
+    "formats": ("settings", "access", "auth", "downloads", "trackers"),
+    "settings": ("access", "downloads", "trackers"),
     "downloads.links": (
         "downloads.naming",
         "downloads.metadata",

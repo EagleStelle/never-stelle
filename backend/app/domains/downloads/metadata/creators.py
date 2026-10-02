@@ -4,7 +4,6 @@ import re
 from pathlib import Path
 
 from backend.app.core.sources import apex_host, host_from_url
-from backend.app.domains.downloads.links.analysis import creator_from_url, media_id_from_url
 from backend.app.domains.downloads.links.urls import resolve_creator_handle
 from backend.app.domains.downloads.metadata.values import (
     _best_creator_candidate,
@@ -19,6 +18,7 @@ from backend.app.domains.downloads.metadata.values import (
 )
 from backend.app.domains.downloads.naming.filenames import parse_filename_media_id
 from backend.app.domains.downloads.naming.render import field_value, filename_template_fields, template_fields
+from backend.app.domains.formats.analysis import creator_from_url, media_id_from_url
 from backend.app.domains.settings import get_effective_field_defaults
 
 

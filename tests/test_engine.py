@@ -4,15 +4,28 @@ import json
 from pathlib import Path
 
 import backend.app.domains.downloads.engines.gallerydl as gallerydl
+import backend.app.domains.downloads.engines.gallerydl as gallerydl_module
+import backend.app.domains.downloads.engines.templates as templates_module
 import backend.app.domains.downloads.engines.ytdlp as ytdlp
-import backend.app.domains.downloads.links.analysis as analysis_module
 import backend.app.domains.downloads.metadata.scraper as enrich
 from backend.app.domains.access.pool import CookieLease
 from backend.app.domains.access.rotation import AccessIdentity
-from backend.app.domains.downloads.constants import PROGRESS_RE, template_tokens
+from backend.app.domains.downloads.constants import PROGRESS_RE
 from backend.app.domains.downloads.engines.engine import all_engines, default_engine
-from backend.app.domains.downloads.postprocessing.options import normalize_post_processing, post_processing_requested
-from backend.app.domains.downloads.quality import (
+from backend.app.domains.downloads.engines.ytdlp import (
+    YTDLP_NICKNAME_FIELD,
+    YTDLP_USERNAME_FIELD,
+    convert_template_to_ytdlp,
+)
+from backend.app.domains.downloads.workers.progress import (
+    DOWNLOAD_END,
+    FINALIZE_END,
+    PREPARE_END,
+    TaskProgress,
+)
+from backend.app.domains.downloads.workers.runner import _count_progress
+from backend.app.domains.options.post_processing import normalize_post_processing, post_processing_requested
+from backend.app.domains.options.quality import (
     audio_format_selector,
     container_acodec_filter,
     container_vcodec_filter,
@@ -23,13 +36,7 @@ from backend.app.domains.downloads.quality import (
     quality_options,
     video_format_selector,
 )
-from backend.app.domains.downloads.workers.progress import (
-    DOWNLOAD_END,
-    FINALIZE_END,
-    PREPARE_END,
-    TaskProgress,
-)
-from backend.app.domains.downloads.workers.runner import _count_progress
+from backend.app.domains.options.template_tokens import template_tokens
 from backend.app.domains.settings import CookiePolicy
 from tests.support import engine_by_name
 
@@ -653,7 +660,7 @@ def test_gallerydl_nickname_field_uses_configured_list_authoritatively():
 
 
 def test_build_output_template_applies_per_source_fields(monkeypatch):
-    monkeypatch.setattr(analysis_module, "get_effective_fields", lambda url: {"username": ["channel"]})
+    monkeypatch.setattr(templates_module, "get_effective_fields", lambda url: {"username": ["channel"]})
     template = ytdlp.build_output_template(
         "https://example.com/watch?v=x",
         "/media/out",
@@ -1745,3 +1752,81 @@ def test_downloader_commands_and_templates_obey_naming_limits():
         cleaning={"shorten": True, "max_chars": 75},
     )
     assert '{title[:75]|content[:75]|"untitled"}' in gallery_tmpl
+
+
+def test_convert_template_to_ytdlp_maps_placeholders():
+    result = convert_template_to_ytdlp("{{username}} - {{title}} [{{id}}]")
+    assert "%(title|Unknown)s" in result
+    assert "%(id|NA)s" in result
+    assert "{{" not in result
+
+
+def test_convert_template_unknown_placeholder_falls_back():
+    assert convert_template_to_ytdlp("{{weird}}") == "%(weird|Unknown)s"
+
+
+def test_convert_template_username_uses_metadata_field_even_when_url_has_handle():
+    result = convert_template_to_ytdlp(
+        "{{username}} - {{title}} [{{id}}]",
+        "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001",
+    )
+
+    assert result.startswith(f"{YTDLP_USERNAME_FIELD} - ")
+    assert "fakeacc.com" not in result
+
+
+def test_convert_template_can_keep_explicit_creator_at_sign():
+    url = "https://www.tiktok.com/@fakeacc.com/video/7100000000000000001"
+
+    ytdlp_result = convert_template_to_ytdlp(
+        "{{username}}",
+        url,
+        extra_tokens={"username": "@fakeacc.com"},
+        cleaning={"strip_handle_at": False},
+    )
+    gallerydl_result = gallerydl_module.convert_template_to_gallerydl(
+        "{{username}}",
+        url,
+        extra_tokens={"username": "@fakeacc.com"},
+        cleaning={"strip_handle_at": False},
+    )
+
+    assert ytdlp_result == "@fakeacc.com"
+    assert gallerydl_result == "@fakeacc.com"
+
+
+def test_convert_template_username_without_url_handle_uses_handle_field():
+    # With no handle in the URL, fall back to the handle-first metadata field.
+    result = convert_template_to_ytdlp(
+        "{{username}} - {{title}} [{{id}}]",
+        "https://video.example/channel/UC-DemoChannel0000000001",
+    )
+
+    assert result.startswith(YTDLP_USERNAME_FIELD)
+    assert "UC-DemoChannel0000000001" not in result
+
+
+def test_convert_template_nickname_uses_display_name_field():
+    result = convert_template_to_ytdlp(
+        "{{nickname}}",
+        "https://video.example/channel/UC-DemoChannel0000000001",
+    )
+
+    assert result == YTDLP_NICKNAME_FIELD
+
+
+def test_convert_template_empty():
+    assert convert_template_to_ytdlp("") == ""
+    assert convert_template_to_ytdlp("   ") == ""
+
+
+def test_convert_template_quality_uses_selected_label_best_reads_source():
+    tmpl = "{{id}}_{{quality}}"
+    url = "https://rule34video.com/video/4483553/daiwa-scarlet-suokanawer/"
+    assert convert_template_to_ytdlp(tmpl, url, {"mode": "merged", "video_quality": "best"}).endswith("_source")
+    assert convert_template_to_ytdlp(tmpl, url, {"mode": "merged", "video_quality": "1080p"}).endswith("_1080p")
+
+
+def test_convert_template_quality_without_selection_keeps_metadata_specifier():
+    # Direct callers with no quality threaded through fall back to the delivered format.
+    assert "%(format_id" in convert_template_to_ytdlp("{{quality}}", "https://example.com/x")

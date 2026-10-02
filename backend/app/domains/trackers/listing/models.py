@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from backend.app.domains.downloads.links.analysis import url_dedup_key
+from backend.app.domains.formats.analysis import url_dedup_key
 
 
 @dataclass(frozen=True)

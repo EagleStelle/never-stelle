@@ -18,26 +18,20 @@ from backend.app.domains.access.rotation import (
 from backend.app.domains.downloads.cache import drop_file_cache
 from backend.app.domains.downloads.engines.engine import ENGINE_WINDOW, Engine, engine_fact, engine_order
 from backend.app.domains.downloads.library.history import save_history_entry
-from backend.app.domains.downloads.links.analysis import creator_from_url, media_id_from_url
-from backend.app.domains.downloads.links.learned_formats import learn_formats, reconstruct_url_candidates
 from backend.app.domains.downloads.links.learned_routes import route_shape
-from backend.app.domains.downloads.links.matching import match_template
 from backend.app.domains.downloads.links.urls import canonicalize_source_url, detect_source_key
 from backend.app.domains.downloads.naming.template_rows import template_row_fields, template_settings_from_row
 from backend.app.domains.downloads.postprocessing.containers import ensure_container_codec_compatibility
 from backend.app.domains.downloads.postprocessing.embed import apply_finalized_post_processing
 from backend.app.domains.downloads.postprocessing.ffmpeg import detect_ffmpeg_location
-from backend.app.domains.downloads.postprocessing.options import normalize_post_processing, post_processing_requested
 from backend.app.domains.downloads.postprocessing.payloads import (
     extractor_payload_from_sidecars,
     metadata_sidecars_for,
     scratch_payload_index,
 )
-from backend.app.domains.downloads.quality import normalize_quality_selection, quality_needs_ffmpeg
 from backend.app.domains.downloads.store import (
     append_task_log,
     learn_route,
-    load_learned_formats,
     load_task,
     record_task_progress,
     remove_task_record,
@@ -51,10 +45,7 @@ from backend.app.domains.downloads.workers.completion.outputs import (
     _existing_output_paths,
     _has_output_media,
 )
-from backend.app.domains.downloads.workers.completion.samples import (
-    _format_sample,
-    _learn_field_roles_from_download,
-)
+from backend.app.domains.downloads.workers.completion.samples import _format_sample, learn_field_roles
 from backend.app.domains.downloads.workers.completion.sidecars import (
     _extractor_metadata_fields,
     _metadata_output_paths,
@@ -65,7 +56,15 @@ from backend.app.domains.downloads.workers.completion.sidecars import (
 from backend.app.domains.downloads.workers.enrichment import enqueue_completion_enrichment
 from backend.app.domains.downloads.workers.progress import TaskProgress
 from backend.app.domains.downloads.workers.runner import _run_engine_to_task
+from backend.app.domains.formats.analysis import creator_from_url, media_id_from_url
+from backend.app.domains.formats.learning import learn_formats, reconstruct_url_candidates
+from backend.app.domains.formats.matching import match_template
+from backend.app.domains.formats.store import load_learned_formats
+from backend.app.domains.options.field_roles import FIELD_CANDIDATES
+from backend.app.domains.options.post_processing import normalize_post_processing, post_processing_requested
+from backend.app.domains.options.quality import normalize_quality_selection, quality_needs_ffmpeg
 from backend.app.domains.settings import detect_cookie_source, get_effective_fields
+from backend.app.domains.settings.learned_fields import has_learned_fields
 from backend.app.runtime.processes import (
     TaskCancelled,
     TaskDeferred,
@@ -477,12 +476,11 @@ def _run_task(
                     finalized.final_path,
                 )
                 if not field_roles_checked:
-                    field_roles_ready = _learn_field_roles_from_download(
-                        finalized.source_url,
-                        finalized.source_key,
-                        used_engine.name,
-                        metadata,
-                    )
+                    # A real download's metadata teaches the field order without a separate probe.
+                    engine_key = used_engine.name if used_engine.name in FIELD_CANDIDATES else "gallerydl"
+                    field_roles_ready = has_learned_fields(
+                        finalized.source_url, finalized.source_key
+                    ) or learn_field_roles(finalized.source_url, finalized.source_key, metadata, (engine_key,))
                     field_roles_checked = True
                 # Keep the primary row running until every output has finished.
                 # Otherwise a multi-item task becomes non-cancellable while later
@@ -514,7 +512,10 @@ def _run_task(
                 save_history_entry(row_task_id, completed_task)
                 remove_task_record(row_task_id)
             # Only a download whose every output was saved teaches its format.
-            needs_field_probe = learn_formats(format_samples) and not field_roles_ready
+            needs_field_probe = (
+                learn_formats([(*sample, get_effective_fields(sample[0])) for sample in format_samples])
+                and not field_roles_ready
+            )
             if first_row:
                 enqueue_completion_enrichment(
                     first_row[0],

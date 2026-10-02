@@ -10,6 +10,11 @@ from backend.app.core.config import (
     source_location_options,
 )
 from backend.app.core.resolution import is_scoped, resolved
+from backend.app.domains.options.field_roles import field_defaults
+from backend.app.domains.options.naming_rules import naming_choices, title_cleaning_rules
+from backend.app.domains.options.post_processing import default_post_processing, normalize_post_processing
+from backend.app.domains.options.quality import normalize_quality_defaults, quality_options
+from backend.app.domains.options.template_tokens import template_tokens
 
 from .cookies.jars import get_ytdlp_cookies_status
 from .cookies.policy import (
@@ -54,9 +59,6 @@ def get_effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str,
 
 
 def _effective_saved_settings(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
-    from backend.app.domains.downloads.postprocessing.options import normalize_post_processing
-    from backend.app.domains.downloads.quality import normalize_quality_defaults
-
     cfg = cfg or load_app_config()
     payload = load_saved_settings_file()
     source_profiles = get_effective_source_profiles(cfg, payload)
@@ -120,9 +122,6 @@ def persist_settings(
     raw_source_tracker_settings: Any = None,
     raw_tracker_tabs: Any = None,
 ) -> dict[str, Any]:
-    from backend.app.domains.downloads.postprocessing.options import normalize_post_processing
-    from backend.app.domains.downloads.quality import normalize_quality_defaults
-
     existing = load_saved_settings_file()
     source_profiles = get_effective_source_profiles(
         cfg,
@@ -226,11 +225,6 @@ def build_settings_response(
     saved: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from backend.app.domains.auth import auth_public_payload
-    from backend.app.domains.downloads.constants import template_tokens
-    from backend.app.domains.downloads.field_roles import field_defaults
-    from backend.app.domains.downloads.naming_rules import naming_choices, title_cleaning_rules
-    from backend.app.domains.downloads.postprocessing.options import default_post_processing
-    from backend.app.domains.downloads.quality import normalize_quality_defaults, quality_options
 
     cfg = cfg or load_app_config()
     saved = saved or get_effective_saved_settings(cfg)

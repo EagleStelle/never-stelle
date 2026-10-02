@@ -8,15 +8,18 @@ import httpx
 
 from backend.app.core.sources import normalize_source_key
 from backend.app.domains.access.rotation import access_rotation, load_cookie_jar
-from backend.app.domains.downloads.links.analysis import extract_url_part, prepare_url
-from backend.app.domains.downloads.links.matching import canonical_shape, match_template
 from backend.app.domains.downloads.naming.render import settings_tokens
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
+from backend.app.domains.formats.analysis import extract_url_part, prepare_url
+from backend.app.domains.formats.matching import canonical_shape, match_template
 from backend.app.domains.settings import (
+    SCRAPE_ATTR_TEXT,
     detect_cookie_source,
     load_scrape_rules,
     load_slug_tokens,
     load_token_roles,
+    normalize_scrape_rule,
+    normalize_token_name,
     scraper_token_from_field,
     token_role_matches,
 )
@@ -24,83 +27,10 @@ from backend.app.domains.settings import (
 # Per-platform user rules turn a page's own markup into filename/folder tokens,
 # for sites whose downloader leaves uploader/artist unextracted. Nothing here is
 # platform-specific: the label vocabulary lives in the user's settings, not code.
-ATTR_TEXT = "text"
 _MULTI_JOIN = ", "
 _FETCH_TIMEOUT_SECONDS = 12.0
 _FETCH_UA = "Mozilla/5.0"
-_TOKEN_RE = re.compile(r"[^a-zA-Z0-9_]+")
 _WS_RE = re.compile(r"\s+")
-
-
-# --- Rule normalization ---
-def _normalize_token(value: Any) -> str:
-    token = _TOKEN_RE.sub("_", str(value or "").strip()).strip("_")
-    if not token or not re.match(r"[a-zA-Z_]", token):
-        return ""
-    return token.lower()
-
-
-def normalize_scrape_rule(raw: Any, default_token: str = "") -> dict[str, Any] | None:
-    if not isinstance(raw, dict):
-        return None
-    token = _normalize_token(raw.get("token")) or default_token
-    if not token:
-        return None
-    rule = {
-        "token": token,
-        "match_label": str(raw.get("match_label") or "").strip(),
-        "selector": str(raw.get("selector") or "").strip(),
-        "attr": str(raw.get("attr") or "").strip() or ATTR_TEXT,
-        "multi": bool(raw.get("multi")),
-        "xpath": str(raw.get("xpath") or "").strip(),
-        # Learned template this rule is scoped to; only fires when the URL matches it.
-        "format": str(raw.get("format") or "").strip(),
-    }
-    # A rule with no way to locate a node is inert; keep only actionable ones.
-    if not rule["xpath"] and not rule["selector"] and not rule["match_label"]:
-        return None
-    return rule
-
-
-def normalize_platform_rules(raw: Any) -> dict[str, Any]:
-    source = raw if isinstance(raw, dict) else {}
-    raw_rules = source.get("rules") or []
-    rules: list[dict[str, Any]] = []
-    valid_count = 0
-    seen_tokens: set[str] = set()
-    for item in raw_rules:
-        if not isinstance(item, dict):
-            continue
-        xpath = str(item.get("xpath") or "").strip()
-        selector = str(item.get("selector") or "").strip()
-        match_label = str(item.get("match_label") or "").strip()
-        if not xpath and not selector and not match_label:
-            continue
-        default_tok = f"var{valid_count}"
-        rule = normalize_scrape_rule(item, default_token=default_tok)
-        if rule:
-            tok = rule["token"]
-            if tok in seen_tokens:
-                suffix = 0
-                while f"{tok}_{suffix}" in seen_tokens:
-                    suffix += 1
-                rule["token"] = f"{tok}_{suffix}"
-            seen_tokens.add(rule["token"])
-            rules.append(rule)
-            valid_count += 1
-    return {"rules": rules}
-
-
-def normalize_scrape_rules(raw: Any) -> dict[str, dict[str, Any]]:
-    source = raw if isinstance(raw, dict) else {}
-    out: dict[str, dict[str, Any]] = {}
-    for key, value in source.items():
-        platform = normalize_platform_rules(value)
-        source_key = normalize_source_key(key)
-        # Persist only platforms that actually define rules; empty is inert.
-        if source_key and platform["rules"]:
-            out[source_key] = platform
-    return out
 
 
 def active_rules_for_key(rules_map: Any, source_key: str) -> list[dict[str, Any]]:
@@ -142,7 +72,7 @@ def _own_text(element: Any) -> str:
 def _node_value(node: Any, attr: str) -> str:
     if isinstance(node, str):
         return _clean_value(node)
-    if attr and attr != ATTR_TEXT and hasattr(node, "get"):
+    if attr and attr != SCRAPE_ATTR_TEXT and hasattr(node, "get"):
         return _clean_value(node.get(attr, ""))
     if hasattr(node, "text_content"):
         return _clean_value(node.text_content())
@@ -274,7 +204,7 @@ def _output_rules_for_template(
     referenced = settings_tokens(template_row_fields(template_settings))
     if not referenced:
         return []
-    rule_by_token = {_normalize_token(rule.get("token")): rule for rule in rules}
+    rule_by_token = {normalize_token_name(rule.get("token")): rule for rule in rules}
     leading_role_tokens = {
         role: _leading_scraper_tokens_for_role(field_roles, role, roles, set(rule_by_token))
         for role in ("username", "nickname", "title")
@@ -290,7 +220,7 @@ def _output_rules_for_template(
                 out.append((rule, role))
                 claimed_role_tokens.add(token)
     for rule in rules:
-        token = _normalize_token(rule.get("token"))
+        token = normalize_token_name(rule.get("token"))
         if token in claimed_role_tokens:
             continue
         role = _scraper_role(roles.get(token))
@@ -380,13 +310,13 @@ def active_slug_rules_for_key(slug_map: Any, source_key: str) -> list[dict[str, 
     if rules:
         for item in rules:
             if isinstance(item, dict):
-                token = _normalize_token(item.get("token"))
+                token = normalize_token_name(item.get("token"))
                 part = str(item.get("part") or "").strip()
                 if part:
                     configured_by_part[part] = token
 
-    from backend.app.domains.downloads.links.learned_formats import describe_learned_segments
-    from backend.app.domains.downloads.store import load_learned_formats
+    from backend.app.domains.formats.learning import describe_learned_segments
+    from backend.app.domains.formats.store import load_learned_formats
 
     out: list[dict[str, str]] = []
     learned = load_learned_formats().get(normalize_source_key(source_key))
@@ -457,7 +387,7 @@ def configured_tokens(
     field_roles: Any,
 ) -> dict[str, str]:
     """Slug then scraper values for one link; the scraper wins a collision."""
-    from backend.app.domains.downloads.store import load_learned_formats
+    from backend.app.domains.formats.store import load_learned_formats
 
     token_roles = load_token_roles()
     tokens = resolve_slug_tokens(

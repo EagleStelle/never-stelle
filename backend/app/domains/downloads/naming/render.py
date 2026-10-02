@@ -20,8 +20,8 @@ from backend.app.domains.downloads.naming.filenames import (
     strip_numbered_suffix,
 )
 from backend.app.domains.downloads.naming.titles import _clean_creator_token, clean_filename_title
-from backend.app.domains.downloads.naming_rules import normalize_title_cleaning
-from backend.app.domains.downloads.quality import quality_label
+from backend.app.domains.options.naming_rules import normalize_title_cleaning
+from backend.app.domains.options.quality import quality_label
 from backend.app.domains.settings.templates import TEMPLATE_KEYS
 
 _ROW_TOKEN_FIELDS = {"title": "title", "id": "media_id", "username": "creator"}

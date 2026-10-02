@@ -4,11 +4,79 @@ import re
 from typing import Any
 
 from backend.app.core.sources import normalize_source_key
+from backend.app.domains.formats.matching import format_covers, learned_templates_for
+from backend.app.domains.formats.store import load_learned_formats
 
 from .storage import load_saved_settings_file
 from .tokens import normalize_token_name
 
 _FORMAT_TOKEN_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+# What a rule reads from a matched node when it names no attribute.
+SCRAPE_ATTR_TEXT = "text"
+
+
+def normalize_scrape_rule(raw: Any, default_token: str = "") -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    token = normalize_token_name(raw.get("token")) or default_token
+    if not token:
+        return None
+    rule = {
+        "token": token,
+        "match_label": str(raw.get("match_label") or "").strip(),
+        "selector": str(raw.get("selector") or "").strip(),
+        "attr": str(raw.get("attr") or "").strip() or SCRAPE_ATTR_TEXT,
+        "multi": bool(raw.get("multi")),
+        "xpath": str(raw.get("xpath") or "").strip(),
+        # Learned template this rule is scoped to; only fires when the URL matches it.
+        "format": str(raw.get("format") or "").strip(),
+    }
+    # A rule with no way to locate a node is inert; keep only actionable ones.
+    if not rule["xpath"] and not rule["selector"] and not rule["match_label"]:
+        return None
+    return rule
+
+
+def normalize_platform_rules(raw: Any) -> dict[str, Any]:
+    source = raw if isinstance(raw, dict) else {}
+    raw_rules = source.get("rules") or []
+    rules: list[dict[str, Any]] = []
+    valid_count = 0
+    seen_tokens: set[str] = set()
+    for item in raw_rules:
+        if not isinstance(item, dict):
+            continue
+        xpath = str(item.get("xpath") or "").strip()
+        selector = str(item.get("selector") or "").strip()
+        match_label = str(item.get("match_label") or "").strip()
+        if not xpath and not selector and not match_label:
+            continue
+        default_tok = f"var{valid_count}"
+        rule = normalize_scrape_rule(item, default_token=default_tok)
+        if rule:
+            tok = rule["token"]
+            if tok in seen_tokens:
+                suffix = 0
+                while f"{tok}_{suffix}" in seen_tokens:
+                    suffix += 1
+                rule["token"] = f"{tok}_{suffix}"
+            seen_tokens.add(rule["token"])
+            rules.append(rule)
+            valid_count += 1
+    return {"rules": rules}
+
+
+def normalize_scrape_rules(raw: Any) -> dict[str, dict[str, Any]]:
+    source = raw if isinstance(raw, dict) else {}
+    out: dict[str, dict[str, Any]] = {}
+    for key, value in source.items():
+        platform = normalize_platform_rules(value)
+        source_key = normalize_source_key(key)
+        # Persist only platforms that actually define rules; empty is inert.
+        if source_key and platform["rules"]:
+            out[source_key] = platform
+    return out
 
 
 def _format_scope_key(template: Any) -> str:
@@ -24,11 +92,7 @@ def _format_scope_key(template: Any) -> str:
 
 
 def _learned_format_templates(learned_formats: Any = None) -> dict[str, list[str]]:
-    from backend.app.domains.downloads.links.matching import learned_templates_for
-
     if learned_formats is None:
-        from backend.app.domains.downloads.store import load_learned_formats
-
         learned_formats = load_learned_formats()
 
     source = learned_formats if isinstance(learned_formats, dict) else {}
@@ -49,8 +113,6 @@ def _coerce_scrape_rule_format(rule_format: Any, templates: list[str]) -> str:
     if not value:
         return templates[0]
 
-    from backend.app.domains.downloads.links.matching import format_covers
-
     # Also finds the template a rule's format became once learning generalized it.
     scope = _format_scope_key(value)
     matches = [template for template in templates if format_covers(template, scope)]
@@ -62,8 +124,6 @@ def _coerce_scrape_rule_format(rule_format: Any, templates: list[str]) -> str:
 
 
 def normalize_source_scrape_rules(raw: Any, learned_formats: Any = None) -> dict[str, Any]:
-    from backend.app.domains.downloads.metadata.scraper import normalize_scrape_rules
-
     normalized = normalize_scrape_rules(raw)
     templates_by_source = _learned_format_templates(learned_formats)
     if not templates_by_source:

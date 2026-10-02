@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.app.domains.downloads.postprocessing.options import POST_PROCESSING_FEATURES
+from backend.app.domains.options.post_processing import POST_PROCESSING_FEATURES
 
 # Video modes cap resolution and prefer codecs the container can play.
 # Audio Auto stays native-only; explicit audio/video format choices add ffmpeg

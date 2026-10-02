@@ -15,13 +15,6 @@ from backend.app.domains.downloads.engines.probe import probe_link_metadata
 from backend.app.domains.downloads.files import is_media_file, payload_path_string
 from backend.app.domains.downloads.library.rename import apply_history_renames, download_location, plan_history_renames
 from backend.app.domains.downloads.library.scan import history_write_lock
-from backend.app.domains.downloads.links.learned_formats import reconstruct_url_candidates
-from backend.app.domains.downloads.links.matching import (
-    format_covers,
-    learned_templates_for,
-    match_template,
-    select_for_format,
-)
 from backend.app.domains.downloads.links.urls import detect_source_key
 from backend.app.domains.downloads.metadata.pipeline import naming_values
 from backend.app.domains.downloads.metadata.scraper import configured_tokens
@@ -42,13 +35,20 @@ from backend.app.domains.downloads.store import (
     history_resolve_flagged_ids,
     load_history,
     load_history_entry,
-    load_learned_formats,
     load_naming_snapshots,
     save_history_entry_row,
     save_naming_snapshots,
     spent_enrichment_job_ids,
     unfinished_enrichment_jobs,
 )
+from backend.app.domains.formats.learning import reconstruct_url_candidates
+from backend.app.domains.formats.matching import (
+    format_covers,
+    learned_templates_for,
+    match_template,
+    select_for_format,
+)
+from backend.app.domains.formats.store import load_learned_formats
 from backend.app.domains.settings import (
     detect_cookie_source,
     get_effective_fields,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Collection
+from collections.abc import Collection
 from typing import Any
 
 from backend.app.core.resolution import invalidate, resolved
@@ -16,7 +16,6 @@ from backend.app.db.repositories import (
     count_history_rows,
     count_pending_tasks,
     delete_history_rows,
-    delete_learned_format_row,
     delete_pending_enrichment_jobs_payload,
     delete_task_row,
     delete_task_rows_if_status,
@@ -31,14 +30,12 @@ from backend.app.db.repositories import (
     load_history_resolve_flagged_ids,
     load_history_row_ids,
     load_history_rows,
-    load_learned_formats_payload,
     load_naming_snapshots_payload,
     load_route_facts_payload,
     load_task_payload,
     load_task_rows,
     load_task_store_payload,
     load_unfinished_enrichment_jobs_payload,
-    merge_learned_formats_payload,
     merge_task_payload,
     next_pending_task_payload,
     open_rename_journal_entries,
@@ -48,7 +45,6 @@ from backend.app.db.repositories import (
     retry_enrichment_job_payload,
     save_history_row,
     save_history_rows,
-    save_learned_formats_payload,
     save_naming_snapshots_payload,
     tracker_ids_for_download_rows,
     upsert_enrichment_job_payload,
@@ -235,14 +231,6 @@ def save_naming_snapshots(payload: dict[str, Any]) -> None:
     save_naming_snapshots_payload(payload)
 
 
-LEARNED_FORMATS_KEY = "downloads.learned_formats"
-
-
-def load_learned_formats() -> dict[str, Any]:
-    # Template resolution runs per row, and each was re-querying the table.
-    return resolved(LEARNED_FORMATS_KEY, load_learned_formats_payload)
-
-
 ROUTE_FACTS_KEY = "downloads.route_facts"
 
 
@@ -269,24 +257,6 @@ def finish_renames(task_ids: list[str]) -> None:
     clear_rename_journal_entries(task_ids)
 
 
-def save_learned_formats(payload: dict[str, Any]) -> None:
-    """Upsert the sources in ``payload``. Sources absent from it keep their rows."""
-    save_learned_formats_payload(payload)
-    invalidate(LEARNED_FORMATS_KEY)
-
-
-def merge_learned_formats(
-    update: Callable[[dict[str, Any]], dict[str, Any]],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Learn on top of the stored formats as they are now, not a snapshot read earlier."""
-    before, after = merge_learned_formats_payload(update)
-    invalidate(LEARNED_FORMATS_KEY)
-    return before, after
-
-
-def forget_learned_format(source_key: str) -> None:
-    delete_learned_format_row(source_key)
-    invalidate(LEARNED_FORMATS_KEY)
 
 
 def update_task(task_id: str, **updates: Any) -> dict[str, Any]:

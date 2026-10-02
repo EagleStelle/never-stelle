@@ -1,1 +1,1 @@
-"""Source URLs: canonical form, learned URL formats and learned route facts."""
+"""Source URLs: canonical form, redirects and learned route facts."""

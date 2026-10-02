@@ -10,9 +10,9 @@ import httpx
 from backend.app.core.sources import apex_host, host_from_url, source_key_from_url
 from backend.app.domains.access.pool import cookie_rotation
 from backend.app.domains.access.rotation import load_cookie_jar
-from backend.app.domains.downloads.links.analysis import canonicalize_url, media_id_from_url, prepare_url
 from backend.app.domains.downloads.links.learned_routes import absence_settled, route_shape
 from backend.app.domains.downloads.store import learn_route, load_route_facts
+from backend.app.domains.formats.analysis import canonicalize_url, media_id_from_url, prepare_url
 from backend.app.domains.settings import browser_identity, detect_cookie_source
 
 _REDIRECT_TIMEOUT_SECONDS = 8.0

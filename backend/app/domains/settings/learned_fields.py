@@ -122,15 +122,10 @@ def save_learned_fields(
     source_url: str = "",
     source_key: str = "",
     field_roles: Any = None,
-    *,
-    only_when_missing: bool = True,
-    merge: bool = True,
 ) -> dict[str, list[str]]:
-    """Persist probed fields for one source.
+    """Merge probed fields into one source's saved order.
 
     Nothing is saved when the probe produced no usable username/nickname/title fields.
-    Automatic callers pass ``only_when_missing`` so the first successful probe
-    teaches the source without repeatedly hitting downloader metadata endpoints.
     """
     payload = load_saved_settings_file()
     key = _resolved_field_source_key(source_url, source_key, payload)
@@ -143,10 +138,7 @@ def save_learned_fields(
         return {}
     mapping = normalize_source_fields(payload.get("source_fields"), defaults)
     existing = mapping.get(key, {})
-    if existing and only_when_missing:
-        return existing
-
-    updated = _merge_field_roles(existing, learned) if merge else learned
+    updated = _merge_field_roles(existing, learned)
     updated = _normalized_field_roles_for_key(key, updated, defaults)
     if existing == updated:
         return existing

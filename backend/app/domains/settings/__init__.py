@@ -18,7 +18,6 @@ from backend.app.domains.settings.cookies.policy import (
     cookie_policy_defaults,
     cookie_policy_for_source,
     get_effective_cookie_policies,
-    invalidate_cookie_policies,
     normalize_default_cookie_policy,
     normalize_source_cookie_policies,
 )
@@ -38,7 +37,7 @@ from backend.app.domains.settings.fields import (
     scraper_token_from_field,
     token_role_matches,
 )
-from backend.app.domains.settings.formats import add_source_and_learn_format, set_learned_format_templates
+from backend.app.domains.settings.formats import set_learned_format_templates
 from backend.app.domains.settings.icons import queue_icons, stored_icon
 from backend.app.domains.settings.locations import (
     get_effective_source_location,
@@ -55,8 +54,10 @@ from backend.app.domains.settings.profiles import (
     require_settings_managed_source,
 )
 from backend.app.domains.settings.scraping import (
+    SCRAPE_ATTR_TEXT,
     get_effective_scrape_rules,
     load_scrape_rules,
+    normalize_scrape_rule,
     normalize_source_scrape_rules,
 )
 from backend.app.domains.settings.service import build_settings_response, get_effective_saved_settings, persist_settings
@@ -98,10 +99,10 @@ __all__ = [
     "BUILTIN_FOLDER_TEMPLATE",
     "BUILTIN_SUBFOLDER_TEMPLATE",
     "DEFAULT_COOKIE_POLICY",
+    "SCRAPE_ATTR_TEXT",
     "TEMPLATE_KEYS",
     "BrowserIdentity",
     "CookiePolicy",
-    "add_source_and_learn_format",
     "browser_identity",
     "build_settings_response",
     "builtin_cookie_policy_defaults",
@@ -134,7 +135,6 @@ __all__ = [
     "get_ytdlp_cookies_status",
     "has_cookies_for_source",
     "has_cookies_for_url",
-    "invalidate_cookie_policies",
     "is_scraper_field",
     "iter_resolved_source_locations",
     "list_cookies_for_source",
@@ -147,6 +147,7 @@ __all__ = [
     "normalize_default_fields",
     "normalize_default_naming",
     "normalize_field",
+    "normalize_scrape_rule",
     "normalize_source_cookie_policies",
     "normalize_source_fields",
     "normalize_source_location_selection",

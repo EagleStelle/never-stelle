@@ -10,14 +10,11 @@ from backend.app.core.time import utc_now
 from backend.app.domains.downloads.cache import drop_file_cache
 from backend.app.domains.downloads.constants import COMPLETION_JOB_KIND, RESOLVE_JOB_KIND, enrichment_job_id
 from backend.app.domains.downloads.engines.probe import learn_missing_fields_for_format, probe_link_metadata
-from backend.app.domains.downloads.field_roles import FIELD_CANDIDATES, field_roles_from_probe_fields
 from backend.app.domains.downloads.files import is_media_file
 from backend.app.domains.downloads.library.resolve import record_resolve_outcome, resolve_history_entry
 from backend.app.domains.downloads.library.scan import scan_in_progress
 from backend.app.domains.downloads.postprocessing.embed import apply_finalized_post_processing
-from backend.app.domains.downloads.postprocessing.options import normalize_post_processing, post_processing_requested
 from backend.app.domains.downloads.postprocessing.payloads import extractor_payload_from_sidecars, metadata_sidecars_for
-from backend.app.domains.downloads.quality import normalize_quality_selection
 from backend.app.domains.downloads.store import (
     active_download_task_count,
     claim_next_enrichment_job,
@@ -30,8 +27,11 @@ from backend.app.domains.downloads.store import (
     save_history_entry_row,
 )
 from backend.app.domains.downloads.workers.completion.finalize import _finalize_completed_output
+from backend.app.domains.downloads.workers.completion.samples import learn_field_roles
 from backend.app.domains.downloads.workers.completion.sidecars import _merge_probe_metadata
-from backend.app.domains.settings.learned_fields import save_missing_learned_fields
+from backend.app.domains.options.field_roles import FIELD_CANDIDATES
+from backend.app.domains.options.post_processing import normalize_post_processing, post_processing_requested
+from backend.app.domains.options.quality import normalize_quality_selection
 
 _IDLE_SLEEP_SECONDS = 2.0
 _MAX_ATTEMPTS = 3
@@ -158,20 +158,6 @@ def _process_enrichment_job(job: dict[str, Any]) -> None:
         complete_enrichment_job(str(job.get("id") or ""))
 
 
-def _learn_field_roles_from_metadata(source_url: str, source_key: str, metadata: dict[str, str]) -> bool:
-    if not metadata:
-        return False
-    fields_by_engine: dict[str, list[str]] = {}
-    for engine, candidates in FIELD_CANDIDATES.items():
-        present = [field for field in candidates if str(metadata.get(field) or "").strip()]
-        if present:
-            fields_by_engine[engine] = present
-    roles = field_roles_from_probe_fields(fields_by_engine)
-    if not roles:
-        return False
-    return bool(save_missing_learned_fields(source_url, source_key, roles))
-
-
 def _history_file_size(path: Path) -> int:
     try:
         return path.stat().st_size
@@ -265,6 +251,6 @@ def _run_enrichment_job(job: dict[str, Any]) -> None:
 
     if not payload.get("needs_field_probe"):
         return
-    if metadata and _learn_field_roles_from_metadata(source_url, source_key, metadata):
+    if learn_field_roles(source_url, source_key, metadata, FIELD_CANDIDATES):
         return
     learn_missing_fields_for_format(source_url, source_key, low_priority=True)

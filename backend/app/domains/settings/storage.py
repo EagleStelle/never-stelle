@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from backend.app.core.resolution import invalidate, resolved
@@ -8,6 +9,12 @@ from backend.app.db.repositories import load_settings_payload, save_settings_pay
 # Every derivation below (profiles, fields, templates, cleaning) starts by reading
 # this row, so a single operation used to decode it dozens of times.
 SAVED_SETTINGS_KEY = "settings.saved"
+
+_SAVE_LISTENERS: list[Callable[[], None]] = []
+
+
+def on_settings_saved(listener: Callable[[], None]) -> None:
+    _SAVE_LISTENERS.append(listener)
 
 
 def _read_saved_settings_file() -> dict[str, Any]:
@@ -26,6 +33,5 @@ def save_saved_settings_file(payload: dict[str, Any]) -> None:
     invalidate(SAVED_SETTINGS_KEY, "settings.", "core.")
     # Sole settings write path, so cached derivations can trust their entries
     # until this fires instead of re-reading the row per use.
-    from .cookies.policy import invalidate_cookie_policies
-
-    invalidate_cookie_policies()
+    for listener in _SAVE_LISTENERS:
+        listener()

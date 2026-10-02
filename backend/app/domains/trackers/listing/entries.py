@@ -19,8 +19,9 @@ from backend.app.domains.downloads.engines.probe import (
     url_exact_values,
     ytdlp_single_video,
 )
-from backend.app.domains.downloads.field_roles import FIELD_ROLE_CHAINS
-from backend.app.domains.downloads.links.analysis import (
+from backend.app.domains.downloads.links.urls import is_strong_media_id
+from backend.app.domains.downloads.metadata.scraper import fetch_html
+from backend.app.domains.formats.analysis import (
     alnum_fold,
     canonicalize_url,
     is_identifier_key,
@@ -29,11 +30,10 @@ from backend.app.domains.downloads.links.analysis import (
     prepare_url,
     url_dedup_key,
 )
-from backend.app.domains.downloads.links.learned_formats import id_matches, learn_download, reconstruct_url_candidates
-from backend.app.domains.downloads.links.matching import match_template
-from backend.app.domains.downloads.links.urls import is_strong_media_id
-from backend.app.domains.downloads.metadata.scraper import fetch_html
-from backend.app.domains.downloads.store import load_learned_formats
+from backend.app.domains.formats.learning import id_matches, learn_download, reconstruct_url_candidates
+from backend.app.domains.formats.matching import match_template
+from backend.app.domains.formats.store import load_learned_formats
+from backend.app.domains.options.field_roles import FIELD_ROLE_CHAINS
 from backend.app.domains.settings.fields import get_effective_field_defaults, get_effective_fields
 from backend.app.domains.trackers.listing.models import Entry
 from backend.app.domains.trackers.listing.streams import _engine_entries, _gallerydl_command

@@ -17,8 +17,8 @@ from backend.app.api.schemas.settings import (
 from backend.app.core.config import load_app_config
 from backend.app.core.sources import normalize_source_key, source_key_from_url
 from backend.app.domains.downloads.library.resolve import watch_naming_changes
+from backend.app.domains.downloads.operations import add_source_and_learn_format
 from backend.app.domains.settings import (
-    add_source_and_learn_format,
     build_settings_response,
     clear_ytdlp_cookie,
     clear_ytdlp_cookies_upload,
@@ -26,6 +26,7 @@ from backend.app.domains.settings import (
     get_effective_saved_settings,
     get_effective_source_profiles,
     merge_tracker_tabs,
+    normalize_scrape_rule,
     normalize_source_tracker_tabs,
     persist_settings,
     reorder_ytdlp_cookies,
@@ -81,7 +82,7 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
 @router.post("/scrape-test")
 def scrape_test(payload: ScrapeTestPayload) -> dict[str, Any]:
     from backend.app.domains.downloads.links.urls import resolve_redirect_url
-    from backend.app.domains.downloads.metadata.scraper import fetch_html, normalize_scrape_rule, scrape_tokens
+    from backend.app.domains.downloads.metadata.scraper import fetch_html, scrape_tokens
 
     url = resolve_redirect_url(payload.url.strip())
     if not url:
@@ -127,8 +128,6 @@ def probe_fields(payload: ProbeLinkPayload) -> dict[str, Any]:
             url,
             str(result.get("source_key") or payload.source_key),
             result.get("field_roles"),
-            only_when_missing=False,
-            merge=True,
         )
         if learned:
             result["field_roles"] = learned

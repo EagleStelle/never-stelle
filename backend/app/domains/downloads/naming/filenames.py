@@ -5,7 +5,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from backend.app.domains.downloads.naming_rules import SAFE_FILENAME_MAX_BYTES, TITLE_MAX_CHARS_DEFAULT
+from backend.app.domains.options.naming_rules import SAFE_FILENAME_MAX_BYTES, TITLE_MAX_CHARS_DEFAULT
 
 # --- Shared character classes ---
 _INVALID_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f\u29f8\u29f9]')

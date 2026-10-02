@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import UploadFile
@@ -27,6 +28,18 @@ from backend.app.runtime.scratch import remove_scratch_path, write_scratch_file
 # A source holds any number of cookie jars; the pool rotates between them.
 MAX_COOKIE_UPLOAD_BYTES = 5 * 1024 * 1024
 COOKIE_RUNTIME_FILE_PREFIX = "nvs-cookie-"
+
+# Called with the source key whenever its jars change.
+_COOKIE_LISTENERS: list[Callable[[str], None]] = []
+
+
+def on_cookies_changed(listener: Callable[[str], None]) -> None:
+    _COOKIE_LISTENERS.append(listener)
+
+
+def _cookies_changed(source_key: str) -> None:
+    for listener in _COOKIE_LISTENERS:
+        listener(source_key)
 
 
 def normalize_cookie_source(source_key: Any) -> str:
@@ -123,9 +136,7 @@ async def save_ytdlp_cookies_upload(uploaded: UploadFile, source_key: str, user_
     filename = _stored_cookie_filename(source_key)
     user_agent = desktop_chrome_user_agent(user_agent)
     add_source_cookie(cookie_id, source_key, filename, raw, user_agent)
-    from backend.app.domains.access.pool import invalidate_cookie_pool
-
-    invalidate_cookie_pool(source_key)
+    _cookies_changed(source_key)
     return _cookie_entry({"id": cookie_id, "filename": filename, "user_agent": user_agent})
 
 
@@ -143,15 +154,11 @@ def clear_ytdlp_cookie(source_key: str, cookie_id: str) -> None:
     if not stored or normalize_cookie_source(stored.get("source_key")) != source_key:
         raise ValueError("That cookies file no longer exists.")
     delete_source_cookie(stored["id"])
-    from backend.app.domains.access.pool import invalidate_cookie_pool
-
-    invalidate_cookie_pool(source_key)
+    _cookies_changed(source_key)
 
 
 def clear_ytdlp_cookies_upload(source_key: str) -> None:
     require_settings_managed_source(source_key)
     source_key = normalize_cookie_source(source_key)
     delete_source_cookies(source_key)
-    from backend.app.domains.access.pool import invalidate_cookie_pool
-
-    invalidate_cookie_pool(source_key)
+    _cookies_changed(source_key)

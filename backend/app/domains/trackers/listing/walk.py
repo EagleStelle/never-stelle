@@ -4,8 +4,8 @@ from collections.abc import Callable, Generator, Iterator
 from contextlib import closing, suppress
 from typing import Any
 
-from backend.app.domains.downloads.links.analysis import canonicalize_url, prepare_url, url_dedup_key
 from backend.app.domains.downloads.metadata.scraper import fetch_html
+from backend.app.domains.formats.analysis import canonicalize_url, prepare_url, url_dedup_key
 from backend.app.domains.trackers.browser import BrowserSession
 from backend.app.domains.trackers.listing.candidates import _had, _Probes
 from backend.app.domains.trackers.listing.collection import _MAX_DEPTH, _collection_entries

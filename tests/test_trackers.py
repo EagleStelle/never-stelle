@@ -14,8 +14,8 @@ import backend.app.db.database as database_module
 import backend.app.db.repositories.trackers as tracker_rows
 import backend.app.domains.downloads.files as files_module
 import backend.app.domains.downloads.library.scan as scan_module
-import backend.app.domains.downloads.links.analysis as analysis_module
 import backend.app.domains.downloads.operations as operations_module
+import backend.app.domains.formats.analysis as analysis_module
 import backend.app.domains.settings.trackers as settings_trackers_module
 import backend.app.domains.trackers.checker as scheduler_module
 import backend.app.domains.trackers.listing.candidates as candidates_module

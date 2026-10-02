@@ -16,13 +16,6 @@ from backend.app.domains.downloads.postprocessing.chapters import (
     _write_chapter_sidecar,
 )
 from backend.app.domains.downloads.postprocessing.ffmpeg import _ffprobe_streams, _run_ffmpeg, detect_ffmpeg_location
-from backend.app.domains.downloads.postprocessing.options import (
-    MEDIA_ONLY_POST_PROCESSING_FEATURES,
-    POST_PROCESSING_FEATURES,
-    normalize_post_processing,
-    post_processing_modes,
-    post_processing_requested,
-)
 from backend.app.domains.downloads.postprocessing.payloads import (
     _publish_bytes,
     _remove_source_sidecars,
@@ -48,7 +41,14 @@ from backend.app.domains.downloads.postprocessing.thumbnails import (
     _thumbnail_mime_type,
 )
 from backend.app.domains.downloads.postprocessing.xmp import _embed_image_metadata
-from backend.app.domains.downloads.quality import normalize_quality_selection
+from backend.app.domains.options.post_processing import (
+    MEDIA_ONLY_POST_PROCESSING_FEATURES,
+    POST_PROCESSING_FEATURES,
+    normalize_post_processing,
+    post_processing_modes,
+    post_processing_requested,
+)
+from backend.app.domains.options.quality import normalize_quality_selection
 from backend.app.runtime.processes import raise_if_cancelled
 from backend.app.runtime.scratch import publish_staged_file, remove_scratch_path, staging_file
 

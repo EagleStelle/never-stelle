@@ -20,13 +20,6 @@ from backend.app.core.time import utc_now
 from backend.app.domains.downloads.constants import CREATOR_FIELDS, MEDIA_EXTENSIONS, TEMPLATE_RE
 from backend.app.domains.downloads.files import chapter_folder, payload_path_string, recover_task_path
 from backend.app.domains.downloads.library.rename import recover_interrupted_renames, rows_needing_resolve
-from backend.app.domains.downloads.links.analysis import media_id_from_url
-from backend.app.domains.downloads.links.learned_formats import (
-    conflicts_with_source,
-    guess_sources,
-    reconstruct_url_candidates,
-)
-from backend.app.domains.downloads.links.matching import url_in_format
 from backend.app.domains.downloads.naming.filenames import (
     UNRECOVERABLE_MEDIA_IDS,
     parse_filename_media_id,
@@ -36,13 +29,20 @@ from backend.app.domains.downloads.naming.render import clean_template_display_f
 from backend.app.domains.downloads.naming.template_rows import template_row_fields, template_settings_from_row
 from backend.app.domains.downloads.store import (
     load_history,
-    load_learned_formats,
     load_task_store,
     remove_history_records,
     remove_task_record,
     save_history_entry_rows,
     sync_history_resolve_flags,
 )
+from backend.app.domains.formats.analysis import media_id_from_url
+from backend.app.domains.formats.learning import (
+    conflicts_with_source,
+    guess_sources,
+    reconstruct_url_candidates,
+)
+from backend.app.domains.formats.matching import url_in_format
+from backend.app.domains.formats.store import load_learned_formats
 from backend.app.domains.settings import (
     get_effective_title_cleaning,
     iter_resolved_source_locations,
@@ -499,7 +499,7 @@ def _scan_slug_tokens_map() -> dict[str, list[dict[str, str]]]:
     # URL parts from filenames and reconstruct links generically (no platform logic).
     try:
         from backend.app.domains.downloads.metadata.scraper import active_slug_rules_for_key
-        from backend.app.domains.downloads.store import load_learned_formats
+        from backend.app.domains.formats.store import load_learned_formats
 
         slug_map = _scan_settings_section("source_slug_tokens")
         keys = set(slug_map.keys()) | set(load_learned_formats().keys())

@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 
 from backend.app.domains.downloads.library.history import find_history_by_source
-from backend.app.domains.downloads.links.analysis import canonicalize_url, url_dedup_key
+from backend.app.domains.formats.analysis import canonicalize_url, url_dedup_key
 from backend.app.domains.trackers.listing.entries import _Resolver
 from backend.app.domains.trackers.listing.models import Backlog, Entry
 from backend.app.runtime.processes import TaskCancelled, request_cancel, task_execution

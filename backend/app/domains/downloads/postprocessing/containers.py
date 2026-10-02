@@ -12,7 +12,7 @@ from backend.app.domains.downloads.postprocessing.ffmpeg import (
     _stream_copy_command,
     detect_ffmpeg_location,
 )
-from backend.app.domains.downloads.quality import (
+from backend.app.domains.options.quality import (
     AUDIO_FORMAT_ENCODERS,
     AUDIO_FORMAT_FOURCC,
     VIDEO_CODEC_ENCODERS,

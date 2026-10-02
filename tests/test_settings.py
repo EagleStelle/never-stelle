@@ -121,31 +121,31 @@ def test_normalize_source_slug_tokens_validates_parts_and_dedupes():
 
 
 def test_active_slug_rules_exposes_implicit_var_tokens_from_learned_segments(monkeypatch):
-    import backend.app.domains.downloads.store as store_mod
-    from backend.app.domains.downloads.links.learned_formats import learn_download
+    import backend.app.domains.formats.store as store_mod
     from backend.app.domains.downloads.metadata.scraper import active_slug_rules_for_key
+    from backend.app.domains.formats.learning import learn_download
 
     learned = learn_download(
         {},
         "https://rule34video.com/video/3238394/wsds-minus8/",
         "3238394",
     )
-    monkeypatch.setattr(store_mod, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(store_mod, "load_learned_formats_payload", lambda: learned)
 
     assert active_slug_rules_for_key({}, "rule34video") == [{"token": "var0", "part": "path:2"}]
 
 
 def test_blank_source_slug_token_disables_default_slug_mapping(monkeypatch):
-    import backend.app.domains.downloads.store as store_mod
-    from backend.app.domains.downloads.links.learned_formats import learn_download
+    import backend.app.domains.formats.store as store_mod
     from backend.app.domains.downloads.metadata.scraper import active_slug_rules_for_key
+    from backend.app.domains.formats.learning import learn_download
 
     learned = learn_download(
         {},
         "https://rule34video.com/video/3238394/wsds-minus8/",
         "3238394",
     )
-    monkeypatch.setattr(store_mod, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(store_mod, "load_learned_formats_payload", lambda: learned)
 
     assert (
         active_slug_rules_for_key(
@@ -157,16 +157,16 @@ def test_blank_source_slug_token_disables_default_slug_mapping(monkeypatch):
 
 
 def test_resolve_slug_tokens_uses_implicit_var_and_explicit_custom_name(monkeypatch):
-    import backend.app.domains.downloads.store as store_mod
-    from backend.app.domains.downloads.links.learned_formats import learn_download
+    import backend.app.domains.formats.store as store_mod
     from backend.app.domains.downloads.metadata.scraper import resolve_slug_tokens
+    from backend.app.domains.formats.learning import learn_download
 
     learned = learn_download(
         {},
         "https://rule34video.com/video/3238394/wsds-minus8/",
         "3238394",
     )
-    monkeypatch.setattr(store_mod, "load_learned_formats", lambda: learned)
+    monkeypatch.setattr(store_mod, "load_learned_formats_payload", lambda: learned)
     url = "https://rule34video.com/video/3238394/wsds-minus8/"
 
     assert resolve_slug_tokens(
@@ -190,10 +190,10 @@ def test_resolve_slug_tokens_uses_implicit_var_and_explicit_custom_name(monkeypa
 
 
 def test_resolve_slug_tokens_ignores_raw_template_token_when_role_assigned(monkeypatch):
-    import backend.app.domains.downloads.store as store_mod
+    import backend.app.domains.formats.store as store_mod
     from backend.app.domains.downloads.metadata.scraper import resolve_slug_tokens
 
-    monkeypatch.setattr(store_mod, "load_learned_formats", lambda: {})
+    monkeypatch.setattr(store_mod, "load_learned_formats_payload", lambda: {})
     url = "https://rule34video.com/video/3238394/wsds-minus8/"
     slug_map = {"rule34video": [{"part": "path:2", "token": "series"}]}
 
@@ -207,8 +207,8 @@ def test_resolve_slug_tokens_ignores_raw_template_token_when_role_assigned(monke
 
 
 def test_resolve_slug_tokens_maps_url_part_to_role_and_custom_token(monkeypatch):
-    import backend.app.domains.downloads.store as store_mod
-    monkeypatch.setattr(store_mod, "load_learned_formats", lambda: {})
+    import backend.app.domains.formats.store as store_mod
+    monkeypatch.setattr(store_mod, "load_learned_formats_payload", lambda: {})
 
     from backend.app.domains.downloads.metadata.scraper import resolve_slug_tokens
 
@@ -461,30 +461,6 @@ def test_learned_url_creator_defaults_do_not_promote_saved_field_roles(monkeypat
     }
 
 
-def test_add_source_and_learn_format_returns_matched_template(tmp_path, monkeypatch):
-    import backend.app.domains.downloads.engines.probe as probe_mod
-
-    use_temp_db(tmp_path, monkeypatch)
-    monkeypatch.setattr(
-        settings_formats_module,
-        "load_app_config",
-        lambda: {
-            "sourceProfiles": [
-                {"key": "facebook", "label": "Facebook", "hosts": ["facebook.com"]}
-            ]
-        },
-    )
-    monkeypatch.setattr(probe_mod, "probe_link_fields", lambda *args, **kwargs: {})
-
-    result = settings_formats_module.add_source_and_learn_format(
-        "https://www.facebook.com/reel/800000000000002"
-    )
-
-    assert result["source_key"] == "facebook"
-    assert result["media_id"] == "800000000000002"
-    assert result["format_template"] == "https://www.facebook.com/reel/{id}"
-
-
 def test_clearing_last_format_clears_source_fields(tmp_path, monkeypatch):
     from backend.app.db import repositories
 
@@ -564,7 +540,6 @@ def test_save_learned_fields_drops_roles_matching_global_defaults(monkeypatch):
         "",
         "youtube",
         {"username": ["uploader_id"], "nickname": ["channel"]},
-        only_when_missing=False,
     )
 
     assert result == {"nickname": ["channel"]}
@@ -583,7 +558,6 @@ def test_learned_field_roles_merges_without_clobbering_existing(monkeypatch):
         "",
         "youtube",
         {"username": ["uploader_id"], "nickname": ["uploader"]},
-        only_when_missing=False,
     )
 
     assert result == {"username": ["channel", "uploader_id"], "nickname": ["uploader"]}
@@ -672,30 +646,6 @@ def test_format_field_probe_writes_no_format(tmp_path, monkeypatch):
     assert repositories.load_learned_formats_payload() == {}
 
 
-def test_adding_a_link_learns_its_format_from_one_probe(tmp_path, monkeypatch):
-    import backend.app.domains.downloads.engines.probe as probe_mod
-    from backend.app.db import repositories
-
-    use_temp_db(tmp_path, monkeypatch)
-    probes: list[str] = []
-
-    def probe(url, key=""):
-        probes.append(url)
-        return {
-            "source_key": "example",
-            "field_roles": {"username": ["author[uniqueId]"]},
-            "metadata": {"author[uniqueId]": "alice"},
-        }
-
-    monkeypatch.setattr(probe_mod, "probe_link_fields", probe)
-
-    result = settings_formats_module.add_source_and_learn_format("https://example.test/alice/post/22222222")
-
-    assert probes == ["https://example.test/alice/post/22222222"]
-    assert result["format_template"] == "https://example.test/{username}/post/{id}"
-    assert repositories.load_learned_formats_payload()["example"]["samples"] == 1
-
-
 def test_get_effective_title_cleaning_resolves_per_source(monkeypatch):
     monkeypatch.setattr(
         fields_module,
@@ -731,7 +681,7 @@ def test_get_effective_title_cleaning_falls_back_to_configured_defaults(monkeypa
 
 
 def test_get_effective_field_defaults_prefers_configured_order(monkeypatch):
-    from backend.app.domains.downloads.field_roles import field_defaults
+    from backend.app.domains.options.field_roles import field_defaults
 
     assert get_effective_field_defaults({}) == field_defaults()
     configured = get_effective_field_defaults(
@@ -766,7 +716,7 @@ def test_normalize_source_templates_keeps_per_source_values():
 
 
 def test_get_effective_template_settings_uses_format_keyed_source_template(monkeypatch):
-    import backend.app.domains.downloads.store as store_mod
+    import backend.app.domains.formats.store as store_mod
 
     format_template = "https://twitter.com/{creator}/status/{id}"
     monkeypatch.setattr(
@@ -797,7 +747,7 @@ def test_get_effective_template_settings_uses_format_keyed_source_template(monke
     )
     monkeypatch.setattr(
         store_mod,
-        "load_learned_formats",
+        "load_learned_formats_payload",
         lambda: {"twitter": {"templates": [format_template], "segments": []}},
     )
 
@@ -821,11 +771,11 @@ _TWITTER_ROOT = MEDIA_DIR / "twitter"
 
 
 def _learn_twitter_formats(monkeypatch, *templates: str) -> None:
-    import backend.app.domains.downloads.store as store_mod
+    import backend.app.domains.formats.store as store_mod
 
     monkeypatch.setattr(
         store_mod,
-        "load_learned_formats",
+        "load_learned_formats_payload",
         lambda: {"twitter": {"templates": list(templates), "segments": []}},
     )
 
@@ -1008,7 +958,7 @@ def test_resolve_task_settings_keeps_source_location_and_templates(monkeypatch):
         },
     )
 
-    from backend.app.domains.downloads import store
+    from backend.app.domains.formats import store
     monkeypatch.setattr(
         store,
         "load_learned_formats_payload",
@@ -1060,7 +1010,7 @@ def test_resolve_task_settings_matches_format(monkeypatch):
         },
     )
     
-    from backend.app.domains.downloads import store
+    from backend.app.domains.formats import store
     monkeypatch.setattr(
         store,
         "load_learned_formats_payload",

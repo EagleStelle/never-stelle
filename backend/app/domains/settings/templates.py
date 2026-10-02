@@ -6,6 +6,8 @@ from typing import Any
 from backend.app.core.config import load_app_config
 from backend.app.core.resolution import resolved
 from backend.app.core.sources import normalize_source_key
+from backend.app.domains.formats.matching import match_template, select_for_format
+from backend.app.domains.formats.store import load_learned_formats
 
 from .profiles import get_effective_source_profiles, get_source_profile_for_url, settings_managed_profiles
 from .storage import load_saved_settings_file
@@ -114,17 +116,12 @@ def possible_template_settings(source_key: str) -> dict[str, dict[str, str]]:
 
 def template_settings_for(options: dict[str, dict[str, str]], format_template: str) -> dict[str, str]:
     """The set ``options`` (as ``possible_template_settings`` returns them) holds for one format."""
-    from backend.app.domains.downloads.links.matching import select_for_format
-
     matched = select_for_format({fmt: value for fmt, value in options.items() if fmt}, format_template)
     return normalize_template_settings(matched if matched is not None else options[""])
 
 
 def link_format(source_url: str) -> tuple[str, str]:
     """The source key and learned format a link resolves to."""
-    from backend.app.domains.downloads.links.matching import match_template
-    from backend.app.domains.downloads.store import load_learned_formats
-
     key = get_source_profile_for_url(source_url, load_app_config(), load_saved_settings_file())["key"]
     return key, match_template(load_learned_formats(), key, source_url)
 

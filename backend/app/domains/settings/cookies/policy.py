@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.app.core.sources import normalize_source_key
-from backend.app.domains.settings.storage import load_saved_settings_file
+from backend.app.domains.settings.storage import load_saved_settings_file, on_settings_saved
 
 
 @dataclass(frozen=True)
@@ -109,6 +109,9 @@ def invalidate_cookie_policies() -> None:
     with _cache_lock:
         _policies_cache = None
         _default_policy_cache = None
+
+
+on_settings_saved(invalidate_cookie_policies)
 
 
 def _resolved_policies() -> tuple[CookiePolicy, dict[str, CookiePolicy]]:

@@ -25,7 +25,7 @@ from backend.app.domains.downloads.metadata.values import (
 )
 from backend.app.domains.downloads.naming.filenames import sanitize_path_literal
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
-from backend.app.domains.downloads.quality import quality_label
+from backend.app.domains.options.quality import quality_label
 
 _PATH_SEPARATOR_RE = re.compile(r"[\\/]+")
 _NON_SEGMENTS = {".", ".."}
