@@ -224,6 +224,8 @@ COPY --link --from=ffmpeg-builder /opt/ffmpeg /opt/ffmpeg
 COPY --link --from=chrome-builder /chrome-dist/bundle/ /opt/chrome/
 COPY --link --from=chrome-builder /chrome-dist/lib64/ /lib64/
 
+ARG TARGETARCH
+
 RUN --mount=type=bind,from=python-wheels,source=/wheels,target=/wheels \
     --mount=type=bind,source=requirements.txt,target=requirements.txt \
     apk add --no-cache --virtual .strip-deps binutils upx \
@@ -236,7 +238,8 @@ RUN --mount=type=bind,from=python-wheels,source=/wheels,target=/wheels \
     && mkdir -p "$NEVER_STELLE_IMPERSONATE_PATH" \
     && mv "$site"/curl_cffi "$site"/curl_cffi-*.dist-info "$site"/_cffi_backend*.so "$NEVER_STELLE_IMPERSONATE_PATH"/ \
     && rm -rf "$site"/cffi "$site"/cffi-*.dist-info "$site"/pycparser "$site"/pycparser-*.dist-info \
-    && upx --best "$NEVER_STELLE_IMPERSONATE_PATH"/curl_cffi/_wrapper*.so \
+    # UPX-packed shared libraries crash on arm64 with an illegal instruction.
+    && if [ "$TARGETARCH" = "amd64" ]; then upx --best "$NEVER_STELLE_IMPERSONATE_PATH"/curl_cffi/_wrapper*.so; fi \
     && PYTHONPATH="$NEVER_STELLE_IMPERSONATE_PATH" yt-dlp --list-impersonate-targets | grep -v unavailable | grep -q curl_cffi \
     && ! python -c 'import curl_cffi' 2>/dev/null \
     && apk del .strip-deps \
