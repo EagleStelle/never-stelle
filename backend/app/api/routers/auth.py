@@ -5,8 +5,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 
-from backend.app.api.deps import require_authenticated_session
-from backend.app.api.schemas.auth import AuthSessionResponse, CredentialsPayload, LoginPayload
+from backend.app.api.deps import require_auth
+from backend.app.api.schemas.auth import ApiKeyPayload, AuthSessionResponse, CredentialsPayload, LoginPayload
 from backend.app.domains.auth import (
     AuthError,
     InvalidCredentials,
@@ -14,6 +14,7 @@ from backend.app.domains.auth import (
     clear_session_cookie,
     create_session_token,
     current_auth_session,
+    set_api_key,
     set_session_cookie,
     update_auth_credentials,
 )
@@ -48,7 +49,7 @@ def auth_logout(response: Response) -> dict[str, Any]:
 @router.patch(
     "/credentials",
     response_model=AuthSessionResponse,
-    dependencies=[Depends(require_authenticated_session)],
+    dependencies=[Depends(require_auth)],
 )
 def auth_credentials(payload: CredentialsPayload, response: Response) -> dict[str, Any]:
     try:
@@ -63,4 +64,12 @@ def auth_credentials(payload: CredentialsPayload, response: Response) -> dict[st
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     set_session_cookie(response, create_session_token(auth))
     return {"authenticated": True, "username": auth["username"]}
+
+
+@router.put("/api-key", dependencies=[Depends(require_auth)])
+def auth_api_key(payload: ApiKeyPayload) -> dict[str, str]:
+    try:
+        return {"api_key": set_api_key(payload.api_key)}
+    except AuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 

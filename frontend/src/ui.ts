@@ -1,5 +1,4 @@
 import type { Component } from "vue";
-import IconAccount from "~icons/material-symbols/admin-panel-settings";
 import IconCheck from "~icons/material-symbols/check-circle";
 import IconClock from "~icons/material-symbols/schedule";
 import IconClose from "~icons/material-symbols/close";
@@ -22,6 +21,7 @@ import IconResume from "~icons/material-symbols/play-arrow";
 import IconRetry from "~icons/material-symbols/replay";
 import IconRuleFolder from "~icons/material-symbols/rule-folder";
 import IconScraper from "~icons/material-symbols/travel-explore";
+import IconSecurity from "~icons/material-symbols/shield-lock";
 import IconSlug from "~icons/material-symbols/link";
 import IconSpinner from "~icons/material-symbols/sync";
 import IconStop from "~icons/material-symbols/stop";
@@ -92,7 +92,7 @@ export const SELECTABLE_ITEM = "pointer-coarse:select-none pointer-coarse:[-webk
 export const SELECTING_ITEM = "cursor-pointer *:**:pointer-events-none";
 
 export const SETTINGS_SECTION_ICONS: Record<SettingsSection, Component> = {
-  account: IconAccount,
+  security: IconSecurity,
   defaults: IconDefaults,
   locations: IconFolder,
   cookies: IconCookie,

@@ -2,7 +2,7 @@ import type { Component } from "vue";
 
 import type { SettingsSection } from "@/types";
 import { SETTINGS_SECTION_ICONS } from "@/ui";
-import Account from "@/features/settings/sections/Settings/Account.vue";
+import Security from "@/features/settings/sections/Settings/Security.vue";
 import Cookies from "@/features/settings/sections/Settings/Cookies.vue";
 import Locations from "@/features/settings/sections/Settings/Locations.vue";
 import Defaults from "@/features/settings/sections/Settings/Defaults.vue";
@@ -31,12 +31,12 @@ export interface SettingsSectionDef {
 // key) and the sidebar, tabs, and content area pick it up automatically.
 export const SETTINGS_SECTION_DEFS: SettingsSectionDef[] = [
   {
-    key: "account",
-    label: "Account",
+    key: "security",
+    label: "Security",
     group: "Settings",
-    icon: SETTINGS_SECTION_ICONS.account,
-    component: Account,
-    focusId: () => "accountUsernameInput",
+    icon: SETTINGS_SECTION_ICONS.security,
+    component: Security,
+    focusId: () => "securityUsernameInput",
     requiresSources: false,
   },
   // Global fallbacks for every pane that also takes per-source overrides, so they read

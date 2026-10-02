@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.app.api.deps import require_authenticated_session
+from backend.app.api.deps import require_auth
 from backend.app.api.schemas.library import RenamePayload, ResolvePayload
 from backend.app.domains.downloads.library.resolve import (
     rename_counts,
@@ -20,7 +20,7 @@ from backend.app.integrations.swaratelle import client as swaratelle
 router = APIRouter(
     prefix="/library",
     tags=["library"],
-    dependencies=[Depends(require_authenticated_session)],
+    dependencies=[Depends(require_auth)],
 )
 
 

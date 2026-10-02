@@ -18,3 +18,7 @@ class CredentialsPayload(BaseModel):
     current_password: str = ""
     new_password: str = ""
 
+
+class ApiKeyPayload(BaseModel):
+    api_key: str = ""
+

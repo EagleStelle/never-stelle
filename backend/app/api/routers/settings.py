@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
-from backend.app.api.deps import require_authenticated_session
+from backend.app.api.deps import require_auth
 from backend.app.api.schemas.settings import (
     CookieOrderPayload,
     FormatTemplatesPayload,
@@ -37,7 +37,7 @@ from backend.app.domains.settings import (
 router = APIRouter(
     prefix="/settings",
     tags=["settings"],
-    dependencies=[Depends(require_authenticated_session)],
+    dependencies=[Depends(require_auth)],
 )
 
 

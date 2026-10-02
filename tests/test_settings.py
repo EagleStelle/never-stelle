@@ -56,7 +56,7 @@ def test_settings_response_exposes_supported_template_tokens_only(monkeypatch):
     monkeypatch.setattr(
         auth_module,
         "auth_public_payload",
-        lambda: {"username": "", "password_configured": False},
+        lambda: {"username": "", "api_key": "", "api_key_from_env": False},
     )
     monkeypatch.setattr(settings_module, "get_effective_source_profiles", lambda *args, **kwargs: [])
     monkeypatch.setattr(settings_module, "get_ytdlp_cookies_status", lambda *args, **kwargs: {})

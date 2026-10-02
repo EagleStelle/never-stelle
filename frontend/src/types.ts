@@ -28,7 +28,7 @@ export interface ItemAction {
 }
 export type MediaMode = "merged" | "video" | "audio";
 export type SettingsSection =
-  | "account"
+  | "security"
   | "defaults"
   | "locations"
   | "cookies"
@@ -265,14 +265,16 @@ export type NamingDefaults = Record<string, NamingFlagValue>;
 
 export interface AuthSettings {
   username: string;
-  password_configured: boolean;
+  api_key: string;
+  api_key_from_env: boolean;
 }
 
-export interface AccountSettingsDraft {
+export interface SecuritySettingsDraft {
   username: string;
   current_password: string;
   new_password: string;
   confirm_password: string;
+  api_key: string;
 }
 
 export interface SavedSettings {
@@ -328,7 +330,7 @@ export interface TrackerTab {
 export type SourceTrackerTabs = Record<string, TrackerTab[]>;
 
 export interface SettingsDraft extends SavedSettings {
-  account: AccountSettingsDraft;
+  security: SecuritySettingsDraft;
 }
 
 export interface TemplateToken {
