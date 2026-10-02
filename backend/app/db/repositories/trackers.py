@@ -11,7 +11,6 @@ from backend.app.db.repositories.utils import _decode, _encode, chunks, marks
 _TRACKER_COLUMNS = (
     "id",
     "source_url",
-    "name",
     "enabled",
     "interval_seconds",
     "quality",
@@ -30,14 +29,18 @@ _JSON_COLUMNS = {"quality", "post_processing", "feeds"}
 _BOOL_COLUMNS = {"enabled"}
 _UPDATABLE = set(_TRACKER_COLUMNS) - {"id", "source_url", "created_at", "updated_at"}
 
-# History ids linked to one tracker (bind its id twice): each download's own row, plus the
-# `{download_id}:{suffix}` child rows of a multi-file post, found as a primary-key range.
-TRACKER_HISTORY_IDS_SQL = (
-    "SELECT download_id FROM tracker_entries WHERE tracker_id = ? AND download_id != ''"
-    " UNION ALL SELECT h.id FROM tracker_entries e JOIN download_history h"
-    " ON h.id > e.download_id || ':' AND h.id < e.download_id || ';'"
-    " WHERE e.tracker_id = ? AND e.download_id != ''"
-)
+
+def _linked_history(select: str, where: str) -> str:
+    """SQL selecting ``select`` over tracker entries ``e`` joined to history rows ``h``: the download's own row,
+    plus the ``{download_id}:{suffix}`` child rows of a multi-file post, found as a primary-key range."""
+    joins = ("h.id = e.download_id", "h.id > e.download_id || ':' AND h.id < e.download_id || ';'")
+    return " UNION ALL ".join(
+        f"SELECT {select} FROM tracker_entries e JOIN download_history h ON {join} WHERE {where}" for join in joins
+    )
+
+
+# History ids linked to one tracker; bind its id twice.
+TRACKER_HISTORY_IDS_SQL = _linked_history("h.id", "e.tracker_id = ? AND e.download_id != ''")
 
 
 def _in_history(column: str) -> str:
@@ -370,6 +373,45 @@ def count_tracker_items() -> dict[str, dict[str, int]]:
             " FROM tracker_entries e GROUP BY e.tracker_id"
         ).fetchall()
     return {str(row[0]): {"seen": safe_int(row[1]), "completed": safe_int(row[2])} for row in rows}
+
+
+def _encoded(path: str) -> str:
+    # A blob that is no JSON reads as empty rather than failing the query.
+    return f"COALESCE(CASE WHEN json_valid(h.encoding) THEN json_extract(h.encoding, '{path}') END, '')"
+
+
+def tracker_filing_rows() -> list[tuple[str, dict[str, Any], int, str]]:
+    """``(tracker_id, row, downloads, newest)`` per way a tracker's downloads are filed.
+
+    ``row`` holds the templates and creator values their history rows record, ``downloads`` how
+    many downloads share it and ``newest`` when the latest of them was saved.
+    """
+    linked = _linked_history(
+        "e.tracker_id, e.download_id, h.folder_template, h.filename_template, h.creator, h.created_at,"
+        f" {_encoded('$.subfolder_template')} AS subfolder_template,"
+        f" {_encoded('$.resolved_tokens.nickname')} AS nickname",
+        "e.download_id != ''",
+    )
+    with transaction() as connection:
+        rows = connection.execute(
+            "SELECT tracker_id, folder_template, subfolder_template, filename_template, creator, nickname,"
+            f" COUNT(DISTINCT download_id), MAX(created_at) FROM ({linked}) GROUP BY 1, 2, 3, 4, 5, 6"
+        ).fetchall()
+    return [
+        (
+            str(row[0]),
+            {
+                "folder_template": str(row[1] or ""),
+                "subfolder_template": str(row[2] or ""),
+                "filename_template": str(row[3] or ""),
+                "creator": str(row[4] or ""),
+                "resolved_tokens": {"nickname": str(row[5] or "")},
+            },
+            safe_int(row[6]),
+            str(row[7] or ""),
+        )
+        for row in rows
+    ]
 
 
 def _only_seen_where(chunk: list[str]) -> str:

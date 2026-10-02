@@ -218,6 +218,12 @@ def row_template_fields(payload: dict[str, Any], old_name: str) -> dict[str, str
     return fields
 
 
+def filed_creator(payload: dict[str, Any], cleaning: dict[str, Any] | None = None) -> str:
+    """The creator a history row is filed under: its templates' first creator token, else its username."""
+    token = next((token for token in settings_tokens(payload) if token in CREATOR_FIELDS), "username")
+    return _clean_creator_token(row_template_fields(payload, "").get(token, ""), normalize_title_cleaning(cleaning))
+
+
 def row_with_tokens(payload: dict[str, Any], tokens: dict[str, str]) -> dict[str, Any]:
     """``payload`` recording ``tokens`` where ``row_template_fields`` reads them back."""
     row = dict(payload)

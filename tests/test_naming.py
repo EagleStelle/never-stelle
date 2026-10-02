@@ -15,7 +15,11 @@ from backend.app.domains.downloads.naming.filenames import (
     shorten_filename_title,
     strip_numbered_suffix,
 )
-from backend.app.domains.downloads.naming.render import clean_template_filename, filename_template_title
+from backend.app.domains.downloads.naming.render import (
+    clean_template_filename,
+    filed_creator,
+    filename_template_title,
+)
 from backend.app.domains.downloads.naming.titles import strip_placeholder_title
 
 NAMING_TEMPLATE = "{{username}} - {{title}} [{{id}}]"
@@ -429,3 +433,28 @@ def test_multibyte_title_shortening_and_byte_safety():
     )
     assert len(cleaned_stem.encode("utf-8")) <= 240
     assert len(Path(cleaned_stem).stem) <= 50
+
+
+@pytest.mark.parametrize(
+    ("templates", "nickname", "expected"),
+    [
+        ({"folder_template": "{{username}}"}, "Alice Films", "alice_handle"),
+        ({"folder_template": "{{nickname}}"}, "Alice Films", "Alice Films"),
+        # A row that recorded no nickname was named by its username.
+        ({"folder_template": "{{nickname}}"}, "", "alice_handle"),
+        # The folder names no creator, so the first template that does decides.
+        ({"folder_template": "{{quality}}", "filename_template": "{{nickname}}"}, "Alice Films", "Alice Films"),
+        ({"folder_template": "{{id}}", "filename_template": "{{title}}"}, "Alice Films", "alice_handle"),
+    ],
+)
+def test_filed_creator_takes_the_creator_token_the_row_is_filed_by(templates, nickname, expected):
+    row = {**templates, "creator": "alice_handle", "resolved_tokens": {"nickname": nickname}}
+
+    assert filed_creator(row) == expected
+
+
+def test_filed_creator_cleans_the_handle_like_a_folder_token():
+    row = {"folder_template": "{{username}}", "creator": "@alice_handle"}
+
+    assert filed_creator(row) == "alice_handle"
+    assert filed_creator(row, {"strip_handle_at": False}) == "@alice_handle"

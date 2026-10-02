@@ -9,8 +9,6 @@ from backend.app.domains.formats.analysis import url_dedup_key
 @dataclass(frozen=True)
 class Entry:
     url: str
-    # Name the source's Fields give the entry's creator.
-    collection: str = ""
     # Keys of the items this entry downloads with it, as a post holds its photos.
     members: tuple[str, ...] = ()
     # Someone else's item is recorded but never queued.

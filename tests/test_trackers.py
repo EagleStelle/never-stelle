@@ -81,7 +81,6 @@ def _insert_tracker(**overrides) -> dict:
         {
             "id": "t1",
             "source_url": TRACKER_URL,
-            "name": "alice",
             "enabled": True,
             "interval_seconds": 3600,
             "quality": {"mode": "audio"},
@@ -229,7 +228,7 @@ def test_gallerydl_file_reconstructs_a_link_from_the_learned_format(temp_db, mon
     )
 
     # The creator's own id matches the signature too, but names the person, not the post.
-    assert entries == [Entry(url=post, collection="alice")]
+    assert entries == [Entry(url=post)]
     assert probed == [post]
     assert stats.unresolved == 0
 
@@ -376,7 +375,7 @@ def test_catalog_learns_the_post_link_from_one_verified_post(temp_db, monkeypatc
     assert stats.unresolved == 0
     # The creator is learned as a token read from the field that held it, not as this creator's name.
     assert "alice" not in resolver.learned["example"]["templates"][0]
-    # The field that held the creator names this walk's entries; Fields stay as the user set them.
+    # The field that held the creator fills this walk's rebuilt links; Fields stay as the user set them.
     assert resolver.username_fields[0] == "author[handle]"
     assert not load_saved_settings_file().get("source_fields")
     # The format is stored only once a download of the post succeeds.
@@ -534,28 +533,8 @@ def test_ytdlp_lines_become_entries(temp_db):
 
     entries = list(collection_module._ytdlp_entries(iter(lines), _resolver(), subs))
 
-    assert entries == [Entry(url="https://example.test/post/12345678", collection="Alice")]
+    assert entries == [Entry(url="https://example.test/post/12345678")]
     assert subs == ["https://example.test/u/alice/shorts"]
-
-
-def test_listed_entries_are_named_by_the_fields_order(temp_db):
-    from backend.app.domains.settings import load_saved_settings_file, save_saved_settings_file
-
-    payload = load_saved_settings_file()
-    payload["source_fields"] = {"example": {"nickname": ["author[name]"]}}
-    save_saved_settings_file(payload)
-    lines = [
-        {
-            "url": "https://example.test/post/12345678",
-            "uploader": "Alice Example",
-            "playlist_uploader": "Alice Channel",
-            "author": {"name": "Alice Films"},
-        }
-    ]
-
-    entries = list(collection_module._ytdlp_entries(iter(lines), _resolver(), []))
-
-    assert entries[0].collection == "Alice Films"
 
 
 def test_trackers_take_their_source_from_their_link(temp_db):
@@ -564,7 +543,8 @@ def test_trackers_take_their_source_from_their_link(temp_db):
     with database_module.transaction() as connection:
         columns = {row["name"] for row in connection.execute("PRAGMA table_info('trackers')")}
 
-    assert "source_key" not in columns
+    # Both are read off the link and the downloads, never stored.
+    assert not {"source_key", "name"} & columns
     assert service_module.list_trackers()[0]["source_key"] == "example"
 
 
@@ -1600,14 +1580,6 @@ def test_first_check_of_a_single_item_link_explains_why_and_stays_first(temp_db,
     assert tracker["last_success_at"] == ""
 
 
-def test_every_check_names_the_tracker_after_its_collection(temp_db, monkeypatch):
-    _insert_tracker(name="Old Name")
-
-    tracker = _check(monkeypatch, [Entry(url=_entry(1).url, collection="Alice Films")], _Queue())
-
-    assert tracker["name"] == "Alice Films"
-
-
 def test_first_check_queues_every_entry_with_the_saved_settings(temp_db, monkeypatch):
     _insert_tracker()
     queue = _Queue()
@@ -1896,20 +1868,6 @@ def test_seen_rises_while_a_check_runs(temp_db, monkeypatch):
     _check_while(monkeypatch, listing)
 
     assert seen == [0, 1, 2, 3]
-
-
-def test_name_shows_while_a_check_runs(temp_db, monkeypatch):
-    _insert_tracker(name=service_module._fallback_name(TRACKER_URL))
-    names: list[str] = []
-
-    def listing():
-        yield Entry(url=_entry(1).url, collection="Alice Films")
-        names.append(repositories.load_tracker_row("t1")["name"])
-        yield _entry(2)
-
-    _check_while(monkeypatch, listing)
-
-    assert names == ["Alice Films"]
 
 
 def test_a_tracker_deleted_mid_check_keeps_no_entries(temp_db, monkeypatch):
@@ -2254,9 +2212,8 @@ def test_trackers_and_seen_entries_survive_a_restart(temp_db, monkeypatch):
     database_module.close_database()
 
     queue = _Queue()
-    tracker = _check(monkeypatch, [_entry(1), _entry(2)], queue)
+    _check(monkeypatch, [_entry(1), _entry(2)], queue)
 
-    assert tracker["name"] == "alice"
     assert queue.calls == []
 
 
@@ -2279,6 +2236,94 @@ def test_history_filter_returns_linked_rows_and_their_children(temp_db):
     assert sorted(entry["vid"] for entry in page["entries"]) == ["gallerydl:abc", "gallerydl:abc:photo-1"]
     # Both history rows are one download, so the tracker counts one downloaded item.
     assert repositories.count_tracker_items()["t1"]["completed"] == 1
+
+
+# --- Name ---
+def _filed(task_id: str, creator: str, folder: str = "{{username}}", nickname: str = "", day: int = 1) -> None:
+    repositories.save_history_row(
+        task_id,
+        {
+            "source_url": "https://example.test/post/1",
+            "creator": creator,
+            "folder_template": folder,
+            "subfolder_template": "{{id}}",
+            "filename_template": "{{username}} - {{title}} [{{id}}]",
+            "resolved_tokens": {"nickname": nickname} if nickname else {},
+            "created_at": f"2026-01-{day:02d}T00:00:00",
+        },
+    )
+
+
+def _name(tracker_id: str = "t1") -> str:
+    return next(tracker["name"] for tracker in service_module.list_trackers() if tracker["id"] == tracker_id)
+
+
+def test_tracker_is_named_after_the_creator_most_of_its_downloads_are_filed_under(temp_db):
+    _insert_tracker()
+    repositories.record_tracker_entry_rows(
+        "t1", [("k1", "u1", "gallerydl:a1"), ("k2", "u2", "gallerydl:a2"), ("k3", "u3", "gallerydl:post")]
+    )
+    _filed("gallerydl:a1", "alice_handle", nickname="Alice Films")
+    _filed("gallerydl:a2", "alice_handle", nickname="Alice Films")
+    # A post's photos are one download, however many rows it keeps.
+    for photo in range(3):
+        _filed(f"gallerydl:post:{photo}", "bob", day=2)
+
+    # The folder template files by username, so the nickname plays no part.
+    assert _name() == "alice_handle"
+
+
+def test_a_tie_goes_to_the_newest_download(temp_db):
+    _insert_tracker()
+    repositories.record_tracker_entry_rows("t1", [("k1", "u1", "gallerydl:a1"), ("k2", "u2", "gallerydl:b1")])
+    _filed("gallerydl:a1", "alice_handle", day=1)
+    _filed("gallerydl:b1", "alice_new", day=2)
+
+    assert _name() == "alice_new"
+
+
+def test_only_the_trackers_own_downloads_name_it(temp_db):
+    _insert_tracker()
+    _insert_tracker(id="t2", source_url=f"{TRACKER_URL}2")
+    repositories.record_tracker_entry_rows("t1", [("k1", "u1", "gallerydl:a1"), ("k2", "u2", "")])
+    repositories.record_tracker_entry_rows("t2", [("k3", "u3", "gallerydl:b1"), ("k4", "u4", "gallerydl:b2")])
+    _filed("gallerydl:a1", "alice_handle")
+    _filed("gallerydl:b1", "bob")
+    _filed("gallerydl:b2", "bob")
+
+    assert (_name("t1"), _name("t2")) == ("alice_handle", "bob")
+
+
+def test_the_name_follows_a_row_filed_by_nickname(temp_db):
+    _insert_tracker()
+    repositories.record_tracker_entry_rows("t1", [("k1", "u1", "gallerydl:a1"), ("k2", "u2", "gallerydl:a2")])
+    _filed("gallerydl:a1", "alice_handle")
+    _filed("gallerydl:a2", "alice_handle")
+    assert _name() == "alice_handle"
+
+    # As a library rename to a nickname folder leaves them.
+    _filed("gallerydl:a1", "alice_handle", folder="{{nickname}}", nickname="Alice Films")
+    _filed("gallerydl:a2", "alice_handle", folder="{{nickname}}", nickname="Alice Films", day=2)
+
+    assert _name() == "Alice Films"
+
+
+def test_a_row_with_a_broken_encoding_is_named_by_its_creator(temp_db):
+    _insert_tracker()
+    repositories.record_tracker_entry_rows("t1", [("k1", "u1", "gallerydl:a1")])
+    _filed("gallerydl:a1", "alice_handle", folder="{{nickname}}", nickname="Alice Films")
+    with database_module.transaction() as connection:
+        connection.execute("UPDATE download_history SET encoding = 'not json'")
+
+    assert _name() == "alice_handle"
+
+
+def test_a_tracker_without_downloads_is_named_by_its_link(temp_db):
+    _insert_tracker()
+    repositories.record_tracker_entry_rows("t1", [("k1", "u1", "")])
+
+    assert _name() == service_module._fallback_name(TRACKER_URL)
+    assert service_module.update_tracker("t1", {})["name"] == service_module._fallback_name(TRACKER_URL)
 
 
 def test_active_task_feed_carries_its_tracker(temp_db, monkeypatch):

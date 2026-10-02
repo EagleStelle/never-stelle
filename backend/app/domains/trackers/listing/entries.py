@@ -262,7 +262,7 @@ class _Resolver:
         # Learned formats are stored under the link's own host key.
         self.learned_key = source_key_from_url(tracker_url)
         self.learned = load_learned_formats()
-        # The source's Fields order names entries, as it names downloads.
+        # The source's Fields order reads the creator that rebuilt post links carry.
         roles = get_effective_fields(tracker_url)
         defaults = get_effective_field_defaults()
         self.username_fields = roles.get("username") or defaults["username"]
@@ -453,14 +453,8 @@ class _Resolver:
         if not judged:
             self.names.update(self._person_names(flat))
         owned = not judged or self.owns(url, flat)
-        # Named after learning the format, which can add the field that holds the creator.
-        entry = self.named(url, flat, owned)
+        entry = Entry(url=url, owned=owned)
         return self.grouped(entry, flat) if owned else entry
-
-    def named(self, url: str, flat: dict[str, str], owned: bool) -> Entry:
-        """An entry named by the Fields order; its collection is its nickname, else its username."""
-        name = _field_value(flat, self.nickname_fields) or _field_value(flat, self.username_fields)
-        return Entry(url=url, collection=name, owned=owned)
 
     def owns(self, link: str, flat: dict[str, str]) -> bool:
         """Whether the link names the creator or its metadata carries a name or id the creator's own files do."""
@@ -489,7 +483,7 @@ class _Resolver:
         if not self._person_names(flat):
             return None
         owned = self.owns(link, flat)
-        entry = self.named(link, flat, owned)
+        entry = Entry(url=link, owned=owned)
         return self.grouped(entry, flat) if owned else entry
 
     def grouped(self, entry: Entry, flat: dict[str, str]) -> Entry:

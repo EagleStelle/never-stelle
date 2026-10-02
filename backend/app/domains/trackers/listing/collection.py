@@ -72,8 +72,7 @@ def _ytdlp_entries(
         if not (resolver.is_item(url) if single is None else single):
             sub_collections.append(url)
             continue
-        flat = flatten_metadata(info)
-        yield resolver.named(url, flat, not judged or resolver.owns(url, flat))
+        yield Entry(url=url, owned=not judged or resolver.owns(url, flatten_metadata(info)))
 
 
 def _limited(

@@ -33,18 +33,21 @@ from backend.app.db.repositories import (
     relink_tracker_download,
     tracker_active_download_ids,
     tracker_backlog_urls,
+    tracker_filing_rows,
     tracker_history_ids,
     update_tracker_row,
     update_tracker_rows,
 )
 from backend.app.domains.downloads.library.history import find_history_by_source
 from backend.app.domains.downloads.links.urls import canonicalize_source_url, resolve_redirect_url
+from backend.app.domains.downloads.naming.render import filed_creator
 from backend.app.domains.downloads.operations import delete_downloads, queue_quality, queue_task, retry_downloads
 from backend.app.domains.formats.analysis import creator_from_url, url_dedup_key
 from backend.app.domains.options.post_processing import normalize_post_processing
 from backend.app.domains.options.quality import normalize_quality_selection
 from backend.app.domains.settings import (
     get_effective_source_profiles,
+    get_effective_title_cleaning,
     get_tracker_settings,
     get_tracker_tabs,
     save_tracker_tabs,
@@ -104,13 +107,14 @@ def _queued(tracker: dict[str, Any]) -> bool:
     return bool(tracker["enabled"]) and not tracker["checking_at"] and tracker["next_check_at"] <= utc_now()
 
 
-def tracker_to_api(tracker: dict[str, Any], counts: dict[str, int] | None = None) -> dict[str, Any]:
+def tracker_to_api(tracker: dict[str, Any], counts: dict[str, int] | None = None, name: str = "") -> dict[str, Any]:
     counts = counts or {}
     return {
         "id": tracker["id"],
         "source_url": tracker["source_url"],
         "source_key": _source_key(tracker),
-        "name": tracker["name"],
+        # Before any download is filed, the link names it.
+        "name": name or _fallback_name(tracker["source_url"]),
         "enabled": tracker["enabled"],
         "interval_seconds": tracker["interval_seconds"],
         "quality": tracker["quality"],
@@ -126,9 +130,29 @@ def tracker_to_api(tracker: dict[str, Any], counts: dict[str, int] | None = None
     }
 
 
+def _filed_names(trackers: list[dict[str, Any]]) -> dict[str, str]:
+    """Per tracker, the creator most of its downloads are filed under; a tie goes to the newest."""
+    cleaning = {tracker["id"]: get_effective_title_cleaning(tracker["source_url"]) for tracker in trackers}
+    tallies: dict[str, dict[str, tuple[int, str]]] = {}
+    for tracker_id, row, downloads, newest in tracker_filing_rows():
+        if tracker_id not in cleaning:
+            continue
+        name = filed_creator(row, cleaning[tracker_id])
+        if not name:
+            continue
+        names = tallies.setdefault(tracker_id, {})
+        count, latest = names.get(name, (0, ""))
+        names[name] = (count + downloads, max(latest, newest))
+    return {
+        tracker_id: max(names, key=lambda name: (*names[name], name)) for tracker_id, names in tallies.items()
+    }
+
+
 def list_trackers() -> list[dict[str, Any]]:
+    trackers = load_tracker_rows()
     counts = count_tracker_items()
-    return [tracker_to_api(tracker, counts.get(tracker["id"])) for tracker in load_tracker_rows()]
+    names = _filed_names(trackers)
+    return [tracker_to_api(tracker, counts.get(tracker["id"]), names.get(tracker["id"], "")) for tracker in trackers]
 
 
 def get_tracker(tracker_id: str) -> dict[str, Any]:
@@ -171,7 +195,6 @@ def create_tracker(
         {
             "id": uuid.uuid4().hex[:12],
             "source_url": url,
-            "name": _fallback_name(url),
             "enabled": True,
             "interval_seconds": _interval(interval_seconds, _source_key({"source_url": url})),
             "quality": normalize_quality_selection(quality) if quality else {},
@@ -192,7 +215,8 @@ def update_tracker(tracker_id: str, changes: dict[str, Any]) -> dict[str, Any]:
         updates["quality"] = normalize_quality_selection(changes["quality"])
     if changes.get("post_processing") is not None:
         updates["post_processing"] = normalize_post_processing(changes["post_processing"])
-    return tracker_to_api(update_tracker_row(tracker_id, updates), count_tracker_items().get(tracker_id))
+    tracker = update_tracker_row(tracker_id, updates)
+    return tracker_to_api(tracker, count_tracker_items().get(tracker_id), _filed_names([tracker]).get(tracker_id, ""))
 
 
 def set_trackers_enabled(tracker_ids: list[str], enabled: bool) -> dict[str, Any]:
@@ -397,7 +421,6 @@ def _run_check(tracker: dict[str, Any]) -> None:
     listed: set[str] = set()
     failures: list[str] = []
     counted = 0
-    detected_name = ""
     succeeded = False
     updates: dict[str, Any] = {}
     try:
@@ -427,11 +450,6 @@ def _run_check(tracker: dict[str, Any]) -> None:
                     if key in listed:
                         continue
                     listed.update((key, *entry.members))
-                    if entry.owned and not detected_name:
-                        detected_name = entry.collection
-                        # Shown while the check runs, not only once its batch ends.
-                        if detected_name and detected_name != tracker["name"]:
-                            update_tracker_row(tracker_id, {"name": detected_name})
                     if has_tracker_entry(tracker_id, key):
                         continue
                     if counted + len(failures) >= settings["page_size"]:
