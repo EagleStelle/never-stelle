@@ -9,6 +9,7 @@ import {
   saveSettings,
   setFormatTemplates,
   reorderPlatformCookies,
+  updateApiKey,
   uploadPlatformCookies,
 } from "@/api";
 import { useAuth } from "@/composables/useAuth";
@@ -378,7 +379,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     source_tracker_tabs: createSourceTrackerTabs(),
   });
   const settings = reactive<RuntimeSettings>({
-    auth: { username: "", password_configured: false },
+    auth: { username: "", api_key: "", api_key_from_env: false },
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
     source_locations: createSourceLocations(),
     template_settings: createTemplateSettings(),
@@ -409,11 +410,12 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     learned_formats: {},
   });
   const settingsDraft = reactive<SettingsDraft>({
-    account: {
+    security: {
       username: "",
       current_password: "",
       new_password: "",
       confirm_password: "",
+      api_key: "",
     },
     source_profiles: mergeSourceProfiles(DEFAULT_SOURCE_PROFILES),
     source_locations: createSourceLocations(),
@@ -798,47 +800,66 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     lastDraftSnapshot = draftSnapshot();
   }
 
-  function accountUsername(): string {
+  function securityUsername(): string {
     return auth.username.value || settings.auth.username || "";
   }
 
-  function resetAccountDraft(): void {
-    settingsDraft.account.username = accountUsername();
-    settingsDraft.account.current_password = "";
-    settingsDraft.account.new_password = "";
-    settingsDraft.account.confirm_password = "";
+  function resetCredentialsDraft(): void {
+    settingsDraft.security.username = securityUsername();
+    settingsDraft.security.current_password = "";
+    settingsDraft.security.new_password = "";
+    settingsDraft.security.confirm_password = "";
   }
 
-  function accountDraftDirty(): boolean {
+  function resetSecurityDraft(): void {
+    resetCredentialsDraft();
+    settingsDraft.security.api_key = settings.auth.api_key;
+  }
+
+  function credentialsDraftDirty(): boolean {
     return (
-      settingsDraft.account.username !== accountUsername() ||
-      settingsDraft.account.current_password.length > 0 ||
-      settingsDraft.account.new_password.length > 0 ||
-      settingsDraft.account.confirm_password.length > 0
+      settingsDraft.security.username !== securityUsername() ||
+      settingsDraft.security.current_password.length > 0 ||
+      settingsDraft.security.new_password.length > 0 ||
+      settingsDraft.security.confirm_password.length > 0
     );
   }
 
-  async function persistAccountDraft(): Promise<void> {
-    if (!settingsDraft.account.current_password) {
+  function apiKeyDraftDirty(): boolean {
+    return !settings.auth.api_key_from_env && settingsDraft.security.api_key !== settings.auth.api_key;
+  }
+
+  async function persistCredentialsDraft(): Promise<void> {
+    if (!settingsDraft.security.current_password) {
       const message = "Enter your current password.";
       toast(message, "error");
       throw new Error(message);
     }
-    if (settingsDraft.account.new_password !== settingsDraft.account.confirm_password) {
+    if (settingsDraft.security.new_password !== settingsDraft.security.confirm_password) {
       const message = "New passwords do not match.";
       toast(message, "error");
       throw new Error(message);
     }
     try {
       await auth.updateCredentials({
-        username: settingsDraft.account.username,
-        current_password: settingsDraft.account.current_password,
-        new_password: settingsDraft.account.new_password || "",
+        username: settingsDraft.security.username,
+        current_password: settingsDraft.security.current_password,
+        new_password: settingsDraft.security.new_password || "",
       });
-      settings.auth.username = auth.username.value || settingsDraft.account.username;
-      resetAccountDraft();
+      settings.auth.username = auth.username.value || settingsDraft.security.username;
+      resetCredentialsDraft();
     } catch (error) {
-      toast(errorMessage(error, "Could not save account."), "error");
+      toast(errorMessage(error, "Could not save login."), "error");
+      throw error;
+    }
+  }
+
+  async function persistApiKeyDraft(): Promise<void> {
+    try {
+      settings.auth.api_key = (await updateApiKey(settingsDraft.security.api_key)).api_key;
+      settingsDraft.security.api_key = settings.auth.api_key;
+    } catch (error) {
+      toast(errorMessage(error, "Could not save API key."), "error");
       throw error;
     }
   }
@@ -846,7 +867,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   function applyServerSettings(data: UiConfigResponse): void {
     settings.auth = {
       username: String(data.auth?.username || ""),
-      password_configured: Boolean(data.auth?.password_configured),
+      api_key: String(data.auth?.api_key || ""),
+      api_key_from_env: Boolean(data.auth?.api_key_from_env),
     };
 
     const profiles = mergeSourceProfiles(
@@ -1422,7 +1444,7 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     copySavedFormatsToDraft();
     clearPendingFormatLearns();
     clearCookieDraft();
-    resetAccountDraft();
+    resetSecurityDraft();
     lastSavedSnapshot = snapshotFor(settingsDraft);
     clearSettingsDraftDirty();
     clearFormatDraftDirty();
@@ -1453,8 +1475,12 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     return draftSnapshot() !== lastDraftSnapshot;
   });
 
-  const hasAccountUnsavedChanges = computed(() => {
-    return draftSeeded.value && accountDraftDirty();
+  const hasCredentialsUnsavedChanges = computed(() => {
+    return draftSeeded.value && credentialsDraftDirty();
+  });
+
+  const hasApiKeyUnsavedChanges = computed(() => {
+    return draftSeeded.value && apiKeyDraftDirty();
   });
 
   const hasFormatUnsavedChanges = computed(() => {
@@ -1471,7 +1497,8 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
   const hasUnsavedChanges = computed(() => {
     return (
       hasSettingsUnsavedChanges.value ||
-      hasAccountUnsavedChanges.value ||
+      hasCredentialsUnsavedChanges.value ||
+      hasApiKeyUnsavedChanges.value ||
       hasFormatUnsavedChanges.value ||
       hasCookieUnsavedChanges.value
     );
@@ -1573,12 +1600,14 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
 
   // True when settings or formats were written, as either can rename old files.
   async function saveSettingsDraft(): Promise<boolean> {
-    const shouldSaveAccount = hasAccountUnsavedChanges.value;
+    const shouldSaveCredentials = hasCredentialsUnsavedChanges.value;
+    const shouldSaveApiKey = hasApiKeyUnsavedChanges.value;
     const shouldSaveSettings = hasSettingsUnsavedChanges.value;
     const shouldSaveFormats = hasFormatUnsavedChanges.value;
     const shouldSaveCookies = hasCookieUnsavedChanges.value;
     if (
-      !shouldSaveAccount &&
+      !shouldSaveCredentials &&
+      !shouldSaveApiKey &&
       !shouldSaveSettings &&
       !shouldSaveFormats &&
       !shouldSaveCookies
@@ -1597,8 +1626,12 @@ export function useDashboardSettings({ toast }: UseDashboardSettingsOptions) {
     }
     showRequired.value = false;
 
-    if (shouldSaveAccount) {
-      await persistAccountDraft();
+    if (shouldSaveCredentials) {
+      await persistCredentialsDraft();
+    }
+
+    if (shouldSaveApiKey) {
+      await persistApiKeyDraft();
     }
 
     if (shouldSaveFormats) {

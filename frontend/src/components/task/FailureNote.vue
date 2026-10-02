@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { DialogFooter, DialogShell as Dialog } from "@/components/ui/dialog";
 import { useSonner } from "@/composables/useSonner";
 import { COUNT_ICONS } from "@/ui";
+import { copyText } from "@/utils/clipboard";
 
 // Why an item failed: its telling line, opening the full engine output.
 const props = defineProps<{ text: string; subject?: string; dense?: boolean }>();
@@ -28,25 +29,11 @@ const FailedIcon = COUNT_ICONS.failed;
 const log = useTemplateRef<HTMLElement>("log");
 const { toast } = useSonner();
 
-// Plain HTTP has no clipboard API, so copying the log's selection stands in there.
-function copySelection(): void {
-  const selection = window.getSelection();
-  if (!log.value || !selection) throw new Error("No log to copy.");
-  selection.selectAllChildren(log.value);
-  const copied = document.execCommand("copy");
-  selection.removeAllRanges();
-  if (!copied) throw new Error("Copy was refused.");
-}
-
 async function copyLog(): Promise<void> {
-  try {
-    try {
-      await navigator.clipboard.writeText(logText.value);
-    } catch {
-      copySelection();
-    }
+  const host = log.value?.parentElement;
+  if (host && (await copyText(logText.value, host))) {
     toast("Log copied.");
-  } catch {
+  } else {
     toast("Could not copy.", "error");
   }
 }

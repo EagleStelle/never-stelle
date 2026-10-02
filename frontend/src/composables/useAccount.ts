@@ -23,7 +23,7 @@ export function useAccount() {
       variant: "ghost",
       run: toggleThemeMode,
     },
-    { key: "settings", label: "Settings", icon: IconGear, variant: "ghost", run: () => openSettings(undefined, "account") },
+    { key: "settings", label: "Settings", icon: IconGear, variant: "ghost", run: () => openSettings(undefined, "security") },
     { key: "logout", label: "Logout", icon: IconLogout, variant: "destructive-ghost", run: () => void auth.logout() },
   ]);
 

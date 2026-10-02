@@ -1,6 +1,7 @@
 from backend.app.domains.auth.service import (
     AuthError,
     InvalidCredentials,
+    api_key_matches,
     auth_public_payload,
     authenticate_user,
     clear_session_cookie,
@@ -9,6 +10,7 @@ from backend.app.domains.auth.service import (
     ensure_auth_settings,
     is_authenticated_request,
     read_session_token,
+    set_api_key,
     set_session_cookie,
     update_auth_credentials,
 )
@@ -16,6 +18,7 @@ from backend.app.domains.auth.service import (
 __all__ = [
     "AuthError",
     "InvalidCredentials",
+    "api_key_matches",
     "auth_public_payload",
     "authenticate_user",
     "clear_session_cookie",
@@ -24,6 +27,7 @@ __all__ = [
     "ensure_auth_settings",
     "is_authenticated_request",
     "read_session_token",
+    "set_api_key",
     "set_session_cookie",
     "update_auth_credentials",
 ]

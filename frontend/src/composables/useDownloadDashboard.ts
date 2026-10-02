@@ -72,7 +72,7 @@ function mergeActions(actions: ItemAction[]): ItemAction[] {
 
 // Settings overlay rides in a ?settings=<slug> query param, not its own path.
 const SETTINGS_SLUG_BY_SECTION: Record<SettingsSection, string> = {
-  account: "account",
+  security: "security",
   defaults: "defaults",
   locations: "locations",
   cookies: "cookies",

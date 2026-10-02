@@ -4,13 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from starlette.staticfiles import NotModifiedResponse
 
-from backend.app.api.deps import require_authenticated_session
+from backend.app.api.deps import require_auth
 from backend.app.domains.settings import stored_icon
 
 router = APIRouter(
     prefix="/sources",
     tags=["sources"],
-    dependencies=[Depends(require_authenticated_session)],
+    dependencies=[Depends(require_auth)],
 )
 
 ICON_CACHE_CONTROL = "private, max-age=86400, stale-while-revalidate=604800"

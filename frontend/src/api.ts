@@ -84,7 +84,19 @@ export function updateCredentials(payload: CredentialsPayload): Promise<AuthSess
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     },
-    "Could not save account.",
+    "Could not save login.",
+  );
+}
+
+export function updateApiKey(apiKey: string): Promise<{ api_key: string }> {
+  return jsonRequest<{ api_key: string }>(
+    "/api/auth/api-key",
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey }),
+    },
+    "Could not save API key.",
   );
 }
 

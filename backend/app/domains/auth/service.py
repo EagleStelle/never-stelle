@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 from typing import Any
@@ -20,6 +21,8 @@ DEFAULT_USERNAME = "root"
 DEFAULT_PASSWORD = "never-stelle"
 PASSWORD_ITERATIONS = 390_000
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
+# Printable ASCII only, so the key travels unchanged in headers and query strings.
+API_KEY_PATTERN = re.compile(r"[\x21-\x7e]{8,128}")
 
 
 class AuthError(ValueError):
@@ -59,6 +62,10 @@ def _seed_password() -> str:
 
 def _normalize_username(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _new_api_key() -> str:
+    return secrets.token_hex(16)
 
 
 def _coerce_session_version(value: Any) -> int:
@@ -105,6 +112,12 @@ def _load_auth_payload() -> tuple[dict[str, Any], dict[str, Any]]:
     return payload, dict(auth) if isinstance(auth, dict) else {}
 
 
+def _save_auth(auth: dict[str, Any]) -> None:
+    payload, _ = _load_auth_payload()
+    payload[AUTH_SETTINGS_KEY] = {**auth, "updated_at": int(time.time())}
+    save_settings_payload(payload)
+
+
 def ensure_auth_settings() -> dict[str, Any]:
     payload, auth = _load_auth_payload()
     now = int(time.time())
@@ -118,11 +131,14 @@ def ensure_auth_settings() -> dict[str, Any]:
     if len(session_secret) < 32:
         session_secret = _b64encode(secrets.token_bytes(32))
 
+    api_key = str(auth.get("api_key") or "") or _new_api_key()
+
     normalized = {
         **auth,
         "username": username,
         "password_hash": password_hash,
         "session_secret": session_secret,
+        "api_key": api_key,
         "session_version": _coerce_session_version(auth.get("session_version")),
         "created_at": int(auth.get("created_at") or now),
         "updated_at": int(auth.get("updated_at") or now),
@@ -135,12 +151,38 @@ def ensure_auth_settings() -> dict[str, Any]:
     return normalized
 
 
+def _env_api_key() -> str:
+    return _first_env("NEVER_STELLE_API_TOKEN")
+
+
+# The environment overrides the stored key, as in Radarr and Sonarr.
+def _effective_api_key(auth: dict[str, Any]) -> str:
+    return _env_api_key() or str(auth.get("api_key") or "")
+
+
 def auth_public_payload() -> dict[str, Any]:
     auth = ensure_auth_settings()
     return {
         "username": auth.get("username", ""),
-        "password_configured": bool(auth.get("password_hash")),
+        "api_key": _effective_api_key(auth),
+        "api_key_from_env": bool(_env_api_key()),
     }
+
+
+def api_key_matches(supplied: str) -> bool:
+    key = _effective_api_key(ensure_auth_settings())
+    supplied = str(supplied or "").strip()
+    return bool(key and supplied) and hmac.compare_digest(supplied.encode("utf-8"), key.encode("utf-8"))
+
+
+def set_api_key(value: str) -> str:
+    if _env_api_key():
+        raise AuthError("API key is set by NEVER_STELLE_API_TOKEN.")
+    key = str(value or "").strip()
+    if not API_KEY_PATTERN.fullmatch(key):
+        raise AuthError("API key needs 8 to 128 characters and no spaces.")
+    _save_auth({**ensure_auth_settings(), "api_key": key})
+    return key
 
 
 def authenticate_user(username: str, password: str) -> dict[str, Any]:
@@ -263,9 +305,6 @@ def update_auth_credentials(
 
     if changed:
         updated["session_version"] = _coerce_session_version(auth.get("session_version")) + 1
-        updated["updated_at"] = int(time.time())
-        payload, _ = _load_auth_payload()
-        payload[AUTH_SETTINGS_KEY] = updated
-        save_settings_payload(payload)
+        _save_auth(updated)
 
     return updated

@@ -6,7 +6,6 @@ from backend.app.api.routers import (
     auth,
     downloads,
     health,
-    integration,
     library,
     runtime,
     settings,
@@ -23,6 +22,5 @@ api_router.include_router(sources.router)
 api_router.include_router(downloads.router)
 api_router.include_router(trackers.router)
 api_router.include_router(library.router)
-api_router.include_router(integration.router)
 
 __all__ = ["api_router"]

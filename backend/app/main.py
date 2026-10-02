@@ -8,7 +8,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, JSONResponse
 
 from backend.app.api.compression import TextGZipMiddleware
-from backend.app.api.deps import require_authenticated_session
+from backend.app.api.deps import require_auth
 from backend.app.api.routers import api_router
 from backend.app.api.static import BuiltAssets
 from backend.app.core.config import FRONTEND_DIR
@@ -60,15 +60,15 @@ def register_exception_handlers(application: FastAPI) -> None:
 
 
 def register_docs_routes(application: FastAPI) -> None:
-    @application.get("/openapi.json", include_in_schema=False, dependencies=[Depends(require_authenticated_session)])
+    @application.get("/openapi.json", include_in_schema=False, dependencies=[Depends(require_auth)])
     def openapi() -> dict[str, Any]:
         return get_openapi(title=API_TITLE, version=API_VERSION, routes=application.routes)
 
-    @application.get("/docs", include_in_schema=False, dependencies=[Depends(require_authenticated_session)])
+    @application.get("/docs", include_in_schema=False, dependencies=[Depends(require_auth)])
     def swagger_ui() -> Any:
         return get_swagger_ui_html(openapi_url="/openapi.json", title=f"{API_TITLE} Docs")
 
-    @application.get("/redoc", include_in_schema=False, dependencies=[Depends(require_authenticated_session)])
+    @application.get("/redoc", include_in_schema=False, dependencies=[Depends(require_auth)])
     def redoc() -> Any:
         return get_redoc_html(openapi_url="/openapi.json", title=f"{API_TITLE} ReDoc")
 

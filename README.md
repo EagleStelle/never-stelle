@@ -44,7 +44,7 @@ services:
       NEVER_STELLE_TRACKER_CONCURRENCY: "1"
       NEVER_STELLE_COOKIE_SECURE: "false"
       NEVER_STELLE_DROP_CACHE_SYNC: "false"
-      # Optional: read-only API token for external apps that consume Never Stelle data.
+      # Optional: fix the API key. Left out, one is generated on first run.
       # NEVER_STELLE_API_TOKEN: "change-this-token"
       # Optional: enable Iwara/Oreno3D delegation through Swaratelle.
       # SWARATELLE_URL: "http://swaratelle:8842"
@@ -116,7 +116,7 @@ Runtime files live under `.local/`: SQLite database, Vue build output, temporary
 
 ## Configuration
 
-Never Stelle is configured with environment variables. Set them inline in Docker Compose or pass them to the Windows launcher. Seed credentials only apply on first run, before any account exists; change them afterward in **Settings > Account**.
+Never Stelle is configured with environment variables. Set them inline in Docker Compose or pass them to the Windows launcher. Seed credentials only apply on first run, before any account exists; change them afterward in **Settings > Security**.
 
 | Variable                            |    Default     | Description                                                                   |
 | ----------------------------------- | :------------: | ----------------------------------------------------------------------------- |
@@ -126,7 +126,7 @@ Never Stelle is configured with environment variables. Set them inline in Docker
 | `NEVER_STELLE_TRACKER_CONCURRENCY`  |      `1`       | Tracker checks that run at once, from 1 to 16.                                |
 | `NEVER_STELLE_COOKIE_SECURE`        |    `false`     | Set `true` to mark the session cookie `Secure` when served over HTTPS.        |
 | `NEVER_STELLE_DROP_CACHE_SYNC`      |    `false`     | Set `true` to sync completed files before Linux page-cache drop advice.       |
-| `NEVER_STELLE_API_TOKEN`            |       ``       | Optional read-only token for external apps using `/api/integration/*`.        |
+| `NEVER_STELLE_API_TOKEN`            |       ``       | Overrides the API key when set. Generated and stored when unset.              |
 | `SWARATELLE_URL`                    |       ``       | Optional Swaratelle base URL, for example `http://swaratelle:8842`.           |
 | `SWARATELLE_API_TOKEN`              |       ``       | Optional token Never Stelle sends to Swaratelle with `Authorization: Bearer`. |
 
@@ -179,10 +179,10 @@ The container path stays `/media/youtube`, so history entries remain valid. Skip
 
 ## API
 
-All routes are served under `/api`. Every route needs the session cookie set by
-`POST /api/auth/login`, except `GET /api/health`, `GET /api/auth/session` and
-`POST /api/auth/login`. Integration routes also accept `NEVER_STELLE_API_TOKEN` as
-`Authorization: Bearer <token>` or `X-API-Key: <token>`.
+All routes are served under `/api`. Every route needs either the session cookie set by
+`POST /api/auth/login` or the API key from **Settings > Security**, sent as the
+`apikey` query parameter, the `X-Api-Key` header or `Authorization: Bearer <key>`. `GET /api/health`,
+`GET /api/auth/session` and `POST /api/auth/login` need neither.
 
 Bulk actions take a JSON body of `{"ids": [...]}`. Query parameters are listed after each description.
 
@@ -202,6 +202,7 @@ Bulk actions take a JSON body of `{"ids": [...]}`. Query parameters are listed a
 | `POST`  | `/api/auth/login`       | Logs in and sets the session cookie.      |
 | `POST`  | `/api/auth/logout`      | Clears the session cookie.                |
 | `PATCH` | `/api/auth/credentials` | Changes the account username or password. |
+| `POST`  | `/api/auth/api-key`     | Replaces the API key with a new one.      |
 
 ### Downloads
 
@@ -259,38 +260,14 @@ Bulk actions take a JSON body of `{"ids": [...]}`. Query parameters are listed a
 | `DELETE` | `/api/settings/cookies/{source_key}`             | Removes every cookie file for a source.             |
 | `DELETE` | `/api/settings/cookies/{source_key}/{cookie_id}` | Removes one cookie file from a source.              |
 
-### Integration
-
-| Method | Endpoint                               | Description                                                                                                   |
-| ------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/api/integration/manifest`            | Describes the read-only integration contract.                                                                 |
-| `GET`  | `/api/integration/downloads`           | Lists decoded download records. Query: `state` (`history` or `active`), `limit`, `offset`, `q`, `source_key`. |
-| `GET`  | `/api/integration/tables`              | Lists the tables open to integrations.                                                                        |
-| `GET`  | `/api/integration/tables/{table_name}` | Lists one table's rows. Query: `limit`, `offset`, `decode_json`.                                              |
-| `GET`  | `/api/integration/settings`            | Returns saved settings with auth secrets removed.                                                             |
-
-Queue example (log in first to obtain the session cookie):
+Queue example using the API key:
 
 ```sh
-curl -c cookies.txt -X POST http://localhost:8840/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"root","password":"change-this-password"}'
-
-curl -b cookies.txt -X POST http://localhost:8840/api/downloads \
+curl -X POST http://localhost:8840/api/downloads \
+  -H "X-Api-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{"urls":["https://www.youtube.com/watch?v=abc123"]}'
 ```
-
-Integration example using `NEVER_STELLE_API_TOKEN`:
-
-```sh
-curl http://localhost:8840/api/integration/downloads?state=history \
-  -H "Authorization: Bearer change-this-token-too"
-```
-
-The integration API is read-only and focuses on the data the app creates: active tasks,
-completed history, learned formats, and enrichment jobs. Sensitive storage
-such as auth settings and uploaded source cookies is not exposed through the table endpoint.
 
 Interactive API docs are available while the app is running:
 

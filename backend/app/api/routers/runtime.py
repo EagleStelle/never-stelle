@@ -4,11 +4,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from backend.app.api.deps import require_authenticated_session
+from backend.app.api.deps import require_auth
 from backend.app.core.config import load_app_config
 from backend.app.domains.settings import build_settings_response, get_effective_saved_settings
 
-router = APIRouter(tags=["runtime"], dependencies=[Depends(require_authenticated_session)])
+router = APIRouter(tags=["runtime"], dependencies=[Depends(require_auth)])
 
 
 @router.get("/runtime-settings")

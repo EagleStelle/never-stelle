@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.app.api.deps import require_authenticated_session
+from backend.app.api.deps import require_auth
 from backend.app.api.schemas.downloads import IdsPayload
 from backend.app.api.schemas.trackers import (
     CreateTrackerPayload,
@@ -19,7 +19,7 @@ from backend.app.domains.trackers.checker import ensure_tracker_worker
 router = APIRouter(
     prefix="/trackers",
     tags=["trackers"],
-    dependencies=[Depends(require_authenticated_session)],
+    dependencies=[Depends(require_auth)],
 )
 
 

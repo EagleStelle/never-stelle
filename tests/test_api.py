@@ -24,6 +24,7 @@ def use_temp_auth_db(tmp_path, monkeypatch):
     use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("NEVER_STELLE_USERNAME", "root")
     monkeypatch.setenv("NEVER_STELLE_PASSWORD", "test-password")
+    monkeypatch.delenv("NEVER_STELLE_API_TOKEN", raising=False)
     client.cookies.clear()
 
 
@@ -54,67 +55,41 @@ def test_protected_api_requires_login(tmp_path, monkeypatch):
     assert response.json()["error"] == "Authentication required."
 
 
-def test_integration_manifest_accepts_api_token_without_login(tmp_path, monkeypatch):
+def test_api_key_opens_every_route_without_login(tmp_path, monkeypatch):
     use_temp_auth_db(tmp_path, monkeypatch)
     monkeypatch.setenv("NEVER_STELLE_API_TOKEN", "api-secret")
 
-    response = client.get(
-        "/api/integration/manifest",
-        headers={"Authorization": "Bearer api-secret"},
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["database"]["engine"] == "sqlite"
-    assert "download_history" in [table["name"] for table in body["tables"]]
-    assert body["auth"]["api_token_env"] == "NEVER_STELLE_API_TOKEN"
+    assert client.get("/api/downloads", headers={"X-Api-Key": "api-secret"}).status_code == 200
+    assert client.get("/api/downloads?apikey=api-secret").status_code == 200
+    assert client.get("/api/downloads", headers={"Authorization": "Bearer api-secret"}).status_code == 200
+    assert client.get("/api/downloads", headers={"X-Api-Key": "wrong"}).status_code == 401
 
 
-def test_integration_downloads_returns_decoded_history_rows(tmp_path, monkeypatch):
-    use_temp_auth_db(tmp_path, monkeypatch)
+def test_env_api_key_overrides_stored_key(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    stored_key = client.get("/api/runtime-settings").json()["auth"]["api_key"]
     monkeypatch.setenv("NEVER_STELLE_API_TOKEN", "api-secret")
-    repositories.save_history_row(
-        "disk:abc123",
-        {
-            "source_url": "https://example.test/p/abc123",
-            "source_key": "example",
-            "creator": "Creator",
-            "title": "Clip",
-            "media_id": "abc123",
-            "resolved_filename": "Clip [abc123].mp4",
-            "quality": {"mode": "audio"},
-            "created_at": "2026-07-10T00:00:00+00:00",
-        },
-    )
 
-    response = client.get(
-        "/api/integration/downloads?state=history&limit=10",
-        headers={"X-API-Key": "api-secret"},
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["total"] == 1
-    assert body["records"][0]["id"] == "disk:abc123"
-    assert body["records"][0]["status"] == "completed"
-    assert body["records"][0]["encoding"]["quality"] == {"mode": "audio"}
+    auth = client.get("/api/runtime-settings").json()["auth"]
+    assert auth["api_key"] == "api-secret"
+    assert auth["api_key_from_env"] is True
+    assert client.put("/api/auth/api-key", json={"api_key": "another-secret"}).status_code == 400
+    client.cookies.clear()
+    assert client.get("/api/downloads", headers={"X-Api-Key": stored_key}).status_code == 401
 
 
-def test_integration_tables_blocks_sensitive_tables(tmp_path, monkeypatch):
+def test_api_key_change_retires_old_key(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
+    old_key = client.get("/api/runtime-settings").json()["auth"]["api_key"]
 
-    response = client.get("/api/integration/tables/app_settings")
+    assert client.put("/api/auth/api-key", json={"api_key": "short"}).status_code == 400
+    assert client.put("/api/auth/api-key", json={"api_key": "has a space"}).status_code == 400
+    response = client.put("/api/auth/api-key", json={"api_key": " my-own-key-123 "})
+    assert response.json() == {"api_key": "my-own-key-123"}
+    client.cookies.clear()
 
-    assert response.status_code == 404
-
-
-def test_integration_settings_omits_auth_payload(tmp_path, monkeypatch):
-    login(tmp_path, monkeypatch)
-
-    response = client.get("/api/integration/settings")
-
-    assert response.status_code == 200
-    assert "auth" not in response.json()["settings"]
+    assert client.get("/api/downloads", headers={"X-Api-Key": old_key}).status_code == 401
+    assert client.get("/api/downloads", headers={"X-Api-Key": "my-own-key-123"}).status_code == 200
 
 
 def test_probe_empty_url_is_client_error(tmp_path, monkeypatch):
