@@ -267,7 +267,11 @@ class _Resolver:
         defaults = get_effective_field_defaults()
         self.username_fields = roles.get("username") or defaults["username"]
         self.nickname_fields = roles.get("nickname") or defaults["nickname"]
+        # Keys ownership reads, taken before _learn widens username_fields for rebuilt links.
+        self.owner_fields = {*self.username_fields, *self.nickname_fields}
         self.role_words = _role_words()
+        # Words a person key may hold: person words and parts, as in user_id or uploader_url.
+        self.person_words = self.role_words | {"id", "name", "url"}
         self.catalog_tried: set[tuple[str, str]] = set()
         self.placeholders: dict[str, str] | None = None
         # Learned route confirmed per kind of file, "" when none was.
@@ -334,9 +338,14 @@ class _Resolver:
             if "[" not in key and is_identifier_key(key) and not words & self.role_words:
                 yield key, value
 
+    def _is_person_key(self, key: str) -> bool:
+        # A Fields key, or one made only of person words and parts; tagged_username is neither.
+        words = set(_WORD_RE.findall(key.lower()))
+        return key in self.owner_fields or bool(words & self.role_words and words <= self.person_words)
+
     def _person_names(self, flat: dict[str, str]) -> set[str]:
         # Normalized values of fields keyed by a person: names, handles and their ids.
-        values = (value for key, value in flat.items() if set(_WORD_RE.findall(key.lower())) & self.role_words)
+        values = (value for key, value in flat.items() if self._is_person_key(key))
         return {name for name in map(alnum_fold, values) if len(name) >= _MIN_NAME_LENGTH}
 
     def _linked_url(self, flat: dict[str, str], file_url: str) -> str:
@@ -457,7 +466,8 @@ class _Resolver:
         return self.grouped(entry, flat) if owned else entry
 
     def owns(self, link: str, flat: dict[str, str]) -> bool:
-        """Whether the link names the creator or its metadata carries a name or id the creator's own files do."""
+        """Whether the link names the creator or a person key of its metadata, Fields included, holds a value
+        the creator's own files do."""
         own = self.names | {name for name in map(alnum_fold, self.creators()) if len(name) >= _MIN_NAME_LENGTH}
         return bool(url_exact_values(link) & self.creators()) or bool(self._person_names(flat) & own)
 

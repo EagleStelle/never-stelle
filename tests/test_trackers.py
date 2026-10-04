@@ -1343,35 +1343,46 @@ def test_tabs_the_engines_hand_out_are_left_to_them_even_when_their_listing_fail
     assert fetched == [TRACKER_URL, f"{TRACKER_URL}/about"]
 
 
-def test_items_a_row_page_lists_are_the_creators_only_when_they_carry_the_creators_names(temp_db, monkeypatch):
+def _row_page_owned(monkeypatch, own: dict[str, str], listed: list[dict[str, str]]) -> list[bool]:
+    """Whether each item is the creator's: the link's own item with ``own``, then its tagged page's ``listed``."""
     tagged = f"{TRACKER_URL}/tagged"
-
-    def file(name: str, user_id: str, post: str) -> list:
-        return [3, f"https://cdn.other.test/{post}.jpg", {"username": name, "user_id": user_id, "post_url": post}]
-
-    _engines_by_page(
-        monkeypatch,
-        {
-            TRACKER_URL: [file("Alice A", "11111111", "https://example.test/post/22222222")],
-            tagged: [
-                file("Bob B", "33333333", "https://example.test/post/44444444"),
-                file("Alice Again", "11111111", "https://example.test/post/55555555"),
-            ],
-        },
-    )
+    files = [
+        [3, f"https://cdn.other.test/{index}.jpg", {**metadata, "post_url": f"https://example.test/post/{index * 8}"}]
+        for index, metadata in zip("567", [own, *listed], strict=True)
+    ]
+    _engines_by_page(monkeypatch, {TRACKER_URL: files[:1], tagged: files[1:]})
     monkeypatch.setattr(entries_module, "_engine_supports", lambda url: True)
     for module in (pages_module, walk_module):
         monkeypatch.setattr(module, "_engine_reads", lambda url: url == tagged)
     _browser(monkeypatch)
+    entries = walk_module.iter_entries(TRACKER_URL, "example", tabs=[_row("tagged", enabled=False)])
+    return [entry.owned for entry in entries]
 
-    entries = list(walk_module.iter_entries(TRACKER_URL, "example", tabs=[_row("tagged", enabled=False)]))
+
+def test_items_a_row_page_lists_are_the_creators_only_when_they_carry_the_creators_names(temp_db, monkeypatch):
+    owned = _row_page_owned(
+        monkeypatch,
+        {"username": "Alice A", "user_id": "11111111"},
+        [
+            # The page names the creator it lists on every item; that is not who posted it.
+            {"username": "Bob B", "user_id": "33333333", "tagged_username": "alice"},
+            {"username": "Alice Again", "user_id": "11111111"},
+        ],
+    )
 
     # The link's own listing is the creator's; the tagged page's items are theirs only by a name or id they carry.
-    assert [(entry.url, entry.owned) for entry in entries] == [
-        ("https://example.test/post/22222222", True),
-        ("https://example.test/post/44444444", False),
-        ("https://example.test/post/55555555", True),
-    ]
+    assert owned == [True, False, True]
+
+
+def test_keys_the_sources_fields_list_tell_whose_items_a_row_page_lists(temp_db, monkeypatch):
+    monkeypatch.setattr(entries_module, "get_effective_fields", lambda url: {"username": ["handle"]})
+
+    owned = _row_page_owned(
+        monkeypatch, {"handle": "alicecustom"}, [{"handle": "bobcustom"}, {"handle": "alicecustom"}]
+    )
+
+    # No person word names the handle key; the Fields do.
+    assert owned == [True, False, True]
 
 
 def test_only_an_engine_reading_a_page_itself_lists_it(monkeypatch):
