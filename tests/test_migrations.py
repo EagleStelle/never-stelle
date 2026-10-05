@@ -7,6 +7,7 @@ import pytest
 
 import backend.app.db.database as database_module
 from backend.app.db import migrations
+from backend.app.db.migrations import m0008_trackers, m0009_tracker_feeds
 from backend.app.db.migrations.m0001_baseline import SCHEMA
 from tests.support import use_temp_db
 
@@ -945,7 +946,7 @@ def test_tracker_tables_arrive_without_touching_the_download_tables(tmp_path, mo
     before["download_history"].remove("scan_revision")
     assert after == before
     assert [row["id"] for row in history] == ["gallerydl:1"]
-    assert {"source_url", "interval_seconds", "next_check_at", "checking_at", "feeds"} <= tracker_columns
+    assert {"source_url", "overrides", "next_check_at", "checking_at", "feeds"} <= tracker_columns
     assert entry_columns == {"tracker_id", "entry_key", "entry_url", "download_id", "seen_at", "deleted_at"}
     assert backlog_columns == {"tracker_id", "entry_key", "entry_url", "found_at", "position", "attempts"}
     assert {"idx_trackers_due", "idx_tracker_entries_download"} <= indexes
@@ -1007,3 +1008,42 @@ def test_redirect_answers_move_into_the_route_table(tmp_path, monkeypatch):
         ("example.test/share/{}", "redirect", 3, 0, "b"),
     ]
     assert old is None
+
+
+def test_trackers_keep_only_an_interval_of_their_own(tmp_path, monkeypatch):
+    database_path = tmp_path / "never-stelle.sqlite3"
+    payload = {
+        "tracker_settings": {"interval_seconds": 7200},
+        "source_tracker_settings": {"other": {"interval_seconds": 3600}},
+    }
+    _seed_pre_migration_db(database_path, payload, version=15)
+    connection = sqlite3.connect(str(database_path))
+    try:
+        for migration in (m0008_trackers, m0009_tracker_feeds):
+            migration.upgrade(connection)
+        connection.executemany(
+            "INSERT INTO trackers (id, source_url, interval_seconds, created_at, updated_at) VALUES (?, ?, ?, '', '')",
+            [
+                ("default", "https://example.test/u/a", 7200),
+                ("own", "https://example.test/u/b", 3600),
+                ("source", "https://other.test/u/c", 3600),
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    use_temp_db(tmp_path, monkeypatch)
+
+    database_module.initialize_database()
+
+    with database_module.transaction() as connection:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info('trackers')")}
+        rows = connection.execute("SELECT id, overrides FROM trackers").fetchall()
+
+    assert "interval_seconds" not in columns
+    # An interval equal to the one it would follow is dropped, so the tracker follows it from now on.
+    assert {row["id"]: json.loads(row["overrides"]) for row in rows} == {
+        "default": {},
+        "own": {"interval_seconds": 3600},
+        "source": {},
+    }

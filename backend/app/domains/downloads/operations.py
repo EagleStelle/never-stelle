@@ -15,12 +15,14 @@ from backend.app.domains.formats.store import load_learned_formats
 from backend.app.domains.options.post_processing import normalize_post_processing
 from backend.app.domains.options.quality import normalize_quality_selection
 from backend.app.domains.settings import (
+    LIMIT_FIELDS,
     ensure_source_profile_for_url,
     get_effective_fields,
     get_effective_saved_settings,
     get_effective_source_profiles,
     get_effective_title_cleaning,
     load_saved_settings_file,
+    normalize_tracker_overrides,
     queue_icons,
 )
 from backend.app.domains.settings.learned_fields import save_missing_learned_fields
@@ -64,7 +66,9 @@ def queue_task(
     source_profiles: list[dict[str, Any]] | dict[str, Any] | None = None,
     source_templates: dict[str, Any] | None = None,
     quality: dict[str, Any] | None = None,
+    limits: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
+    """Queue one link; ``limits`` (size, length, lives) make the engines skip an item over them."""
     source_url = canonicalize_source_url(source_url)
     if not source_url:
         raise ValueError("Paste a URL first.")
@@ -130,6 +134,7 @@ def queue_task(
         **template_row_fields(resolved_settings.template_settings),
         "quality": quality,
         "post_processing": post_processing,
+        "limits": normalize_tracker_overrides(limits, LIMIT_FIELDS),
         "resolved_folder": output_dir,
         "resolved_filename": "",
         "resolved_full_path": "",

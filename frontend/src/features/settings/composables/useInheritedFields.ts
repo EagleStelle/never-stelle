@@ -1,14 +1,16 @@
 import { reactive } from "vue";
 
+type FieldValue = number | boolean;
+
 interface InheritedFieldsSource<F extends string> {
   // Overrides by key, read through the draft's reactive proxy.
-  entries: () => Record<string, Partial<Record<F, number>>>;
+  entries: () => Record<string, Partial<Record<F, FieldValue>>>;
   // The value a field shows while it has no override.
-  inherited: (field: F) => number;
+  inherited: (field: F) => FieldValue;
 }
 
-// Number fields that start filled with the value they inherit; clearing a field or
-// typing that value back drops the override so it keeps following its default.
+// Fields that start filled with the value they inherit; clearing a field or setting
+// that value back drops the override so it keeps following its default.
 export function useInheritedFields<F extends string>({
   entries,
   inherited,
@@ -20,22 +22,34 @@ export function useInheritedFields<F extends string>({
     return `${key}:${field}`;
   }
 
+  function value(key: string, field: F): FieldValue {
+    return entries()[key]?.[field] ?? inherited(field);
+  }
+
   function fieldValue(key: string, field: F): string {
     const editing = edits[editKey(key, field)];
     if (editing !== undefined) return editing;
-    return String(entries()[key]?.[field] ?? inherited(field));
+    return String(value(key, field));
+  }
+
+  function setValue(key: string, field: F, next: FieldValue): void {
+    const record = entries();
+    if (next === inherited(field)) {
+      delete record[key]?.[field];
+    } else {
+      record[key] ??= {};
+      record[key][field] = next;
+    }
   }
 
   function setField(key: string, field: F, raw: string | number): void {
     const text = String(raw ?? "").trim();
     edits[editKey(key, field)] = text;
     const parsed = Number(text);
-    const record = entries();
-    if (!text || parsed === inherited(field)) {
-      delete record[key]?.[field];
+    if (!text) {
+      delete entries()[key]?.[field];
     } else if (Number.isFinite(parsed)) {
-      record[key] ??= {};
-      record[key][field] = parsed;
+      setValue(key, field, parsed);
     }
   }
 
@@ -43,5 +57,5 @@ export function useInheritedFields<F extends string>({
     delete edits[editKey(key, field)];
   }
 
-  return { fieldValue, setField, endEdit };
+  return { value, fieldValue, setValue, setField, endEdit };
 }

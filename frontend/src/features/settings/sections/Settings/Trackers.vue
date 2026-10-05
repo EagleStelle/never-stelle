@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import {
   Tooltip,
   TooltipContent,
@@ -35,26 +36,34 @@ import type { TrackerSettings } from "@/types";
 import { TRACKER_INTERVALS } from "@/ui";
 import { useInheritedFields } from "@/features/settings/composables/useInheritedFields";
 import { useSettingsContext } from "@/features/settings/context";
-import { TRACKER_COUNT_FIELDS } from "@/features/settings/trackerFields";
+import {
+  TRACKER_FIELD_GROUPS,
+  isFlagField,
+  isLimitField,
+  stopIndex,
+  type TrackerLimitDef,
+} from "@/features/settings/trackerFields";
 import { errorMessage, normalizeSourceKey, sourceIconUrl } from "@/utils/dashboard";
 
 const { settingsDraft, editableSourceProfiles } = useSettingsContext();
 
 // A source with no override of its own follows the Defaults pane.
-function inherited(field: keyof TrackerSettings): number {
+function inherited(field: keyof TrackerSettings): number | boolean {
   return settingsDraft.tracker_settings[field];
 }
 
-const { fieldValue, setField, endEdit } = useInheritedFields<keyof TrackerSettings>({
+const { value, fieldValue, setValue, setField, endEdit } = useInheritedFields<keyof TrackerSettings>({
   entries: () => settingsDraft.source_tracker_settings,
   inherited,
 });
 
-// A pick is final, so it needs no edit text kept.
-function setCheckInterval(key: string, value: string | string[]): void {
-  if (typeof value !== "string" || !value) return;
-  setField(key, "interval_seconds", value);
-  endEdit(key, "interval_seconds");
+function setStop(key: string, field: TrackerLimitDef, index: number): void {
+  setValue(key, field.key, field.stops[index]);
+  endEdit(key, field.key);
+}
+
+function setCheckInterval(key: string, picked: string | string[]): void {
+  if (typeof picked === "string" && picked) setValue(key, "interval_seconds", Number(picked));
 }
 
 const probes = reactive<Record<string, { url: string; loading: boolean }>>(
@@ -128,10 +137,11 @@ function resetPages(key: string): void {
         </AccordionTrigger>
         <AccordionContent>
           <div class="flex flex-col gap-6">
-            <FieldSet>
-              <FieldLegend variant="divider">Fetching</FieldLegend>
+            <FieldSet v-for="group in TRACKER_FIELD_GROUPS" :key="group.legend">
+              <FieldLegend variant="divider">{{ group.legend }}</FieldLegend>
               <FieldGroup>
                 <Combobox
+                  v-if="group.legend === 'Fetching'"
                   :id="`${site.key}Trackerinterval_seconds`"
                   :model-value="fieldValue(site.key, 'interval_seconds')"
                   :items="TRACKER_INTERVALS"
@@ -141,7 +151,7 @@ function resetPages(key: string): void {
                   empty-text="No intervals."
                   @update:model-value="(value: string | string[]) => setCheckInterval(site.key, value)"
                 />
-                <Field v-for="field in TRACKER_COUNT_FIELDS" :key="field.key">
+                <Field v-for="field in group.fields" :key="field.key">
                   <FieldLabel :for="`${site.key}Tracker${field.key}`" class="items-center gap-1.5">
                     <span>{{ field.label }}</span>
                     <Tooltip>
@@ -159,19 +169,39 @@ function resetPages(key: string): void {
                       </TooltipContent>
                     </Tooltip>
                   </FieldLabel>
-                  <FieldContent>
-                    <Input
+                  <FieldContent class="flex-row items-center gap-3">
+                    <Checkbox
+                      v-if="isFlagField(field)"
                       :id="`${site.key}Tracker${field.key}`"
-                      type="number"
-                      min="1"
-                      max="500"
-                      :placeholder="String(inherited(field.key))"
-                      :model-value="fieldValue(site.key, field.key)"
-                      @blur="endEdit(site.key, field.key)"
-                      @update:model-value="
-                        (value: string | number) => setField(site.key, field.key, value)
-                      "
+                      :checked="value(site.key, field.key) === true"
+                      @update:checked="(checked: boolean) => setValue(site.key, field.key, checked)"
                     />
+                    <template v-else>
+                      <Slider
+                        v-if="isLimitField(field)"
+                        :model-value="[stopIndex(field.stops, Number(value(site.key, field.key)))]"
+                        :max="field.stops.length - 1"
+                        ticks
+                        :label="field.label"
+                        :value-text="field.format(Number(value(site.key, field.key)))"
+                        @update:model-value="(index?: number[]) => index && setStop(site.key, field, index[0])"
+                      />
+                      <Input
+                        :id="`${site.key}Tracker${field.key}`"
+                        type="number"
+                        :min="field.min"
+                        :max="field.max"
+                        :class="isLimitField(field) ? 'w-32 shrink-0' : 'flex-1'"
+                        :placeholder="String(inherited(field.key))"
+                        :model-value="fieldValue(site.key, field.key)"
+                        @blur="endEdit(site.key, field.key)"
+                        @update:model-value="
+                          (raw: string | number) => setField(site.key, field.key, raw)
+                        "
+                      >
+                        <template v-if="isLimitField(field)" #end>{{ field.unit }}</template>
+                      </Input>
+                    </template>
                   </FieldContent>
                 </Field>
               </FieldGroup>

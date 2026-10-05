@@ -234,15 +234,15 @@ Bulk actions take a JSON body of `{"ids": [...]}`. Query parameters are listed a
 
 ### Trackers
 
-| Method  | Endpoint                | Description                                               |
-| ------- | ----------------------- | --------------------------------------------------------- |
-| `GET`   | `/api/trackers`         | Lists trackers with their counts.                         |
-| `POST`  | `/api/trackers`         | Starts tracking a creator link.                           |
-| `PATCH` | `/api/trackers/{id}`    | Changes a tracker's quality, post-processing or interval. |
-| `POST`  | `/api/trackers/check`   | Checks trackers now.                                      |
-| `POST`  | `/api/trackers/stop`    | Stops running or waiting checks.                          |
-| `POST`  | `/api/trackers/enabled` | Pauses or resumes trackers.                               |
-| `POST`  | `/api/trackers/delete`  | Deletes trackers, optionally with their files.            |
+| Method  | Endpoint                | Description                                                       |
+| ------- | ----------------------- | ----------------------------------------------------------------- |
+| `GET`   | `/api/trackers`         | Lists trackers with their counts.                                 |
+| `POST`  | `/api/trackers`         | Starts tracking a creator link.                                   |
+| `PATCH` | `/api/trackers/{id}`    | Changes a tracker's quality, post-processing, interval or limits. |
+| `POST`  | `/api/trackers/check`   | Checks trackers now.                                              |
+| `POST`  | `/api/trackers/stop`    | Stops running or waiting checks.                                  |
+| `POST`  | `/api/trackers/enabled` | Pauses or resumes trackers.                                       |
+| `POST`  | `/api/trackers/delete`  | Deletes trackers, optionally with their files.                    |
 
 ### Settings
 

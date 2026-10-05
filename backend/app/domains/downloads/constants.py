@@ -82,6 +82,10 @@ def media_kind_for(resolved_filename: Any, engine: Any) -> str:
 PROGRESS_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%")
 
 
+# Lines yt-dlp and gallery-dl print when they skip an item over a download limit.
+LIMIT_SKIP_RE = re.compile(r"does not pass filter|larger than max-filesize|larger than allowed maximum")
+
+
 TEMPLATE_RE = re.compile(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}")
 
 

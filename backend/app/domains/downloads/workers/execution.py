@@ -8,6 +8,7 @@ from typing import Any
 
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key, source_key_from_url
+from backend.app.db.repositories import unlink_tracker_downloads
 from backend.app.domains.access.pool import cookie_ready_in, looks_antibot_walled, looks_rate_limited
 from backend.app.domains.access.rotation import (
     AccessIdentity,
@@ -16,6 +17,7 @@ from backend.app.domains.access.rotation import (
     impersonation_target,
 )
 from backend.app.domains.downloads.cache import drop_file_cache
+from backend.app.domains.downloads.constants import LIMIT_SKIP_RE
 from backend.app.domains.downloads.engines.engine import ENGINE_WINDOW, Engine, engine_fact, engine_order
 from backend.app.domains.downloads.library.history import save_history_entry
 from backend.app.domains.downloads.links.learned_routes import route_shape
@@ -63,7 +65,12 @@ from backend.app.domains.formats.store import load_learned_formats
 from backend.app.domains.options.field_roles import FIELD_CANDIDATES
 from backend.app.domains.options.post_processing import normalize_post_processing, post_processing_requested
 from backend.app.domains.options.quality import normalize_quality_selection, quality_needs_ffmpeg
-from backend.app.domains.settings import detect_cookie_source, get_effective_fields
+from backend.app.domains.settings import (
+    LIMIT_FIELDS,
+    detect_cookie_source,
+    get_effective_fields,
+    normalize_tracker_overrides,
+)
 from backend.app.domains.settings.learned_fields import has_learned_fields
 from backend.app.runtime.processes import (
     TaskCancelled,
@@ -82,10 +89,10 @@ from backend.app.runtime.scratch import (
 
 
 def _learn_engine_outcome(task_id: str, shape: str, engine: Engine, got_media: bool) -> None:
-    # A blocked run says nothing about whether the engine reads the route.
+    # A blocked or limit-skipped run says nothing about whether the engine reads the route.
     if not got_media:
         tail = _task_log_tail(task_id)
-        if looks_rate_limited(tail) or looks_antibot_walled(tail):
+        if looks_rate_limited(tail) or looks_antibot_walled(tail) or LIMIT_SKIP_RE.search(tail):
             return
     learn_route(shape, engine_fact(engine), hit=got_media, window=ENGINE_WINDOW)
 
@@ -125,6 +132,11 @@ def _task_log_tail(task_id: str) -> str:
     return " ".join(str(line) for line in (load_task(task_id).get("last_log_lines") or []))
 
 
+def _limit_skipped(task_id: str) -> bool:
+    """Whether the engine skipped the item over the task's download limits."""
+    return bool(LIMIT_SKIP_RE.search(_task_log_tail(task_id)))
+
+
 def _run_engine_attempts(
     engine: Engine,
     task_id: str,
@@ -141,6 +153,7 @@ def _run_engine_attempts(
     progress: TaskProgress | None = None,
     part_directory: str = "",
     resume_walled: bool | None = None,
+    limits: dict[str, Any] | None = None,
 ) -> tuple[int, str, list[str]]:
     def _attempt(access: AccessIdentity) -> tuple[int, str, list[str]]:
         cmd = engine.build_command(
@@ -154,6 +167,7 @@ def _run_engine_attempts(
             part_directory=part_directory,
             quality=quality,
             post_processing=post_processing,
+            limits=limits,
         )
         return _run_engine_to_task(
             engine,
@@ -181,7 +195,13 @@ def _run_engine_attempts(
                     task_id, f"[never-stelle] Blocked by an anti-bot wall; retrying as {access.impersonate}..."
                 )
             rc, last_dest, emitted_paths = _attempt(access)
-            if rc == 0 or _has_output_media(last_dest, emitted_paths) or cancel_pending(task_id):
+            # A limit skip is an answer, not a failure another identity could fix.
+            if (
+                rc == 0
+                or _has_output_media(last_dest, emitted_paths)
+                or cancel_pending(task_id)
+                or _limit_skipped(task_id)
+            ):
                 return rc, last_dest, emitted_paths
             access.report(_task_log_tail(task_id))
             if access.walled and not access.impersonate and not walled and not impersonation_target():
@@ -236,6 +256,7 @@ def _run_task(
     template_settings = _task_template_settings(task)
     quality = normalize_quality_selection(task.get("quality"))
     post_processing = normalize_post_processing(task.get("post_processing"))
+    limits = normalize_tracker_overrides(task.get("limits"), LIMIT_FIELDS)
     has_post_processing = post_processing_requested(post_processing)
     raw_source_key = normalize_source_key(task.get("source_key"))
     task_source_key = raw_source_key or detect_source_key(source_url)
@@ -268,6 +289,7 @@ def _run_task(
     used_engine = candidates[0]
     failure_details: list[str] = list(resume.failures) if resume else []
     output_paths: list[Path] = []
+    skipped = False
     try:
         raise_if_cancelled(task_id)
         record_task_progress(task_id, progress.prepare(0.6))
@@ -328,6 +350,7 @@ def _run_task(
                     progress,
                     str(task_parts),
                     resume_walled=resume.walled if resume and engine.name == resume.engine else None,
+                    limits=limits,
                 )
             except TaskDeferred as deferred:
                 # Resumes at this engine's cookie stage; nothing already tried runs again.
@@ -338,7 +361,8 @@ def _run_task(
             # Only a run without media hands over, so every output path belongs to this engine.
             output_paths = [Path(path) for path in _attempt_output_paths(last_dest, emitted_paths)]
             _learn_engine_outcome(task_id, shape, engine, bool(output_paths))
-            if rc == 0:
+            skipped = not output_paths and _limit_skipped(task_id)
+            if rc == 0 or skipped:
                 break
 
             failure_details.append(_failure_detail(engine, rc, load_task(task_id)))
@@ -352,6 +376,12 @@ def _run_task(
             break
 
         raise_if_cancelled(task_id)
+
+        if skipped:
+            # Over a tracker's limits: its entry goes back to only seen.
+            remove_task_record(task_id)
+            unlink_tracker_downloads([task_id])
+            return
 
         current_task = load_task(task_id)
         if rc == 0 or output_paths:

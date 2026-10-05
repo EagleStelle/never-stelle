@@ -14,6 +14,9 @@ const ICON =
   "flex items-center justify-center shrink-0 w-7 h-7 ml-1 text-white in-[.light-mode]:text-black";
 // Stands in for the icon so a field without one still opens on the same text inset.
 const GAP = "w-1";
+// A unit or note after the text, as "MB".
+const END =
+  "shrink-0 pr-2 text-sm text-white/70 in-[.light-mode]:text-black/70 select-none";
 const TEXT =
   "flex-1 min-w-0 h-full bg-transparent outline-none text-base md:text-sm text-white in-[.light-mode]:text-black pr-2 placeholder:text-white/50 in-[.light-mode]:placeholder:text-black/50";
 const DISABLED_CONTAINER =
@@ -120,6 +123,10 @@ async function pasteFromClipboard(): Promise<void> {
       "
       :class="cn(TEXT, disabled && DISABLED_TEXT)"
     />
+
+    <span v-if="slots.end" :class="cn(END, disabled && 'text-white/40 in-[.light-mode]:text-black/40')">
+      <slot name="end" />
+    </span>
 
     <Button
       v-if="props.paste"

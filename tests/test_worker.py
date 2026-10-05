@@ -1392,3 +1392,87 @@ def test_worker_hands_an_engine_the_item_in_a_learned_format_it_takes(monkeypatc
     place = "https://example.test/@alice/places/12345678"
     assert worker_module._engine_link(VideoEngine(), place) == place
     assert worker_module._engine_link(Engine(), photo) == photo
+
+
+def test_run_engine_attempts_spends_no_cookie_on_a_limit_skip(monkeypatch):
+    attempts: list[bool] = []
+
+    def fake_run_engine(engine, task_id, cmd, **options):
+        attempts.append("--cookies" in cmd)
+        assert cmd[cmd.index("--match-filters") + 1] == "duration<=?60"
+        return 1, "", []
+
+    _stub_worker_cookie_rotation(monkeypatch, worker_module)
+    monkeypatch.setattr(worker_module, "_run_engine_to_task", fake_run_engine)
+    monkeypatch.setattr(
+        worker_module,
+        "_task_log_tail",
+        lambda task_id: "[download] File is larger than max-filesize (2000 bytes > 1000 bytes). Aborting.",
+    )
+
+    _run_attempts(worker_module, limits={"max_minutes": 1})
+
+    # Skipping an item over its limits is no failure another identity could fix.
+    assert attempts == [False]
+
+
+def test_a_download_over_its_limits_leaves_the_tracker_entry_only_seen(tmp_path: Path, monkeypatch):
+    task_id = "gallerydl:over-limit"
+    store = {
+        "tasks": {
+            task_id: {
+                "engine": "gallerydl",
+                "source_url": "https://www.example.test/post/abc123",
+                "source_key": "example",
+                "status": "pending",
+                "output_dir": str(tmp_path),
+                "resolved_folder": str(tmp_path),
+                "folder_template": "",
+                "filename_template": "{{title}}",
+                "limits": {"max_minutes": 1},
+            }
+        }
+    }
+    commands: list[list[str]] = []
+    removed: list[str] = []
+    unlinked: list[str] = []
+    learned: list[tuple] = []
+
+    class FakeProcess:
+        stdout = iter(["[download] Clip does not pass filter (duration<=?60), skipping ..\n"])
+
+        def wait(self):
+            return 0
+
+        def poll(self):
+            return 0
+
+    def fake_popen(cmd, *args, **kwargs):
+        commands.append(cmd)
+        return FakeProcess()
+
+    def fake_update_task(task_id: str, **updates):
+        store["tasks"].setdefault(task_id, {}).update(updates)
+        return store["tasks"][task_id]
+
+    monkeypatch.setattr(runner_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(worker_module, "detect_ffmpeg_location", lambda: "ffmpeg")
+    _patch_worker_task_store(monkeypatch, store, fake_update_task)
+    monkeypatch.setattr(
+        worker_module, "load_task", lambda task_id: volatile.merge(task_id, dict(store["tasks"].get(task_id, {})))
+    )
+    monkeypatch.setattr(worker_module, "cookie_ready_in", lambda source_key: 0.0)
+    monkeypatch.setattr(worker_module, "learn_route", lambda *args, **kwargs: learned.append(args))
+    monkeypatch.setattr(worker_module, "remove_task_record", removed.append)
+    monkeypatch.setattr(worker_module, "unlink_tracker_downloads", unlinked.extend)
+
+    try:
+        worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
+    finally:
+        volatile.forget(task_id)
+
+    # The other engine never runs, the route learns nothing and the task is no failure.
+    assert len(commands) == 1
+    assert any("duration<=?60" in arg for arg in commands[0] if arg.startswith("downloader.ytdl.cmdline-args="))
+    assert (removed, unlinked, learned) == ([task_id], [task_id], [])
+    assert store["tasks"][task_id].get("status") != "failed"

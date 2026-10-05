@@ -46,13 +46,14 @@ from backend.app.domains.formats.analysis import creator_from_url, url_dedup_key
 from backend.app.domains.options.post_processing import normalize_post_processing
 from backend.app.domains.options.quality import normalize_quality_selection
 from backend.app.domains.settings import (
+    TRACKER_OVERRIDE_FIELDS,
     get_effective_source_profiles,
     get_effective_title_cleaning,
     get_tracker_settings,
     get_tracker_tabs,
+    normalize_tracker_overrides,
     save_tracker_tabs,
 )
-from backend.app.domains.settings.trackers import MAX_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS
 from backend.app.integrations.swaratelle import client as swaratelle
 from backend.app.runtime.processes import (
     TaskCancelled,
@@ -77,14 +78,6 @@ _STOP_WAIT_SECONDS = 30.0
 _STOP_POLL_SECONDS = 0.1
 
 
-def _interval(value: Any, source_key: str = "") -> int:
-    try:
-        seconds = int(value)
-    except (TypeError, ValueError):
-        seconds = get_tracker_settings(source_key)["interval_seconds"]
-    return max(MIN_INTERVAL_SECONDS, min(MAX_INTERVAL_SECONDS, seconds))
-
-
 def _next_check_at(interval_seconds: int) -> str:
     jittered = interval_seconds * random.uniform(1 - _JITTER, 1 + _JITTER)
     return (utc_now_datetime() + timedelta(seconds=jittered)).isoformat()
@@ -102,6 +95,15 @@ def _source_key(tracker: dict[str, Any], profiles: list[dict[str, Any]] | None =
     return source_key_from_url(tracker["source_url"], profiles or get_effective_source_profiles())
 
 
+def _settings(tracker: dict[str, Any]) -> dict[str, Any]:
+    """The tracker's settings: its own overrides over its source's and the defaults."""
+    return get_tracker_settings(_source_key(tracker), tracker["overrides"])
+
+
+def _interval(tracker: dict[str, Any]) -> int:
+    return int(_settings(tracker)["interval_seconds"])
+
+
 def _queued(tracker: dict[str, Any]) -> bool:
     # Due and waiting for a free check slot.
     return bool(tracker["enabled"]) and not tracker["checking_at"] and tracker["next_check_at"] <= utc_now()
@@ -116,7 +118,7 @@ def tracker_to_api(tracker: dict[str, Any], counts: dict[str, int] | None = None
         # Before any download is filed, the link names it.
         "name": name or _fallback_name(tracker["source_url"]),
         "enabled": tracker["enabled"],
-        "interval_seconds": tracker["interval_seconds"],
+        "overrides": tracker["overrides"],
         "quality": tracker["quality"],
         "post_processing": tracker["post_processing"],
         "next_check_at": tracker["next_check_at"],
@@ -180,7 +182,7 @@ def create_tracker(
     *,
     quality: dict[str, Any] | None = None,
     post_processing: dict[str, Any] | None = None,
-    interval_seconds: int | None = None,
+    overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Save the link and make it due at once."""
     url = canonicalize_source_url(source_url)
@@ -196,7 +198,7 @@ def create_tracker(
             "id": uuid.uuid4().hex[:12],
             "source_url": url,
             "enabled": True,
-            "interval_seconds": _interval(interval_seconds, _source_key({"source_url": url})),
+            "overrides": normalize_tracker_overrides(overrides, TRACKER_OVERRIDE_FIELDS),
             "quality": normalize_quality_selection(quality) if quality else {},
             "post_processing": normalize_post_processing(post_processing) if post_processing is not None else {},
             "next_check_at": utc_now(),
@@ -206,17 +208,35 @@ def create_tracker(
 
 
 def update_tracker(tracker_id: str, changes: dict[str, Any]) -> dict[str, Any]:
-    tracker = get_tracker(tracker_id)
+    before = {tracker_id: _interval(get_tracker(tracker_id))}
     updates: dict[str, Any] = {}
-    if changes.get("interval_seconds") is not None:
-        updates["interval_seconds"] = _interval(changes["interval_seconds"])
-        updates["next_check_at"] = _next_after(tracker["last_checked_at"], updates["interval_seconds"])
+    if changes.get("overrides") is not None:
+        updates["overrides"] = normalize_tracker_overrides(changes["overrides"], TRACKER_OVERRIDE_FIELDS)
     if changes.get("quality") is not None:
         updates["quality"] = normalize_quality_selection(changes["quality"])
     if changes.get("post_processing") is not None:
         updates["post_processing"] = normalize_post_processing(changes["post_processing"])
-    tracker = update_tracker_row(tracker_id, updates)
+    update_tracker_row(tracker_id, updates)
+    reschedule_trackers(before)
+    tracker = get_tracker(tracker_id)
     return tracker_to_api(tracker, count_tracker_items().get(tracker_id), _filed_names([tracker]).get(tracker_id, ""))
+
+
+def tracker_intervals() -> dict[str, int]:
+    """Each tracker's check interval, by id."""
+    return {tracker["id"]: _interval(tracker) for tracker in load_tracker_rows()}
+
+
+def reschedule_trackers(before: dict[str, int]) -> bool:
+    """Trackers whose interval changed from ``before`` are due their new interval after their last check.
+    Returns whether any was."""
+    changes = {
+        tracker["id"]: {"next_check_at": _next_after(tracker["last_checked_at"], interval)}
+        for tracker in load_tracker_rows()
+        if tracker["id"] in before and (interval := _interval(tracker)) != before[tracker["id"]]
+    }
+    update_tracker_rows(changes)
+    return bool(changes)
 
 
 def set_trackers_enabled(tracker_ids: list[str], enabled: bool) -> dict[str, Any]:
@@ -231,9 +251,7 @@ def set_trackers_enabled(tracker_ids: list[str], enabled: bool) -> dict[str, Any
             continue
         changes[tracker["id"]] = {"enabled": enabled}
         if enabled:
-            changes[tracker["id"]]["next_check_at"] = _next_after(
-                tracker["last_checked_at"], tracker["interval_seconds"]
-            )
+            changes[tracker["id"]]["next_check_at"] = _next_after(tracker["last_checked_at"], _interval(tracker))
     update_tracker_rows(changes)
     return {"count": len(trackers), "errors": []}
 
@@ -265,7 +283,7 @@ def stop_checks(tracker_ids: list[str], *, wait: bool = False) -> dict[str, Any]
     _asked.difference_update(trackers)
     update_tracker_rows(
         {
-            tracker["id"]: {"next_check_at": _next_check_at(tracker["interval_seconds"])}
+            tracker["id"]: {"next_check_at": _next_check_at(_interval(tracker))}
             for tracker in trackers.values()
             if _queued(tracker)
         }
@@ -291,16 +309,19 @@ def delete_trackers(tracker_ids: list[str], *, delete_files: bool = False) -> di
     return {"count": len(ids), "errors": errors}
 
 
-def _queue_entry(tracker: dict[str, Any], entry: Entry) -> tuple[str, bool]:
-    """The entry's download id, and whether the app already had it downloaded or queued."""
+def _queue_entry(tracker: dict[str, Any], entry: Entry, limits: dict[str, Any] | None) -> tuple[str, bool]:
+    """The entry's download id, and whether the app already had it downloaded or queued. A download over
+    ``limits`` is skipped and leaves the entry only seen."""
     # Empty saved settings follow the current defaults; locations and templates always do.
-    created, existing = queue_task(entry.url, quality=queue_quality(tracker["quality"], tracker["post_processing"]))
+    created, existing = queue_task(
+        entry.url, quality=queue_quality(tracker["quality"], tracker["post_processing"]), limits=limits
+    )
     return (str(created[0].get("vid") or "") if created else ""), existing
 
 
-def _restore_missing(tracker: dict[str, Any], *, queue: bool) -> list[str]:
+def _restore_missing(tracker: dict[str, Any], limits: dict[str, Any], *, queue: bool) -> list[str]:
     """Link seen entries whose download is gone to the copy the app has, as after a restored database;
-    with ``queue``, queue again the rest and retry the failed ones. Returns the errors."""
+    with ``queue``, queue again the rest under ``limits`` and retry the failed ones. Returns the errors."""
     failures: list[str] = []
     failed: list[str] = []
     for entry_url, download_id, status in missing_tracker_download_rows(tracker["id"]):
@@ -313,7 +334,7 @@ def _restore_missing(tracker: dict[str, Any], *, queue: bool) -> list[str]:
             relink_tracker_download(download_id, history_id)
         elif queue:
             try:
-                replacement, _ = _queue_entry(tracker, Entry(url=entry_url))
+                replacement, _ = _queue_entry(tracker, Entry(url=entry_url), limits)
                 if replacement and replacement != download_id:
                     relink_tracker_download(download_id, replacement)
             except Exception as exc:
@@ -330,13 +351,13 @@ def list_entries(tracker_id: str) -> dict[str, Any]:
 
 
 def queue_entries(tracker_id: str, urls: list[str]) -> dict[str, Any]:
-    """Queue entries only seen under the tracker's settings; an item the app has is linked."""
+    """Queue entries only seen under the tracker's settings, past its limits; an item the app has is linked."""
     tracker = get_tracker(tracker_id)
     count = 0
     errors: list[str] = []
     for url in only_seen_tracker_entry_urls(tracker_id, urls):
         try:
-            download_id, _ = _queue_entry(tracker, Entry(url=url))
+            download_id, _ = _queue_entry(tracker, Entry(url=url), None)
         except Exception as exc:
             errors.append(str(exc))
             continue
@@ -414,7 +435,7 @@ def _run_check(tracker: dict[str, Any]) -> None:
     source_key = _source_key(tracker)
     asked = tracker_id in _asked
     _asked.discard(tracker_id)
-    settings = get_tracker_settings(source_key)
+    settings = _settings(tracker)
     pass_start = tracker["last_success_at"]
     first = not pass_start
     stats = ListingStats()
@@ -424,7 +445,7 @@ def _run_check(tracker: dict[str, Any]) -> None:
     succeeded = False
     updates: dict[str, Any] = {}
     try:
-        lost = _restore_missing(tracker, queue=asked)
+        lost = _restore_missing(tracker, settings, queue=asked)
         with CpuPacer() as pacer:
             entries = iter_entries(
                 tracker["source_url"],
@@ -458,7 +479,7 @@ def _run_check(tracker: dict[str, Any]) -> None:
                     if entry.owned:
                         try:
                             # An item the app already downloaded is linked, not fetched again.
-                            download_id, existing = _queue_entry(tracker, entry)
+                            download_id, existing = _queue_entry(tracker, entry, settings)
                         except Exception as exc:
                             # Left unrecorded, so the next check tries the entry again.
                             failures.append(str(exc))
@@ -501,7 +522,7 @@ def _run_check(tracker: dict[str, Any]) -> None:
             updates.update(
                 {
                     "last_checked_at": utc_now(),
-                    "next_check_at": _next_check_at(latest["interval_seconds"]),
+                    "next_check_at": _next_check_at(_interval(latest)),
                     "checking_at": "",
                 }
             )

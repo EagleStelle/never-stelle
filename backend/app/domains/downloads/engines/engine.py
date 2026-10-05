@@ -54,6 +54,7 @@ class Engine:
         quality: dict[str, str] | None = None,
         post_processing: dict[str, Any] | None = None,
         cleaning: dict[str, Any] | None = None,
+        limits: dict[str, Any] | None = None,
     ) -> list[str]:
         raise NotImplementedError
 
@@ -99,6 +100,7 @@ class YtdlpEngine(Engine):
         quality: dict[str, str] | None = None,
         post_processing: dict[str, Any] | None = None,
         cleaning: dict[str, Any] | None = None,
+        limits: dict[str, Any] | None = None,
     ) -> list[str]:
         return ytdlp.build_ytdlp_command(
             source_url,
@@ -112,6 +114,7 @@ class YtdlpEngine(Engine):
             quality=quality,
             post_processing=post_processing,
             cleaning=cleaning,
+            limits=limits,
         )
 
     def parse_progress(self, line: str) -> float | None:
@@ -165,6 +168,7 @@ class GallerydlEngine(Engine):
         quality: dict[str, str] | None = None,
         post_processing: dict[str, Any] | None = None,
         cleaning: dict[str, Any] | None = None,
+        limits: dict[str, Any] | None = None,
     ) -> list[str]:
         return gallerydl.build_gallerydl_command(
             source_url,
@@ -176,6 +180,7 @@ class GallerydlEngine(Engine):
             quality=quality,
             post_processing=post_processing,
             cleaning=cleaning,
+            limits=limits,
         )
 
     def parse_progress(self, line: str) -> float | None:

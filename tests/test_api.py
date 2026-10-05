@@ -801,10 +801,12 @@ def test_tracker_routes_create_apply_check_and_delete(tmp_path, monkeypatch):
     login(tmp_path, monkeypatch)
     monkeypatch.setattr(trackers_router, "ensure_tracker_worker", lambda: None)
 
-    created = client.post("/api/trackers", json={"url": "https://example.test/u/alice", "interval_seconds": 86400})
+    created = client.post(
+        "/api/trackers", json={"url": "https://example.test/u/alice", "overrides": {"interval_seconds": 86400}}
+    )
     assert created.status_code == 200
     tracker_id = created.json()["id"]
-    assert (created.json()["enabled"], created.json()["interval_seconds"]) == (True, 86400)
+    assert (created.json()["enabled"], created.json()["overrides"]) == (True, {"interval_seconds": 86400})
     assert client.post("/api/trackers", json={"url": "https://example.test/u/alice"}).status_code == 400
 
     listed = client.get("/api/trackers").json()["trackers"]
@@ -822,7 +824,7 @@ def test_tracker_routes_create_apply_check_and_delete(tmp_path, monkeypatch):
 
     assert client.post("/api/trackers/delete", json=ids).json() == {"count": 1, "errors": []}
     assert client.get("/api/trackers").json()["trackers"] == []
-    assert client.patch(f"/api/trackers/{tracker_id}", json={"interval_seconds": 3600}).status_code == 404
+    assert client.patch(f"/api/trackers/{tracker_id}", json={"overrides": {}}).status_code == 404
 
 
 

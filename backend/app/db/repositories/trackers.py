@@ -12,7 +12,7 @@ _TRACKER_COLUMNS = (
     "id",
     "source_url",
     "enabled",
-    "interval_seconds",
+    "overrides",
     "quality",
     "post_processing",
     "next_check_at",
@@ -25,7 +25,7 @@ _TRACKER_COLUMNS = (
     "updated_at",
 )
 _TRACKER_SELECT = ", ".join(_TRACKER_COLUMNS)
-_JSON_COLUMNS = {"quality", "post_processing", "feeds"}
+_JSON_COLUMNS = {"overrides", "quality", "post_processing", "feeds"}
 _BOOL_COLUMNS = {"enabled"}
 _UPDATABLE = set(_TRACKER_COLUMNS) - {"id", "source_url", "created_at", "updated_at"}
 
@@ -71,8 +71,6 @@ def _tracker_from_row(row: Any) -> dict[str, Any]:
             tracker[column] = decoded if isinstance(decoded, dict) else {}
         elif column in _BOOL_COLUMNS:
             tracker[column] = bool(safe_int(value))
-        elif column == "interval_seconds":
-            tracker[column] = safe_int(value)
         else:
             tracker[column] = str(value or "")
     return tracker
@@ -83,8 +81,6 @@ def _column_value(column: str, value: Any) -> Any:
         return _encode(value if isinstance(value, dict) else {})
     if column in _BOOL_COLUMNS:
         return int(bool(value))
-    if column == "interval_seconds":
-        return safe_int(value)
     return str(value or "")
 
 

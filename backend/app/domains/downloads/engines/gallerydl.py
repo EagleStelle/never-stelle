@@ -15,7 +15,12 @@ from backend.app.domains.downloads.engines.templates import (
     rendered_template_parts,
     substitute_template,
 )
-from backend.app.domains.downloads.engines.ytdlp import artwork_extractor_args, ytdlp_pacing_args
+from backend.app.domains.downloads.engines.ytdlp import (
+    artwork_extractor_args,
+    max_file_bytes,
+    ytdlp_limit_args,
+    ytdlp_pacing_args,
+)
 from backend.app.domains.downloads.naming.filenames import sanitize_path_literal
 from backend.app.domains.downloads.postprocessing.ffmpeg import detect_ffmpeg_location
 from backend.app.domains.formats.analysis import media_id_from_url
@@ -94,8 +99,9 @@ def _ytdl_options(name: str, value: str) -> list[str]:
     return ["-o", f"downloader.ytdl.{name}={value}", "-o", f"extractor.ytdl.{name}={value}"]
 
 
-def gallerydl_access_args(access: AccessIdentity) -> list[str]:
-    """Cookies, browser fingerprint, retries and waits for gallery-dl's own requests and its yt-dlp handoff."""
+def gallerydl_access_args(access: AccessIdentity, ytdlp_args: list[str] | None = None) -> list[str]:
+    """Cookies, browser fingerprint, retries and waits for gallery-dl's own requests and its yt-dlp handoff,
+    which also takes ``ytdlp_args``."""
     args: list[str] = []
     target = access.impersonate
     if target in _GALLERYDL_BROWSERS:
@@ -111,6 +117,7 @@ def gallerydl_access_args(access: AccessIdentity) -> list[str]:
         *ytdlp_pacing_args(access),
         "--socket-timeout",
         str(_HTTP_TIMEOUT_SECONDS),
+        *(ytdlp_args or []),
     ]
     args.extend(_ytdl_options("cmdline-args", json.dumps(cmdline, separators=(",", ":"))))
     args.extend(["-o", "downloader.ytdl.raw-options.ignoreerrors=true"])
@@ -324,6 +331,7 @@ def build_gallerydl_command(
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
     cleaning: dict[str, Any] | None = None,
+    limits: dict[str, Any] | None = None,
 ) -> list[str]:
     access = access or AccessIdentity()
     folder, _, filename = str(output_template or "").partition(_TEMPLATE_SEP)
@@ -352,8 +360,10 @@ def build_gallerydl_command(
         "-o",
         f"downloader.http.timeout={_HTTP_TIMEOUT_SECONDS}",
         *_ytdl_downloader_options(quality, processing, trim_length),
-        *gallerydl_access_args(access),
+        *gallerydl_access_args(access, ytdlp_limit_args(limits)),
     ]
+    if size := max_file_bytes(limits):
+        cmd.extend(["--filesize-max", str(size)])
     if part_directory:
         cmd.extend(["-o", f"downloader.part-directory={Path(part_directory).as_posix()}"])
     if filename:

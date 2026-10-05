@@ -16,15 +16,31 @@ _COUNT_FIELDS: dict[str, tuple[int, int, int]] = {
     "page_size": (30, 1, 500),
     # Items already in the app, in a row, that show a check nothing newer is left; tolerates pinned posts.
     "caught_up_after": (5, 1, 500),
-    # Check interval a new tracker starts with.
+    # Seconds between a tracker's checks.
     "interval_seconds": (6 * 3600, MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS),
+    # Megabytes (10**6 bytes) a downloaded file may take; 0 is no limit.
+    "max_size_mb": (0, 0, 1_000_000),
+    # Minutes a downloaded video may run; 0 is no limit.
+    "max_minutes": (0, 0, 7 * 24 * 60),
 }
+# field -> default
+_FLAG_FIELDS: dict[str, bool] = {
+    # Live streams and their replays are not downloaded.
+    "skip_lives": False,
+}
+_FIELDS = (*_COUNT_FIELDS, *_FLAG_FIELDS)
+# Fields a tracker may set for itself; the rest follow its source and the defaults.
+TRACKER_OVERRIDE_FIELDS = ("interval_seconds", "max_size_mb", "max_minutes", "skip_lives")
+# Fields a tracker's downloads carry to the engines.
+LIMIT_FIELDS = ("max_size_mb", "max_minutes", "skip_lives")
 _PAGE_WORD_RE = re.compile(r"[^\W_]+")
 _LINK_CHARACTERS = "/?&=#"
 
 
-def _clamp(field: str, value: Any) -> int | None:
-    """The value inside the field's range, or ``None`` when it is unset or not a number."""
+def _field_value(field: str, value: Any) -> int | bool | None:
+    """The value inside the field's range, or ``None`` when it is unset or of the wrong kind."""
+    if field in _FLAG_FIELDS:
+        return value if isinstance(value, bool) else None
     if value is None or isinstance(value, bool):
         return None
     try:
@@ -36,34 +52,35 @@ def _clamp(field: str, value: Any) -> int | None:
 
 
 def normalize_tracker_settings(raw: Any) -> dict[str, Any]:
+    defaults: dict[str, Any] = {field: default for field, (default, _, _) in _COUNT_FIELDS.items()}
+    return {**defaults, **_FLAG_FIELDS, **normalize_tracker_overrides(raw)}
+
+
+def normalize_tracker_overrides(raw: Any, fields: tuple[str, ...] = _FIELDS) -> dict[str, Any]:
+    """Only the ``fields`` that ``raw`` sets to a valid value."""
     source = raw if isinstance(raw, dict) else {}
-    out: dict[str, Any] = {}
-    for field, (default, _, _) in _COUNT_FIELDS.items():
-        value = _clamp(field, source.get(field))
-        out[field] = default if value is None else value
-    return out
+    return {field: value for field in fields if (value := _field_value(field, source.get(field))) is not None}
 
 
-def normalize_source_tracker_settings(raw: Any) -> dict[str, dict[str, int]]:
+def normalize_source_tracker_settings(raw: Any) -> dict[str, dict[str, Any]]:
     """Per source, only the fields it overrides."""
-    out: dict[str, dict[str, int]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for raw_key, raw_fields in (raw if isinstance(raw, dict) else {}).items():
         key = normalize_source_key(raw_key)
-        fields = raw_fields if isinstance(raw_fields, dict) else {}
-        overrides = {
-            field: value for field in _COUNT_FIELDS if (value := _clamp(field, fields.get(field))) is not None
-        }
+        overrides = normalize_tracker_overrides(raw_fields)
         if key and overrides:
             out[key] = overrides
     return out
 
 
-def get_tracker_settings(source_key: str = "") -> dict[str, Any]:
+def get_tracker_settings(source_key: str = "", overrides: Any = None) -> dict[str, Any]:
+    """The defaults, then what the source overrides, then a tracker's own ``overrides``."""
     payload = load_saved_settings_file()
-    overrides = normalize_source_tracker_settings(payload.get("source_tracker_settings"))
+    sources = normalize_source_tracker_settings(payload.get("source_tracker_settings"))
     return {
         **normalize_tracker_settings(payload.get("tracker_settings")),
-        **overrides.get(normalize_source_key(source_key), {}),
+        **sources.get(normalize_source_key(source_key), {}),
+        **normalize_tracker_overrides(overrides, TRACKER_OVERRIDE_FIELDS),
     }
 
 

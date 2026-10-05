@@ -1004,31 +1004,35 @@ export const TRACKER_SETTINGS_DEFAULTS: TrackerSettings = {
   page_size: 30,
   caught_up_after: 5,
   interval_seconds: 6 * 3600,
+  max_size_mb: 0,
+  max_minutes: 0,
+  skip_lives: false,
 };
 
-function trackerCount(value: unknown): number | undefined {
+// A flag stays a flag and a count a whole number from 0; the server clamps the range.
+function trackerValue(field: keyof TrackerSettings, value: unknown): number | boolean | undefined {
+  if (typeof TRACKER_SETTINGS_DEFAULTS[field] === "boolean") {
+    return typeof value === "boolean" ? value : undefined;
+  }
+  if (value === null || value === undefined || value === "" || typeof value === "boolean") return undefined;
   const count = Math.floor(Number(value));
-  return Number.isFinite(count) && count > 0 ? count : undefined;
+  return Number.isFinite(count) && count >= 0 ? count : undefined;
 }
 
 const TRACKER_FIELDS = Object.keys(TRACKER_SETTINGS_DEFAULTS) as (keyof TrackerSettings)[];
 
 export function createTrackerSettings(source: Partial<TrackerSettings> = {}): TrackerSettings {
-  const out = { ...TRACKER_SETTINGS_DEFAULTS };
-  for (const field of TRACKER_FIELDS) {
-    out[field] = trackerCount(source?.[field]) ?? out[field];
-  }
-  return out;
+  return { ...TRACKER_SETTINGS_DEFAULTS, ...createTrackerOverrides(source) } as TrackerSettings;
 }
 
 export function createTrackerOverrides(source: TrackerOverrides = {}): TrackerOverrides {
   // Blank fields stay absent so the source keeps inheriting the default.
-  const out: TrackerOverrides = {};
+  const out: Record<string, number | boolean> = {};
   for (const field of TRACKER_FIELDS) {
-    const value = trackerCount(source?.[field]);
+    const value = trackerValue(field, source?.[field]);
     if (value !== undefined) out[field] = value;
   }
-  return out;
+  return out as TrackerOverrides;
 }
 
 export function createSourceTrackerSettings(

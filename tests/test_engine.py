@@ -1830,3 +1830,30 @@ def test_convert_template_quality_uses_selected_label_best_reads_source():
 def test_convert_template_quality_without_selection_keeps_metadata_specifier():
     # Direct callers with no quality threaded through fall back to the delivered format.
     assert "%(format_id" in convert_template_to_ytdlp("{{quality}}", "https://example.com/x")
+
+
+def test_tracker_limits_reach_both_engines_and_the_ytdlp_handoff():
+    limits = {"max_size_mb": 500, "max_minutes": 30, "skip_lives": True}
+    lives = "live_status!=?is_live & live_status!=?was_live & live_status!=?post_live"
+    flags = ["--max-filesize", "500000000", "--match-filters", f"duration<=?1800 & {lives}"]
+
+    ytdlp_cmd = ytdlp.build_ytdlp_command("https://example.test/v/1", "/usr/bin/ffmpeg", "/o", limits=limits)
+    gallery_cmd = gallerydl.build_gallerydl_command(
+        "https://example.test/p/1", "/media", "clip.{extension}", limits=limits
+    )
+
+    assert ytdlp.ytdlp_limit_args(limits) == flags
+    # One filter, since yt-dlp passes an item that meets any of several.
+    assert ytdlp_cmd.count("--match-filters") == 1
+    assert _has_cli_pair(ytdlp_cmd, "--match-filters", flags[3])
+    assert _has_cli_pair(gallery_cmd, "--filesize-max", "500000000")
+    cmdline = json.dumps(
+        ["--retries", "3", "--fragment-retries", "3", "--socket-timeout", "30", *flags], separators=(",", ":")
+    )
+    assert _has_cli_pair(gallery_cmd, "-o", f"downloader.ytdl.cmdline-args={cmdline}")
+    # Limits left off add nothing.
+    assert ytdlp.ytdlp_limit_args({"max_size_mb": 0, "max_minutes": 0, "skip_lives": False}) == []
+    plain = gallerydl.build_gallerydl_command("https://example.test/p/1", "/media", "clip.{extension}")
+    assert "--filesize-max" not in plain
+    anonymous = _cmdline("--retries", "3", "--fragment-retries", "3")
+    assert _has_cli_pair(plain, "-o", f"downloader.ytdl.cmdline-args={anonymous}")

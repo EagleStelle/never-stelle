@@ -33,6 +33,8 @@ from backend.app.domains.settings import (
     save_ytdlp_cookies_upload,
     set_learned_format_templates,
 )
+from backend.app.domains.trackers.checker import ensure_tracker_worker
+from backend.app.domains.trackers.service import reschedule_trackers, tracker_intervals
 
 router = APIRouter(
     prefix="/settings",
@@ -54,6 +56,7 @@ def get_settings() -> dict[str, Any]:
 @router.put("")
 def update_settings(payload: SettingsPayload) -> dict[str, Any]:
     cfg = load_app_config()
+    intervals = tracker_intervals()
     with watch_naming_changes():
         saved = persist_settings(
             cfg,
@@ -76,6 +79,9 @@ def update_settings(payload: SettingsPayload) -> dict[str, Any]:
             payload.source_tracker_settings,
             payload.source_tracker_tabs,
         )
+    # Trackers follow their source's and the default interval.
+    if reschedule_trackers(intervals):
+        ensure_tracker_worker()
     return build_settings_response(cfg, saved)
 
 

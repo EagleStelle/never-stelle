@@ -305,11 +305,17 @@ export interface TrackerSettings {
   page_size: number;
   // Items already in the app, in a row, before a check stops scrolling.
   caught_up_after: number;
-  // What a new tracker starts with.
   interval_seconds: number;
+  // Download limits; 0 is no limit.
+  max_size_mb: number;
+  max_minutes: number;
+  skip_lives: boolean;
 }
 // Only the fields a source overrides; the rest follow tracker_settings.
 export type TrackerOverrides = Partial<TrackerSettings>;
+// The fields a tracker may set for itself; the rest follow its source and tracker_settings.
+export type TrackerOwnField = "interval_seconds" | "max_size_mb" | "max_minutes" | "skip_lives";
+export type TrackerOwnOverrides = Partial<Pick<TrackerSettings, TrackerOwnField>>;
 export type SourceTrackerSettings = Record<string, TrackerOverrides>;
 
 // A name a page went by: a path segment, or a query value with its field.
@@ -435,7 +441,7 @@ export interface Tracker {
   source_key: string;
   name: string;
   enabled: boolean;
-  interval_seconds: number;
+  overrides: TrackerOwnOverrides;
   quality: Partial<QualitySelection>;
   post_processing: Partial<PostProcessingSelection>;
   next_check_at: string;
@@ -462,7 +468,7 @@ export interface TrackerEntriesResponse {
 }
 
 export interface TrackerPayload {
-  interval_seconds?: number;
+  overrides?: TrackerOwnOverrides;
   quality?: QualitySelection;
   post_processing?: PostProcessingSelection;
 }

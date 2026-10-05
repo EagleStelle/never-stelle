@@ -199,6 +199,29 @@ def ytdlp_access_args(access: AccessIdentity) -> list[str]:
     return [*args, *ytdlp_pacing_args(access)]
 
 
+# Live states yt-dlp reports for a stream or its replay.
+_LIVE_STATUSES = ("is_live", "was_live", "post_live")
+
+
+def max_file_bytes(limits: dict[str, Any] | None) -> int:
+    """The largest file the limits let through, in bytes; 0 is no limit."""
+    return int((limits or {}).get("max_size_mb") or 0) * 1_000_000
+
+
+def ytdlp_limit_args(limits: dict[str, Any] | None) -> list[str]:
+    """Flags that make yt-dlp skip an item over a tracker's download limits."""
+    limits = limits or {}
+    args = ["--max-filesize", str(size)] if (size := max_file_bytes(limits)) else []
+    # "?" passes an item that reports no value.
+    conditions = [f"duration<=?{limits['max_minutes'] * 60}"] if limits.get("max_minutes") else []
+    if limits.get("skip_lives"):
+        conditions.extend(f"live_status!=?{status}" for status in _LIVE_STATUSES)
+    if conditions:
+        # One filter: yt-dlp passes an item that meets any of several.
+        args.extend(["--match-filters", " & ".join(conditions)])
+    return args
+
+
 def build_ytdlp_command(
     source_url: str,
     ffmpeg_location: str,
@@ -212,6 +235,7 @@ def build_ytdlp_command(
     quality: dict[str, str] | None = None,
     post_processing: dict[str, Any] | None = None,
     cleaning: dict[str, Any] | None = None,
+    limits: dict[str, Any] | None = None,
 ) -> list[str]:
     flags = normalize_title_cleaning(cleaning if cleaning is not None else get_effective_title_cleaning(source_url))
     stem_max = int(flags.get("stem_max_chars") or 0)
@@ -295,6 +319,7 @@ def build_ytdlp_command(
     for extractor, args in artwork_extractor_args(selection, processing).items():
         for key, values in args.items():
             cmd.extend(["--extractor-args", f"{extractor}:{key}={','.join(values)}"])
+    cmd.extend(ytdlp_limit_args(limits))
     cmd.extend(["--js-runtimes", "node", "--remote-components", "ejs:github"])
     # --print-to-file (unlike --print) keeps normal progress output intact; the
     # after_move stage runs on real downloads, never in simulate mode.

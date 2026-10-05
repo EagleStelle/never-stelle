@@ -31,10 +31,12 @@ from backend.app.db import repositories
 from backend.app.domains.access.rotation import AccessIdentity
 from backend.app.domains.downloads import serializers
 from backend.app.domains.settings import (
+    LIMIT_FIELDS,
     get_tracker_settings,
     get_tracker_tabs,
     merge_tracker_tabs,
     normalize_source_tracker_settings,
+    normalize_tracker_overrides,
     normalize_tracker_settings,
     save_saved_settings_file,
 )
@@ -82,7 +84,7 @@ def _insert_tracker(**overrides) -> dict:
             "id": "t1",
             "source_url": TRACKER_URL,
             "enabled": True,
-            "interval_seconds": 3600,
+            "overrides": {"interval_seconds": 3600},
             "quality": {"mode": "audio"},
             "post_processing": {"metadata": "embed"},
             "next_check_at": "",
@@ -99,16 +101,19 @@ class _Queue:
         self, fail_on: set[str] | None = None, prefix: str = "gallerydl", existing: set[str] | None = None
     ) -> None:
         self.calls: list[tuple[str, dict]] = []
+        # The limits each queued call carried.
+        self.limits: list[dict | None] = []
         self.fail_on = fail_on or set()
         self.prefix = prefix
         self.existing = existing or set()
 
-    def __call__(self, url: str, quality: dict | None = None):
+    def __call__(self, url: str, quality: dict | None = None, limits: dict | None = None):
         if url in self.fail_on:
             raise ValueError("Choose a valid download location from Settings.")
         if url in self.existing:
             return [{"vid": f"h:{url}"}], True
         self.calls.append((url, quality or {}))
+        self.limits.append(limits)
         return [{"vid": f"{self.prefix}:{len(self.calls)}"}], False
 
 
@@ -1560,9 +1565,11 @@ def test_created_tracker_is_due_at_once_without_listing_its_link(temp_db, monkey
 
     monkeypatch.setattr(service_module, "iter_entries", never)
 
-    created = service_module.create_tracker(TRACKER_URL, quality={"mode": "audio"}, interval_seconds=10)
+    created = service_module.create_tracker(
+        TRACKER_URL, quality={"mode": "audio"}, overrides={"interval_seconds": 10, "page_size": 3}
+    )
 
-    assert (created["enabled"], created["interval_seconds"]) == (True, 3600)
+    assert (created["enabled"], created["overrides"]) == (True, {"interval_seconds": 3600})
     assert created["name"] == service_module._fallback_name(TRACKER_URL)
     with pytest.raises(ValueError, match="already tracked"):
         service_module.create_tracker(TRACKER_URL)
@@ -1939,17 +1946,40 @@ def test_deleting_a_tracker_stops_its_check_before_removing_it(temp_db, monkeypa
     assert _linked() == []
 
 
-def test_tracker_settings_are_clamped_and_seed_new_trackers(temp_db):
-    assert normalize_tracker_settings({"page_size": 0, "caught_up_after": "x", "interval_seconds": 10**9}) == {
+def test_tracker_settings_are_clamped_and_followed_by_trackers(temp_db):
+    assert normalize_tracker_settings(
+        {"page_size": 0, "caught_up_after": "x", "interval_seconds": 10**9, "max_size_mb": -1, "skip_lives": 1}
+    ) == {
         "page_size": 1,
         "caught_up_after": 5,
         "interval_seconds": 30 * 24 * 3600,
+        "max_size_mb": 0,
+        "max_minutes": 0,
+        "skip_lives": False,
     }
+    created = service_module.create_tracker(TRACKER_URL)
     save_saved_settings_file({"tracker_settings": {"interval_seconds": 3 * 3600}})
 
-    created = service_module.create_tracker(TRACKER_URL)
+    assert created["overrides"] == {}
+    assert service_module.tracker_intervals() == {created["id"]: 3 * 3600}
 
-    assert created["interval_seconds"] == 3 * 3600
+
+def test_download_limits_keep_zero_and_take_only_a_real_flag(temp_db):
+    assert normalize_tracker_overrides(
+        {"max_size_mb": "0", "max_minutes": 10**9, "skip_lives": "yes", "interval_seconds": 60}, LIMIT_FIELDS
+    ) == {"max_size_mb": 0, "max_minutes": 7 * 24 * 60}
+    save_saved_settings_file(
+        {
+            "tracker_settings": {"max_minutes": 30},
+            "source_tracker_settings": {"example": {"max_size_mb": 500, "skip_lives": True}},
+        }
+    )
+
+    settings = get_tracker_settings("example", {"max_size_mb": 0, "skip_lives": False, "page_size": 3})
+
+    assert (settings["max_size_mb"], settings["max_minutes"], settings["skip_lives"]) == (0, 30, False)
+    # A tracker sets only its interval and limits.
+    assert settings["page_size"] == 30
 
 
 def test_a_source_overrides_only_the_tracker_settings_it_sets(temp_db):
@@ -1967,10 +1997,60 @@ def test_a_source_overrides_only_the_tracker_settings_it_sets(temp_db):
         }
     )
 
-    assert get_tracker_settings("example") == {"page_size": 20, "caught_up_after": 7, "interval_seconds": 12 * 3600}
-    assert get_tracker_settings("other") == {"page_size": 20, "caught_up_after": 4, "interval_seconds": 6 * 3600}
-    # A new tracker with no interval of its own starts from its source's.
-    assert service_module.create_tracker(TRACKER_URL)["interval_seconds"] == 12 * 3600
+    limits = {"max_size_mb": 0, "max_minutes": 0, "skip_lives": False}
+    assert get_tracker_settings("example") == {
+        "page_size": 20,
+        "caught_up_after": 7,
+        "interval_seconds": 12 * 3600,
+        **limits,
+    }
+    assert get_tracker_settings("other") == {
+        "page_size": 20,
+        "caught_up_after": 4,
+        "interval_seconds": 6 * 3600,
+        **limits,
+    }
+    # A tracker with no interval of its own follows its source's.
+    created = service_module.create_tracker(TRACKER_URL)
+    assert service_module.tracker_intervals() == {created["id"]: 12 * 3600}
+
+
+def test_a_check_queues_under_the_trackers_limits(temp_db, monkeypatch):
+    _insert_tracker(overrides={"max_minutes": 20})
+    save_saved_settings_file({"source_tracker_settings": {"example": {"skip_lives": True}}})
+    queue = _Queue()
+
+    _check(monkeypatch, [_entry(1)], queue)
+
+    assert [normalize_tracker_overrides(limits, LIMIT_FIELDS) for limits in queue.limits] == [
+        {"max_size_mb": 0, "max_minutes": 20, "skip_lives": True}
+    ]
+
+
+def test_an_interval_change_reschedules_the_trackers_that_follow_it(temp_db):
+    _insert_tracker(
+        overrides={}, last_checked_at="2000-01-01T00:00:00+00:00", next_check_at="2000-01-01T06:00:00+00:00"
+    )
+    _insert_tracker(id="t2", source_url=f"{TRACKER_URL}2", last_checked_at="2000-01-01T00:00:00+00:00")
+    before = service_module.tracker_intervals()
+
+    save_saved_settings_file({"tracker_settings": {"interval_seconds": 2 * 3600}})
+
+    assert service_module.reschedule_trackers(before)
+    rows = {tracker["id"]: tracker for tracker in repositories.load_tracker_rows()}
+    assert rows["t1"]["next_check_at"] == "2000-01-01T02:00:00+00:00"
+    # Its own interval keeps a tracker where it was.
+    assert rows["t2"]["next_check_at"] == ""
+    assert not service_module.reschedule_trackers(service_module.tracker_intervals())
+
+
+def test_a_trackers_own_settings_replace_its_overrides_and_reschedule_it(temp_db):
+    _insert_tracker(last_checked_at="2000-01-01T00:00:00+00:00")
+
+    updated = service_module.update_tracker("t1", {"overrides": {"interval_seconds": 7200, "max_size_mb": 50}})
+
+    assert updated["overrides"] == {"interval_seconds": 7200, "max_size_mb": 50}
+    assert repositories.load_tracker_row("t1")["next_check_at"] == "2000-01-01T02:00:00+00:00"
 
 
 def test_a_post_records_its_photos_and_foreign_items_are_never_queued(temp_db, monkeypatch):
@@ -2545,8 +2625,8 @@ def _seen_urls() -> list[str]:
 class _QueueRows(_Queue):
     """A ``_Queue`` whose downloads land in the queue."""
 
-    def __call__(self, url: str, quality: dict | None = None):
-        created, existing = super().__call__(url, quality)
+    def __call__(self, url: str, quality: dict | None = None, limits: dict | None = None):
+        created, existing = super().__call__(url, quality, limits)
         repositories.merge_task_payload(created[0]["vid"], {"source_url": url, "status": "pending"})
         return created, existing
 
@@ -2569,6 +2649,8 @@ def test_queueing_entries_links_every_row_with_the_trackers_settings(temp_db, mo
     assert queue.calls == [
         (url, {"mode": "audio", "_post_processing": {"metadata": "embed"}}) for url in (_POSTS[3], _POSTS[4])
     ]
+    # Queued by hand, past the tracker's limits.
+    assert queue.limits == [None, None]
     assert _linked() == ["gallerydl:1", "gallerydl:2", "gallerydl:done", "gallerydl:failed", "gallerydl:queued"]
     assert _seen_urls() == []
 

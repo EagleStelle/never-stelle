@@ -2,6 +2,7 @@
 import { computed, reactive, ref, useTemplateRef, watch } from "vue";
 import { useElementSize } from "@vueuse/core";
 import { Link as IconLink } from "@lucide/vue";
+import IconInfo from "~icons/material-symbols/info-outline";
 import IconSeen from "~icons/material-symbols/visibility";
 
 import FailureNote from "@/components/task/FailureNote.vue";
@@ -20,17 +21,35 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
 import { DialogFooter, DialogShell as Dialog } from "@/components/ui/dialog";
-import { FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
+import { Field, FieldContent, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { IconImage } from "@/components/ui/icon-image";
+import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import DownloadFields from "@/features/downloads/DownloadFields.vue";
 import type { QualityField } from "@/features/downloads/qualityFields";
 import HistoryToolbar from "@/features/history/Toolbar.vue";
+import { useInheritedFields } from "@/features/settings/composables/useInheritedFields";
+import {
+  TRACKER_LIMIT_FIELDS,
+  isFlagField,
+  isLimitField,
+  stopIndex,
+  type TrackerLimitDef,
+} from "@/features/settings/trackerFields";
 import { useDashboard } from "@/composables/useDashboard";
 import { provideScrollRoot } from "@/composables/useVirtualRows";
 import { ACTION_ICONS, COUNT_ICONS, TILE_GRID, TRACKER_INTERVALS } from "@/ui";
 import type { Component } from "vue";
-import type { MediaMode, PostProcessingSelection, QualitySelection, Tracker } from "@/types";
+import type {
+  MediaMode,
+  PostProcessingSelection,
+  QualitySelection,
+  Tracker,
+  TrackerOwnField,
+  TrackerOwnOverrides,
+} from "@/types";
 import {
   createPostProcessingSelection,
   createQualitySelection,
@@ -94,21 +113,38 @@ function trackerStats(tracker: Tracker): { label: string; value: number; icon: C
 // The dialog edits a draft; nothing reaches the tracker until Apply.
 const draftSelection = reactive<QualitySelection>(createQualitySelection());
 const draftPostProcessing = reactive<PostProcessingSelection>(createPostProcessingSelection());
-const draftInterval = ref("");
 const draftCapabilities = computed(() => postProcessingCapabilitiesForQuality(draftSelection, qualityOptions.value));
 
-// A new link starts from the toolbar and its source's tracker settings.
+// The tracker's own interval and limits; whatever it leaves out follows its source and the defaults.
+const DRAFT = "draft";
+const draftOverrides = reactive<Record<string, TrackerOwnOverrides>>({ [DRAFT]: {} });
+const draftSourceKey = computed(
+  () => openTracker.value?.source_key || sourceKeyFromUrl(newTrackerUrl.value, sourceProfiles.value),
+);
+
+function inheritedSetting(field: TrackerOwnField): number | boolean {
+  return settings.source_tracker_settings[draftSourceKey.value]?.[field] ?? settings.tracker_settings[field];
+}
+
+const { value, fieldValue, setValue, setField, endEdit } = useInheritedFields<TrackerOwnField>({
+  entries: () => draftOverrides,
+  inherited: inheritedSetting,
+});
+
+function setStop(field: TrackerLimitDef, index: number): void {
+  setValue(DRAFT, field.key, field.stops[index]);
+  endEdit(DRAFT, field.key);
+}
+
+// A new link starts from the toolbar and follows its source's tracker settings.
 watch(
   () => openTracker.value?.id || newTrackerUrl.value,
   (key) => {
     if (!key) return;
     const tracker = openTracker.value;
-    const source = settings.source_tracker_settings[sourceKeyFromUrl(newTrackerUrl.value, sourceProfiles.value)];
     Object.assign(draftSelection, createQualitySelection(tracker ? tracker.quality : downloadSelection, qualityOptions.value));
     Object.assign(draftPostProcessing, createPostProcessingSelection(tracker ? tracker.post_processing : downloadPostProcessing));
-    draftInterval.value = String(
-      tracker ? tracker.interval_seconds : (source?.interval_seconds ?? settings.tracker_settings.interval_seconds),
-    );
+    draftOverrides[DRAFT] = { ...tracker?.overrides };
   },
   { immediate: true },
 );
@@ -135,8 +171,8 @@ function setDraftPostProcessing(next: PostProcessingSelection): void {
   Object.assign(draftPostProcessing, createPostProcessingSelection(next));
 }
 
-function setDraftInterval(value: string | string[]): void {
-  if (typeof value === "string" && value) draftInterval.value = value;
+function setDraftInterval(picked: string | string[]): void {
+  if (typeof picked === "string" && picked) setValue(DRAFT, "interval_seconds", Number(picked));
 }
 
 const saving = ref(false);
@@ -152,7 +188,7 @@ async function applyTracker(): Promise<void> {
   const choices = {
     quality: createQualitySelection(draftSelection, qualityOptions.value),
     post_processing: constrainPostProcessingSelection(draftPostProcessing, draftCapabilities.value),
-    interval_seconds: Number(draftInterval.value),
+    overrides: { ...draftOverrides[DRAFT] },
   };
   const tracker = openTracker.value;
   if (tracker) {
@@ -399,6 +435,64 @@ async function confirmDelete(): Promise<void> {
             @update:post-processing="setDraftPostProcessing"
           />
 
+          <TooltipProvider>
+            <FieldSet>
+              <FieldLegend variant="divider">Limits</FieldLegend>
+              <FieldGroup>
+                <Field v-for="field in TRACKER_LIMIT_FIELDS" :key="field.key">
+                  <FieldLabel :for="`trackerDraft${field.key}`" class="items-center gap-1.5">
+                    <span>{{ field.label }}</span>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <button
+                          type="button"
+                          class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                          :aria-label="`${field.label} help`"
+                        >
+                          <IconInfo class="size-4" aria-hidden="true" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {{ field.help }}
+                      </TooltipContent>
+                    </Tooltip>
+                  </FieldLabel>
+                  <FieldContent class="flex-row items-center gap-3">
+                    <Checkbox
+                      v-if="isFlagField(field)"
+                      :id="`trackerDraft${field.key}`"
+                      :checked="value(DRAFT, field.key) === true"
+                      @update:checked="(checked: boolean) => setValue(DRAFT, field.key, checked)"
+                    />
+                    <template v-else-if="isLimitField(field)">
+                      <Slider
+                        :model-value="[stopIndex(field.stops, Number(value(DRAFT, field.key)))]"
+                        :max="field.stops.length - 1"
+                        ticks
+                        :label="field.label"
+                        :value-text="field.format(Number(value(DRAFT, field.key)))"
+                        @update:model-value="(index?: number[]) => index && setStop(field, index[0])"
+                      />
+                      <Input
+                        :id="`trackerDraft${field.key}`"
+                        type="number"
+                        :min="field.min"
+                        :max="field.max"
+                        class="w-32 shrink-0"
+                        :placeholder="String(inheritedSetting(field.key))"
+                        :model-value="fieldValue(DRAFT, field.key)"
+                        @blur="endEdit(DRAFT, field.key)"
+                        @update:model-value="(raw: string | number) => setField(DRAFT, field.key, raw)"
+                      >
+                        <template #end>{{ field.unit }}</template>
+                      </Input>
+                    </template>
+                  </FieldContent>
+                </Field>
+              </FieldGroup>
+            </FieldSet>
+          </TooltipProvider>
+
           <FieldSet v-if="openTracker">
             <FieldLegend variant="divider">Items</FieldLegend>
             <HistoryToolbar hide-platform :selection="itemSelection" />
@@ -424,7 +518,7 @@ async function confirmDelete(): Promise<void> {
             <SelectionBar v-if="itemSelection.count" :selection="itemSelection" :actions="itemBatch" />
             <Combobox
               v-else
-              :model-value="draftInterval"
+              :model-value="fieldValue(DRAFT, 'interval_seconds')"
               :items="TRACKER_INTERVALS"
               aria-label="Check interval"
               placeholder="Select..."

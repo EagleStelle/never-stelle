@@ -26,6 +26,7 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control";
+import { Slider } from "@/components/ui/slider";
 import {
   Tooltip,
   TooltipContent,
@@ -45,8 +46,11 @@ import { COOKIE_POLICY_FIELDS } from "@/features/settings/cookiePolicy";
 import { useInheritedFields } from "@/features/settings/composables/useInheritedFields";
 import { useSettingsContext } from "@/features/settings/context";
 import {
-  TRACKER_COUNT_FIELDS,
-  type TrackerCountField,
+  TRACKER_FIELD_GROUPS,
+  isFlagField,
+  isLimitField,
+  stopIndex,
+  type TrackerFieldDef,
 } from "@/features/settings/trackerFields";
 import {
   TEMPLATE_FIELDS,
@@ -121,9 +125,11 @@ const { fieldValue, setField, endEdit } = useInheritedFields<CookiePolicyField>(
 });
 
 // A blank or partial entry leaves the saved value alone; the server clamps the range.
-function setTrackerCount(key: TrackerCountField, raw: string | number): void {
+function setTrackerNumber(field: TrackerFieldDef, raw: string | number): void {
   const value = Math.floor(Number(raw));
-  if (String(raw).trim() && Number.isFinite(value) && value > 0) settingsDraft.tracker_settings[key] = value;
+  if (String(raw).trim() && Number.isFinite(value) && value >= field.min) {
+    settingsDraft.tracker_settings[field.key] = value;
+  }
 }
 
 function setTrackerInterval(value: string | string[]): void {
@@ -330,47 +336,76 @@ function onChoice(choice: NamingChoice, value: string | string[]): void {
       <AccordionItem value="trackers">
         <AccordionTrigger :icon="SETTINGS_SECTION_ICONS.trackers">Trackers</AccordionTrigger>
         <AccordionContent>
-          <FieldGroup>
-            <Combobox
-              :model-value="String(settingsDraft.tracker_settings.interval_seconds)"
-              :items="TRACKER_INTERVALS"
-              label="Check interval"
-              label-placement="start"
-              placeholder="Select..."
-              empty-text="No intervals."
-              @update:model-value="setTrackerInterval"
-            />
-            <Field v-for="field in TRACKER_COUNT_FIELDS" :key="field.key">
-              <FieldLabel :for="`defaultTracker${field.key}`" class="items-center gap-1.5">
-                <span>{{ field.label }}</span>
-                <Tooltip>
-                  <TooltipTrigger as-child>
-                    <button
-                      type="button"
-                      class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                      :aria-label="`${field.label} help`"
-                    >
-                      <IconInfo class="size-4" aria-hidden="true" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    {{ field.help }}
-                  </TooltipContent>
-                </Tooltip>
-              </FieldLabel>
-              <FieldContent>
-                <Input
-                  :id="`defaultTracker${field.key}`"
-                  type="number"
-                  min="1"
-                  max="500"
-                  :placeholder="String(TRACKER_SETTINGS_DEFAULTS[field.key])"
-                  :model-value="String(settingsDraft.tracker_settings[field.key])"
-                  @update:model-value="(value: string | number) => setTrackerCount(field.key, value)"
+          <div class="flex flex-col gap-6">
+            <FieldSet v-for="group in TRACKER_FIELD_GROUPS" :key="group.legend">
+              <FieldLegend variant="divider">{{ group.legend }}</FieldLegend>
+              <FieldGroup>
+                <Combobox
+                  v-if="group.legend === 'Fetching'"
+                  :model-value="String(settingsDraft.tracker_settings.interval_seconds)"
+                  :items="TRACKER_INTERVALS"
+                  label="Check interval"
+                  label-placement="start"
+                  placeholder="Select..."
+                  empty-text="No intervals."
+                  @update:model-value="setTrackerInterval"
                 />
-              </FieldContent>
-            </Field>
-          </FieldGroup>
+                <Field v-for="field in group.fields" :key="field.key">
+                  <FieldLabel :for="`defaultTracker${field.key}`" class="items-center gap-1.5">
+                    <span>{{ field.label }}</span>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <button
+                          type="button"
+                          class="-m-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                          :aria-label="`${field.label} help`"
+                        >
+                          <IconInfo class="size-4" aria-hidden="true" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {{ field.help }}
+                      </TooltipContent>
+                    </Tooltip>
+                  </FieldLabel>
+                  <FieldContent class="flex-row items-center gap-3">
+                    <Checkbox
+                      v-if="isFlagField(field)"
+                      :id="`defaultTracker${field.key}`"
+                      :checked="settingsDraft.tracker_settings[field.key]"
+                      @update:checked="(value: boolean) => (settingsDraft.tracker_settings[field.key] = value)"
+                    />
+                    <template v-else>
+                      <Slider
+                        v-if="isLimitField(field)"
+                        :model-value="[stopIndex(field.stops, settingsDraft.tracker_settings[field.key])]"
+                        :max="field.stops.length - 1"
+                        ticks
+                        :label="field.label"
+                        :value-text="field.format(settingsDraft.tracker_settings[field.key])"
+                        @update:model-value="
+                          (value?: number[]) =>
+                            value && (settingsDraft.tracker_settings[field.key] = field.stops[value[0]])
+                        "
+                      />
+                      <Input
+                        :id="`defaultTracker${field.key}`"
+                        type="number"
+                        :min="field.min"
+                        :max="field.max"
+                        :class="isLimitField(field) ? 'w-32 shrink-0' : 'flex-1'"
+                        :placeholder="String(TRACKER_SETTINGS_DEFAULTS[field.key])"
+                        :model-value="String(settingsDraft.tracker_settings[field.key])"
+                        @update:model-value="(value: string | number) => setTrackerNumber(field, value)"
+                      >
+                        <template v-if="isLimitField(field)" #end>{{ field.unit }}</template>
+                      </Input>
+                    </template>
+                  </FieldContent>
+                </Field>
+              </FieldGroup>
+            </FieldSet>
+          </div>
         </AccordionContent>
       </AccordionItem>
 

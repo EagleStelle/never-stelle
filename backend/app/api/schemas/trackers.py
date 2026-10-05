@@ -11,11 +11,12 @@ class CreateTrackerPayload(BaseModel):
     url: str = ""
     quality: dict[str, Any] | None = None
     post_processing: dict[str, Any] | None = None
-    interval_seconds: int | None = None
+    # The settings the tracker sets itself; the rest follow its source and the defaults.
+    overrides: dict[str, Any] | None = None
 
 
 class UpdateTrackerPayload(BaseModel):
-    interval_seconds: int | None = None
+    overrides: dict[str, Any] | None = None
     quality: dict[str, Any] | None = None
     post_processing: dict[str, Any] | None = None
 
