@@ -47,29 +47,6 @@ import {
 } from "@/utils/dashboard";
 import { mediaKindForTask } from "@/utils/task";
 
-// One button per action: one both kinds of row offer runs on all of them, and delete comes last.
-function mergeActions(actions: ItemAction[]): ItemAction[] {
-  const merged = new Map<string, ItemAction>();
-  for (const action of actions) {
-    const same = merged.get(action.key);
-    merged.set(
-      action.key,
-      same
-        ? {
-            ...same,
-            href: same.href ?? action.href,
-            disabled: same.disabled || action.disabled,
-            run: () => {
-              same.run?.();
-              action.run?.();
-            },
-          }
-        : action,
-    );
-  }
-  return [...merged.values()].sort((a, b) => Number(a.key === "delete") - Number(b.key === "delete"));
-}
-
 // Settings overlay rides in a ?settings=<slug> query param, not its own path.
 const SETTINGS_SLUG_BY_SECTION: Record<SettingsSection, string> = {
   security: "security",
@@ -244,13 +221,13 @@ export function useDownloadDashboard() {
   });
   // Seen items have no media kind, and a search looks through downloads only.
   const showTrackerEntries = computed(() => !historySearchQuery.value.trim() && mediaFilter.value === "all");
+  // Loaded while hidden too, so the footer's Seen actions always reach every item.
   const entryState = useTrackerEntries({
     trackerId: trackerState.openTrackerId,
     sourceKey: computed(() => trackerState.openTracker.value?.source_key || ""),
-    enabled: computed(
-      () => trackersPage.value && Boolean(trackerState.openTrackerId.value) && showTrackerEntries.value,
-    ),
+    enabled: computed(() => trackersPage.value && Boolean(trackerState.openTrackerId.value)),
     toast: sonner.toast,
+    requestDelete: (seen) => taskQueue.requestDelete([], seen),
   });
 
   const taskSourceProfiles = computed<SourceProfile[]>(() =>
@@ -381,12 +358,13 @@ export function useDownloadDashboard() {
   function taskActions(task: TaskItem): ItemAction[] {
     return isTrackerEntry(task) ? entryState.entryBatchActions([task]) : taskQueue.taskActions(task);
   }
-  const itemBatch = computed(() =>
-    mergeActions([
-      ...entryState.entryBatchActions(itemSelection.selectedItems),
-      ...taskQueue.taskBatchActions(itemSelection.selectedItems),
-    ]),
-  );
+  // The downloads' delete takes the Seen items along, so a mix asks once; delete comes last.
+  const itemBatch = computed(() => {
+    const selected = itemSelection.selectedItems;
+    const tasks = taskQueue.taskBatchActions(selected, entryState.seenDelete(selected));
+    const entries = entryState.entryBatchActions(selected).filter((action) => !tasks.some((task) => task.key === action.key));
+    return [...entries, ...tasks].sort((a, b) => Number(a.key === "delete") - Number(b.key === "delete"));
+  });
   const trackerBatch = computed(() => trackerState.trackerBatchActions(trackerSelection.selectedItems));
   // The trackers page selects trackers; the others select their rows.
   const pageSelection = computed(() => (activePage.value === "trackers" ? trackerSelection : taskSelection));
@@ -583,6 +561,7 @@ export function useDownloadDashboard() {
     trackerBatch,
     trackerSelection,
     trackerTasks,
+    seenActions: entryState.seenActions,
     trackerHistoryLoading: trackerHistory.loading,
     trackerHistoryError: computed(() => trackerHistory.historyError.value || entryState.entriesError.value),
     trackerHistoryHasMore: trackerHistory.hasMore,

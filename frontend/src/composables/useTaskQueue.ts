@@ -43,6 +43,7 @@ import type {
   ResolvePassReport,
   ResolveScope,
   SavedSettings,
+  SeenDelete,
   TaskItem,
   TaskStatus,
   TasksResponse,
@@ -122,6 +123,9 @@ interface RenameTarget {
 interface PendingTaskAction {
   kind: "delete" | "resolve";
   ids: string[];
+  // A delete's finished downloads, and the Seen items it takes along.
+  done?: string[];
+  seen?: SeenDelete;
 }
 
 export function useTaskQueue({
@@ -334,19 +338,22 @@ export function useTaskQueue({
     await loadTasks(true);
   }
 
-  // Asks first only when files would go.
-  function requestDelete(tasks: TaskItem[]): void {
+  // Asks first only when files would go or Seen items would be gone for good.
+  function requestDelete(tasks: TaskItem[], seen?: SeenDelete): void {
     const ids = tasks.map((task) => task.vid);
-    if (tasks.some((task) => task.status === "completed")) pendingTaskAction.value = { kind: "delete", ids };
+    const done = tasks.filter((task) => task.status === "completed").map((task) => task.vid);
+    if (done.length || seen) pendingTaskAction.value = { kind: "delete", ids, done, seen };
     else void deleteTasks(ids);
   }
 
-  async function confirmTaskAction(): Promise<void> {
+  // A delete with Seen items can take only them or only the finished downloads.
+  async function confirmTaskAction(part: "all" | "seen" | "done" = "all"): Promise<void> {
     const action = pendingTaskAction.value;
     if (!action) return;
     pendingTaskAction.value = null;
-    const run = { delete: deleteTasks, resolve: resolveTasks };
-    await run[action.kind](action.ids);
+    if (action.kind === "resolve") return resolveTasks(action.ids);
+    const ids = part === "done" ? action.done || [] : action.ids;
+    await Promise.all([part !== "seen" && ids.length && deleteTasks(ids), part !== "done" && action.seen?.remove()]);
   }
 
   // Shared by an item and a selection: the action outside an item's menu is primary, the rest step back.
@@ -363,19 +370,19 @@ export function useTaskQueue({
     return { key: "resolve", label: "Resolve", title, icon: ACTION_ICONS.resolve, variant: "ghost", run: () => void resolveTasks(ids) };
   }
 
-  function deleteAction(tasks: TaskItem[]): ItemAction {
+  function deleteAction(tasks: TaskItem[], seen?: SeenDelete): ItemAction {
     return {
       key: "delete",
       label: "Delete",
       icon: ACTION_ICONS.delete,
       variant: "destructive-ghost",
       disabled: historyRefreshing.value && tasks.some((task) => task.status === "completed"),
-      run: () => requestDelete(tasks),
+      run: () => requestDelete(tasks, seen),
     };
   }
 
-  // The actions a selection bar offers, each on the selected items it applies to.
-  function taskBatchActions(tasks: TaskItem[]): ItemAction[] {
+  // The actions a selection bar offers, each on the selected items it applies to; its delete takes `seen` along.
+  function taskBatchActions(tasks: TaskItem[], seen?: SeenDelete): ItemAction[] {
     const pick = (flag: (task: TaskItem) => boolean | undefined) => tasks.filter(flag);
     const ids = (list: TaskItem[]) => list.map((task) => task.vid);
     // The zip reads local files; a file Swaratelle keeps downloads from its own row.
@@ -388,7 +395,7 @@ export function useTaskQueue({
       [failed, retryAction(ids(failed))],
       // A selection asks before resolving, an item resolves at once.
       [resolvable, { ...resolveAction(ids(resolvable)), run: () => (pendingTaskAction.value = { kind: "resolve", ids: ids(resolvable) }) }],
-      [deletable, deleteAction(deletable)],
+      [deletable, deleteAction(deletable, seen)],
     ];
     return entries.filter(([list]) => list.length > 0).map(([, action]) => action);
   }
@@ -688,6 +695,7 @@ export function useTaskQueue({
     renameCount,
     renameRunning,
     renameTarget,
+    requestDelete,
     resolveFlagged,
     resolveOpen,
     resolveQueued,

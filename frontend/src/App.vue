@@ -21,6 +21,7 @@ import { provideDashboard } from "@/composables/useDashboard";
 import { useAuth } from "@/composables/useAuth";
 import { provideScrollRoot } from "@/composables/useVirtualRows";
 import { ACTION_ICONS, syncIconClass } from "@/ui";
+import { plural } from "@/utils/dashboard";
 
 // Loaded on its own chunk, keeping the largest surface out of first paint.
 const SettingsView = defineAsyncComponent(() => import("@/features/settings/View.vue"));
@@ -58,15 +59,52 @@ provideScrollRoot(useTemplateRef<HTMLElement>("main"));
 
 // What each task action's confirm dialog says and shows.
 const TASK_ACTION_CONFIRM = {
-  delete: { label: "Delete", description: "Their files are removed from disk.", variant: "destructive", iconClass: "" },
+  delete: {
+    label: "Delete",
+    description: (count: number) =>
+      count === 1
+        ? "Its file and extras like subtitles and thumbnails are deleted from disk. Trackers never download it again."
+        : "Their files and extras like subtitles and thumbnails are deleted from disk. Trackers never download them again.",
+    variant: "destructive",
+    iconClass: "",
+  },
   resolve: {
     label: "Resolve",
-    description: "Looks up missing details from each source so these files can be named.",
+    description: () => "Looks up missing details from each source so these files can be named.",
     variant: "primary",
     iconClass: syncIconClass(false),
   },
 } as const;
 const taskConfirm = computed(() => pendingTaskAction.value && TASK_ACTION_CONFIRM[pendingTaskAction.value.kind]);
+const confirmSeen = computed(() => pendingTaskAction.value?.seen);
+const confirmCount = computed(() => (pendingTaskAction.value?.ids.length ?? 0) + (confirmSeen.value?.count ?? 0));
+// Seen items with finished downloads can also be deleted apart.
+const confirmMixed = computed(() => Boolean(confirmSeen.value && pendingTaskAction.value?.done?.length));
+
+const isAre = (count: number) => (count === 1 ? "is" : "are");
+
+// One kind of item reads like a plain delete; a mix gives each kind its count and what happens to it.
+const confirmDescription = computed(() => {
+  const action = pendingTaskAction.value;
+  if (!action || !taskConfirm.value) return "";
+  if (!action.seen) return taskConfirm.value.description(action.ids.length);
+  if (!action.ids.length) {
+    return action.seen.count === 1
+      ? "It is removed from the list. The tracker never downloads it again."
+      : "They are removed from the list. The tracker never downloads them again.";
+  }
+  const done = action.done?.length ?? 0;
+  const queued = action.ids.length - done;
+  const seen = action.seen.count;
+  return [
+    done && `${done} done item${plural(done)} and ${done === 1 ? "its file" : "their files"} are deleted from disk.`,
+    queued && `${queued} item${plural(queued)} in the queue ${isAre(queued)} removed.`,
+    `${seen} seen item${plural(seen)} ${isAre(seen)} removed from the list.`,
+    "The tracker never downloads them again.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+});
 
 // Live status-bar height so toasts dock above it instead of covering it.
 const statusBar = useTemplateRef<InstanceType<typeof BarStatus>>("statusBar");
@@ -171,16 +209,30 @@ const { height: statusBarHeight } = useElementSize(
     <Dialog
       v-if="pendingTaskAction && taskConfirm"
       :open="Boolean(pendingTaskAction)"
-      :title="`${taskConfirm.label} ${pendingTaskAction.ids.length} item${pendingTaskAction.ids.length === 1 ? '' : 's'}?`"
-      :description="taskConfirm.description"
-      content-class="fixed left-1/2 top-1/2 z-70 flex w-[min(460px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none"
+      :title="`${taskConfirm.label} ${confirmCount.toLocaleString()} item${confirmCount === 1 ? '' : 's'}?`"
+      :description="confirmDescription"
+      :content-class="`fixed left-1/2 top-1/2 z-70 flex ${confirmMixed ? 'w-[min(500px,96vw)]' : 'w-[min(460px,96vw)]'} -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none`"
       @update:open="(open) => !open && (pendingTaskAction = null)"
     >
       <DialogFooter class="mt-5">
         <Button variant="ghost" type="button" @click="pendingTaskAction = null">
           Cancel
         </Button>
-        <Button :variant="taskConfirm.variant" type="button" @click="confirmTaskAction">
+        <template v-if="confirmMixed">
+          <Button variant="destructive-ghost" type="button" @click="confirmTaskAction('seen')">
+            <template #icon>
+              <component :is="ACTION_ICONS.delete" aria-hidden="true" />
+            </template>
+            Seen Only
+          </Button>
+          <Button variant="destructive-ghost" type="button" @click="confirmTaskAction('done')">
+            <template #icon>
+              <component :is="ACTION_ICONS.delete" aria-hidden="true" />
+            </template>
+            Done Only
+          </Button>
+        </template>
+        <Button :variant="taskConfirm.variant" type="button" @click="confirmTaskAction()">
           <template #icon>
             <component :is="ACTION_ICONS[pendingTaskAction.kind]" aria-hidden="true" :class="taskConfirm.iconClass" />
           </template>

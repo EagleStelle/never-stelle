@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/vue-query";
 
 import { changeTrackerEntries, getTrackerEntries } from "@/api";
 import { ACTION_ICONS, TASKS_QUERY_KEY, TRACKER_ENTRIES_QUERY_KEY, TRACKERS_QUERY_KEY } from "@/ui";
-import type { ItemAction, TaskItem, ToastType, TrackerEntryAction } from "@/types";
+import type { ItemAction, SeenDelete, TaskItem, ToastType, TrackerEntryAction } from "@/types";
 import { errorMessage, plural, runBatch } from "@/utils/dashboard";
 
 interface UseTrackerEntriesOptions {
@@ -12,11 +12,13 @@ interface UseTrackerEntriesOptions {
   sourceKey: Ref<string>;
   enabled: Ref<boolean>;
   toast: (message: string, type?: ToastType) => void;
+  // Opens the delete confirm for Seen items.
+  requestDelete: (seen: SeenDelete) => void;
 }
 
 // Each item action as its button shows it, and the word its toast reports it with.
 const ENTRY_ACTIONS: Record<TrackerEntryAction, Omit<ItemAction, "key" | "run"> & { done: string }> = {
-  queue: { label: "Download", icon: ACTION_ICONS.queue, variant: "primary", done: "Queued" },
+  queue: { label: "Queue", icon: ACTION_ICONS.queue, variant: "primary", done: "Queued" },
   dismiss: { label: "Dismiss", icon: ACTION_ICONS.dismiss, variant: "ghost", done: "Dismissed" },
   delete: { label: "Delete", icon: ACTION_ICONS.delete, variant: "destructive-ghost", done: "Deleted" },
 };
@@ -29,7 +31,7 @@ export function isTrackerEntry(task: TaskItem): boolean {
 }
 
 // The open tracker's items it only saw, as rows of its items list.
-export function useTrackerEntries({ trackerId, sourceKey, enabled, toast }: UseTrackerEntriesOptions) {
+export function useTrackerEntries({ trackerId, sourceKey, enabled, toast, requestDelete }: UseTrackerEntriesOptions) {
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: [...TRACKER_ENTRIES_QUERY_KEY, trackerId],
@@ -71,15 +73,42 @@ export function useTrackerEntries({ trackerId, sourceKey, enabled, toast }: UseT
     if (action === "queue") void queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
   }
 
-  // The item actions for the selected Seen rows; none for any other row.
-  function entryBatchActions(selected: TaskItem[]): ItemAction[] {
-    const urls = selected.filter(isTrackerEntry).map((task) => task.source_url);
-    if (!urls.length) return [];
-    return (Object.keys(ENTRY_ACTIONS) as TrackerEntryAction[]).map((action) => {
-      const { done: _done, ...shown } = ENTRY_ACTIONS[action];
-      return { key: action === "queue" ? "download" : action, ...shown, run: () => void change(action, urls) };
-    });
+  function deleteOf(urls: string[]): SeenDelete {
+    return { count: urls.length, remove: () => change("delete", urls) };
   }
 
-  return { entriesError, entryBatchActions, trackerEntries };
+  // A delete asks first, as a download's does.
+  function entryAction(action: TrackerEntryAction, urls: string[]): ItemAction {
+    const { done: _done, ...shown } = ENTRY_ACTIONS[action];
+    const run = action === "delete" ? () => requestDelete(deleteOf(urls)) : () => void change(action, urls);
+    return { key: action, ...shown, run };
+  }
+
+  function seenUrls(selected: TaskItem[]): string[] {
+    return selected.filter(isTrackerEntry).map((task) => task.source_url);
+  }
+
+  // The item actions for the selected Seen rows; none for any other row.
+  function entryBatchActions(selected: TaskItem[]): ItemAction[] {
+    const urls = seenUrls(selected);
+    if (!urls.length) return [];
+    return (Object.keys(ENTRY_ACTIONS) as TrackerEntryAction[]).map((action) => entryAction(action, urls));
+  }
+
+  function seenDelete(selected: TaskItem[]): SeenDelete | undefined {
+    const urls = seenUrls(selected);
+    return urls.length ? deleteOf(urls) : undefined;
+  }
+
+  // Queue or clear every Seen item at once, whatever the list shows; none while nothing is seen.
+  const seenActions = computed<ItemAction[]>(() => {
+    const urls = query.data.value?.urls || [];
+    if (!urls.length) return [];
+    return [
+      { ...entryAction("queue", urls), label: "Queue Seen", title: "Queues all seen items." },
+      { ...entryAction("delete", urls), label: "Clear Seen", title: "Removes all seen items. Checks never queue them again." },
+    ];
+  });
+
+  return { entriesError, entryBatchActions, seenActions, seenDelete, trackerEntries };
 }

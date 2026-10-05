@@ -26,6 +26,11 @@ export interface ItemAction {
   href?: string;
   run?: () => void;
 }
+// A selection's Seen tracker items, deleted along with its downloads.
+export interface SeenDelete {
+  count: number;
+  remove: () => Promise<void>;
+}
 export type MediaMode = "merged" | "video" | "audio";
 export type SettingsSection =
   | "security"

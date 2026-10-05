@@ -13,7 +13,6 @@ import IconFormat from "~icons/material-symbols/pattern";
 import IconMore from "~icons/material-symbols/more-horiz";
 import IconNaming from "~icons/material-symbols/text-format";
 import IconPause from "~icons/material-symbols/pause";
-import IconQueue from "~icons/material-symbols/playlist-add";
 import IconProfile from "~icons/material-symbols/account-circle";
 import IconRadar from "~icons/material-symbols/radar";
 import IconResolve from "~icons/material-symbols/cloud-sync";
@@ -71,7 +70,7 @@ export const ACTION_ICONS = {
   download: IconDownloads,
   more: IconMore,
   pause: IconPause,
-  queue: IconQueue,
+  queue: IconClock,
   refresh: IconSpinner,
   remove: IconClose,
   resolve: IconResolve,

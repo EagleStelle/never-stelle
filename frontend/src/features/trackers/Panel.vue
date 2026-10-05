@@ -6,6 +6,7 @@ import IconEdit from "~icons/material-symbols/edit";
 import IconInfo from "~icons/material-symbols/info-outline";
 import IconSeen from "~icons/material-symbols/visibility";
 
+import ActionButton from "@/components/task/ActionButton.vue";
 import FailureNote from "@/components/task/FailureNote.vue";
 import ItemActions from "@/components/task/ItemActions.vue";
 import SelectionBar from "@/components/task/SelectionBar.vue";
@@ -75,6 +76,7 @@ const {
   openTrackerId,
   qualityOptions,
   saveTracker,
+  seenActions,
   settings,
   sourceProfiles,
   trackerActions,
@@ -471,6 +473,22 @@ async function confirmDelete(): Promise<void> {
             @update:post-processing="setDraftPostProcessing"
           />
 
+          <FieldSet>
+            <FieldLegend variant="divider">Fetching</FieldLegend>
+            <FieldGroup>
+              <Combobox
+                id="trackerDraftinterval_seconds"
+                :model-value="fieldValue(DRAFT, 'interval_seconds')"
+                :items="TRACKER_INTERVALS"
+                label="Check interval"
+                label-placement="start"
+                placeholder="Select..."
+                empty-text="No intervals."
+                @update:model-value="setDraftInterval"
+              />
+            </FieldGroup>
+          </FieldSet>
+
           <TooltipProvider>
             <FieldSet>
               <FieldLegend variant="divider">Limits</FieldLegend>
@@ -552,15 +570,9 @@ async function confirmDelete(): Promise<void> {
         <DialogFooter class="flex-row flex-wrap items-center justify-between gap-3 sm:justify-between">
           <div class="flex flex-wrap items-center gap-3">
             <SelectionBar v-if="itemSelection.count" :selection="itemSelection" :actions="itemBatch" />
-            <Combobox
-              v-else
-              :model-value="fieldValue(DRAFT, 'interval_seconds')"
-              :items="TRACKER_INTERVALS"
-              aria-label="Check interval"
-              placeholder="Select..."
-              empty-text="No intervals."
-              @update:model-value="setDraftInterval"
-            />
+            <template v-else-if="openTracker">
+              <ActionButton v-for="action in seenActions" :key="action.key" :action="action" size="sm" compact />
+            </template>
           </div>
           <div v-if="!itemSelection.count" class="flex items-center gap-2">
             <Button variant="ghost" type="button" @click="closeTracker">Cancel</Button>
