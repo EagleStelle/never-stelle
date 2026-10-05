@@ -231,6 +231,7 @@ export function useDownloadDashboard() {
   );
   const trackerState = useTrackers({
     enabled: trackersPage,
+    resolveTrackers: taskQueue.resolveTrackers,
     tasks: taskQueue.taskItems,
     toast: sonner.toast,
     url,

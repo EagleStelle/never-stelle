@@ -44,6 +44,8 @@ def update_tracker(tracker_id: str, payload: UpdateTrackerPayload) -> dict[str, 
         tracker = service.update_tracker(tracker_id, payload.model_dump(exclude_none=True))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     ensure_tracker_worker()
     return tracker
 

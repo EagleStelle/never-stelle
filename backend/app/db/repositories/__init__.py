@@ -69,6 +69,7 @@ from backend.app.db.repositories.settings import (
 from backend.app.db.repositories.trackers import (
     add_tracker_backlog_rows,
     claim_due_tracker_row,
+    clear_tracker_backlog_rows,
     count_tracker_items,
     delete_tracker_entry_urls,
     delete_tracker_rows,
@@ -105,6 +106,7 @@ __all__ = [
     "claim_due_tracker_row",
     "claim_next_enrichment_job_payload",
     "clear_rename_journal_entries",
+    "clear_tracker_backlog_rows",
     "complete_enrichment_job_payload",
     "count_active_by_source_and_media",
     "count_active_download_tasks",

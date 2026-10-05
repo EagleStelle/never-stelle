@@ -10,6 +10,7 @@ from typing import Any
 from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
+from backend.app.db.repositories import tracker_history_ids
 from backend.app.domains.downloads.constants import RESOLVE_JOB_KIND, NamingKind, ResolveScope, enrichment_job_id
 from backend.app.domains.downloads.engines.probe import probe_link_metadata
 from backend.app.domains.downloads.files import is_media_file, payload_path_string
@@ -301,13 +302,18 @@ def enqueue_resolve(jobs: dict[str, bool], naming: dict[str, str] | None = None)
     return {"queued": queued, "pass_id": pass_id if queued else 0}
 
 
-def start_resolve(scope: ResolveScope = "flagged", task_ids: list[str] | None = None) -> dict[str, int]:
+def start_resolve(
+    scope: ResolveScope = "flagged", task_ids: list[str] | None = None, tracker_ids: list[str] | None = None
+) -> dict[str, int]:
     """Queue a resolve pass and report how many rows it will probe, under which pass id.
 
     ``task_ids`` wins over ``scope`` and forces: clicking one row is deliberate, and that
     row is usually one the templates can already name. Forcing skips the backoff, so it
-    is also the way back for a spent row.
+    is also the way back for a spent row. ``tracker_ids`` wins over both and forces every
+    row those trackers filed.
     """
+    if tracker_ids:
+        return enqueue_resolve(dict.fromkeys(tracker_history_ids(tracker_ids), True))
     if task_ids:
         return enqueue_resolve(dict.fromkeys(map(str, task_ids), True))
     if scope == "all":

@@ -808,6 +808,7 @@ def test_tracker_routes_create_apply_check_and_delete(tmp_path, monkeypatch):
     tracker_id = created.json()["id"]
     assert (created.json()["enabled"], created.json()["overrides"]) == (True, {"interval_seconds": 86400})
     assert client.post("/api/trackers", json={"url": "https://example.test/u/alice"}).status_code == 400
+    assert client.patch(f"/api/trackers/{tracker_id}", json={"url": ""}).status_code == 400
 
     listed = client.get("/api/trackers").json()["trackers"]
     assert [(tracker["id"], tracker["counts"]["seen"]) for tracker in listed] == [(tracker_id, 0)]

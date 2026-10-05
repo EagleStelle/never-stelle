@@ -66,7 +66,7 @@ def resolve_history(payload: ResolvePayload) -> dict[str, int]:
     # Queues background probes; the count is what will be probed, not what succeeded.
     # ``pass_id`` is how the caller finds this pass's outcome on the task poll.
     try:
-        return _with_worker(start_resolve(payload.scope, payload.task_ids))
+        return _with_worker(start_resolve(payload.scope, payload.task_ids, payload.tracker_ids))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

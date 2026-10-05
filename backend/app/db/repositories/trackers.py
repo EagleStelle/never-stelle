@@ -27,7 +27,7 @@ _TRACKER_COLUMNS = (
 _TRACKER_SELECT = ", ".join(_TRACKER_COLUMNS)
 _JSON_COLUMNS = {"overrides", "quality", "post_processing", "feeds"}
 _BOOL_COLUMNS = {"enabled"}
-_UPDATABLE = set(_TRACKER_COLUMNS) - {"id", "source_url", "created_at", "updated_at"}
+_UPDATABLE = set(_TRACKER_COLUMNS) - {"id", "created_at", "updated_at"}
 
 
 def _linked_history(select: str, where: str) -> str:
@@ -265,6 +265,11 @@ def tracker_backlog_urls(tracker_id: str) -> list[str]:
     return [str(row[0]) for row in rows]
 
 
+def clear_tracker_backlog_rows(tracker_id: str) -> None:
+    with transaction() as connection:
+        connection.execute("DELETE FROM tracker_backlog WHERE tracker_id = ?", (str(tracker_id),))
+
+
 def fail_tracker_backlog_row(tracker_id: str, entry_key: str, max_attempts: int) -> None:
     """Count a check that could not read the entry; it leaves the backlog after ``max_attempts``."""
     with transaction() as connection:
@@ -304,17 +309,19 @@ def linked_download_ids(history_ids: list[str]) -> list[str]:
     return [*history_ids, *(value.rsplit(":", 1)[0] for value in history_ids if ":" in value)]
 
 
-def unlink_tracker_downloads(download_ids: list[str]) -> None:
+def unlink_tracker_downloads(download_ids: list[str], *, delete: bool = False) -> None:
     """Unlink entries from downloads with no history row left, so no check queues them again.
 
-    A parent stays linked while a child row remains.
+    With ``delete`` they also leave the tracker's lists, as a deleted entry does. A parent stays
+    linked while a child row remains.
     """
+    assignments, values = ("download_id = '', deleted_at = ?", (utc_now(),)) if delete else ("download_id = ''", ())
     with transaction() as connection:
         for chunk in chunks(linked_download_ids(download_ids)):
             connection.execute(
-                f"UPDATE tracker_entries SET download_id = '' WHERE download_id IN ({marks(chunk)})"
+                f"UPDATE tracker_entries SET {assignments} WHERE download_id IN ({marks(chunk)})"
                 f" AND NOT {_in_history('tracker_entries.download_id')}",
-                chunk,
+                (*values, *chunk),
             )
 
 

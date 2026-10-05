@@ -1587,6 +1587,40 @@ def test_created_tracker_keeps_the_link_a_share_link_expands_to(temp_db, monkeyp
         service_module.create_tracker(TRACKER_URL)
 
 
+# --- Edit ---
+def test_a_new_link_is_walked_afresh_at_once_and_keeps_what_was_seen(temp_db):
+    _insert_tracker(
+        last_success_at="2026-01-01T00:00:00+00:00",
+        last_error="Could not list every item.",
+        feeds={"ended": ["posts"]},
+        next_check_at="2999-01-01T00:00:00+00:00",
+    )
+    repositories.record_tracker_entry_rows("t1", [("k1", "https://example.test/post/1", "")])
+    repositories.add_tracker_backlog_rows("t1", "2026-01-01T00:00:00+00:00", [("k2", "https://example.test/post/2", 0)])
+    moved = "https://example.test/u/alicia"
+
+    updated = service_module.update_tracker("t1", {"url": moved})
+
+    tracker = repositories.load_tracker_row("t1")
+    assert updated["source_url"] == moved
+    assert (tracker["feeds"], tracker["last_success_at"], tracker["last_error"]) == ({}, "", "")
+    assert repositories.claim_due_tracker_row(utc_now_datetime().isoformat())["id"] == "t1"
+    assert repositories.tracker_backlog_urls("t1") == []
+    assert repositories.has_tracker_entry("t1", "k1")
+
+
+def test_a_link_another_tracker_has_is_refused_and_the_same_link_changes_nothing(temp_db):
+    _insert_tracker(feeds={"ended": ["posts"]})
+    _insert_tracker(id="t2", source_url="https://example.test/u/bob")
+
+    with pytest.raises(ValueError, match="already tracked"):
+        service_module.update_tracker("t1", {"url": "https://example.test/u/bob"})
+    service_module.update_tracker("t1", {"url": TRACKER_URL})
+
+    tracker = repositories.load_tracker_row("t1")
+    assert (tracker["source_url"], tracker["feeds"]) == (TRACKER_URL, {"ended": ["posts"]})
+
+
 # --- Check ---
 def test_first_check_of_a_single_item_link_explains_why_and_stays_first(temp_db, monkeypatch):
     _insert_tracker()
@@ -2563,7 +2597,7 @@ def test_deleting_items_removes_files_companions_and_emptied_folders(temp_db, mo
     assert repositories.load_task_payload("gallerydl:failed") == {}
 
 
-def test_a_deleted_item_is_never_queued_again(temp_db, monkeypatch):
+def test_a_deleted_item_leaves_every_list_and_is_never_queued_again(temp_db, monkeypatch):
     _insert_tracker()
     entries = [_entry(1), _entry(2)]
     _check(monkeypatch, entries, _Queue())
@@ -2577,10 +2611,11 @@ def test_a_deleted_item_is_never_queued_again(temp_db, monkeypatch):
 
     assert queue.calls == []
     assert _linked() == []
-    assert repositories.count_tracker_items()["t1"] == {"seen": 2, "completed": 0}
+    assert _seen_urls() == []
+    assert repositories.count_tracker_items()["t1"] == {"seen": 0, "completed": 0}
 
 
-def test_deleting_one_file_of_a_post_keeps_its_link_until_the_last_goes(temp_db):
+def test_deleting_one_file_of_a_post_keeps_its_entry_until_the_last_goes(temp_db):
     _insert_tracker()
     repositories.record_tracker_entry_rows("t1", [("k1", "u1", "gallerydl:abc")])
     for task_id in ("gallerydl:abc", "gallerydl:abc:2"):
@@ -2588,9 +2623,11 @@ def test_deleting_one_file_of_a_post_keeps_its_link_until_the_last_goes(temp_db)
 
     operations_module.delete_downloads(["gallerydl:abc"])
     assert _linked() == ["gallerydl:abc"]
+    assert repositories.count_tracker_items()["t1"]["seen"] == 1
 
     operations_module.delete_downloads(["gallerydl:abc:2"])
     assert _linked() == []
+    assert repositories.count_tracker_items()["t1"]["seen"] == 0
 
 
 def test_a_delete_gives_up_while_a_scan_holds_the_history(temp_db, monkeypatch):

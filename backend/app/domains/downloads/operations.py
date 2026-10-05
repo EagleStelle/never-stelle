@@ -194,7 +194,8 @@ def _stop_tasks(task_ids: list[str]) -> None:
 
 
 def delete_downloads(task_ids: list[str]) -> dict[str, Any]:
-    """Delete downloads in any state, with their files; trackers stop linking them, so no check queues them again."""
+    """Delete downloads in any state, with their files; their tracker entries are deleted too, so they leave the
+    tracker's lists and no check queues them again."""
     ids = _unique(task_ids)
     errors: list[str] = []
     count = 0
@@ -212,7 +213,7 @@ def delete_downloads(task_ids: list[str]) -> dict[str, Any]:
     history = load_history_entries(local)
     _remove_history(history)
     _stop_tasks(list(tasks))
-    unlink_tracker_downloads(local)
+    unlink_tracker_downloads(local, delete=True)
     return {"count": count + len(tasks.keys() | history.keys()), "errors": errors}
 
 

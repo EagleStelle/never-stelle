@@ -10,8 +10,8 @@ import backend.app.domains.downloads.library.scan as scan_module
 import backend.app.domains.downloads.metadata.pipeline as pipeline_module
 import backend.app.domains.downloads.operations as operations_module
 import backend.app.domains.downloads.workers.enrichment as enrichment_module
+from backend.app.db.repositories import insert_tracker_row, load_naming_snapshots_payload, record_tracker_entry_rows
 from backend.app.db.repositories import load_enrichment_jobs_payload as load_enrichment_jobs
-from backend.app.db.repositories import load_naming_snapshots_payload
 from backend.app.domains.downloads.constants import RESOLVE_JOB_KIND
 from backend.app.domains.downloads.serializers import history_to_api, library_activity
 from backend.app.domains.downloads.store import (
@@ -205,6 +205,25 @@ def test_resolve_one_row_queues_only_that_row(tmp_path: Path, monkeypatch: pytes
     assert [job["id"] for job in jobs] == ["resolve:gallerydl:2"]
     # Clicking one row is as deliberate as asking for the library, so it forces.
     assert jobs[0]["payload"]["force"] is True
+
+
+def test_resolving_a_tracker_queues_every_row_it_filed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _pin_template(monkeypatch)
+    for number, task_id in enumerate(("gallerydl:1", "gallerydl:1:2", "gallerydl:2")):
+        _seed(tmp_path, task_id=task_id, name=f"Clip [{number}].mp4")
+    for tracker_id in ("t1", "t2"):
+        insert_tracker_row({"id": tracker_id, "source_url": f"https://example.test/u/{tracker_id}"})
+    record_tracker_entry_rows("t1", [("k1", "https://example.test/p/1", "gallerydl:1")])
+    _refresh(load_history()["entries"])
+
+    # A tracker with nothing filed queues nothing, not the flagged rows.
+    assert resolve_module.start_resolve(tracker_ids=["t2"])["queued"] == 0
+    assert load_enrichment_jobs() == []
+    assert resolve_module.start_resolve(tracker_ids=["t1"])["queued"] == 2
+    jobs = load_enrichment_jobs()
+    assert {job["id"] for job in jobs} == {"resolve:gallerydl:1", "resolve:gallerydl:1:2"}
+    assert all(job["payload"]["force"] for job in jobs)
 
 
 def test_resolve_fills_the_missing_token_and_renames_the_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, reactive, ref, useTemplateRef, watch } from "vue";
+import { computed, nextTick, reactive, ref, useTemplateRef, watch } from "vue";
 import { useElementSize } from "@vueuse/core";
 import { Link as IconLink } from "@lucide/vue";
+import IconEdit from "~icons/material-symbols/edit";
 import IconInfo from "~icons/material-symbols/info-outline";
 import IconSeen from "~icons/material-symbols/visibility";
 
@@ -54,6 +55,7 @@ import {
   createPostProcessingSelection,
   createQualitySelection,
   constrainPostProcessingSelection,
+  extractUrl,
   postProcessingCapabilitiesForQuality,
   sourceIconUrl,
   sourceKeyFromUrl,
@@ -115,11 +117,22 @@ const draftSelection = reactive<QualitySelection>(createQualitySelection());
 const draftPostProcessing = reactive<PostProcessingSelection>(createPostProcessingSelection());
 const draftCapabilities = computed(() => postProcessingCapabilitiesForQuality(draftSelection, qualityOptions.value));
 
+const draftUrl = ref("");
+// The link shows as text until its edit button turns it into a field.
+const editingLink = ref(false);
+const linkInput = useTemplateRef<InstanceType<typeof Input>>("linkInput");
+
+async function editLink(): Promise<void> {
+  editingLink.value = true;
+  await nextTick();
+  (linkInput.value?.$el as HTMLElement | undefined)?.querySelector("input")?.focus();
+}
+
 // The tracker's own interval and limits; whatever it leaves out follows its source and the defaults.
 const DRAFT = "draft";
 const draftOverrides = reactive<Record<string, TrackerOwnOverrides>>({ [DRAFT]: {} });
 const draftSourceKey = computed(
-  () => openTracker.value?.source_key || sourceKeyFromUrl(newTrackerUrl.value, sourceProfiles.value),
+  () => sourceKeyFromUrl(draftUrl.value, sourceProfiles.value) || openTracker.value?.source_key || "",
 );
 
 function inheritedSetting(field: TrackerOwnField): number | boolean {
@@ -136,12 +149,17 @@ function setStop(field: TrackerLimitDef, index: number): void {
   endEdit(DRAFT, field.key);
 }
 
+// The tracker or new link the dialog is open for; "" when closed.
+const dialogKey = computed(() => openTracker.value?.id || newTrackerUrl.value);
+
 // A new link starts from the toolbar and follows its source's tracker settings.
 watch(
-  () => openTracker.value?.id || newTrackerUrl.value,
+  dialogKey,
   (key) => {
     if (!key) return;
     const tracker = openTracker.value;
+    draftUrl.value = tracker ? tracker.source_url : newTrackerUrl.value;
+    editingLink.value = false;
     Object.assign(draftSelection, createQualitySelection(tracker ? tracker.quality : downloadSelection, qualityOptions.value));
     Object.assign(draftPostProcessing, createPostProcessingSelection(tracker ? tracker.post_processing : downloadPostProcessing));
     draftOverrides[DRAFT] = { ...tracker?.overrides };
@@ -183,25 +201,26 @@ function focusApply(event: Event): void {
   (applyButton.value?.$el as HTMLElement | undefined)?.focus();
 }
 
-// A new link stays open until it saves, so a failed save keeps the draft.
+// The dialog stays open until it saves, so a failed save keeps the draft.
 async function applyTracker(): Promise<void> {
+  const url = draftUrl.value.trim();
+  if (!url) return;
   const choices = {
     quality: createQualitySelection(draftSelection, qualityOptions.value),
     post_processing: constrainPostProcessingSelection(draftPostProcessing, draftCapabilities.value),
     overrides: { ...draftOverrides[DRAFT] },
   };
   const tracker = openTracker.value;
-  if (tracker) {
-    closeTracker();
-    await updateTracker(tracker.id, choices, "Tracker updated.");
-    return;
-  }
-  const url = newTrackerUrl.value;
-  if (!url) return;
+  const key = dialogKey.value;
   saving.value = true;
-  const saved = await saveTracker({ url, ...choices });
+  // An unchanged link is left out, so the server does not look it up again.
+  const saved = tracker
+    ? await updateTracker(tracker.id, url === tracker.source_url ? choices : { url, ...choices }, "Tracker updated.")
+    : await saveTracker({ url, ...choices });
   saving.value = false;
-  if (saved && newTrackerUrl.value === url) closeTracker();
+  if (!saved) return;
+  editingLink.value = false;
+  if (dialogKey.value === key) closeTracker();
 }
 
 const deleteFiles = ref(false);
@@ -380,34 +399,51 @@ async function confirmDelete(): Promise<void> {
 
     <Dialog
       :open="Boolean(openTracker || newTrackerUrl)"
-      :title="openTracker?.name || newTrackerUrl || 'Tracker'"
+      :title="openTracker?.name || 'New tracker'"
       hide-title
       :content-class="`fixed left-1/2 top-1/2 z-70 flex ${openTracker ? 'h-[90dvh]' : 'max-h-[90dvh]'} w-[min(900px,96vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-(--glass-border) bg-primary focus:outline-none`"
       @update:open="(open) => !open && closeTracker()"
       @open-auto-focus="focusApply"
     >
       <template v-if="openTracker || newTrackerUrl">
-        <header class="glass-chrome flex shrink-0 flex-col gap-1.5 rounded-none border-0 border-b border-(--glass-border) shadow-none py-4 pl-5 pr-14 sm:pl-6">
-          <div class="flex min-w-0 items-center gap-2 text-lg font-semibold">
-            <IconImage v-if="openTracker" :src="sourceIconUrl(openTracker.source_key)" class="h-5 w-5 shrink-0" />
-            <span class="truncate">{{ openTracker?.name || newTrackerUrl }}</span>
-            <Button
-              as="a"
-              variant="ghost"
-              size="sm"
-              :href="openTracker?.source_url || newTrackerUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-              :title="openTracker?.source_url || newTrackerUrl"
-              aria-label="Open creator page"
-            >
-              <template #icon>
-                <IconLink aria-hidden="true" />
-              </template>
-            </Button>
+        <header
+          :class="editingLink ? 'gap-2' : 'gap-1.5'"
+          class="glass-chrome flex shrink-0 flex-col rounded-none border-0 border-b border-(--glass-border) shadow-none px-5 py-4 sm:px-6"
+        >
+          <!-- Room for the close button. -->
+          <div class="flex min-w-0 items-center gap-2 pr-8 text-lg font-semibold">
+            <IconImage :src="sourceIconUrl(draftSourceKey)" class="h-5 w-5 shrink-0" />
+            <span class="truncate">{{ openTracker?.name || "New tracker" }}</span>
             <span v-if="openTracker && trackerStatus(openTracker)" class="shrink-0 text-xs font-normal text-white/60 in-[.light-mode]:text-black/60">
               {{ trackerStatus(openTracker) }}
             </span>
+          </div>
+          <Input
+            v-if="editingLink"
+            ref="linkInput"
+            v-model="draftUrl"
+            type="text"
+            inputmode="url"
+            aria-label="Creator link"
+            placeholder="Paste a link"
+            :paste="extractUrl"
+            @keydown.enter.prevent="applyTracker"
+          />
+          <div v-else class="flex min-w-0 items-center gap-1 text-sm">
+            <a
+              :href="draftUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="truncate min-w-0 font-mono text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
+              :title="draftUrl"
+            >
+              {{ draftUrl }}
+            </a>
+            <Button variant="ghost" size="icon-sm" class="-my-1.5" type="button" title="Edit link" aria-label="Edit link" @click="editLink">
+              <template #icon>
+                <IconEdit aria-hidden="true" />
+              </template>
+            </Button>
           </div>
           <div v-if="openTracker" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
             <span

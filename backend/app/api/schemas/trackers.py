@@ -16,6 +16,7 @@ class CreateTrackerPayload(BaseModel):
 
 
 class UpdateTrackerPayload(BaseModel):
+    url: str | None = None
     overrides: dict[str, Any] | None = None
     quality: dict[str, Any] | None = None
     post_processing: dict[str, Any] | None = None

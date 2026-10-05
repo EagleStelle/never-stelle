@@ -30,6 +30,8 @@ import { errorMessage, extractUrl, plural } from "@/utils/dashboard";
 
 interface UseTrackersOptions {
   enabled: Ref<boolean>;
+  // Resolves every download the trackers filed.
+  resolveTrackers: (ids: string[]) => Promise<void>;
   // The task feed the downloads page polls; its rows carry their tracker.
   tasks: Ref<TaskItem[]>;
   toast: (message: string, type?: ToastType) => void;
@@ -57,7 +59,7 @@ function pollDelay(trackers: Schedule[]): number | false {
   return Math.min(Math.max(Math.min(...due) - Date.now(), POLL_RUNNING_MS), MAX_TIMER_MS);
 }
 
-export function useTrackers({ enabled, tasks, toast, url }: UseTrackersOptions) {
+export function useTrackers({ enabled, resolveTrackers, tasks, toast, url }: UseTrackersOptions) {
   const queryClient = useQueryClient();
   // The tracker whose dialog is open; "" when none is.
   const openTrackerId = ref("");
@@ -176,13 +178,15 @@ export function useTrackers({ enabled, tasks, toast, url }: UseTrackersOptions) 
     }
   }
 
-  async function updateTracker(trackerId: string, payload: TrackerPayload, message: string): Promise<void> {
+  async function updateTracker(trackerId: string, payload: TrackerPayload, message: string): Promise<boolean> {
     try {
       await updateTrackerRequest(trackerId, payload);
       toast(message);
       await refreshTrackers();
+      return true;
     } catch (error) {
       toast(errorMessage(error, "Could not update tracker."), "error");
+      return false;
     }
   }
 
@@ -257,6 +261,10 @@ export function useTrackers({ enabled, tasks, toast, url }: UseTrackersOptions) 
       : { key: "pause", label: "Pause", icon: ACTION_ICONS.pause, variant: "ghost", run: () => void setTrackersEnabled(ids, false) };
   }
 
+  function resolveAction(ids: string[]): ItemAction {
+    return { key: "resolve", label: "Resolve", icon: ACTION_ICONS.resolve, variant: "ghost", run: () => void resolveTrackers(ids) };
+  }
+
   function deleteAction(trackers: Tracker[]): ItemAction {
     return {
       key: "delete",
@@ -274,11 +282,13 @@ export function useTrackers({ enabled, tasks, toast, url }: UseTrackersOptions) 
     const busy = ids(hasCheck);
     const enabledOnes = ids((tracker) => tracker.enabled);
     const paused = ids((tracker) => !tracker.enabled);
+    const filed = ids((tracker) => tracker.counts.completed > 0);
     const entries: [number, ItemAction][] = [
       [idle.length, checkAction(idle)],
       [busy.length, stopAction(busy)],
       [enabledOnes.length, enabledAction(enabledOnes, false)],
       [paused.length, enabledAction(paused, true)],
+      [filed.length, resolveAction(filed)],
       [selected.length, deleteAction(selected)],
     ];
     return entries.filter(([count]) => count > 0).map(([, action]) => action);
@@ -289,7 +299,8 @@ export function useTrackers({ enabled, tasks, toast, url }: UseTrackersOptions) 
     const check: ItemAction = hasCheck(tracker)
       ? { ...stopAction([tracker.id]), label: "Stop check", variant: "destructive" }
       : { ...checkAction([tracker.id]), label: "Check now", disabled: !tracker.enabled };
-    return [check, enabledAction([tracker.id], !tracker.enabled), deleteAction([tracker])];
+    const resolve = { ...resolveAction([tracker.id]), disabled: tracker.counts.completed === 0 };
+    return [check, enabledAction([tracker.id], !tracker.enabled), resolve, deleteAction([tracker])];
   }
 
   return {

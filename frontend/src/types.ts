@@ -468,6 +468,7 @@ export interface TrackerEntriesResponse {
 }
 
 export interface TrackerPayload {
+  url?: string;
   overrides?: TrackerOwnOverrides;
   quality?: QualitySelection;
   post_processing?: PostProcessingSelection;

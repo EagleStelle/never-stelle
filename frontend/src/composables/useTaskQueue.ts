@@ -537,8 +537,11 @@ export function useTaskQueue({
       settled = true;
     }
     pendingResolvePasses.value = waiting;
-    // Files that moved no longer count against their format.
-    if (settled) void loadRenameCounts();
+    // Files that moved no longer count against their format, and trackers are named by where theirs are filed.
+    if (settled) {
+      void loadRenameCounts();
+      void queryClient.invalidateQueries({ queryKey: TRACKERS_QUERY_KEY });
+    }
   }
 
   async function trackResolvePass(passId: number): Promise<void> {
@@ -551,7 +554,7 @@ export function useTaskQueue({
     reportSettledResolves();
   }
 
-  async function startResolve(payload: { scope?: ResolveScope; task_ids?: string[] }): Promise<void> {
+  async function startResolve(payload: Parameters<typeof resolveHistoryRequest>[0]): Promise<void> {
     try {
       const result = await resolveMutation.mutateAsync(payload);
       if (result.queued === 0) {
@@ -626,6 +629,11 @@ export function useTaskQueue({
     await startResolve({ task_ids: ids });
   }
 
+  // Every download the trackers filed.
+  async function resolveTrackers(ids: string[]): Promise<void> {
+    await startResolve({ tracker_ids: ids });
+  }
+
   function handleVisibilityChange(): void {
     if (document.hidden) {
       pausePolling();
@@ -685,6 +693,7 @@ export function useTaskQueue({
     resolveQueued,
     resolveStopping,
     resolveTotal,
+    resolveTrackers,
     setTaskSource,
     stopRefresh,
     stopResolve,

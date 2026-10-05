@@ -330,7 +330,7 @@ export function getResolveScope(): Promise<ResolveScopeResponse> {
   return jsonRequest<ResolveScopeResponse>("/api/library/resolve", {}, "Could not read resolve scope.");
 }
 
-export function resolveHistory(payload: { scope?: ResolveScope; task_ids?: string[] }): Promise<ResolveResponse> {
+export function resolveHistory(payload: { scope?: ResolveScope; task_ids?: string[]; tracker_ids?: string[] }): Promise<ResolveResponse> {
   return jsonRequest<ResolveResponse>(
     "/api/library/resolve",
     {
@@ -370,7 +370,7 @@ export function getTrackers(signal?: AbortSignal): Promise<TrackersResponse> {
   return jsonRequest<TrackersResponse>("/api/trackers", { signal }, "Could not load trackers.");
 }
 
-export function createTracker(payload: Required<TrackerPayload> & { url: string }): Promise<Tracker> {
+export function createTracker(payload: Required<TrackerPayload>): Promise<Tracker> {
   return jsonRequest<Tracker>(
     "/api/trackers",
     {

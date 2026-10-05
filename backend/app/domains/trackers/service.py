@@ -15,6 +15,7 @@ from backend.app.core.time import utc_now, utc_now_datetime
 from backend.app.db.repositories import (
     add_tracker_backlog_rows,
     claim_due_tracker_row,
+    clear_tracker_backlog_rows,
     count_tracker_items,
     delete_tracker_entry_urls,
     delete_tracker_rows,
@@ -177,6 +178,20 @@ def _fallback_name(source_url: str) -> str:
     return f"{host_from_url(source_url)}{parsed.path}".rstrip("/")
 
 
+def _tracker_url(source_url: str, tracker_id: str = "") -> str:
+    """The link a tracker saves; raises ``ValueError`` when it cannot be tracked or another tracker has it."""
+    url = canonicalize_source_url(source_url)
+    if not url:
+        raise ValueError("Paste a URL first.")
+    if swaratelle.is_swaratelle_url(url):
+        raise ValueError("Links handled by Swaratelle cannot be tracked.")
+    url = canonicalize_source_url(resolve_redirect_url(url))
+    existing = find_tracker_by_url(url)
+    if existing and existing["id"] != tracker_id:
+        raise ValueError("This link is already tracked.")
+    return url
+
+
 def create_tracker(
     source_url: str,
     *,
@@ -185,18 +200,10 @@ def create_tracker(
     overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Save the link and make it due at once."""
-    url = canonicalize_source_url(source_url)
-    if not url:
-        raise ValueError("Paste a URL first.")
-    if swaratelle.is_swaratelle_url(url):
-        raise ValueError("Links handled by Swaratelle cannot be tracked.")
-    url = canonicalize_source_url(resolve_redirect_url(url))
-    if find_tracker_by_url(url):
-        raise ValueError("This link is already tracked.")
     tracker = insert_tracker_row(
         {
             "id": uuid.uuid4().hex[:12],
-            "source_url": url,
+            "source_url": _tracker_url(source_url),
             "enabled": True,
             "overrides": normalize_tracker_overrides(overrides, TRACKER_OVERRIDE_FIELDS),
             "quality": normalize_quality_selection(quality) if quality else {},
@@ -208,7 +215,11 @@ def create_tracker(
 
 
 def update_tracker(tracker_id: str, changes: dict[str, Any]) -> dict[str, Any]:
-    before = {tracker_id: _interval(get_tracker(tracker_id))}
+    """Save the tracker's settings; a new link is walked afresh at once and keeps the entries already seen."""
+    tracker = get_tracker(tracker_id)
+    url = _tracker_url(changes["url"], tracker_id) if changes.get("url") is not None else tracker["source_url"]
+    moved = url != tracker["source_url"]
+    before = {tracker_id: _interval(tracker)}
     updates: dict[str, Any] = {}
     if changes.get("overrides") is not None:
         updates["overrides"] = normalize_tracker_overrides(changes["overrides"], TRACKER_OVERRIDE_FIELDS)
@@ -216,8 +227,15 @@ def update_tracker(tracker_id: str, changes: dict[str, Any]) -> dict[str, Any]:
         updates["quality"] = normalize_quality_selection(changes["quality"])
     if changes.get("post_processing") is not None:
         updates["post_processing"] = normalize_post_processing(changes["post_processing"])
+    if moved:
+        # The old link's pages and backlog belong to it.
+        stop_checks([tracker_id], wait=True)
+        updates.update(source_url=url, feeds={}, last_success_at="", last_error="", next_check_at=utc_now())
     update_tracker_row(tracker_id, updates)
-    reschedule_trackers(before)
+    if moved:
+        clear_tracker_backlog_rows(tracker_id)
+    else:
+        reschedule_trackers(before)
     tracker = get_tracker(tracker_id)
     return tracker_to_api(tracker, count_tracker_items().get(tracker_id), _filed_names([tracker]).get(tracker_id, ""))
 
