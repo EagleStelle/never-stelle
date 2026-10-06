@@ -1130,7 +1130,8 @@ def test_a_file_outside_its_download_location_is_only_renamed(tmp_path: Path, mo
 def test_refresh_flags_a_download_left_outside_its_creator_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     use_temp_db(tmp_path, monkeypatch)
     media_root = _file_under_media(tmp_path, monkeypatch)
-    _pin_template(monkeypatch, CURRENT_TEMPLATE)
+    # The rows record no subfolder, which files only the numbered files of a post.
+    _pin_template(monkeypatch, CURRENT_TEMPLATE, subfolder_template="{{id}}")
     # Its name goes without a title, which a lookup could not supply either.
     _seed(tmp_path, name="Creator - [abc123].mp4", creator="Creator", title="", filename_template=CURRENT_TEMPLATE)
     _seed(

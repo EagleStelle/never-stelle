@@ -14,12 +14,16 @@ from backend.app.db.repositories import tracker_history_ids
 from backend.app.domains.downloads.constants import RESOLVE_JOB_KIND, NamingKind, ResolveScope, enrichment_job_id
 from backend.app.domains.downloads.engines.probe import probe_link_metadata
 from backend.app.domains.downloads.files import is_media_file, payload_path_string
-from backend.app.domains.downloads.library.rename import apply_history_renames, download_location, plan_history_renames
+from backend.app.domains.downloads.library.rename import (
+    apply_history_renames,
+    download_location,
+    filed_differently,
+    plan_history_renames,
+)
 from backend.app.domains.downloads.library.scan import history_write_lock
 from backend.app.domains.downloads.links.urls import detect_source_key
 from backend.app.domains.downloads.metadata.pipeline import naming_values
 from backend.app.domains.downloads.metadata.scraper import configured_tokens
-from backend.app.domains.downloads.naming.filenames import numbered_suffix_of
 from backend.app.domains.downloads.naming.render import (
     row_template_fields,
     row_with_tokens,
@@ -407,14 +411,6 @@ def watch_naming_changes() -> Iterator[None]:
             save_naming_snapshots(updated)
 
 
-def _filed_differently(old: dict[str, str], new: dict[str, str], path: Path) -> bool:
-    # The subfolder only files the numbered files of a multi-file post.
-    kinds = ["folder_template", "filename_template"]
-    if numbered_suffix_of(path.stem):
-        kinds.append("subfolder_template")
-    return any(old[kind] != new[kind] for kind in kinds)
-
-
 def _pending_renames() -> dict[str, dict[str, Any]]:
     """Per source, the rows an unresolved naming change affects.
 
@@ -441,14 +437,14 @@ def _pending_renames() -> dict[str, dict[str, Any]]:
             if key not in snapshots or not path_value:
                 continue
             named_by, (options, changed, fields) = snapshots[key], current[key]
-            path, stored = Path(path_value), template_row_fields(row)
+            path = Path(path_value)
             # A row no changed format would rename needs no parse of its link.
-            if "fields" not in named_by and not any(_filed_differently(stored, now, path) for now in changed):
+            if "fields" not in named_by and not any(filed_differently(row, now, path) for now in changed):
                 continue
             fmt = match_template(learned, key, str(row.get("source_url") or ""))
             templates = template_settings_for(options, fmt)
-            renamed = select_for_format(named_by.get("templates"), fmt) is not None and _filed_differently(
-                stored, templates, path
+            renamed = select_for_format(named_by.get("templates"), fmt) is not None and filed_differently(
+                row, templates, path
             )
             looked_up = "fields" in named_by and bool(
                 {role for role in FIELD_ROLES if named_by["fields"].get(role) != fields.get(role)}

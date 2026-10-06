@@ -190,6 +190,16 @@ def download_location(payload: dict[str, Any]) -> str:
     return resolve_source_location(load_saved_settings_file().get("source_locations"), key) if key else ""
 
 
+def filed_differently(old: dict[str, Any], new: dict[str, Any], path: Path) -> bool:
+    """Whether the templates in ``new`` file ``path`` elsewhere than those in ``old``."""
+    # The subfolder only files the numbered files of a multi-file post.
+    kinds = ["folder_template", "filename_template"]
+    if numbered_suffix_of(path.stem):
+        kinds.append("subfolder_template")
+    old, new = template_row_fields(old), template_row_fields(new)
+    return any(old[kind] != new[kind] for kind in kinds)
+
+
 def rows_needing_resolve(records: dict[str, dict[str, Any]], pacer: CpuPacer | None = None) -> list[str]:
     """Rows a resolve pass would change.
 
@@ -201,7 +211,7 @@ def rows_needing_resolve(records: dict[str, dict[str, Any]], pacer: CpuPacer | N
     current = [
         row
         for row in _named_differently(downloads, pacer, rerender=True)
-        if template_row_fields(row.payload) == template_row_fields(row.settings)
+        if not filed_differently(row.payload, row.settings, row.old_path)
     ]
     flagged = [
         row.task_id
