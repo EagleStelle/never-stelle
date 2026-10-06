@@ -15,7 +15,11 @@ from backend.app.domains.downloads.engines.templates import field_role_list
 from backend.app.domains.downloads.files import is_media_file
 from backend.app.domains.downloads.links.learned_routes import absence_settled, route_shape
 from backend.app.domains.downloads.metadata.creators import configured_field_value
-from backend.app.domains.downloads.metadata.values import clean_creator_candidate, metadata_title
+from backend.app.domains.downloads.metadata.values import (
+    clean_creator_candidate,
+    metadata_title,
+    without_title_echoes,
+)
 from backend.app.domains.downloads.naming.filenames import parse_filename_media_id
 from backend.app.domains.downloads.naming.render import field_value, filename_template_fields, settings_tokens
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
@@ -261,12 +265,15 @@ def _with_ytdlp_media_fields(
     return {**fields, **payload}
 
 
-def _merge_probe_metadata(metadata: dict[str, str], probed: dict[str, str]) -> dict[str, str]:
-    """The probe fills what the engine's own metadata left empty; the engine's values win."""
+def _merge_probe_metadata(metadata: dict[str, str], probed: dict[str, str], source_url: str) -> dict[str, str]:
+    """The probe fills what the engine's own metadata left empty or only echoed from the title.
+
+    The engine's other values win.
+    """
     merged = {
         str(key): str(value) for key, value in probed.items() if str(key or "").strip() and str(value or "").strip()
     }
-    for key, value in metadata.items():
+    for key, value in without_title_echoes(metadata, get_effective_fields(source_url)).items():
         if not _empty_metadata_value(value):
             merged[str(key)] = str(value)
     return merged
@@ -286,8 +293,19 @@ def _metadata_enrichment_needed(
     template_settings: dict[str, str] | None,
     source_url: str,
 ) -> bool:
-    """Whether a probe can fill what sparse metadata lacks: a lone output's fields, or the creator of several."""
-    if not paths or not engine.sparse_metadata or not _template_needs_probe_metadata(template_settings):
+    """Whether a probe can fill what metadata lacks.
+
+    That is a creator that only echoes the title, or with sparse metadata a lone
+    output's fields or the creator of several.
+    """
+    if not paths:
+        return False
+    fields = get_effective_fields(source_url)
+    for path in paths:
+        metadata = metadata_by_path.get(_path_key(path), {})
+        if without_title_echoes(metadata, fields) != metadata:
+            return True
+    if not engine.sparse_metadata or not _template_needs_probe_metadata(template_settings):
         return False
     if len(paths) == 1:
         metadata = metadata_by_path.get(_path_key(paths[0]), {})
@@ -321,7 +339,7 @@ def _probe_output_metadata_inline(
     if probed:
         for path in paths:
             key = _path_key(path)
-            metadata_by_path[key] = _merge_probe_metadata(metadata_by_path.get(key, {}), probed)
+            metadata_by_path[key] = _merge_probe_metadata(metadata_by_path.get(key, {}), probed, source_url)
             metadata_by_path[key].setdefault("filepath", str(path))
     return False
 

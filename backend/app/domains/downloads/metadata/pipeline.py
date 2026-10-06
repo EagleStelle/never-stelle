@@ -16,7 +16,9 @@ from backend.app.domains.downloads.metadata.creators import (
 from backend.app.domains.downloads.metadata.values import (
     clean_creator_candidate,
     display_creator_candidate,
+    echoes_title,
     metadata_title,
+    without_title_echoes,
 )
 from backend.app.domains.downloads.naming.filenames import parse_filename_media_id
 from backend.app.domains.downloads.naming.render import field_value, filename_template_title
@@ -113,11 +115,15 @@ def naming_values(
     """The values ``path`` is named by; ``template_settings`` are the ones it was written with."""
     source_url = canonicalize_source_url(source_url)
     source_key = normalize_source_key(source_key)
-    metadata = {
-        str(key): str(value)
-        for key, value in (metadata or {}).items()
-        if str(key or "").strip() and str(value or "").strip()
-    }
+    item_fields = get_effective_fields(source_url)
+    metadata = without_title_echoes(
+        {
+            str(key): str(value)
+            for key, value in (metadata or {}).items()
+            if str(key or "").strip() and str(value or "").strip()
+        },
+        item_fields,
+    )
     extra_tokens = extra_tokens or {}
     templates = template_row_fields(template_settings)
     filename_template = templates["filename_template"]
@@ -129,7 +135,6 @@ def naming_values(
     )
     scraped_username = field_value(extra_tokens, "username")
     scraped_creator = clean_creator_candidate(scraped_username)
-    item_fields = get_effective_fields(source_url)
     configured_username = scraped_username or configured_field_value(metadata, item_fields.get("username") or ())
     configured_nickname = field_value(extra_tokens, "nickname") or configured_field_value(
         metadata, item_fields.get("nickname") or ()
@@ -160,6 +165,12 @@ def naming_values(
     if not title and not configured_title_fields:
         title = filename_template_title(path.name, filename_template)
     media_id = media_id or media_id_from_url(item_source_url)
+
+    def fallback_creator() -> str:
+        # The engine's creator line and the row's old creator can repeat the title too.
+        candidates = (creator_fallback(item_source_url) if creator_fallback else "", str(existing_creator or ""))
+        return next((value for value in candidates if value and not echoes_title(value, metadata, item_fields)), "")
+
     return NamingValues(
         source_url=item_source_url,
         source_key=item_source_key,
@@ -182,8 +193,7 @@ def naming_values(
             scraped_creator
             or configured_display
             or username
-            or (creator_fallback(item_source_url) if creator_fallback else "")
-            or str(existing_creator or "")
+            or fallback_creator()
             or nickname
         ),
         cleaning=cleaning,

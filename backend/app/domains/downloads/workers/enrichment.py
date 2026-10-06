@@ -177,7 +177,7 @@ def _repair_history_metadata(task_id: str, entry: dict[str, Any], payload: dict[
     if not probed:
         return sidecar_metadata
 
-    metadata = _merge_probe_metadata(sidecar_metadata, probed)
+    metadata = _merge_probe_metadata(sidecar_metadata, probed, source_url)
     metadata.setdefault("filepath", str(path))
     template_settings = _string_dict(payload.get("template_settings"))
     quality = normalize_quality_selection(payload.get("quality"))

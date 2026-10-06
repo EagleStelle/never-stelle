@@ -613,6 +613,73 @@ def test_one_probe_names_every_output_of_a_multi_file_task(tmp_path: Path, monke
     assert [metadata_by_path[path_key(path)]["title"] for path in paths] == ["Photo 1", "Photo 2"]
 
 
+_ECHO_TITLE = "1.2K views · 30 reactions | Morning walk | Alice Example"
+# What an extractor that finds no owner copies raw from the page title.
+_ECHO_CREATOR = "1.2K views &#xb7; 30 reactions | Morning walk | Alice Example"
+
+
+def test_a_creator_that_only_echoes_the_title_falls_to_the_next_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    use_temp_db(tmp_path, monkeypatch)
+    _save_example_fields(username=["uploader", "username", "uploader_id"])
+    raw = tmp_path / "raw [abc123].mp4"
+    raw.write_bytes(b"video")
+
+    creator = _finalized_creator(
+        tmp_path,
+        raw,
+        {"filepath": str(raw), "uploader": _ECHO_CREATOR, "uploader_id": "1001", "title": _ECHO_TITLE},
+    )
+
+    assert creator == "1001"
+
+
+def test_an_engine_creator_line_that_echoes_the_title_is_not_the_creator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    use_temp_db(tmp_path, monkeypatch)
+    _save_example_fields(username=["uploader"], nickname=["uploader"])
+    raw = tmp_path / "[abc123].mp4"
+    raw.write_bytes(b"video")
+
+    finalized = finalize_module._finalize_completed_output(
+        source_url=_FIELDS_URL,
+        source_key="example",
+        output_root=tmp_path,
+        raw_path=raw,
+        metadata={"filepath": str(raw), "uploader": _ECHO_CREATOR, "title": _ECHO_TITLE},
+        media_id="abc123",
+        template_settings=_FIELDS_TEMPLATES,
+        creator_fallback=lambda url: _ECHO_CREATOR,
+        cache_dropper=None,
+    )
+
+    assert finalized.creator == ""
+
+
+def test_a_title_echo_in_the_creator_is_looked_up_again(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    _save_example_fields(username=["uploader", "username", "uploader_id"])
+    raw = tmp_path / "raw [abc123].mp4"
+    raw.write_bytes(b"video")
+    metadata_by_path = {
+        path_key(raw): {"filepath": str(raw), "uploader": _ECHO_CREATOR, "uploader_id": "1001", "title": _ECHO_TITLE}
+    }
+    monkeypatch.setattr(
+        sidecars_module,
+        "probe_link_metadata",
+        lambda url, key: {"uploader": "Alice Example", "uploader_id": "1001", "title": _ECHO_TITLE},
+    )
+
+    unanswered = sidecars_module._probe_output_metadata_inline(
+        [raw], engine_by_name("ytdlp"), metadata_by_path, _FIELDS_URL, "example", _FIELDS_TEMPLATES
+    )
+
+    assert unanswered is False
+    assert _finalized_creator(tmp_path, raw, metadata_by_path[path_key(raw)]) == "Alice Example"
+
+
 def test_gallerydl_distinct_metadata_urls_split_rows_dynamically(tmp_path: Path):
     first = tmp_path / "Poster - Image [asset-a]_1.jpg"
     second = tmp_path / "Poster - Image [asset-b]_2.jpg"

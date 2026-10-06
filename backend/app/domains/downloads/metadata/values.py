@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 from typing import Any
 
@@ -18,6 +19,35 @@ def _ordered_metadata_value(metadata: dict[str, str], fields: tuple[str, ...] | 
 
 def metadata_title(metadata: dict[str, str], configured_fields: tuple[str, ...] | list[str] = ()) -> str:
     return _ordered_metadata_value(metadata, configured_fields or get_effective_field_defaults()["title"])
+
+def _echo_key(value: Any) -> str:
+    # Text copied raw from a page still carries its HTML escapes.
+    return " ".join(html.unescape(str(value or "")).split()).casefold()
+
+def _role_fields(fields: dict[str, list[str]], *roles: str) -> list[str]:
+    defaults = get_effective_field_defaults()
+    return list(dict.fromkeys(field for role in roles for field in [*(fields.get(role) or ()), *defaults[role]]))
+
+def _title_keys(metadata: dict[str, str], fields: dict[str, list[str]]) -> set[str]:
+    return {_echo_key(metadata.get(field)) for field in _role_fields(fields, "title")} - {""}
+
+def echoes_title(value: str, metadata: dict[str, str], fields: dict[str, list[str]]) -> bool:
+    """Whether a creator value only repeats the item's title.
+
+    An extractor that finds no owner on a page can fill the creator with the page title.
+    """
+    return _echo_key(value) in _title_keys(metadata, fields)
+
+def without_title_echoes(metadata: dict[str, str], fields: dict[str, list[str]]) -> dict[str, str]:
+    """``metadata`` without the creator fields that only repeat its title."""
+    titles = _role_fields(fields, "title")
+    title_keys = _title_keys(metadata, fields)
+    echoed = {
+        field
+        for field in _role_fields(fields, "username", "nickname")
+        if field not in titles and _echo_key(metadata.get(field)) in title_keys
+    }
+    return {key: value for key, value in metadata.items() if key not in echoed}
 
 def clean_creator_candidate(value: str, *, strip_at: bool = True) -> str:
     value = str(value or "").strip()
