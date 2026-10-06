@@ -21,7 +21,7 @@ from backend.app.domains.downloads.engines.ytdlp import (
     ytdlp_limit_args,
     ytdlp_pacing_args,
 )
-from backend.app.domains.downloads.naming.filenames import sanitize_path_literal
+from backend.app.domains.downloads.naming.filenames import UNKNOWN_VALUE, sanitize_path_literal
 from backend.app.domains.downloads.postprocessing.ffmpeg import detect_ffmpeg_location
 from backend.app.domains.formats.analysis import media_id_from_url
 from backend.app.domains.options.field_roles import FIELD_ROLE_CHAINS
@@ -56,17 +56,17 @@ def _gallerydl_field_spec(fields: list[str], fallback: str) -> str:
 
 # A configured list is authoritative (no hidden fallback); an empty one uses the engine chain.
 def gallerydl_username_field(custom: list[str] | None = None) -> str:
-    return _gallerydl_field_spec(custom or FIELD_ROLE_CHAINS["gallerydl"]["username"], "unknown")
+    return _gallerydl_field_spec(custom or FIELD_ROLE_CHAINS["gallerydl"]["username"], UNKNOWN_VALUE)
 
 
 def gallerydl_nickname_field(custom: list[str] | None = None) -> str:
-    return _gallerydl_field_spec(custom or FIELD_ROLE_CHAINS["gallerydl"]["nickname"], "unknown")
+    return _gallerydl_field_spec(custom or FIELD_ROLE_CHAINS["gallerydl"]["nickname"], UNKNOWN_VALUE)
 
 
 # Specifiers for tokens gallery-dl fills itself; creator fields are resolved dynamically instead.
 _GALLERYDL_FIELD = {
-    "title": '{title|content|"untitled"}',
-    "id": '{id|media_id|num|"NA"}',
+    "title": f'{{title|content|"{UNKNOWN_VALUE}"}}',
+    "id": f'{{id|media_id|num|"{UNKNOWN_VALUE}"}}',
     "quality": '{width|"?"}x{height|"?"}',
 }
 # Directory and filename packed into one output_template; only the builder splits it.
@@ -284,9 +284,9 @@ def _gallerydl_field(
         flags = normalize_title_cleaning(cleaning)
         if flags.get("shorten", False):
             max_chars = flags.get("max_chars", TITLE_MAX_CHARS_DEFAULT)
-            return f'{{title[:{max_chars}]|content[:{max_chars}]|"untitled"}}'
+            return f'{{title[:{max_chars}]|content[:{max_chars}]|"{UNKNOWN_VALUE}"}}'
         return _GALLERYDL_FIELD["title"]
-    return _GALLERYDL_FIELD.get(field, "")
+    return _GALLERYDL_FIELD.get(field, UNKNOWN_VALUE)
 
 
 def convert_template_to_gallerydl(

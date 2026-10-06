@@ -23,7 +23,7 @@ from backend.app.domains.downloads.metadata.values import (
     clean_creator_candidate,
     display_creator_candidate,
 )
-from backend.app.domains.downloads.naming.filenames import sanitize_path_literal
+from backend.app.domains.downloads.naming.filenames import UNKNOWN_VALUE, sanitize_path_literal
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
 from backend.app.domains.options.quality import quality_label
 
@@ -45,15 +45,25 @@ class _FolderRenderer:
         title: str = "",
     ) -> None:
         self._creator = display_creator_candidate(creator, cleaning)
-        self._nickname = display_creator_candidate(nickname, cleaning) or self._creator
+        self._nickname = display_creator_candidate(nickname, cleaning)
         self._media_id = str(media_id or "").strip()
         self._extra_tokens = extra_tokens or {}
         self._cleaning = cleaning
         self._quality = quality
         self._title = title
 
-    def _token(self, match: re.Match[str]) -> str:
+    def _resolved(self, match: re.Match[str]) -> str:
         field = match.group(1).strip().lower()
+        value = self._value(field)
+        # Either creator token stands in for the other: both name the same person.
+        if not value and field in CREATOR_FIELDS:
+            value = self._value("username") or self._value("nickname")
+        return sanitize_path_literal(value)
+
+    def _token(self, match: re.Match[str]) -> str:
+        return self._resolved(match) or UNKNOWN_VALUE
+
+    def _value(self, field: str) -> str:
         override = self._extra_tokens.get(field)
         if override is not None and str(override).strip():
             if field in CREATOR_FIELDS:
@@ -73,9 +83,7 @@ class _FolderRenderer:
 
     def segments(self, template: str) -> list[str]:
         # Each token value stays one segment.
-        rendered = TEMPLATE_RE.sub(
-            lambda match: sanitize_path_literal(self._token(match)), str(template or "").strip()
-        )
+        rendered = TEMPLATE_RE.sub(self._token, str(template or "").strip())
         if not rendered.strip():
             return []
         segments = [sanitize_path_literal(part) for part in _PATH_SEPARATOR_RE.split(rendered)]
@@ -83,6 +91,11 @@ class _FolderRenderer:
 
     def has_folder(self, template_settings: dict[str, str] | None) -> bool:
         return bool(self.segments(template_row_fields(template_settings)["folder_template"]))
+
+    def lacks_value(self, template_settings: dict[str, str] | None) -> bool:
+        """Whether a folder token has nothing to render but Unknown."""
+        template = template_row_fields(template_settings)["folder_template"]
+        return any(not self._resolved(match) for match in TEMPLATE_RE.finditer(template))
 
     def folder(self, base: Path, template_settings: dict[str, str] | None, grouped: bool) -> Path:
         """``base`` plus the rendered folder, and the subfolder for a multi-file post."""
@@ -113,17 +126,13 @@ def render_template_folder(
     return renderer.folder(output_root, template_settings, grouped)
 
 
-def _placeholder_creator_escape(selected_path: Path, output_root: Path) -> Path | None:
-    """The output root, when the engine filed the download under a non-name.
-
-    A null folder token leaves the engine writing a literal "None" directory. Our
-    template renders nothing for that row, so the file stayed there, reading as though
-    that were the creator.
-    """
-    parent = selected_path.parent
-    if _path_key(parent.parent) != _path_key(output_root):
-        return None
-    return None if clean_creator_candidate(parent.name) else output_root
+def _engine_folder_names_all(selected_path: Path, output_root: Path) -> bool:
+    """Whether every folder the engine filed the download under names something."""
+    try:
+        relative = selected_path.parent.relative_to(output_root)
+    except ValueError:
+        return True
+    return bool(relative.parts) and all(clean_creator_candidate(part) for part in relative.parts)
 
 
 def move_group_to_template_folder(
@@ -140,17 +149,15 @@ def move_group_to_template_folder(
     group_paths: list[Path] | None = None,
 ) -> Path:
     renderer = _FolderRenderer(creator, media_id, nickname, extra_tokens, cleaning, quality, title)
-    base = output_root
     if not renderer.has_folder(template_settings):
-        base = _placeholder_creator_escape(selected_path, output_root)
-        if base is None:
-            return selected_path
-        # The engine's folder names no one, so the display name stands in for the handle.
-        renderer = _FolderRenderer(nickname, media_id, nickname, extra_tokens, cleaning, quality, title)
+        return selected_path
+    # The engine's folder already holds what this download lacks.
+    if renderer.lacks_value(template_settings) and _engine_folder_names_all(selected_path, output_root):
+        return selected_path
 
     # Membership decides the subfolder, so it is settled before the target is compared.
     paths = group_paths if group_paths else find_numbered_media_siblings(selected_path) or [selected_path]
-    target_dir = renderer.folder(base, template_settings, len(paths) > 1)
+    target_dir = renderer.folder(output_root, template_settings, len(paths) > 1)
     if _path_key(selected_path.parent) == _path_key(target_dir):
         return selected_path
     try:

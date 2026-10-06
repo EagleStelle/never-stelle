@@ -11,7 +11,9 @@ from backend.app.domains.downloads.naming.filenames import (
     _NUMBERED_SUFFIX_RE,
     _SPACING_RE,
     _STEM_TRIM_CHARS,
+    UNKNOWN_VALUE,
     _apply_shorten,
+    _is_empty_title,
     _text,
     apply_stem_limit,
     apply_token_style,
@@ -29,9 +31,6 @@ _ROW_TOKEN_FIELDS = {"title": "title", "id": "media_id", "username": "creator"}
 
 
 _EXT_TEMPLATE_TAIL_RE = re.compile(r"\.?\{\{\s*ext\s*\}\}\s*$", re.IGNORECASE)
-
-
-_EMPTY_BRACKETS_RE = re.compile(r"\[\s*\]|\(\s*\)|\{\s*\}")
 
 
 _ID_TEMPLATE_FIELDS = {"id"}
@@ -92,9 +91,10 @@ def _match_template_fields(stem: str, filename_template: str) -> tuple[dict[str,
         if not match:
             continue
         fields = {
-            field: match.group(group).strip()
+            # A placeholder such as Unknown names nothing.
+            field: "" if _is_empty_title(value) else value
             for group, field in groups.items()
-            if match.group(group) and match.group(group).strip()
+            if (value := _text(match.group(group)))
         }
         return fields, numbered_suffix
     return {}, ""
@@ -152,27 +152,28 @@ def _render_template_stem(
     def styled(field: str, value: str) -> str:
         return value if field in _ID_TEMPLATE_FIELDS else apply_token_style(value, flags)
 
-    def replace(match: re.Match[str]) -> str:
-        field = match.group(1).strip().lower()
+    def token_value(field: str) -> str:
         if extra_tokens:
             override = extra_tokens.get(field)
             if override is not None and _text(override):
                 if field in CREATOR_FIELDS:
                     override = _clean_creator_token(str(override), flags)
-                return styled(field, sanitize_path_literal(override, replacement))
+                return sanitize_path_literal(override, replacement)
         # Selection first; with none to apply (``None``) whatever the row recorded, and
         # with neither the default label, which is what "no quality" is called.
         if field == "quality":
             recorded = "" if quality is not None else str(fields.get(field) or "").strip()
-            return styled(field, sanitize_path_literal(recorded, replacement) or _quality_token(quality))
+            return sanitize_path_literal(recorded, replacement) or _quality_token(quality)
         value = fields.get(field, "")
         if field in CREATOR_FIELDS:
             value = _clean_creator_token(value or field_value(fields, "username", "nickname"), flags)
-        return styled(field, sanitize_path_literal(value, replacement))
+        return sanitize_path_literal(value, replacement)
+
+    def replace(match: re.Match[str]) -> str:
+        field = match.group(1).strip().lower()
+        return styled(field, token_value(field) or UNKNOWN_VALUE)
 
     value = TEMPLATE_RE.sub(replace, template)
-    value = _SPACING_RE.sub(" ", value)
-    value = _EMPTY_BRACKETS_RE.sub("", value)
     value = _SPACING_RE.sub(" ", value).strip(_STEM_TRIM_CHARS)
     return apply_stem_limit(value, flags)
 
@@ -249,8 +250,8 @@ def row_with_tokens(payload: dict[str, Any], tokens: dict[str, str]) -> dict[str
 def unsatisfied_tokens(template_settings: dict[str, str], fields: dict[str, str]) -> list[str]:
     """Tokens the templates need that nothing can supply.
 
-    Rendering anyway would drop the token, or fill a creator token from the other one,
-    producing a plausible name built from incomplete data and stamping it as current.
+    Rendering anyway would write Unknown for the token, or fill a creator token from the
+    other one, producing a plausible name built from incomplete data and stamping it as current.
     A token the fields hold empty is one the name already goes without, so nothing is lost.
     """
     missing: list[str] = []
@@ -334,13 +335,12 @@ def clean_template_filename(
     fallback_nickname = _clean_creator_token(nickname, flags)
     fallback_title = _text(title)
 
-    def compose(overrides: dict[str, str], suffix: str, fallback_stem: str = "") -> str:
+    def compose(overrides: dict[str, str], suffix: str) -> str:
         # `title` is always written (an emptied title must clear the token); other
         # overrides only replace what the filename already carries when non-empty.
         rendered_fields = dict(fields)
         rendered_fields.update({key: token for key, token in overrides.items() if token or key == "title"})
         stem = _render_template_stem(filename_template, rendered_fields, extra_tokens, cleaning, quality)
-        stem = stem or fallback_stem
         if keep_numbered_suffix and suffix:
             stem = f"{stem}{suffix}"
         return f"{stem}{path.suffix}" if stem else value
@@ -436,9 +436,6 @@ def clean_template_filename(
             "nickname": resolved_nickname,
         },
         numbered_suffix,
-        sanitize_path_literal(
-            resolved_media_id or resolved_username or resolved_nickname or strip_numbered_suffix(path.stem)
-        ),
     )
 
 

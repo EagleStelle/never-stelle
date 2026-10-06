@@ -389,7 +389,8 @@ def _clean_resolved_filename(
                 return renamed, display_filename or f"{strip_numbered_suffix(renamed.stem)}{renamed.suffix}"
             if strip_numbered_suffix(path.stem) != path.stem:
                 siblings = find_numbered_media_siblings(path)
-                alone = [_path_key(item) for item in siblings] == [_path_key(path)]
+                # An unnumbered namesake is an earlier download, not part of this post.
+                alone = [_path_key(item) for item in siblings if numbered_suffix_of(item.stem)] == [_path_key(path)]
                 # A post's only file carries no number.
                 if alone and numbered_suffix_of(path.stem) == "_1":
                     unnumbered = Path(disk_filename)

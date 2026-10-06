@@ -1159,7 +1159,7 @@ def test_refresh_flags_a_download_left_outside_its_creator_folder(tmp_path: Path
     _drain()
 
     assert calls == []
-    assert (media_root / "Creator" / "Creator - [abc123].mp4").is_file()
+    assert (media_root / "Creator" / "Creator - Unknown [abc123].mp4").is_file()
     assert (media_root / "Filed" / "Filed - Clip [def456].mp4").is_file()
     assert (media_root / "Mine - Clip [ghi789].mp4").is_file()
 
@@ -1187,7 +1187,7 @@ def test_refresh_flags_a_creator_copied_raw_from_a_page(tmp_path: Path, monkeypa
     _drain()
 
     assert load_history_entry("gallerydl:1")["creator"] == "Alice Example"
-    assert (media_root / "Alice Example" / "Alice Example - [abc123].mp4").is_file()
+    assert (media_root / "Alice Example" / "Alice Example - Unknown [abc123].mp4").is_file()
     assert not (media_root / folder).exists()
 
 

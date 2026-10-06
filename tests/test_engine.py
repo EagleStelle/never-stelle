@@ -656,7 +656,7 @@ def test_ytdlp_username_field_uses_configured_list_authoritatively():
 
 def test_gallerydl_nickname_field_uses_configured_list_authoritatively():
     spec = gallerydl.gallerydl_nickname_field(["scraper[artist]", "display[name]"])
-    assert spec == '{display[name]|"unknown"}'
+    assert spec == '{display[name]|"Unknown"}'
 
 
 def test_build_output_template_applies_per_source_fields(monkeypatch):
@@ -686,7 +686,7 @@ def test_convert_template_to_gallerydl_uses_field_roles():
     rendered = gallerydl.convert_template_to_gallerydl(
         "{{nickname}}", "https://example.com/x", field_roles={"nickname": ["fullname"]}
     )
-    assert rendered == '{fullname|"unknown"}'
+    assert rendered == '{fullname|"Unknown"}'
 
 
 def test_resolve_scraped_tokens_returns_role_keyed_overrides(monkeypatch):
@@ -932,16 +932,16 @@ def test_convert_template_to_gallerydl_maps_fields_and_resolves_creator():
         "{{username}} - {{title}} [{{id}}]",
         "https://twitter.com/DemoVT/status/2000000000000000001",
     )
-    gallery_username = '{username|author[uniqueId]|user[name]|user[username]|user[uniqueId]|account|author|"unknown"}'
+    gallery_username = '{username|author[uniqueId]|user[name]|user[username]|user[uniqueId]|account|author|"Unknown"}'
     assert result.startswith(f"{gallery_username} - ")
-    assert '{title|content|"untitled"}' in result
+    assert '{title|content|"Unknown"}' in result
     assert "[2000000000000000001]" in result
 
 
 def test_convert_template_to_gallerydl_falls_back_to_metadata_creator():
     # No creator segment in the URL -> emit a gallery-dl field with fallbacks.
     result = gallerydl.convert_template_to_gallerydl("{{username}}", "https://imgur.com/abc")
-    assert result == '{username|author[uniqueId]|user[name]|user[username]|user[uniqueId]|account|author|"unknown"}'
+    assert result == '{username|author[uniqueId]|user[name]|user[username]|user[uniqueId]|account|author|"Unknown"}'
 
 
 def test_engine_progress_style_flags():
@@ -1072,13 +1072,13 @@ def test_engines_build_output_templates_from_same_settings_snapshot():
     ytdlp_template = engine_by_name("ytdlp").build_output_template(url, "/media/twitter", settings)
     gallery_template = engine_by_name("gallerydl").build_output_template(url, "/media/twitter", settings)
     gallery_folder, _, gallery_filename = gallery_template.partition(gallerydl._TEMPLATE_SEP)
-    gallery_username = '{username|author[uniqueId]|user[name]|user[username]|user[uniqueId]|account|author|"unknown"}'
+    gallery_username = '{username|author[uniqueId]|user[name]|user[username]|user[uniqueId]|account|author|"Unknown"}'
 
     assert "%(uploader_id,playlist_uploader_id,uploader,channel,creator,channel_id|Unknown)s" in ytdlp_template
-    assert "%(id|NA)s" in ytdlp_template
+    assert "%(id|Unknown)s" in ytdlp_template
     assert gallery_folder == f"{gallery_username}/2000000000000000001"
     assert gallery_filename.startswith(
-        f'{gallery_username} - {{title|content|"untitled"}} [2000000000000000001]'
+        f'{gallery_username} - {{title|content|"Unknown"}} [2000000000000000001]'
     )
 
 
@@ -1751,13 +1751,13 @@ def test_downloader_commands_and_templates_obey_naming_limits():
         "{{username}} - {{title}} [{{id}}]",
         cleaning={"shorten": True, "max_chars": 75},
     )
-    assert '{title[:75]|content[:75]|"untitled"}' in gallery_tmpl
+    assert '{title[:75]|content[:75]|"Unknown"}' in gallery_tmpl
 
 
 def test_convert_template_to_ytdlp_maps_placeholders():
     result = convert_template_to_ytdlp("{{username}} - {{title}} [{{id}}]")
     assert "%(title|Unknown)s" in result
-    assert "%(id|NA)s" in result
+    assert "%(id|Unknown)s" in result
     assert "{{" not in result
 
 

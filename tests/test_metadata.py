@@ -43,8 +43,7 @@ def test_filename_creator_ignores_nickname_token_for_handle():
     assert creator == ""
 
 
-def test_username_folder_not_clobbered_by_nickname_filename():
-    # No handle known -> {{username}} folder unresolved -> no move, keeping the engine's handle folder.
+def test_render_template_folder_takes_the_nickname_for_a_missing_username():
     folder = folders_module.render_template_folder(
         Path("/media/instagram"),
         {"folder_template": "{{username}}"},
@@ -52,7 +51,17 @@ def test_username_folder_not_clobbered_by_nickname_filename():
         media_id="ABC123",
         nickname="NASA",
     )
-    assert folder is None
+    assert folder == Path("/media/instagram/NASA")
+
+
+def test_render_template_folder_names_a_missing_value_unknown():
+    folder = folders_module.render_template_folder(
+        Path("/media/instagram"),
+        {"folder_template": "{{username}}/{{title}}"},
+        creator="",
+        media_id="ABC123",
+    )
+    assert folder == Path("/media/instagram/Unknown/Unknown")
 
 
 def test_render_template_folder_renders_nickname_distinct_from_username():
@@ -268,8 +277,8 @@ def test_gallerydl_parent_group_keeps_pasted_source_url_for_child_metadata():
     )
 
 
-@pytest.mark.parametrize("placeholder", ["None", "unknown"])
-def test_a_download_filed_under_a_placeholder_creator_moves_to_the_root(tmp_path: Path, placeholder: str):
+@pytest.mark.parametrize("placeholder", ["None", "null"])
+def test_a_download_filed_under_a_placeholder_creator_moves_to_unknown(tmp_path: Path, placeholder: str):
     # The engine's own folder token came back null, so it invented a directory.
     stranded = tmp_path / placeholder
     stranded.mkdir()
@@ -284,7 +293,7 @@ def test_a_download_filed_under_a_placeholder_creator_moves_to_the_root(tmp_path
         "abc123",
     )
 
-    assert final_path == tmp_path / path.name
+    assert final_path == tmp_path / "Unknown" / path.name
     assert final_path.is_file()
     assert not stranded.exists()
 

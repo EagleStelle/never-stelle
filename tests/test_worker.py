@@ -525,18 +525,18 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
 
     completed = store["tasks"][task_id]
-    first_clean = tmp_path / "Creator - [1234567890]_1.jpg"
-    second_clean = tmp_path / "Creator - [1234567890]_2.jpg"
+    first_clean = tmp_path / "Creator - Unknown [1234567890]_1.jpg"
+    second_clean = tmp_path / "Creator - Unknown [1234567890]_2.jpg"
     assert completed["status"] == "completed"
     assert first_clean.is_file()
     assert second_clean.is_file()
     assert not first.exists()
     assert not second.exists()
     assert completed["resolved_full_path"] == str(first_clean)
-    assert completed["resolved_filename"] == "Creator - [1234567890].jpg"
+    assert completed["resolved_filename"] == "Creator - Unknown [1234567890].jpg"
     assert completed["title"] == ""
     assert saved[task_id]["resolved_full_path"] == str(first_clean)
-    assert saved[task_id]["resolved_filename"] == "Creator - [1234567890].jpg"
+    assert saved[task_id]["resolved_filename"] == "Creator - Unknown [1234567890].jpg"
 
 
 @pytest.mark.parametrize(
@@ -544,7 +544,7 @@ def test_gallerydl_multifile_run_uses_first_image_and_clean_display_name(
     [
         ({"channel": "ChannelHandle", "title": "Nice clip"}, False, "ChannelHandle - Nice clip [abc123].mp4"),
         # No engine answered, so the lookup is tried once more later; an empty answer would be final.
-        (None, True, "[abc123].mp4"),
+        (None, True, "Unknown - Unknown [abc123].mp4"),
     ],
 )
 def test_gallerydl_sparse_single_output_probes_inline_and_repairs_only_an_unanswered_lookup(
@@ -1178,8 +1178,8 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
 
-    clean_video = tmp_path / "demo.reelzz - [DEM-oPost04]_1.mp4"
-    clean_image = tmp_path / "demo.reelzz - [DEM-oPost04]_2.jpg"
+    clean_video = tmp_path / "demo.reelzz - Unknown [DEM-oPost04]_1.mp4"
+    clean_image = tmp_path / "demo.reelzz - Unknown [DEM-oPost04]_2.jpg"
     completed = store["tasks"][task_id]
     assert [cmd[0] for cmd in commands] == ["gallery-dl"]
     assert "--filter" not in commands[0]
@@ -1195,7 +1195,7 @@ def test_worker_merges_fallback_assets_without_duplicate_videos(
     assert completed["creator"] == "demo.reelzz"
     assert completed["source_url"] == source_url
     assert completed["resolved_full_path"] == str(clean_video)
-    assert completed["resolved_filename"] == "demo.reelzz - [DEM-oPost04].mp4"
+    assert completed["resolved_filename"] == "demo.reelzz - Unknown [DEM-oPost04].mp4"
 
 
 def test_worker_renames_display_creator_to_handle_and_template_folder(
@@ -1267,7 +1267,7 @@ def test_worker_renames_display_creator_to_handle_and_template_folder(
 
     worker_module.run_task(task_id, store["tasks"][task_id], mark_running=False)
 
-    clean_video = tmp_path / "demo.reelzz" / "demo.reelzz - [DEM-oPost04].mp4"
+    clean_video = tmp_path / "demo.reelzz" / "demo.reelzz - Unknown [DEM-oPost04].mp4"
     completed = store["tasks"][task_id]
     assert clean_video.is_file()
     assert not raw_video.exists()
@@ -1275,7 +1275,7 @@ def test_worker_renames_display_creator_to_handle_and_template_folder(
     assert completed["creator"] == "demo.reelzz"
     assert completed["resolved_folder"] == str(clean_video.parent)
     assert completed["resolved_full_path"] == str(clean_video)
-    assert completed["resolved_filename"] == "demo.reelzz - [DEM-oPost04].mp4"
+    assert completed["resolved_filename"] == "demo.reelzz - Unknown [DEM-oPost04].mp4"
     assert saved[task_id]["resolved_full_path"] == str(clean_video)
 
 
@@ -1348,9 +1348,9 @@ def test_worker_splits_distinct_media_outputs_and_cleans_each_real_file(
     assert len(learned[0][0]) == 3
     assert learned[0][1] == {task_id, f"{task_id}:DDemoStry02", f"{task_id}:DDemoStry05"}
 
-    first_clean = tmp_path / "demo.reelzz - [DDemoStry3_].mp4"
-    second_clean = tmp_path / "demo.reelzz - [DDemoStry02].mp4"
-    third_clean = tmp_path / "demo.reelzz - [DDemoStry05].mp4"
+    first_clean = tmp_path / "demo.reelzz - Unknown [DDemoStry3_].mp4"
+    second_clean = tmp_path / "demo.reelzz - Unknown [DDemoStry02].mp4"
+    third_clean = tmp_path / "demo.reelzz - Unknown [DDemoStry05].mp4"
     assert first_clean.is_file()
     assert second_clean.is_file()
     assert third_clean.is_file()

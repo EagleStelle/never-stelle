@@ -28,6 +28,10 @@ _EMPTY_TITLE_VALUES = {"none", "null", "undefined", "unknown", "untitled", "n/a"
 TITLE_MAX_CHARS = TITLE_MAX_CHARS_DEFAULT
 
 
+# What a name carries for a template token nothing supplies.
+UNKNOWN_VALUE = "Unknown"
+
+
 # --- Filename and template patterns ---
 _NUMBERED_SUFFIX_RE = re.compile(r"_\d+$")
 
@@ -67,7 +71,7 @@ def invalid_char_replacement(flags: dict[str, Any]) -> str:
 
 def sanitize_filename_component(value: str) -> str:
     # Path-safe literal plus collapsed spacing and a non-empty fallback.
-    return _SPACING_RE.sub(" ", sanitize_path_literal(value)) or "Unknown"
+    return _SPACING_RE.sub(" ", sanitize_path_literal(value)) or UNKNOWN_VALUE
 
 
 # --- Title primitives ---

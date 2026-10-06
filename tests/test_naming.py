@@ -235,7 +235,7 @@ def test_clean_template_filename_drops_generic_post_caption():
         creator="demopage",
         media_id="pfbid02DemoPostAa",
     )
-    assert result == "demopage - [pfbid02DemoPostAa]_1.jpg"
+    assert result == "demopage - Unknown [pfbid02DemoPostAa]_1.jpg"
 
 
 def test_clean_filename_title_drops_empty_title_sentinels():
@@ -251,7 +251,7 @@ def test_clean_template_filename_drops_none_title_segment():
         media_id="abc123",
     )
 
-    assert result == "Poster - [abc123]_1.jpg"
+    assert result == "Poster - Unknown [abc123]_1.jpg"
 
 
 def test_clean_template_filename_authoritative_empty_title_clears_extractor_value():
@@ -263,7 +263,7 @@ def test_clean_template_filename_authoritative_empty_title_clears_extractor_valu
         media_id="abc123",
     )
 
-    assert result == "Poster - [abc123]_1.mp4"
+    assert result == "Poster - Unknown [abc123]_1.mp4"
 
 
 def test_clean_template_filename_drops_matching_gallery_position_title():
@@ -277,19 +277,19 @@ def test_clean_template_filename_drops_matching_gallery_position_title():
         media_id="abc123",
     )
 
-    assert result == "Poster - [abc123]_20.mp4"
+    assert result == "Poster - Unknown [abc123]_20.mp4"
 
 
 @pytest.mark.parametrize(
     ("template", "empty_title_name", "titled_name"),
     [
-        ("{{username}} - {{title}} [{{id}}]", "poster - [abc123].jpg", "poster - Nice clip [abc123].jpg"),
-        ("{{nickname}} | {{title}} ({{id}})", "poster | (abc123).jpg", "poster | Nice clip (abc123).jpg"),
-        ("{{title}} :: {{username}} [{{id}}]", "poster [abc123].jpg", "Nice clip :: poster [abc123].jpg"),
-        ("[{{id}}] {{username}}_{{title}}", "[abc123] poster.jpg", "[abc123] poster_Nice clip.jpg"),
+        ("{{username}} - {{title}} [{{id}}]", "poster - Unknown [abc123].jpg", "poster - Nice clip [abc123].jpg"),
+        ("{{nickname}} | {{title}} ({{id}})", "poster | Unknown (abc123).jpg", "poster | Nice clip (abc123).jpg"),
+        ("{{title}} :: {{username}} [{{id}}]", "Unknown :: poster [abc123].jpg", "Nice clip :: poster [abc123].jpg"),
+        ("[{{id}}] {{username}}_{{title}}", "[abc123] poster_Unknown.jpg", "[abc123] poster_Nice clip.jpg"),
     ],
 )
-def test_clean_template_filename_keeps_empty_title_empty_across_renders(template, empty_title_name, titled_name):
+def test_clean_template_filename_keeps_unknown_title_across_renders(template, empty_title_name, titled_name):
     def render(name: str, title: str) -> str:
         return clean_template_filename(name, template, creator="poster", title=title, media_id="abc123")
 
@@ -332,7 +332,7 @@ def test_clean_template_filename_renders_selected_quality_when_rebuilding():
         quality={"mode": "merged", "video_quality": "1080p"},
     )
 
-    assert result == "1080p - [4483553].mp4"
+    assert result == "1080p - Unknown [4483553].mp4"
 
 
 def test_clean_template_filename_rebuilds_sparse_gallerydl_name_from_title_hint():
@@ -355,7 +355,7 @@ def test_clean_template_filename_repairs_none_creator_and_duplicate_id_title():
         media_id="DZwrrifkye4",
     )
 
-    assert result == "real.creator - [DZwrrifkye4].mp4"
+    assert result == "real.creator - Unknown [DZwrrifkye4].mp4"
 
 
 def test_clean_social_title_default_strips_hashtags_and_metrics():

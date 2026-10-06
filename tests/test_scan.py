@@ -150,7 +150,7 @@ def test_scan_media_library_infers_source_from_named_source_folder(
     entry = saved["disk:7100000000000000002"]
     assert entry["source_key"] == "tiktok"
     assert entry["source_pending"] is False
-    assert entry["resolved_filename"] == "fakeacc.com - [7100000000000000002].jpg"
+    assert entry["resolved_filename"] == "fakeacc.com - Unknown [7100000000000000002].jpg"
 
 
 def test_scan_media_library_uses_learned_tiktok_photo_template(
@@ -185,7 +185,7 @@ def test_scan_media_library_uses_learned_tiktok_photo_template(
     entry = saved["disk:7100000000000000002"]
     assert entry["source_key"] == "tiktok"
     assert entry["source_pending"] is False
-    assert entry["resolved_filename"] == "fakeacc.com - [7100000000000000002].jpg"
+    assert entry["resolved_filename"] == "fakeacc.com - Unknown [7100000000000000002].jpg"
     assert entry["resolved_full_path"] == str(media_file)
     assert entry["source_url"] == "https://www.tiktok.com/@fakeacc.com/photo/7100000000000000002"
 

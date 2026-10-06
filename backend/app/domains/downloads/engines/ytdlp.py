@@ -80,7 +80,7 @@ def _safe_literal(value: str) -> str:
 # Specifiers for tokens yt-dlp fills itself; creator fields are resolved dynamically instead.
 _YTDLP_FIELD = {
     "title": "%(title|Unknown)s",
-    "id": "%(id|NA)s",
+    "id": "%(id|Unknown)s",
     "quality": "%(format_id,format_note,resolution|Unknown)s",
 }
 

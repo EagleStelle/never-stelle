@@ -188,7 +188,7 @@ def test_clean_resolved_filename_renames_real_file_using_settings_template(tmp_p
         "twitter",
     )
 
-    expected = tmp_path / "DemoVT - 2000000000000000001.mp4"
+    expected = tmp_path / "DemoVT - 2000000000000000001 - Unknown.mp4"
     assert final_path == expected
     assert display_filename == expected.name
     assert expected.is_file()
@@ -210,7 +210,7 @@ def test_clean_resolved_filename_rerenders_selected_quality(tmp_path: Path):
         quality={"mode": "merged", "video_quality": "1080p"},
     )
 
-    expected = tmp_path / "1080p - [4483553].mp4"
+    expected = tmp_path / "1080p - Unknown [4483553].mp4"
     assert final_path == expected
     assert display_filename == expected.name
     assert expected.is_file()
@@ -449,7 +449,7 @@ def test_clean_resolved_filename_keeps_the_number_of_a_file_beside_its_post_sibl
     assert display_filename == "alice - Nice clip [abc123].jpg"
 
 
-def test_clean_resolved_filename_title_only_template_falls_back_to_media_id(tmp_path: Path):
+def test_clean_resolved_filename_names_a_missing_title_unknown(tmp_path: Path):
     source_url = "https://twitter.com/DemoVT/status/2000000000000000001"
     media_file = tmp_path / "Video by DemoVT.mp4"
     media_file.write_bytes(b"video")
@@ -461,10 +461,30 @@ def test_clean_resolved_filename_title_only_template_falls_back_to_media_id(tmp_
         "twitter",
     )
 
-    expected = tmp_path / "2000000000000000001.mp4"
+    expected = tmp_path / "Unknown.mp4"
     assert final_path == expected
     assert display_filename == expected.name
     assert expected.is_file()
+    assert not media_file.exists()
+
+
+def test_clean_resolved_filename_numbers_a_name_an_earlier_download_holds(tmp_path: Path):
+    earlier = tmp_path / "Unknown - Unknown.mp4"
+    earlier.write_bytes(b"earlier")
+    media_file = tmp_path / "Unknown - Unknown_1.mp4"
+    media_file.write_bytes(b"video")
+
+    final_path, _ = outputs_module._clean_resolved_filename(
+        "https://video.example/clip",
+        media_file,
+        {"folder_template": "", "filename_template": "{{username}} - {{title}}"},
+        "example",
+    )
+
+    assert final_path == tmp_path / "Unknown - Unknown (1).mp4"
+    assert final_path.read_bytes() == b"video"
+    assert earlier.read_bytes() == b"earlier"
+    # The engine's numbered name is free for the next download.
     assert not media_file.exists()
 
 

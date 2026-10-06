@@ -127,7 +127,7 @@ def test_enrichment_repairs_sparse_creator_title_and_filename(
     )
 
     updated = store_module.load_history_entry(task_id)
-    clean_video = tmp_path / f"real.creator - [{media_id}].mp4"
+    clean_video = tmp_path / f"real.creator - Unknown [{media_id}].mp4"
     assert clean_video.is_file()
     assert not raw_video.exists()
     assert updated["resolved_full_path"] == str(clean_video)
