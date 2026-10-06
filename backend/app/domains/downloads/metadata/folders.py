@@ -140,13 +140,13 @@ def move_group_to_template_folder(
     group_paths: list[Path] | None = None,
 ) -> Path:
     renderer = _FolderRenderer(creator, media_id, nickname, extra_tokens, cleaning, quality, title)
-    base = (
-        output_root
-        if renderer.has_folder(template_settings)
-        else _placeholder_creator_escape(selected_path, output_root)
-    )
-    if base is None:
-        return selected_path
+    base = output_root
+    if not renderer.has_folder(template_settings):
+        base = _placeholder_creator_escape(selected_path, output_root)
+        if base is None:
+            return selected_path
+        # The engine's folder names no one, so the display name stands in for the handle.
+        renderer = _FolderRenderer(nickname, media_id, nickname, extra_tokens, cleaning, quality, title)
 
     # Membership decides the subfolder, so it is settled before the target is compared.
     paths = group_paths if group_paths else find_numbered_media_siblings(selected_path) or [selected_path]

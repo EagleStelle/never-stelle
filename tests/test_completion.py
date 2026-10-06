@@ -680,6 +680,27 @@ def test_a_title_echo_in_the_creator_is_looked_up_again(tmp_path: Path, monkeypa
     assert _finalized_creator(tmp_path, raw, metadata_by_path[path_key(raw)]) == "Alice Example"
 
 
+def test_a_download_named_by_its_display_name_is_filed_under_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    # gallery-dl's yt-dlp handoff leaves its own creator fields null.
+    raw = tmp_path / "None" / "None - Clip [abc123]_None.mp4"
+    raw.parent.mkdir()
+    raw.write_bytes(b"video")
+
+    finalized = finalize_module._finalize_completed_output(
+        source_url=_FIELDS_URL,
+        source_key="example",
+        output_root=tmp_path,
+        raw_path=raw,
+        metadata={"filepath": str(raw), "uploader": "AliceExample", "uploader_id": "1001", "title": "Clip"},
+        media_id="abc123",
+        template_settings=_FIELDS_TEMPLATES,
+        cache_dropper=None,
+    )
+
+    assert finalized.final_path == tmp_path / "AliceExample" / "AliceExample - Clip [abc123].mp4"
+
+
 def test_gallerydl_distinct_metadata_urls_split_rows_dynamically(tmp_path: Path):
     first = tmp_path / "Poster - Image [asset-a]_1.jpg"
     second = tmp_path / "Poster - Image [asset-b]_2.jpg"
