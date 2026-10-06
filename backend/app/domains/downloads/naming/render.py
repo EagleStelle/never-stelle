@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 from pathlib import Path
 from typing import Any
@@ -201,8 +202,11 @@ def settings_tokens(template_settings: dict[str, str]) -> list[str]:
 
 
 def row_template_fields(payload: dict[str, Any], old_name: str) -> dict[str, str]:
-    # Parsing the old name by the row's own template recovers tokens it has no column for.
-    fields = dict(filename_template_fields(old_name, str(payload.get("filename_template") or "").strip()))
+    # Parsing the old name by the row's own template recovers tokens it has no column for,
+    # and holds empty the ones that name goes without.
+    template = str(payload.get("filename_template") or "").strip()
+    parsed = filename_template_fields(old_name, template)
+    fields = {**dict.fromkeys(template_tokens(template), ""), **parsed} if parsed else {}
     resolved = {
         str(key): str(value).strip()
         for key, value in dict(payload.get("resolved_tokens") or {}).items()
@@ -215,7 +219,12 @@ def row_template_fields(payload: dict[str, Any], old_name: str) -> dict[str, str
             fields[token] = value
     if creator := str(payload.get("creator") or "").strip():
         fields["nickname"] = resolved.get("nickname") or creator
-    return fields
+    # A creator still holding HTML escapes was copied raw from a page, so it names no one.
+    return {
+        token: value
+        for token, value in fields.items()
+        if token not in CREATOR_FIELDS or html.unescape(value) == value
+    }
 
 
 def filed_creator(payload: dict[str, Any], cleaning: dict[str, Any] | None = None) -> str:
@@ -242,10 +251,11 @@ def unsatisfied_tokens(template_settings: dict[str, str], fields: dict[str, str]
 
     Rendering anyway would drop the token, or fill a creator token from the other one,
     producing a plausible name built from incomplete data and stamping it as current.
+    A token the fields hold empty is one the name already goes without, so nothing is lost.
     """
     missing: list[str] = []
     for token in settings_tokens(template_settings):
-        if str(fields.get(token) or "").strip():
+        if token in fields:
             continue
         # Either creator token stands in for the other: both name the same person.
         if token in CREATOR_FIELDS and any(str(fields.get(other) or "").strip() for other in CREATOR_FIELDS):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 from pathlib import Path
 
 import pytest
@@ -1124,6 +1125,69 @@ def test_a_file_outside_its_download_location_is_only_renamed(tmp_path: Path, mo
     assert _resolve_platform("templates")["resolved"] == 1
 
     assert path.with_name("Clip (abc123).mp4").is_file()
+
+
+def test_refresh_flags_a_download_left_outside_its_creator_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    media_root = _file_under_media(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, CURRENT_TEMPLATE)
+    # Its name goes without a title, which a lookup could not supply either.
+    _seed(tmp_path, name="Creator - [abc123].mp4", creator="Creator", title="", filename_template=CURRENT_TEMPLATE)
+    _seed(
+        tmp_path,
+        task_id="gallerydl:2",
+        name="Filed/Filed - Clip [def456].mp4",
+        creator="Filed",
+        media_id="def456",
+        filename_template=CURRENT_TEMPLATE,
+    )
+    # Placed by hand, so it stays where it was put.
+    _seed(
+        tmp_path,
+        task_id="disk:ghi789",
+        name="Mine - Clip [ghi789].mp4",
+        creator="Mine",
+        media_id="ghi789",
+        engine="disk",
+        filename_template=CURRENT_TEMPLATE,
+    )
+    calls = _probe_recorder(monkeypatch, {})
+
+    assert _refresh(load_history()["entries"]) == ["gallerydl:1"]
+    resolve_module.start_resolve()
+    _drain()
+
+    assert calls == []
+    assert (media_root / "Creator" / "Creator - [abc123].mp4").is_file()
+    assert (media_root / "Filed" / "Filed - Clip [def456].mp4").is_file()
+    assert (media_root / "Mine - Clip [ghi789].mp4").is_file()
+
+
+def test_refresh_flags_a_creator_copied_raw_from_a_page(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    use_temp_db(tmp_path, monkeypatch)
+    media_root = _file_under_media(tmp_path, monkeypatch)
+    _pin_template(monkeypatch, CURRENT_TEMPLATE)
+    raw = "1K views &#xb7; 20 reactions | Alice Example on Reels"
+    folder = raw.replace("|", "_")
+    _seed(
+        tmp_path,
+        name=f"{folder}/{folder} - [abc123].mp4",
+        creator=raw,
+        title="",
+        filename_template=CURRENT_TEMPLATE,
+    )
+    _probe_recorder(
+        monkeypatch,
+        {"https://example.com/p/abc123": {"uploader": "Alice Example", "title": html.unescape(raw)}},
+    )
+
+    assert _refresh(load_history()["entries"]) == ["gallerydl:1"]
+    resolve_module.start_resolve()
+    _drain()
+
+    assert load_history_entry("gallerydl:1")["creator"] == "Alice Example"
+    assert (media_root / "Alice Example" / "Alice Example - [abc123].mp4").is_file()
+    assert not (media_root / folder).exists()
 
 
 def _pick_source_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:

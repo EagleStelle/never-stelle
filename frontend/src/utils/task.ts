@@ -60,7 +60,7 @@ export function taskTitle(task: TaskItem): string {
   return String(task.resolved_filename || "").trim() || task.status_label;
 }
 
-// A spent row is skipped by "Resolve Missing", so its own button is the only way back.
+// A spent row is skipped by "Resolve Flagged", so its own button is the only way back.
 export function resolveHint(task: TaskItem): string {
   return task.resolve_failed
     ? "Source did not supply the missing details. Try again"

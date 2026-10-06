@@ -20,7 +20,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { provideDashboard } from "@/composables/useDashboard";
 import { useAuth } from "@/composables/useAuth";
 import { provideScrollRoot } from "@/composables/useVirtualRows";
-import { ACTION_ICONS, syncIconClass } from "@/ui";
+import { ACTION_ICONS, RESOLVE_DESCRIPTION, syncIconClass } from "@/ui";
 import { plural } from "@/utils/dashboard";
 
 // Loaded on its own chunk, keeping the largest surface out of first paint.
@@ -70,7 +70,7 @@ const TASK_ACTION_CONFIRM = {
   },
   resolve: {
     label: "Resolve",
-    description: () => "Looks up missing details from each source so these files can be named.",
+    description: () => RESOLVE_DESCRIPTION,
     variant: "primary",
     iconClass: syncIconClass(false),
   },
@@ -200,7 +200,7 @@ const { height: statusBarHeight } = useElementSize(
           <template #icon>
             <component :is="ACTION_ICONS.resolve" aria-hidden="true" :class="syncIconClass(false)" />
           </template>
-          Resolve All ({{ renameCount(renameTarget.key, renameTarget.kind, renameTarget.format).toLocaleString() }})
+          Resolve ({{ renameCount(renameTarget.key, renameTarget.kind, renameTarget.format).toLocaleString() }})
         </Button>
       </DialogFooter>
     </Dialog>

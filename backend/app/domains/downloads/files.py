@@ -27,6 +27,11 @@ def payload_path_string(payload: dict[str, Any]) -> str:
     return os.path.join(folder, filename) if folder and filename else ""
 
 
+def is_disk_record(task_id: str, payload: dict[str, Any]) -> bool:
+    """Whether a row is a file the library scan found on disk rather than a download."""
+    return str(task_id).startswith("disk:") or payload.get("engine") == "disk"
+
+
 def extract_downloaded_path(line: str) -> str:
     line = str(line or "").strip()
     if not line:

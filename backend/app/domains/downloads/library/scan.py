@@ -18,7 +18,12 @@ from backend.app.core.resolution import resolution_scope
 from backend.app.core.sources import normalize_source_key
 from backend.app.core.time import utc_now
 from backend.app.domains.downloads.constants import CREATOR_FIELDS, MEDIA_EXTENSIONS, TEMPLATE_RE
-from backend.app.domains.downloads.files import chapter_folder, payload_path_string, recover_task_path
+from backend.app.domains.downloads.files import (
+    chapter_folder,
+    is_disk_record,
+    payload_path_string,
+    recover_task_path,
+)
 from backend.app.domains.downloads.library.rename import recover_interrupted_renames, rows_needing_resolve
 from backend.app.domains.downloads.naming.filenames import (
     UNRECOVERABLE_MEDIA_IDS,
@@ -379,10 +384,6 @@ def _drop_missing_records(
     return checked, len(gone)
 
 
-def _is_disk_record(task_id: str, payload: dict[str, Any]) -> bool:
-    return str(task_id).startswith("disk:") or payload.get("engine") == "disk"
-
-
 def _file_signature(stat_result: os.stat_result | None) -> tuple[int, int]:
     """The mtime and size a media server compares against its library index."""
     if stat_result is None:
@@ -398,7 +399,7 @@ def _settled_disk_rows(records: dict[str, dict[str, Any]]) -> dict[str, tuple[tu
     """
     index: dict[str, tuple[tuple[int, int], str]] = {}
     for task_id, payload in records.items():
-        if not _is_disk_record(task_id, payload) or payload.get("source_pending") or not payload.get("source_url"):
+        if not is_disk_record(task_id, payload) or payload.get("source_pending") or not payload.get("source_url"):
             continue
         path = payload_path_string(payload)
         mtime_ns = safe_int(payload.get("scan_mtime_ns"))
@@ -412,7 +413,7 @@ def _owned_media(records: dict[str, dict[str, Any]], *, disk: bool) -> tuple[set
     paths: set[str] = set()
     media_ids: set[str] = set()
     for task_id, payload in records.items():
-        if _is_disk_record(task_id, payload) != disk:
+        if is_disk_record(task_id, payload) != disk:
             continue
         path = payload_path_string(payload)
         if path:
@@ -428,7 +429,7 @@ def _prune_disk_shadows(records: dict[str, dict[str, Any]], real_media_ids: set[
     shadows = [
         task_id
         for task_id, payload in records.items()
-        if _is_disk_record(task_id, payload) and _payload_media_id(payload) in real_media_ids
+        if is_disk_record(task_id, payload) and _payload_media_id(payload) in real_media_ids
     ]
     remove_history_records(shadows)
     for task_id in shadows:

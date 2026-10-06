@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -12,6 +12,7 @@ from backend.app.core.pacing import CpuPacer
 from backend.app.core.paths import path_key as _path_key
 from backend.app.core.sources import normalize_source_key
 from backend.app.domains.downloads.files import (
+    is_disk_record,
     is_media_file,
     media_companions,
     payload_path_string,
@@ -190,12 +191,29 @@ def download_location(payload: dict[str, Any]) -> str:
 
 
 def rows_needing_resolve(records: dict[str, dict[str, Any]], pacer: CpuPacer | None = None) -> list[str]:
-    """Rows the current templates cannot name without losing a token."""
-    return [
+    """Rows a resolve pass would change.
+
+    A row the current templates cannot name without losing a token is looked up. A
+    download already on the current templates is filed again when its file sits outside
+    the folder they give it. A file placed by hand only moves on a template change.
+    """
+    downloads = {task_id: payload for task_id, payload in records.items() if not is_disk_record(task_id, payload)}
+    current = [
+        row
+        for row in _named_differently(downloads, pacer, rerender=True)
+        if template_row_fields(row.payload) == template_row_fields(row.settings)
+    ]
+    flagged = [
         row.task_id
-        for row in _named_differently(records, pacer, rerender=False)
+        for row in [*_named_differently(records, pacer, rerender=False), *current]
         if unsatisfied_tokens(row.settings, row.fields)
     ]
+    flagged += [
+        plan.task_id
+        for plan in _plans(current, pacer)
+        if _path_key(plan.new_file.parent) != _path_key(plan.old_file.parent)
+    ]
+    return list(dict.fromkeys(flagged))
 
 
 def plan_history_renames(
@@ -207,14 +225,18 @@ def plan_history_renames(
 ) -> list[RenamePlan]:
     """Work out which files the current templates would name or file differently.
 
-    Rows ``rows_needing_resolve`` reports are left out. A file is moved between folders
-    only inside the download location it is filed under. ``refile`` also moves a file
-    from outside that location into it, keeping its name at the top when the templates
-    cannot name it yet. Plans come back in the order they must run.
+    Rows the templates cannot name are left out. A file is moved between folders only
+    inside the download location it is filed under. ``refile`` also moves a file from
+    outside that location into it, keeping its name at the top when the templates cannot
+    name it yet. Plans come back in the order they must run.
     """
+    return _plans(_named_differently(records, pacer, rerender), pacer, refile=refile)
+
+
+def _plans(rows: Iterable[_Renamable], pacer: CpuPacer | None, *, refile: bool = False) -> list[RenamePlan]:
     desired: list[RenamePlan] = []
 
-    for row in _named_differently(records, pacer, rerender):
+    for row in rows:
         missing = unsatisfied_tokens(row.settings, row.fields)
         if missing and not refile:
             continue

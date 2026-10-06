@@ -44,6 +44,10 @@ export const REUSED_TASK_FALLBACK = "Already in your list.";
 // the only feedback: the row never reaches the queue.
 export const QUEUE_FAILED_MESSAGE = "Could not queue.";
 
+// The Resolve History dialog and an item's own Resolve run the same pass.
+export const RESOLVE_DESCRIPTION =
+  "Fills in missing details from each source and moves misplaced files into their folders.";
+
 export const COUNT_ICONS: Record<
   "queued" | "running" | "completed" | "failed",
   Component
