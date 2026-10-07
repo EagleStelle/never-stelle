@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from backend.app.domains.access.rotation import AccessIdentity
@@ -67,6 +68,14 @@ class Engine:
     def read_creator(self, sidecar_path: str, source_url: str) -> str:
         return ""
 
+    def retry_args(self, log: str) -> list[str]:
+        """Flags for one more run with the same identity after a failed run without media; empty for none."""
+        return []
+
+
+# A site extractor that reads the page yet finds no formats; generic ones are excluded.
+_SITE_NO_FORMATS_RE = re.compile(r"ERROR: \[(?!generic\b)[^\]]+\].*No video formats found")
+
 
 class YtdlpEngine(Engine):
     name = "ytdlp"
@@ -126,6 +135,10 @@ class YtdlpEngine(Engine):
 
     def read_creator(self, sidecar_path: str, source_url: str) -> str:
         return ytdlp.read_creator_sidecar(sidecar_path)
+
+    def retry_args(self, log: str) -> list[str]:
+        # Generic extraction reads the page's own player when its site extractor finds no formats.
+        return ["--use-extractors", "generic"] if _SITE_NO_FORMATS_RE.search(log) else []
 
 
 class GallerydlEngine(Engine):

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 import backend.app.domains.downloads.engines.gallerydl as gallerydl
 import backend.app.domains.downloads.engines.gallerydl as gallerydl_module
 import backend.app.domains.downloads.engines.templates as templates_module
@@ -942,6 +944,20 @@ def test_convert_template_to_gallerydl_falls_back_to_metadata_creator():
     # No creator segment in the URL -> emit a gallery-dl field with fallbacks.
     result = gallerydl.convert_template_to_gallerydl("{{username}}", "https://imgur.com/abc")
     assert result == '{username|author[uniqueId]|user[name]|user[username]|user[uniqueId]|account|author|"Unknown"}'
+
+
+@pytest.mark.parametrize(
+    ("engine_name", "log", "expected"),
+    [
+        ("ytdlp", "ERROR: [Example] abc123: No video formats found!", ["--use-extractors", "generic"]),
+        ("ytdlp", "ERROR: [generic] abc123: No video formats found!", []),
+        ("ytdlp", "ERROR: [generic+never_stelle] abc123: No video formats found!", []),
+        ("ytdlp", "ERROR: [Example] abc123: HTTP Error 404: Not Found", []),
+        ("gallerydl", "[ytdl][error] ERROR: [Example] abc123: No video formats found!", []),
+    ],
+)
+def test_only_ytdlp_retries_a_site_extractor_that_found_no_formats_generically(engine_name, log, expected):
+    assert engine_by_name(engine_name).retry_args(log) == expected
 
 
 def test_engine_progress_style_flags():

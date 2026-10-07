@@ -97,9 +97,13 @@ def _learn_engine_outcome(task_id: str, shape: str, engine: Engine, got_media: b
     learn_route(shape, engine_fact(engine), hit=got_media, window=ENGINE_WINDOW)
 
 
+def _no_media_detail(engine: Engine) -> str:
+    return f"{engine.name} finished, but no media file was found."
+
+
 def _failure_detail(engine: Engine, rc: int, task: dict[str, Any]) -> str:
     tail = "\n".join(list(task.get("last_log_lines") or [])[-12:]).strip()
-    detail = f"{engine.name} exited with code {rc}."
+    detail = f"{engine.name} exited with code {rc}." if rc else _no_media_detail(engine)
     return f"{detail}\n{tail}" if tail else detail
 
 
@@ -137,6 +141,21 @@ def _limit_skipped(task_id: str) -> bool:
     return bool(LIMIT_SKIP_RE.search(_task_log_tail(task_id)))
 
 
+def _clean_exit(rc: int, emitted_paths: list[str]) -> bool:
+    # A zero exit that named no file found nothing.
+    return rc == 0 and bool(emitted_paths)
+
+
+def _attempt_settled(task_id: str, rc: int, last_dest: str, emitted_paths: list[str]) -> bool:
+    # A limit skip is an answer, not a failure another identity could fix.
+    return (
+        _clean_exit(rc, emitted_paths)
+        or _has_output_media(last_dest, emitted_paths)
+        or cancel_pending(task_id)
+        or _limit_skipped(task_id)
+    )
+
+
 def _run_engine_attempts(
     engine: Engine,
     task_id: str,
@@ -155,7 +174,7 @@ def _run_engine_attempts(
     resume_walled: bool | None = None,
     limits: dict[str, Any] | None = None,
 ) -> tuple[int, str, list[str]]:
-    def _attempt(access: AccessIdentity) -> tuple[int, str, list[str]]:
+    def _attempt(access: AccessIdentity, extra_args: list[str] | None = None) -> tuple[int, str, list[str]]:
         cmd = engine.build_command(
             source_url,
             output_dir=output_dir,
@@ -172,7 +191,7 @@ def _run_engine_attempts(
         return _run_engine_to_task(
             engine,
             task_id,
-            cmd,
+            [*cmd, *(extra_args or [])],
             total_items=total_items,
             keep_audio=bool(quality and quality.get("mode") == "audio"),
             progress=progress,
@@ -195,13 +214,12 @@ def _run_engine_attempts(
                     task_id, f"[never-stelle] Blocked by an anti-bot wall; retrying as {access.impersonate}..."
                 )
             rc, last_dest, emitted_paths = _attempt(access)
-            # A limit skip is an answer, not a failure another identity could fix.
-            if (
-                rc == 0
-                or _has_output_media(last_dest, emitted_paths)
-                or cancel_pending(task_id)
-                or _limit_skipped(task_id)
+            if not _attempt_settled(task_id, rc, last_dest, emitted_paths) and (
+                retry_args := engine.retry_args(_task_log_tail(task_id))
             ):
+                append_task_log(task_id, f"[never-stelle] Retrying {engine.name} with {' '.join(retry_args)}...")
+                rc, last_dest, emitted_paths = _attempt(access, retry_args)
+            if _attempt_settled(task_id, rc, last_dest, emitted_paths):
                 return rc, last_dest, emitted_paths
             access.report(_task_log_tail(task_id))
             if access.walled and not access.impersonate and not walled and not impersonation_target():
@@ -362,7 +380,7 @@ def _run_task(
             output_paths = [Path(path) for path in _attempt_output_paths(last_dest, emitted_paths)]
             _learn_engine_outcome(task_id, shape, engine, bool(output_paths))
             skipped = not output_paths and _limit_skipped(task_id)
-            if rc == 0 or skipped:
+            if _clean_exit(rc, emitted_paths) or skipped:
                 break
 
             failure_details.append(_failure_detail(engine, rc, load_task(task_id)))
@@ -403,7 +421,7 @@ def _run_task(
                 update_task(
                     task_id,
                     status="failed",
-                    error=f"{used_engine.name} finished, but no media file was found.",
+                    error=_no_media_detail(used_engine),
                 )
                 return
             raise_if_cancelled(task_id)

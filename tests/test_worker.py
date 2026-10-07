@@ -162,6 +162,33 @@ def test_run_engine_attempts_spends_no_cookie_when_anonymous_succeeds(monkeypatc
     assert leased == []
 
 
+def test_run_engine_attempts_retries_a_site_extractor_miss_generically_before_any_cookie(monkeypatch):
+    import backend.app.domains.downloads.workers.execution as worker_module
+
+    attempts: list[bool] = []
+
+    def fake_run_engine(engine, task_id, cmd, **options):
+        assert "--cookies" not in cmd
+        generic = cmd[-2:] == ["--use-extractors", "generic"]
+        attempts.append(generic)
+        return (0, "/tmp/out.mp4", ["/tmp/out.mp4"]) if generic else (1, "", [])
+
+    def fail_rotation(source_key, **kwargs):
+        raise AssertionError("no cookie should be leased when the generic retry gets the media")
+
+    _stub_access(monkeypatch, fail_rotation)
+    monkeypatch.setattr(worker_module, "_run_engine_to_task", fake_run_engine)
+    monkeypatch.setattr(worker_module, "append_task_log", lambda task_id, message: None)
+    monkeypatch.setattr(
+        worker_module, "_task_log_tail", lambda task_id: "ERROR: [Example] abc123: No video formats found!"
+    )
+
+    rc, _, _ = _run_attempts(worker_module)
+
+    assert rc == 0
+    assert attempts == [False, True]
+
+
 def test_run_engine_attempts_retries_every_cookie_until_one_works(monkeypatch):
     import backend.app.domains.downloads.workers.execution as worker_module
 
@@ -829,9 +856,19 @@ def test_worker_does_not_run_fallback_after_media_and_unsupported_tail(
     assert saved[task_id]["resolved_full_path"] == str(clean_image)
 
 
-def test_worker_runs_ytdlp_fallback_after_empty_gallerydl_failure(
+@pytest.mark.parametrize(
+    ("gallerydl_line", "gallerydl_rc"),
+    [
+        ("ERROR: Unsupported URL: https://www.example.test/post/abc123", 1),
+        # A clean exit that named no file found nothing either.
+        ("[ytdl][info] No results for https://www.example.test/post/abc123", 0),
+    ],
+)
+def test_worker_runs_ytdlp_fallback_after_empty_gallerydl_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    gallerydl_line: str,
+    gallerydl_rc: int,
 ):
     video = tmp_path / "Creator - Clip [abc123].mp4"
     video.write_bytes(b"video")
@@ -871,7 +908,7 @@ def test_worker_runs_ytdlp_fallback_after_empty_gallerydl_failure(
     def fake_popen(cmd, *args, **kwargs):
         commands.append(cmd[0])
         if cmd[0] == "gallery-dl":
-            return FakeProcess(["ERROR: Unsupported URL: https://www.example.test/post/abc123\n"], 1)
+            return FakeProcess([f"{gallerydl_line}\n"], gallerydl_rc)
         return FakeProcess([f"[download] Destination: {video}\n"], 0)
 
     def fake_update_task(task_id: str, **updates):
