@@ -45,7 +45,6 @@ STAGING_DIR_NAME = ".nvs-staging"
 
 DATABASE_PATH = (DATA_DIR / "never-stelle.sqlite3").resolve()
 ICONS_DIR = (DATA_DIR / "icons").resolve()  # <source_key>.webp per source
-DEFAULT_LIBRARY_DIR = MEDIA_DIR
 
 
 def _first_existing(candidates: list[Path]) -> Path:
@@ -86,16 +85,12 @@ APP_CONFIG_PATH = _first_existing(
 
 for _dir in (DATA_DIR, MEDIA_DIR, SCRATCH_DIR):
     _dir.mkdir(parents=True, exist_ok=True)
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-DEFAULT_LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
 
 # Route all temp activity (yt-dlp, ffmpeg, tempfile) into scratch.
 for _tmp_var in ("TMPDIR", "TEMP", "TMP"):
     os.environ[_tmp_var] = str(SCRATCH_DIR)
 tempfile.tempdir = str(SCRATCH_DIR)
 
-SITE_KEYS: tuple[str, ...] = ()
 _MAX_WORKER_POOL_SIZE = 16
 
 

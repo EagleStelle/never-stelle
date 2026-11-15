@@ -56,6 +56,10 @@ async function jsonRequest<T>(path: string, init: RequestInit = {}, fallback = "
   return (await response.json()) as T;
 }
 
+function jsonBody(method: string, payload: unknown): RequestInit {
+  return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
+}
+
 export function getAuthSession(): Promise<AuthSessionResponse> {
   return jsonRequest<AuthSessionResponse>("/api/auth/session", {}, "Could not check login.");
 }
@@ -63,11 +67,7 @@ export function getAuthSession(): Promise<AuthSessionResponse> {
 export function login(payload: LoginPayload): Promise<AuthSessionResponse> {
   return jsonRequest<AuthSessionResponse>(
     "/api/auth/login",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    },
+    jsonBody("POST", payload),
     "Could not sign in.",
   );
 }
@@ -79,11 +79,7 @@ export function logout(): Promise<AuthSessionResponse> {
 export function updateCredentials(payload: CredentialsPayload): Promise<AuthSessionResponse> {
   return jsonRequest<AuthSessionResponse>(
     "/api/auth/credentials",
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    },
+    jsonBody("PATCH", payload),
     "Could not save login.",
   );
 }
@@ -91,11 +87,7 @@ export function updateCredentials(payload: CredentialsPayload): Promise<AuthSess
 export function updateApiKey(apiKey: string): Promise<{ api_key: string }> {
   return jsonRequest<{ api_key: string }>(
     "/api/auth/api-key",
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: apiKey }),
-    },
+    jsonBody("PUT", { api_key: apiKey }),
     "Could not save API key.",
   );
 }
@@ -107,11 +99,7 @@ export function getUiConfig(): Promise<UiConfigResponse> {
 export function saveSettings(settings: SavedSettings): Promise<UiConfigResponse> {
   return jsonRequest<UiConfigResponse>(
     "/api/settings",
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(settings),
-    },
+    jsonBody("PUT", settings),
     "Could not save settings.",
   );
 }
@@ -119,11 +107,7 @@ export function saveSettings(settings: SavedSettings): Promise<UiConfigResponse>
 export function testScrapeRules(url: string, sourceKey: string, rules: ScrapeRule[]): Promise<ScrapeTestResponse> {
   return jsonRequest<ScrapeTestResponse>(
     "/api/settings/scrape-test",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, source_key: sourceKey, rules }),
-    },
+    jsonBody("POST", { url, source_key: sourceKey, rules }),
     "Could not test scrape rules.",
   );
 }
@@ -131,11 +115,7 @@ export function testScrapeRules(url: string, sourceKey: string, rules: ScrapeRul
 export function probeFields(url: string, sourceKey = ""): Promise<ProbeFieldsResponse> {
   return jsonRequest<ProbeFieldsResponse>(
     "/api/settings/probe-fields",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, source_key: sourceKey }),
-    },
+    jsonBody("POST", { url, source_key: sourceKey }),
     "Could not read that link.",
   );
 }
@@ -147,11 +127,7 @@ export function probeTabs(
 ): Promise<ProbeTabsResponse> {
   return jsonRequest<ProbeTabsResponse>(
     "/api/settings/probe-tabs",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, source_key: sourceKey, source_tracker_tabs: sourceTrackerTabs }),
-    },
+    jsonBody("POST", { url, source_key: sourceKey, source_tracker_tabs: sourceTrackerTabs }),
     "Could not read that link.",
   );
 }
@@ -159,11 +135,7 @@ export function probeTabs(
 export function learnPlatformFormat(url: string): Promise<UiConfigResponse> {
   return jsonRequest<UiConfigResponse>(
     "/api/settings/learn-format",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    },
+    jsonBody("POST", { url }),
     "Could not learn that link.",
   );
 }
@@ -171,11 +143,7 @@ export function learnPlatformFormat(url: string): Promise<UiConfigResponse> {
 export function setFormatTemplates(sourceKey: string, templates: string[]): Promise<UiConfigResponse> {
   return jsonRequest<UiConfigResponse>(
     `/api/settings/formats/${encodeURIComponent(sourceKey)}`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ templates }),
-    },
+    jsonBody("PUT", { templates }),
     "Could not update formats.",
   );
 }
@@ -198,11 +166,7 @@ export function uploadPlatformCookies(platform: string, file: File): Promise<UiC
 export function reorderPlatformCookies(platform: string, cookieIds: string[]): Promise<UiConfigResponse> {
   return jsonRequest<UiConfigResponse>(
     `/api/settings/cookies/${encodeURIComponent(platform)}/order`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cookie_ids: cookieIds }),
-    },
+    jsonBody("PUT", { cookie_ids: cookieIds }),
     "Could not reorder cookies.",
   );
 }
@@ -241,11 +205,7 @@ export function getHistory(
 export function probeUrl(url: string): Promise<ProbeResponse> {
   return jsonRequest<ProbeResponse>(
     "/api/downloads/probe",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    },
+    jsonBody("POST", { url }),
     "Could not read that link.",
   );
 }
@@ -262,11 +222,7 @@ export function addTask(payload: {
 }): Promise<AddTaskResponse> {
   return jsonRequest<AddTaskResponse>(
     "/api/downloads",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    },
+    jsonBody("POST", payload),
     "Failed to add task.",
   );
 }
@@ -274,11 +230,7 @@ export function addTask(payload: {
 function batchRequest(path: string, payload: Record<string, unknown>, fallback: string): Promise<BatchResponse> {
   return jsonRequest<BatchResponse>(
     path,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    },
+    jsonBody("POST", payload),
     fallback,
   );
 }
@@ -297,11 +249,7 @@ export function setTaskSource(
 ): Promise<{ source_key: string; move_failed: boolean }> {
   return jsonRequest<{ source_key: string; move_failed: boolean }>(
     `/api/downloads/${encodeURIComponent(taskId)}/source`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source_key: sourceKey }),
-    },
+    jsonBody("PATCH", { source_key: sourceKey }),
     "Could not set source.",
   );
 }
@@ -333,11 +281,7 @@ export function getResolveScope(): Promise<ResolveScopeResponse> {
 export function resolveHistory(payload: { scope?: ResolveScope; task_ids?: string[]; tracker_ids?: string[] }): Promise<ResolveResponse> {
   return jsonRequest<ResolveResponse>(
     "/api/library/resolve",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    },
+    jsonBody("POST", payload),
     "Could not resolve history.",
   );
 }
@@ -357,11 +301,7 @@ export function renameHistory(payload: {
 }): Promise<ResolveResponse> {
   return jsonRequest<ResolveResponse>(
     "/api/library/rename",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    },
+    jsonBody("POST", payload),
     "Could not resolve files.",
   );
 }
@@ -373,11 +313,7 @@ export function getTrackers(signal?: AbortSignal): Promise<TrackersResponse> {
 export function createTracker(payload: Required<TrackerPayload>): Promise<Tracker> {
   return jsonRequest<Tracker>(
     "/api/trackers",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    },
+    jsonBody("POST", payload),
     "Could not add tracker.",
   );
 }
@@ -385,11 +321,7 @@ export function createTracker(payload: Required<TrackerPayload>): Promise<Tracke
 export function updateTracker(trackerId: string, payload: TrackerPayload): Promise<Tracker> {
   return jsonRequest<Tracker>(
     `/api/trackers/${encodeURIComponent(trackerId)}`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    },
+    jsonBody("PATCH", payload),
     "Could not update tracker.",
   );
 }

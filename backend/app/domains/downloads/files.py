@@ -64,6 +64,18 @@ def chapter_folder(path: Path) -> Path:
     return path.parent / path.stem
 
 
+_CHAPTER_NAME_RE = re.compile(r"\d{2,} - ")
+
+
+def holds_chapters(folder: str | Path) -> bool:
+    """Whether a folder named after a media file holds only its split chapters."""
+    try:
+        with os.scandir(folder) as entries:
+            return all(_CHAPTER_NAME_RE.match(entry.name) for entry in entries)
+    except OSError:
+        return False
+
+
 def find_newest_media_file(root: Path, started_at: float) -> Path | None:
     if not root.exists() or not root.is_dir():
         return None
@@ -150,7 +162,7 @@ def media_companions(path: Path, entries: list[os.DirEntry[str]] | None = None) 
             continue
         # Another playable file on the stem is media of its own; an image on it is the thumbnail.
         named_after = entry.name.startswith(prefix) and Path(entry.name).suffix.lower() not in playable
-        if named_after or (entry.name == path.stem and entry.is_dir()):
+        if named_after or (entry.name == path.stem and entry.is_dir() and holds_chapters(entry.path)):
             companions.append(Path(entry.path))
     return companions
 

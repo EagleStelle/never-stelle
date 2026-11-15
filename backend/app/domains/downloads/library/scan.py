@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 import threading
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,6 +20,7 @@ from backend.app.core.time import utc_now
 from backend.app.domains.downloads.constants import CREATOR_FIELDS, MEDIA_EXTENSIONS, TEMPLATE_RE
 from backend.app.domains.downloads.files import (
     chapter_folder,
+    holds_chapters,
     is_disk_record,
     payload_path_string,
     recover_task_path,
@@ -264,7 +265,9 @@ def _iter_media_files(roots: Iterable[Path]) -> Iterable[tuple[Path, Path, os.st
             for entry in listing:
                 try:
                     if entry.is_dir(follow_symlinks=False):
-                        if entry.name != STAGING_DIR_NAME and Path(entry.path) not in chapter_folders:
+                        if entry.name != STAGING_DIR_NAME and not (
+                            Path(entry.path) in chapter_folders and holds_chapters(entry.path)
+                        ):
                             pending.append(entry.path)
                         continue
                 except OSError:
@@ -330,6 +333,43 @@ def _creator_for_file(
     return _match_template(templates.filename, path.stem).get("creator", "")
 
 
+def _site_folder(path: str | Path, roots: Sequence[Path]) -> str:
+    """Key of the folder directly under a scan root that holds ``path``; "" outside one or loose in it."""
+    key = _path_key(path)
+    for root in roots:
+        prefix = f"{_path_key(root)}{os.sep}"
+        if key.startswith(prefix):
+            head, nested, _ = key[len(prefix) :].partition(os.sep)
+            return f"{prefix}{head}" if nested else ""
+    return ""
+
+
+def _is_offline(folder: str) -> bool:
+    """Whether a site folder is there but empty or unreadable, as when its disk is not mounted."""
+    try:
+        with os.scandir(folder) as entries:
+            return next(entries, None) is None
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+
+
+def _media_key(payload: dict[str, Any], roots: Sequence[Path]) -> tuple[str, str]:
+    """A row's site folder and media id; two sites may use the same id."""
+    return _site_folder(payload_path_string(payload), roots), _payload_media_id(payload)
+
+
+def _disk_row_id(records: dict[str, dict[str, Any]], media_key: tuple[str, str], roots: Sequence[Path]) -> str:
+    """Row id of a file found on disk; a second site holding the same media id gets its folder in the id."""
+    site, media_id = media_key
+    task_id = f"disk:{media_id}"
+    held = records.get(task_id)
+    if held is None or _media_key(held, roots)[0] == site:
+        return task_id
+    return f"disk:{os.path.basename(site)}:{media_id}"
+
+
 def _completed_records() -> dict[str, dict[str, Any]]:
     records: dict[str, dict[str, Any]] = {}
     for task_id, task in (load_task_store().get("tasks") or {}).items():
@@ -345,10 +385,12 @@ def _completed_records() -> dict[str, dict[str, Any]]:
 def _drop_missing_records(
     records: dict[str, dict[str, Any]],
     seen_paths: set[str],
+    roots: Sequence[Path] = (),
     pacer: CpuPacer | None = None,
 ) -> tuple[int, int]:
     checked = 0
     gone: list[str] = []
+    offline: dict[str, bool] = {}
     try:
         for task_id, payload in list(records.items()):
             if pacer is not None:
@@ -374,6 +416,9 @@ def _drop_missing_records(
                 continue
             checked += 1
             if _path_key(path) in seen_paths or _path_exists(path):
+                continue
+            site = _site_folder(path, roots)
+            if site and offline.setdefault(site, _is_offline(site)):
                 continue
             remove_task_record(task_id)
             records.pop(task_id, None)
@@ -408,28 +453,32 @@ def _settled_disk_rows(records: dict[str, dict[str, Any]]) -> dict[str, tuple[tu
     return index
 
 
-def _owned_media(records: dict[str, dict[str, Any]], *, disk: bool) -> tuple[set[str], set[str]]:
-    """Path keys and media ids of the disk rows, or of the real downloads a disk row never shadows."""
+def _owned_media(
+    records: dict[str, dict[str, Any]], roots: Sequence[Path] = (), *, disk: bool
+) -> tuple[set[str], set[tuple[str, str]]]:
+    """Path keys and media keys of the disk rows, or of the real downloads a disk row never shadows."""
     paths: set[str] = set()
-    media_ids: set[str] = set()
+    media: set[tuple[str, str]] = set()
     for task_id, payload in records.items():
         if is_disk_record(task_id, payload) != disk:
             continue
         path = payload_path_string(payload)
         if path:
             paths.add(_path_key(path))
-        media_id = _payload_media_id(payload)
-        if media_id:
-            media_ids.add(media_id)
-    return paths, media_ids
+        key = _media_key(payload, roots)
+        if key[1]:
+            media.add(key)
+    return paths, media
 
 
-def _prune_disk_shadows(records: dict[str, dict[str, Any]], real_media_ids: set[str]) -> None:
+def _prune_disk_shadows(
+    records: dict[str, dict[str, Any]], real_media: set[tuple[str, str]], roots: Sequence[Path] = ()
+) -> None:
     # Drop disk entries that merely duplicate a real download of the same media.
     shadows = [
         task_id
         for task_id, payload in records.items()
-        if is_disk_record(task_id, payload) and _payload_media_id(payload) in real_media_ids
+        if is_disk_record(task_id, payload) and _media_key(payload, roots) in real_media
     ]
     remove_history_records(shadows)
     for task_id in shadows:
@@ -693,15 +742,21 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer, cou
     records = _completed_records()
     walked_media: list[tuple[Path, Path, os.stat_result | None, str]] = []
     seen_paths: set[str] = set()
-    for root, path, stat_result, path_key in _iter_media_files(_iter_scan_roots(roots)):
+    scan_roots = _iter_scan_roots(roots)
+    for root, path, stat_result, path_key in _iter_media_files(scan_roots):
         pacer.tick()
         walked_media.append((root, path, stat_result, path_key))
         seen_paths.add(path_key)
 
-    counts["checked"], counts["missing"] = _drop_missing_records(records, seen_paths, pacer)
-    real_paths, real_media_ids = _owned_media(records, disk=False)
-    _prune_disk_shadows(records, real_media_ids)
-    disk_paths, disk_media_ids = _owned_media(records, disk=True)
+    counts["checked"], counts["missing"] = _drop_missing_records(records, seen_paths, scan_roots, pacer)
+    real_paths, real_media = _owned_media(records, scan_roots, disk=False)
+    _prune_disk_shadows(records, real_media, scan_roots)
+    disk_paths, disk_media = _owned_media(records, scan_roots, disk=True)
+    disk_ids = {
+        _path_key(row_path): task_id
+        for task_id, payload in records.items()
+        if is_disk_record(task_id, payload) and (row_path := payload_path_string(payload))
+    }
     location_rows = _scan_location_rows()
     location_index = _source_location_index(location_rows)
     source_folders = _source_folder_keys(location_rows)
@@ -712,7 +767,7 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer, cou
     learned = load_learned_formats()
     settled = _settled_disk_rows(records)
 
-    resolved_this_run: set[str] = set()
+    resolved_this_run: set[tuple[str, str]] = set()
     pending_rows: list[tuple[str, dict[str, Any]]] = []
     try:
         for root, path, stat_result, path_key in walked_media:
@@ -720,19 +775,22 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer, cou
             if path_key in real_paths:
                 continue
             signature = _file_signature(stat_result)
+            site = _site_folder(path, scan_roots)
             cached = settled.get(path_key)
             if cached and cached[0] == signature:
                 counts["unchanged"] += 1
-                resolved_this_run.add(cached[1])
+                resolved_this_run.add((site, cached[1]))
                 continue
             media_id, title = _parse_media_fields(path, templates.base_filename)
-            if not media_id or media_id in resolved_this_run:
+            media_key = (site, media_id)
+            if not media_id or media_key in resolved_this_run:
                 continue
-            if media_id in real_media_ids:
+            if media_key in real_media:
                 continue  # a real download already owns this media; never shadow it with a disk entry
-            resolved_this_run.add(media_id)
+            resolved_this_run.add(media_key)
 
-            task_id = f"disk:{media_id}"
+            # A row keeps its id while its file stays put.
+            task_id = disk_ids.get(path_key) or _disk_row_id(records, media_key, scan_roots)
             source_hint = _source_from_named_folder(root, path, source_profile_keys)
             source_key, source_pending, source_candidates, folder_format = infer_disk_source(
                 path, media_id, location_index, learned, source_hint
@@ -814,7 +872,7 @@ def _scan_media_library(roots: Iterable[str | Path] | None, pacer: CpuPacer, cou
             if len(pending_rows) >= _HISTORY_WRITE_BATCH:
                 save_history_entry_rows(pending_rows)
                 pending_rows = []
-            if path_key not in disk_paths and media_id not in disk_media_ids:
+            if path_key not in disk_paths and media_key not in disk_media:
                 counts["added"] += 1
     finally:
         # A stopped scan still saves the rows it derived.

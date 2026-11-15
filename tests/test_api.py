@@ -9,6 +9,7 @@ import backend.app.domains.downloads.library.scan as scan_module
 from backend.app.api.routers import sources as sources_router
 from backend.app.api.routers import trackers as trackers_router
 from backend.app.db import repositories
+from backend.app.domains.auth import read_session_token
 from backend.app.domains.downloads import cache as cache_module
 from backend.app.domains.downloads import operations as operations_module
 from backend.app.integrations.swaratelle import client as swaratelle
@@ -903,3 +904,19 @@ def test_download_files_puts_every_file_of_a_multi_file_post_in_its_folder(tmp_p
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
         assert archive.namelist() == ["post_1/post_1.jpg", "post_1/post_2.jpg", "post_1/post_10.jpg", "clip.mp4"]
         assert archive.read("post_1/post_10.jpg") == b"10"
+
+
+def test_settings_put_keeps_the_sections_it_leaves_out(tmp_path, monkeypatch):
+    login(tmp_path, monkeypatch)
+    templates = {"folder_template": "{{username}}", "filename_template": "{{title}} [{{id}}]"}
+    client.put("/api/settings", json={"template_settings": templates})
+
+    saved = client.put("/api/settings", json={}).json()
+
+    assert saved["template_settings"]["filename_template"] == "{{title}} [{{id}}]"
+
+
+def test_a_session_cookie_with_non_ascii_text_is_no_login(tmp_path, monkeypatch):
+    use_temp_auth_db(tmp_path, monkeypatch)
+
+    assert read_session_token("a.\u00e9") is None

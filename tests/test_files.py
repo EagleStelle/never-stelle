@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import backend.app.core.config as config_module
 import backend.app.domains.downloads.files as files_module
 from backend.app.domains.downloads.files import extract_downloaded_path, is_media_file
 
@@ -54,3 +55,17 @@ def test_find_numbered_media_siblings_skips_plain_filename_directory_scan(monkey
     monkeypatch.setattr(Path, "iterdir", fail_iterdir)
 
     assert files_module.find_numbered_media_siblings(Path("/media/Creator - Cap [id].jpg")) == []
+
+
+def test_remove_media_keeps_a_namesake_folder_that_is_not_its_chapters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(config_module, "MEDIA_DIR", tmp_path)
+    monkeypatch.setattr(files_module, "MEDIA_DIR", tmp_path)
+    video = tmp_path / "site" / "Alice.mp4"
+    other = tmp_path / "site" / "Alice" / "Alice - Clip [1].mp4"
+    other.parent.mkdir(parents=True)
+    for path in (video, other):
+        path.write_bytes(b"x")
+
+    files_module.remove_media([str(video)])
+
+    assert not video.exists() and other.exists()

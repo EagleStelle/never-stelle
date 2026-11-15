@@ -338,7 +338,8 @@ def _swap_on_disk(old: Path, new: Path) -> None:
     if new.exists():
         raise FileExistsError(str(new))
     new.parent.mkdir(parents=True, exist_ok=True)
-    os.rename(old, new)
+    # A rename cannot cross mounts; move copies then.
+    shutil.move(old, new)
 
 
 def _carry_companions(old: Path, new: Path, companions: list[Path]) -> None:

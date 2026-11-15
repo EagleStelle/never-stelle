@@ -26,15 +26,11 @@ def _slideshow_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[st
 
     monkeypatch.setattr(
         operations_module,
-        "load_task_store",
-        lambda: {
-            "tasks": {
-                task_id: {
-                    "status": "completed",
-                    "resolved_full_path": str(first),
-                    "resolved_filename": "Creator - Cap [abc123].jpg",
-                }
-            }
+        "load_task",
+        lambda _id: {
+            "status": "completed",
+            "resolved_full_path": str(first),
+            "resolved_filename": "Creator - Cap [abc123].jpg",
         },
     )
     monkeypatch.setattr(operations_module, "find_history_by_id", lambda task_id: None)
@@ -210,7 +206,7 @@ def test_resolve_task_file_prefers_saved_template_for_gallerydl_download_name(
         "filename_template": "{{username}} - {{title}} [{{id}}]",
     }
 
-    monkeypatch.setattr(operations_module, "load_task_store", lambda: {"tasks": {"gallerydl:test": task}})
+    monkeypatch.setattr(operations_module, "load_task", lambda _id: task)
     monkeypatch.setattr(operations_module, "find_history_by_id", lambda task_id: None)
     monkeypatch.setattr(
         operations_module,
@@ -258,7 +254,7 @@ def test_resolve_task_file_for_history_entry_validates_on_download(tmp_path: Pat
     media_file = tmp_path / "clip [abc123].jpg"
     media_file.write_bytes(b"image")
 
-    monkeypatch.setattr(operations_module, "load_task_store", lambda: {"tasks": {}})
+    monkeypatch.setattr(operations_module, "load_task", lambda _id: {})
     monkeypatch.setattr(
         operations_module,
         "find_history_by_id",

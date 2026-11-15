@@ -27,7 +27,7 @@ from backend.app.domains.settings import (
 )
 from backend.app.domains.settings.learned_fields import save_missing_learned_fields
 from backend.app.integrations.swaratelle import client as swaratelle
-from backend.app.runtime.processes import has_active_task, request_cancel
+from backend.app.runtime.processes import request_cancel
 
 from .engines.engine import default_engine
 from .engines.probe import probe_link_fields
@@ -45,7 +45,7 @@ from .slideshow import build_slideshow_archive
 from .store import (
     load_active_task_store,
     load_history_entries,
-    load_task_store,
+    load_task,
     load_tasks,
     remove_history_records,
     remove_task_record,
@@ -187,9 +187,8 @@ def _stop_tasks(task_ids: list[str]) -> None:
     for task_id in task_ids:
         if task_id in removed:
             continue
-        # Running, or claimed by the scheduler since it was read.
-        request_cancel(task_id)
-        if not has_active_task(task_id):
+        # Running, or claimed by the scheduler and stopped as it starts.
+        if not request_cancel(task_id, before_start=True):
             remove_task_record(task_id)
 
 
@@ -264,7 +263,7 @@ def get_task(task_id: str) -> dict[str, Any]:
                 return task
         raise FileNotFoundError("Task was not found.")
 
-    task = (load_task_store().get("tasks") or {}).get(task_id)
+    task = load_task(task_id)
     if task:
         return task_to_api(task_id, task)
     history_entry = find_history_by_id(task_id)
@@ -288,7 +287,7 @@ def set_task_source(task_id: str, source_key: str) -> dict[str, Any]:
     key = normalize_source_key(source_key)
     if not key:
         raise ValueError("Choose or type a source.")
-    task = (load_task_store().get("tasks") or {}).get(task_id)
+    task = load_task(task_id)
     if task:
         update_task(task_id, source_key=key, source_pending=False)
         media_id, _ = parse_filename_media_id(str(task.get("resolved_filename") or ""))
@@ -385,7 +384,7 @@ def _download_name(task: dict[str, Any], fallback: str) -> str:
 
 
 def resolve_task_file(task_id: str) -> tuple[Path, str]:
-    task = (load_task_store().get("tasks") or {}).get(task_id)
+    task = load_task(task_id)
     history_entry = find_history_by_id(task_id)
     if not task and history_entry:
         task = _history_task(history_entry)

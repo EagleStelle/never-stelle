@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Sequence
 from typing import Any
 
 from backend.app.core.coercion import safe_int
@@ -145,9 +145,11 @@ def delete_tracker_rows(tracker_ids: list[str]) -> None:
                 connection.execute(f"DELETE FROM {table} WHERE {column} IN ({marks(chunk)})", chunk)
 
 
-def claim_due_tracker_row(now: str, first: Collection[str] = ()) -> dict[str, Any]:
-    """Atomically mark the most overdue enabled tracker as checking and return it; due ones in ``first`` lead."""
-    lead = f"id IN ({marks(list(first))}) DESC, " if first else ""
+def claim_due_tracker_row(now: str, first: Sequence[str] = ()) -> dict[str, Any]:
+    """Atomically mark the most overdue enabled tracker as checking and return it; due ones in ``first``
+    lead, in its order."""
+    ranks = " ".join(f"WHEN ? THEN {rank}" for rank in range(len(first)))
+    lead = f"CASE id {ranks} ELSE {len(first)} END, " if first else ""
     with transaction() as connection:
         row = connection.execute(
             "SELECT id FROM trackers WHERE enabled = 1 AND checking_at = '' AND next_check_at <= ?"

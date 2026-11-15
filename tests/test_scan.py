@@ -1138,7 +1138,7 @@ def test_a_scan_learns_no_format_from_past_downloads(tmp_path: Path, monkeypatch
         "gallerydl:1": {"source_url": "https://example.test/@creator/video/1", "media_id": "1"},
     }
     monkeypatch.setattr(scan_module, "load_history", lambda: {"entries": dict(history)})
-    monkeypatch.setattr(scan_module, "_drop_missing_records", lambda records, seen_paths, pacer=None: (0, 0))
+    monkeypatch.setattr(scan_module, "_drop_missing_records", lambda *args: (0, 0))
 
     scan_module.scan_media_library([media_root])
 
@@ -1189,3 +1189,30 @@ def test_a_scan_reads_the_creator_above_a_subfolder():
     # Without a subfolder template the extra segment is not a subfolder, so it is not trimmed.
     flat = scan_module._CompiledTemplates(compiled.folder, None, compiled.filename)
     assert scan_module._creator_for_file(root, path, set(), flat) == ""
+
+
+def test_a_scan_keeps_the_rows_of_a_site_folder_left_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # A disk that is not mounted leaves its site folder empty.
+    media_root, rows, _resolved, _written, _learned = _incremental_scan_env(tmp_path, monkeypatch)
+    (media_root / "example").mkdir()
+    rows["gallerydl:1"] = {
+        "source_url": "https://example.test/v/vid1",
+        "resolved_full_path": str(media_root / "example" / "Clip [vid1].mp4"),
+    }
+
+    assert scan_module.scan_media_library([media_root])["missing"] == 0
+    assert "gallerydl:1" in rows
+
+
+def test_two_sites_holding_the_same_media_id_each_keep_a_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    media_root, rows, _resolved, _written, _learned = _incremental_scan_env(tmp_path, monkeypatch)
+    for site in ("alpha", "beta"):
+        (media_root / site).mkdir()
+        (media_root / site / "Clip [vid1].mp4").write_bytes(b"video")
+
+    assert scan_module.scan_media_library([media_root])["added"] == 2
+    first = set(rows)
+    assert len(first) == 2 and "disk:vid1" in first
+
+    scan_module.scan_media_library([media_root])
+    assert set(rows) == first

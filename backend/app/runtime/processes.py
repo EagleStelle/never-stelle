@@ -74,10 +74,16 @@ def add_cancel_listener(listener: Callable[[], None]) -> None:
     _cancel_listeners.append(listener)
 
 
-def request_cancel(task_id: str) -> None:
+def request_cancel(task_id: str, *, before_start: bool = False) -> bool:
+    """Cancel a running task and return whether it was running.
+
+    With ``before_start``, a task not running yet is cancelled the moment it starts.
+    """
     with _cancel_lock:
         if task_id not in _active_tasks:
-            return
+            if before_start:
+                _cancel_requested.add(task_id)
+            return False
         _cancel_requested.add(task_id)
         processes = list(_active_processes.get(task_id, ()))
         callback = _active_cancel_callbacks.get(task_id)
@@ -93,6 +99,7 @@ def request_cancel(task_id: str) -> None:
             listener()
         except Exception:
             pass
+    return True
 
 
 def has_active_task(task_id: str) -> bool:

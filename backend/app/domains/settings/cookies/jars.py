@@ -86,10 +86,6 @@ def has_cookies_for_source(source_key: str) -> bool:
     return bool(source_key and list_source_cookies(source_key))
 
 
-def has_cookies_for_url(source_url: str) -> bool:
-    return has_cookies_for_source(detect_cookie_source(source_url))
-
-
 def materialize_cookie(cookie_id: str) -> str:
     """Write one stored jar to a runtime cookies.txt yt-dlp/gallery-dl can read."""
     cookie_id = str(cookie_id or "").strip()

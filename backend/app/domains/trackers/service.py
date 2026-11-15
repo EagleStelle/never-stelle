@@ -72,8 +72,8 @@ _JITTER = 0.05
 _BACKLOG_ATTEMPTS = 3
 UNRESOLVED_ERROR = "Could not build post links for this source."
 SINGLE_ITEM_ERROR = "This link points to a single item; add a creator, channel or playlist link."
-# Trackers whose next check was asked for by hand: it queues their missing downloads again.
-_asked: set[str] = set()
+# Trackers whose next check was asked for by hand, in the order asked: it queues their missing downloads again.
+_asked: dict[str, None] = {}
 # How long a stop that waits gives the checks to end.
 _STOP_WAIT_SECONDS = 30.0
 _STOP_POLL_SECONDS = 0.1
@@ -264,7 +264,7 @@ def set_trackers_enabled(tracker_ids: list[str], enabled: bool) -> dict[str, Any
     for tracker in trackers.values():
         if not enabled:
             # A check asked for before the pause does not jump the line after a resume.
-            _asked.discard(tracker["id"])
+            _asked.pop(tracker["id"], None)
         if tracker["enabled"] == enabled:
             continue
         changes[tracker["id"]] = {"enabled": enabled}
@@ -279,7 +279,7 @@ def check_trackers(tracker_ids: list[str]) -> dict[str, Any]:
     trackers = _trackers(tracker_ids)
     enabled = [tracker for tracker in trackers.values() if tracker["enabled"]]
     now = utc_now()
-    _asked.update(tracker["id"] for tracker in enabled)
+    _asked.update(dict.fromkeys(tracker["id"] for tracker in enabled))
     update_tracker_rows({tracker["id"]: {"next_check_at": now} for tracker in enabled if not _queued(tracker)})
     errors = ["Resume the tracker to check it."] if len(enabled) < len(trackers) else []
     return {"count": len(enabled), "errors": errors}
@@ -298,7 +298,8 @@ def stop_checks(tracker_ids: list[str], *, wait: bool = False) -> dict[str, Any]
     """Stop the trackers' checks at once, running or waiting for a slot; what they recorded stays, and the next
     check comes at the interval. With ``wait``, returns once the checks ended, so they queue nothing after."""
     trackers = _trackers(tracker_ids)
-    _asked.difference_update(trackers)
+    for tracker_id in trackers:
+        _asked.pop(tracker_id, None)
     update_tracker_rows(
         {
             tracker["id"]: {"next_check_at": _next_check_at(_interval(tracker))}
@@ -452,7 +453,7 @@ def _run_check(tracker: dict[str, Any]) -> None:
     tracker_id = tracker["id"]
     source_key = _source_key(tracker)
     asked = tracker_id in _asked
-    _asked.discard(tracker_id)
+    _asked.pop(tracker_id, None)
     settings = _settings(tracker)
     pass_start = tracker["last_success_at"]
     first = not pass_start

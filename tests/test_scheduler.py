@@ -173,8 +173,7 @@ def test_delete_downloads_leaves_a_running_task_to_its_worker(monkeypatch):
     task_id = "gallerydl:running"
     repositories.merge_task_payload(task_id, {"status": "running"})
     cancelled: list[str] = []
-    monkeypatch.setattr(operations_module, "request_cancel", cancelled.append)
-    monkeypatch.setattr(operations_module, "has_active_task", lambda tid: True)
+    monkeypatch.setattr(operations_module, "request_cancel", lambda tid, **options: not cancelled.append(tid))
 
     result = operations_module.delete_downloads([task_id])
 
@@ -187,8 +186,7 @@ def test_clear_pending_tasks_removes_queued_failed_and_orphaned_running_tasks(mo
     for task_id, status in (("t-running", "running"), ("t-pending", "pending"), ("t-failed", "failed")):
         repositories.merge_task_payload(task_id, {"status": status})
     cancelled: list[str] = []
-    monkeypatch.setattr(operations_module, "request_cancel", cancelled.append)
-    monkeypatch.setattr(operations_module, "has_active_task", lambda tid: False)
+    monkeypatch.setattr(operations_module, "request_cancel", lambda tid, **options: bool(cancelled.append(tid)))
 
     result = operations_module.clear_pending_tasks()
 

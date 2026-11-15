@@ -123,6 +123,12 @@ def persist_settings(
     raw_tracker_tabs: Any = None,
 ) -> dict[str, Any]:
     existing = load_saved_settings_file()
+    if raw_source_locations is None:
+        raw_source_locations = existing.get("source_locations")
+    if raw_template_settings is None:
+        raw_template_settings = existing.get("template_settings")
+    if raw_source_templates is None:
+        raw_source_templates = existing.get("source_templates")
     source_profiles = get_effective_source_profiles(
         cfg,
         {

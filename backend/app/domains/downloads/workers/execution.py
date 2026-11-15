@@ -19,6 +19,7 @@ from backend.app.domains.access.rotation import (
 from backend.app.domains.downloads.cache import drop_file_cache
 from backend.app.domains.downloads.constants import LIMIT_SKIP_RE
 from backend.app.domains.downloads.engines.engine import ENGINE_WINDOW, Engine, engine_fact, engine_order
+from backend.app.domains.downloads.files import remove_media
 from backend.app.domains.downloads.library.history import save_history_entry
 from backend.app.domains.downloads.links.learned_routes import route_shape
 from backend.app.domains.downloads.links.urls import canonicalize_source_url, detect_source_key
@@ -34,6 +35,7 @@ from backend.app.domains.downloads.postprocessing.payloads import (
 from backend.app.domains.downloads.store import (
     append_task_log,
     learn_route,
+    load_history_entry_for_path,
     load_task,
     record_task_progress,
     remove_task_record,
@@ -307,6 +309,7 @@ def _run_task(
     used_engine = candidates[0]
     failure_details: list[str] = list(resume.failures) if resume else []
     output_paths: list[Path] = []
+    produced: list[Path] = []
     skipped = False
     try:
         raise_if_cancelled(task_id)
@@ -483,6 +486,7 @@ def _run_task(
                     creator_fallback=lambda item_url: used_engine.read_creator(creator_sidecar, item_url),
                     cache_dropper=drop_file_cache,
                 )
+                produced += finalized.keep_paths
                 if has_post_processing:
                     raise_if_cancelled(task_id)
                     extractor_payload = _with_ytdlp_media_fields(
@@ -499,6 +503,7 @@ def _run_task(
                     quality,
                     path_updates=remuxed_paths,
                 )
+                produced += remuxed_paths.values()
                 if remuxed_final_path := remuxed_paths.get(finalized.final_path):
                     finalized = replace(
                         finalized,
@@ -586,6 +591,9 @@ def _run_task(
             or _failure_detail(used_engine, rc, current_task),
         )
     except TaskCancelled:
+        # A deleted download takes the files it wrote, never one a history row owns.
+        written = dict.fromkeys(str(path) for path in (*emitted_paths, *output_paths, *produced))
+        remove_media([path for path in written if load_history_entry_for_path(path)[0] is None])
         raise
     except Exception as exc:
         if cancel_pending(task_id):

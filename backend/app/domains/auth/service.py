@@ -42,22 +42,16 @@ def _b64decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(f"{value}{padding}".encode("ascii"))
 
 
-def _first_env(*names: str) -> str:
-    for name in names:
-        value = os.environ.get(name)
-        if value is not None and value.strip():
-            return value.strip()
-    return ""
+def _env(name: str) -> str:
+    return (os.environ.get(name) or "").strip()
 
 
 def _seed_username() -> str:
-    return _normalize_username(
-        _first_env("NEVER_STELLE_USERNAME", "NEVER_STELLE_AUTH_USERNAME") or DEFAULT_USERNAME
-    )
+    return _normalize_username(_env("NEVER_STELLE_USERNAME") or DEFAULT_USERNAME)
 
 
 def _seed_password() -> str:
-    return _first_env("NEVER_STELLE_PASSWORD", "NEVER_STELLE_AUTH_PASSWORD") or DEFAULT_PASSWORD
+    return _env("NEVER_STELLE_PASSWORD") or DEFAULT_PASSWORD
 
 
 def _normalize_username(value: Any) -> str:
@@ -152,7 +146,7 @@ def ensure_auth_settings() -> dict[str, Any]:
 
 
 def _env_api_key() -> str:
-    return _first_env("NEVER_STELLE_API_TOKEN")
+    return _env("NEVER_STELLE_API_TOKEN")
 
 
 # The environment overrides the stored key, as in Radarr and Sonarr.
@@ -225,7 +219,8 @@ def read_session_token(token: str) -> dict[str, Any] | None:
 
     auth = ensure_auth_settings()
     expected_signature = _session_signature(body, str(auth.get("session_secret") or ""))
-    if not hmac.compare_digest(signature, expected_signature):
+    # Bytes, since a cookie may carry non-ASCII text.
+    if not hmac.compare_digest(signature.encode(), expected_signature.encode()):
         return None
 
     try:
@@ -249,10 +244,6 @@ def read_session_token(token: str) -> dict[str, Any] | None:
 
 def current_auth_session(request: Request) -> dict[str, Any] | None:
     return read_session_token(request.cookies.get(AUTH_COOKIE_NAME, ""))
-
-
-def is_authenticated_request(request: Request) -> bool:
-    return current_auth_session(request) is not None
 
 
 def _cookie_secure() -> bool:

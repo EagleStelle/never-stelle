@@ -65,7 +65,7 @@ def temp_db(tmp_path, monkeypatch):
     for module in (pages_module, walk_module):
         monkeypatch.setattr(module, "BrowserSession", _Browser().open)
     monkeypatch.setattr(service_module, "resolve_redirect_url", lambda url: url)
-    monkeypatch.setattr(service_module, "_asked", set())
+    monkeypatch.setattr(service_module, "_asked", {})
     yield tmp_path
     database_module.close_database()
 
@@ -2548,7 +2548,7 @@ def test_stopping_checks_handles_running_and_queued_ones_together(temp_db, monke
     assert service_module.stop_checks(["t1", "t2", "t3"]) == {"count": 3, "errors": []}
 
     rows = {tracker["id"]: tracker for tracker in repositories.load_tracker_rows()}
-    assert service_module._asked == set()
+    assert service_module._asked == {}
     assert sorted(cancelled) == ["tracker-check:t1", "tracker-check:t2", "tracker-check:t3"]
     for tracker_id in ("t1", "t2"):
         assert datetime.fromisoformat(rows[tracker_id]["next_check_at"]) >= before + timedelta(seconds=3600 * 0.9)
@@ -2582,7 +2582,7 @@ def test_deleting_items_removes_files_companions_and_emptied_folders(temp_db, mo
     chapters.mkdir(parents=True)
     clip = folder / "clip [1].mp4"
     outside = temp_db / "outside [2].mp4"
-    for path in (clip, folder / "clip [1].en.vtt", folder / "clip [1].jpg", chapters / "001.mp4", outside):
+    for path in (clip, folder / "clip [1].en.vtt", folder / "clip [1].jpg", chapters / "01 - Intro.mp4", outside):
         path.write_bytes(b"x")
     _history("gallerydl:abc", str(clip))
     _history("gallerydl:out", str(outside))
@@ -2725,3 +2725,13 @@ def test_entry_actions_need_a_tracker(temp_db):
         service_module.list_entries("t1")
     with pytest.raises(FileNotFoundError):
         service_module.delete_entries("t1", [_POSTS[0]])
+
+
+def test_checks_asked_for_run_in_the_order_asked(temp_db):
+    for tracker_id in ("t1", "t2", "t3"):
+        _insert_tracker(id=tracker_id, source_url=f"https://example.test/u/{tracker_id}")
+    now = utc_now_datetime().isoformat()
+
+    claimed = [repositories.claim_due_tracker_row(now, first=["t3", "t1"])["id"] for _ in range(3)]
+
+    assert claimed == ["t3", "t1", "t2"]

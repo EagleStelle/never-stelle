@@ -117,8 +117,7 @@ def test_delete_running_task_signals_python_finalization_without_a_subprocess(mo
     repositories.merge_task_payload(task_id, {"status": "running"})
     requested: list[str] = []
     removed: list[str] = []
-    monkeypatch.setattr(operations_module, "has_active_task", lambda value: value == task_id)
-    monkeypatch.setattr(operations_module, "request_cancel", requested.append)
+    monkeypatch.setattr(operations_module, "request_cancel", lambda value, **options: not requested.append(value))
     monkeypatch.setattr(operations_module, "remove_task_record", removed.append)
 
     operations_module.delete_downloads([task_id])
@@ -132,8 +131,7 @@ def test_pending_delete_handles_a_simultaneous_scheduler_claim(monkeypatch):
     repositories.merge_task_payload(task_id, {"status": "pending"})
     requested: list[str] = []
     monkeypatch.setattr(operations_module, "remove_task_records_if_status", lambda *args: [])
-    monkeypatch.setattr(operations_module, "has_active_task", lambda value: value == task_id)
-    monkeypatch.setattr(operations_module, "request_cancel", requested.append)
+    monkeypatch.setattr(operations_module, "request_cancel", lambda value, **options: not requested.append(value))
 
     operations_module.delete_downloads([task_id])
 
@@ -148,6 +146,16 @@ def test_request_cancel_ignores_a_task_no_worker_owns():
     assert not processes_module.cancel_pending(task_id)
     with processes_module.task_execution(task_id):
         processes_module.raise_if_cancelled(task_id)
+
+
+def test_a_cancel_before_a_claimed_task_starts_stops_it_at_entry():
+    task_id = "ytdlp:claimed"
+
+    assert not processes_module.request_cancel(task_id, before_start=True)
+
+    with pytest.raises(processes_module.TaskCancelled), processes_module.task_execution(task_id):
+        pass
+    assert not processes_module.cancel_pending(task_id)
 
 
 def test_worker_releases_its_pool_slot_when_the_reservation_is_cancelled(monkeypatch):
@@ -267,10 +275,13 @@ def test_run_task_cancellation_during_post_processing_removes_task_and_workspace
         processes_module.raise_if_cancelled(task_id)
 
     monkeypatch.setattr(execution_module, "apply_finalized_post_processing", cancel_in_post_processing)
+    removed: list[list[str]] = []
+    monkeypatch.setattr(execution_module, "remove_media", removed.append)
 
     execution_module.run_task(task_id, task, mark_running=False)
 
     assert task_id not in store
+    assert removed == [[str(output)]]
     assert workspaces and not workspaces[0].exists()
     assert list(scratch_root.iterdir()) == []
     assert not (tmp_path / ".nvs-staging").exists()
