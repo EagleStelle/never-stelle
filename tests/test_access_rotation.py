@@ -15,6 +15,7 @@ _SCRIPT_CHALLENGE = (
     "[example][info] Solving JavaScript challenge\n"
     "[example][error] https://example.test/post/1: Failed to extract post (HttpError: '403 Forbidden')"
 )
+_CLOUDFLARE_BLOCK = '<div id="cf-error-details"><h1>Sorry, you have been blocked</h1></div>'
 
 
 _CHROME_140 = (
@@ -122,32 +123,21 @@ def test_the_fingerprint_step_is_skipped_without_an_impersonation_backend(monkey
     assert [(access.impersonate, access.cookies_file) for access in seen] == [("", ""), ("", "/tmp/a.txt")]
 
 
-def test_callers_without_a_fingerprint_go_straight_to_cookies_after_a_wall(monkeypatch):
-    _stub(monkeypatch, jars=["a"])
-    monkeypatch.setattr(access_module, "_impersonation_families", lambda: pytest.fail("no fingerprint lookup"))
-
-    seen = []
-    with closing(access_module.access_rotation("example", fingerprint=False)) as rotation:
-        for access in rotation:
-            seen.append(access)
-            access.report(_CLOUDFLARE)
-
-    assert [(access.impersonate, access.cookies_file) for access in seen] == [("", ""), ("", "/tmp/a.txt")]
-
-
 @pytest.mark.parametrize(
-    ("headers", "banned"),
-    [({"cf-mitigated": "challenge"}, False), ({}, True)],
+    ("headers", "text", "banned"),
+    [({"cf-mitigated": "challenge"}, "", False), ({}, _CLOUDFLARE_BLOCK, False), ({}, "", True)],
 )
-def test_fetch_html_rests_a_jar_on_a_block_but_not_on_a_cloudflare_challenge(monkeypatch, headers, banned):
-    leases = _stub(monkeypatch, jars=["a"])
+def test_fetch_html_rests_a_jar_on_a_block_but_not_on_a_cloudflare_wall(monkeypatch, headers, text, banned):
+    leases = _stub(monkeypatch, jars=["a"], target="")
     monkeypatch.setattr(enrich, "load_cookie_jar", lambda path: {"session": "1"} if path else None)
     requests = []
     monkeypatch.setattr(
         enrich.httpx,
         "get",
-        lambda url, **kwargs: requests.append(kwargs.get("cookies"))
-        or httpx.Response(403, headers=headers, request=httpx.Request("GET", url)),
+        lambda url, **kwargs: (
+            requests.append(kwargs.get("cookies"))
+            or httpx.Response(403, headers=headers, text=text, request=httpx.Request("GET", url))
+        ),
     )
 
     assert enrich.fetch_html("https://example.test/post/1", "example") == ""
@@ -156,7 +146,7 @@ def test_fetch_html_rests_a_jar_on_a_block_but_not_on_a_cloudflare_challenge(mon
 
 
 def test_fetch_html_sends_the_jars_browser_only_with_the_jar(monkeypatch):
-    leases = _stub(monkeypatch, jars=["a"])
+    leases = _stub(monkeypatch, jars=["a"], target="")
     leases[0].user_agent = _CHROME_140
     monkeypatch.setattr(enrich, "load_cookie_jar", lambda path: {"session": "1"} if path else None)
     agents = []
@@ -171,6 +161,28 @@ def test_fetch_html_sends_the_jars_browser_only_with_the_jar(monkeypatch):
     enrich.fetch_html("https://example.test/post/1", "example")
 
     assert agents == ["Mozilla/5.0", _CHROME_140]
+
+
+def test_fetch_html_retries_a_cloudflare_block_as_the_impersonated_browser(monkeypatch):
+    _stub(monkeypatch, has_cookies=False)
+    monkeypatch.setattr(
+        enrich.httpx,
+        "get",
+        lambda url, **kwargs: httpx.Response(403, text=_CLOUDFLARE_BLOCK, request=httpx.Request("GET", url)),
+    )
+    sent = []
+
+    class Browser:
+        @staticmethod
+        def get(url, **kwargs):
+            sent.append(kwargs)
+            return httpx.Response(200, html="<p>page</p>", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(enrich, "impersonation_requests", lambda: Browser)
+
+    assert enrich.fetch_html("https://example.test/post/1", "example") == "<p>page</p>"
+    assert [request["impersonate"] for request in sent] == ["chrome"]
+    assert "User-Agent" not in sent[0]["headers"]
 
 
 def test_a_lazy_cookie_source_is_not_resolved_when_anonymous_works(monkeypatch):

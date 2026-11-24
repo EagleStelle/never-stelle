@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.cookiejar
 import os
 import subprocess
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import closing
@@ -74,6 +75,17 @@ def access_env(access: AccessIdentity) -> dict[str, str] | None:
     return _impersonation_env() if access.impersonate else None
 
 
+def impersonation_requests() -> Any:
+    """curl_cffi's requests API for in-process attempts that impersonate."""
+    path = str(os.environ.get(_IMPERSONATE_PATH_ENV) or "").strip()
+    # Added on first use only, so the server's own yt-dlp skips the backend until a wall needs it.
+    if path and path not in sys.path:
+        sys.path.append(path)
+    from curl_cffi import requests
+
+    return requests
+
+
 def parse_impersonate_targets(output: str) -> tuple[str, ...]:
     """Browser families of yt-dlp's usable targets, preferred last as its listing prints them."""
     families: dict[str, None] = {}
@@ -122,7 +134,6 @@ def cookie_impersonation_target() -> str:
 def access_rotation(
     cookie_source_key: str | Callable[[], str],
     *,
-    fingerprint: bool = True,
     first_cookie_wait: float | None = None,
     walled: bool | None = None,
 ) -> Iterator[AccessIdentity]:
@@ -130,23 +141,23 @@ def access_rotation(
 
     Anonymous first. After a wall, anonymous again behind a browser fingerprint. Then
     each of the source's cookie jars, always connecting as the Chrome it presents, so a
-    session never shows up as a second client. Callers that cannot present a fingerprint
-    pass ``fingerprint=False``. A callable source key is only resolved once cookies are
-    needed. ``first_cookie_wait`` caps the wait for the first jar, the source's policy by
-    default. A known ``walled`` means the public attempts already failed, so the rotation
-    starts at the jars. Call ``report`` with a failed attempt's output before continuing,
-    and close the iterator (``contextlib.closing``) when breaking early.
+    session never shows up as a second client. A callable source key is only resolved
+    once cookies are needed. ``first_cookie_wait`` caps the wait for the first jar, the
+    source's policy by default. A known ``walled`` means the public attempts already
+    failed, so the rotation starts at the jars. Call ``report`` with a failed attempt's
+    output before continuing, and close the iterator (``contextlib.closing``) when
+    breaking early.
     """
     if walled is None:
         anonymous = AccessIdentity()
         yield anonymous
-        if fingerprint and anonymous.walled and (target := impersonation_target()):
+        if anonymous.walled and (target := impersonation_target()):
             yield AccessIdentity(impersonate=target)
     if callable(cookie_source_key):
         cookie_source_key = cookie_source_key()
     if not has_cookies_for_source(cookie_source_key):
         return
-    impersonate = cookie_impersonation_target() if fingerprint else ""
+    impersonate = cookie_impersonation_target()
     with closing(cookie_rotation(cookie_source_key, first_wait=first_cookie_wait)) as rotation:
         for lease in rotation:
             yield AccessIdentity(impersonate=impersonate, lease=lease)

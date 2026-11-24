@@ -7,7 +7,12 @@ from typing import Any
 import httpx
 
 from backend.app.core.sources import normalize_source_key
-from backend.app.domains.access.rotation import access_rotation, load_cookie_jar
+from backend.app.domains.access.rotation import (
+    AccessIdentity,
+    access_rotation,
+    impersonation_requests,
+    load_cookie_jar,
+)
 from backend.app.domains.downloads.naming.render import settings_tokens
 from backend.app.domains.downloads.naming.template_rows import template_row_fields
 from backend.app.domains.formats.analysis import extract_url_part, prepare_url
@@ -29,7 +34,9 @@ from backend.app.domains.settings import (
 # platform-specific: the label vocabulary lives in the user's settings, not code.
 _MULTI_JOIN = ", "
 _FETCH_TIMEOUT_SECONDS = 12.0
-_FETCH_UA = "Mozilla/5.0"
+_FETCH_LANGUAGE = {"Accept-Language": "en-US,en;q=0.9"}
+# Some sites serve a page's data only to a request that asks for HTML.
+_FETCH_HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "text/html,application/xhtml+xml", **_FETCH_LANGUAGE}
 _WS_RE = re.compile(r"\s+")
 
 
@@ -148,28 +155,14 @@ def fetch_html(url: str, cookie_source_key: str = "") -> str:
     url = prepare_url(url)
     if not url.startswith(("http://", "https://")):
         return ""
-    # Some sites serve a page's data only to a request that asks for HTML.
-    headers = {
-        "User-Agent": _FETCH_UA,
-        "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-
-    # httpx has no browser fingerprint, so the rotation is anonymous then each jar.
-    rotation = access_rotation(lambda: cookie_source_key or detect_cookie_source(url), fingerprint=False)
+    rotation = access_rotation(lambda: cookie_source_key or detect_cookie_source(url))
     with closing(rotation):
         for access in rotation:
             jar = load_cookie_jar(access.cookies_file)
             if access.cookies_file and not jar:
                 continue
             try:
-                response = httpx.get(
-                    url,
-                    follow_redirects=True,
-                    timeout=_FETCH_TIMEOUT_SECONDS,
-                    headers={**headers, **access.headers},
-                    cookies=httpx.Cookies(jar) if jar else None,
-                )
+                response = _get(url, access, jar)
             except Exception:
                 continue
             if response.status_code < 400:
@@ -182,10 +175,31 @@ def fetch_html(url: str, cookie_source_key: str = "") -> str:
     return ""
 
 
-def _http_failure(response: httpx.Response) -> str:
+def _get(url: str, access: AccessIdentity, jar: Any) -> Any:
+    if access.impersonate:
+        # The impersonated browser sends its own User-Agent and Accept; a foreign one gets walled again.
+        return impersonation_requests().get(
+            url,
+            impersonate=access.impersonate,
+            allow_redirects=True,
+            timeout=_FETCH_TIMEOUT_SECONDS,
+            headers={**_FETCH_LANGUAGE, **access.headers},
+            cookies=jar,
+        )
+    return httpx.get(
+        url,
+        follow_redirects=True,
+        timeout=_FETCH_TIMEOUT_SECONDS,
+        headers={**_FETCH_HEADERS, **access.headers},
+        cookies=httpx.Cookies(jar) if jar else None,
+    )
+
+
+def _http_failure(response: Any) -> str:
     """A failed response in the engines' wording, so jars rest by the same rules."""
-    challenge = response.headers.get("cf-mitigated", "").lower() == "challenge"
-    return f"HTTP Error {response.status_code}" + (" Cloudflare challenge" if challenge else "")
+    # Cloudflare's own error page (a firewall block) walls every client alike, as its challenge does.
+    walled = response.headers.get("cf-mitigated", "").lower() == "challenge" or "cf-error-details" in response.text
+    return f"HTTP Error {response.status_code}" + (" Cloudflare challenge" if walled else "")
 
 
 def _scraper_role(value: Any) -> str:
